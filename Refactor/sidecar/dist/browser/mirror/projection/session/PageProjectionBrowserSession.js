@@ -25,6 +25,8 @@ const scriptInjectMutator_1 = require("./csp/scriptInjectMutator");
 const pageProjectionInputDispatch_1 = require("../input/pageProjectionInputDispatch");
 const EditableFocus_1 = require("../../../patchright/EditableFocus");
 const Navigation_1 = require("../../../patchright/Navigation");
+const device_emulation_1 = require("../../../patchright/device-emulation");
+const viewport_bounds_1 = require("../../../patchright/viewport-bounds");
 function chromeArgs() {
     return [
         '--disable-background-timer-throttling',
@@ -40,6 +42,9 @@ class PageProjectionBrowserSession {
     open = false;
     width = 1280;
     height = 720;
+    viewportPolicy = null;
+    device = (0, device_emulation_1.resolveDeviceProfile)(null);
+    resizing = false;
     url = 'about:blank';
     launchOpts = null;
     browser = null;
@@ -96,6 +101,8 @@ class PageProjectionBrowserSession {
         this.launchOpts = options;
         this.width = options.width;
         this.height = options.height;
+        this.viewportPolicy = options.viewportPolicy;
+        this.device = (0, device_emulation_1.resolveDeviceProfile)(options.device);
         this.cpuAllowed = options.cpuProfiling === true;
         this.dataPlaneMode = options.projectionDataPlane === 'loopback' ? 'loopback' : 'cdp';
         if (options.mirrorMode !== 'pageProjection') {
@@ -161,7 +168,7 @@ class PageProjectionBrowserSession {
             isOpen: this.open,
             tabCount: this.open ? 1 : 0,
             url: this.url,
-            resizing: false,
+            resizing: this.resizing,
             width: this.width,
             height: this.height,
             displayWidth: 0,
@@ -278,10 +285,121 @@ class PageProjectionBrowserSession {
         this.events.onLocationChanged(this.url);
     }
     async resize(request) {
-        this.width = request.width;
-        this.height = request.height;
-        await this.page?.setViewportSize({ width: this.width, height: this.height });
-        return { ok: true, width: this.width, height: this.height, chromeWidth: this.width, chromeHeight: this.height };
+        if (!this.open || !this.viewportPolicy) {
+            return {
+                ok: false,
+                width: this.width,
+                height: this.height,
+                errorCode: 'session_not_open',
+                phase: 'validate',
+                message: 'session not open',
+            };
+        }
+        const validated = (0, viewport_bounds_1.validateResizeViewport)(request.width, request.height, this.viewportPolicy);
+        if (!validated.ok) {
+            return {
+                ok: false,
+                width: this.width,
+                height: this.height,
+                errorCode: validated.errorCode,
+                phase: 'validate',
+                message: validated.message,
+            };
+        }
+        const nextW = validated.width;
+        const nextH = validated.height;
+        const nextDevice = (0, device_emulation_1.resolveDeviceProfile)(request.device ?? this.device);
+        if (nextW === this.width
+            && nextH === this.height
+            && (0, device_emulation_1.deviceProfilesEqual)(this.device, nextDevice)
+            && !this.resizing) {
+            return {
+                ok: true,
+                width: nextW,
+                height: nextH,
+                chromeWidth: nextW,
+                chromeHeight: nextH,
+            };
+        }
+        if (this.resizing) {
+            return {
+                ok: false,
+                width: this.width,
+                height: this.height,
+                errorCode: 'resize_busy',
+                phase: 'validate',
+                message: 'another resize is in progress',
+            };
+        }
+        this.resizing = true;
+        const previous = { width: this.width, height: this.height, device: this.device };
+        try {
+            // No page yet (launch before first navigate) — store only; prove on first page.
+            if (!this.page || !this.context) {
+                this.width = nextW;
+                this.height = nextH;
+                this.device = nextDevice;
+                return {
+                    ok: true,
+                    width: nextW,
+                    height: nextH,
+                    chromeWidth: nextW,
+                    chromeHeight: nextH,
+                };
+            }
+            await this.page.setViewportSize({ width: nextW, height: nextH });
+            const cdp = await this.ensureCdp();
+            try {
+                const proven = await (0, device_emulation_1.proveLogicalViewport)(cdp, nextW, nextH, nextDevice, {
+                    phase: 'resize_apply',
+                    context: this.context,
+                });
+                this.width = proven.width;
+                this.height = proven.height;
+                this.device = proven.device;
+            }
+            catch (err) {
+                // Soft accept after setViewportSize when prove fails on live pages without
+                // viewport-meta (same trap as launch). Hard-fail only for other errors.
+                if (err.errorCode !== 'viewport_unproven') {
+                    throw err;
+                }
+                this.width = nextW;
+                this.height = nextH;
+                this.device = nextDevice;
+            }
+            return {
+                ok: true,
+                width: this.width,
+                height: this.height,
+                chromeWidth: this.width,
+                chromeHeight: this.height,
+            };
+        }
+        catch (err) {
+            this.width = previous.width;
+            this.height = previous.height;
+            this.device = previous.device;
+            try {
+                await this.page?.setViewportSize({ width: previous.width, height: previous.height });
+            }
+            catch {
+                /* best-effort rollback */
+            }
+            const code = err.errorCode ?? 'resize_failed';
+            const phase = err.phase ?? 'resize_apply';
+            return {
+                ok: false,
+                width: this.width,
+                height: this.height,
+                errorCode: code,
+                phase,
+                message: err instanceof Error ? err.message : String(err),
+            };
+        }
+        finally {
+            this.resizing = false;
+        }
     }
     async probe(request) {
         const data = {};
@@ -327,6 +445,9 @@ class PageProjectionBrowserSession {
             });
         }
         return this.inputDispatch.dispatchIngress(input);
+    }
+    getInputPipelineMetrics() {
+        return this.inputDispatch?.getPipelineMetrics() ?? null;
     }
     async resolveAndClickDomInput(selector, contextId = 1) {
         if (!this.inputDispatch) {
@@ -504,6 +625,16 @@ class PageProjectionBrowserSession {
         const p = await context.newPage();
         p.on('console', (msg) => this.events.onConsole(consoleLevel(msg.type()), msg.text()));
         p.on('pageerror', (err) => this.events.onConsole(3, err.message));
+        p.on('crash', () => {
+            if (!this.open)
+                return;
+            this.open = false;
+            this.events.onCrash({
+                errorCode: 'page_crash',
+                phase: 'runtime',
+                message: 'chromium page crashed',
+            });
+        });
         p.on('framenavigated', (frame) => {
             try {
                 if (frame !== p.mainFrame())
@@ -544,6 +675,23 @@ class PageProjectionBrowserSession {
             mutators: [documentResponseHook_1.cspDocumentMutator, (0, scriptInjectMutator_1.createScriptInjectMutator)(launchScripts)],
             storedScripts,
         });
+        // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).
+        try {
+            await (0, device_emulation_1.proveLogicalViewport)(this.cdpSession, this.width, this.height, this.device, {
+                phase: 'launch_apply',
+                context,
+            });
+        }
+        catch (err) {
+            // Soft: context viewport already set; prove can fail on about:blank before meta.
+            // Resize path re-proves with full error surface.
+            if (err.errorCode === 'viewport_unproven') {
+                /* continue — first paint pages install meta */
+            }
+            else {
+                throw err;
+            }
+        }
         return p;
     }
     requirePage() {

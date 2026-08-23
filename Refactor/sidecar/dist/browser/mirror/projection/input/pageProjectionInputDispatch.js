@@ -1,6 +1,7 @@
 "use strict";
 /**
- * PageProjection input dispatch — serial CDP chain via legacy DomElementInput.
+ * PageProjection input dispatch — serial CDP chain via DomElementInput.
+ * No generation sync with the frame plane: resolve nodeId when required → CDP.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PageProjectionInputDispatch = void 0;
@@ -11,27 +12,28 @@ const resolveVirtualNode_1 = require("./resolveVirtualNode");
 class PageProjectionInputDispatch {
     page;
     domInput;
-    host;
-    cachedGeneration = 0;
+    ingressReceived = 0;
+    ingressDropped = 0;
+    ingressDropsByReason = {};
     constructor(page) {
         this.page = page;
         const resolver = (0, resolveVirtualNode_1.createVirtualTargetResolver)(page);
-        this.host = {
-            getGeneration: () => this.cachedGeneration,
-            takeUpload: () => undefined,
-        };
-        this.domInput = new DomElementInput_1.DomElementInput(page, this.host, {
+        this.domInput = new DomElementInput_1.DomElementInput(page, { takeUpload: () => undefined }, {
             resolveTarget: (targetId, contextId) => resolver.resolve(targetId, contextId ?? frame_1.CONTEXT_ID_ROOT),
         });
     }
-    async refreshGeneration(contextId = frame_1.CONTEXT_ID_ROOT) {
-        this.cachedGeneration = await (0, resolveVirtualNode_1.readVirtualGeneration)(this.page, contextId);
-        return this.cachedGeneration;
+    getPipelineMetrics() {
+        return {
+            ingressReceived: this.ingressReceived,
+            ingressDropped: this.ingressDropped,
+            ingressDropsByReason: { ...this.ingressDropsByReason },
+            inject: this.domInput.getMetrics(),
+        };
     }
     async dispatchIntent(intent) {
-        await this.refreshGeneration(intent.contextId);
-        let payloadJson = intent.payload;
+        this.ingressReceived += 1;
         const type = intent.type.trim().toLowerCase();
+        let payloadJson = intent.payload;
         const needsPageCoords = intent.contextId !== frame_1.CONTEXT_ID_ROOT
             && (type === 'mousemove'
                 || type === 'mousedown'
@@ -42,8 +44,10 @@ class PageProjectionInputDispatch {
                 || type === 'wheel');
         if (needsPageCoords) {
             const mapped = await this.mapNestedPayloadToPage(intent.contextId, payloadJson);
-            if (mapped == null)
+            if (mapped == null) {
+                this.noteIngressDrop('frame_box_missing');
                 return { status: 'dropped', reason: 'frame_box_missing' };
+            }
             payloadJson = mapped;
         }
         return this.domInput.dispatch({
@@ -54,6 +58,10 @@ class PageProjectionInputDispatch {
             timestampClient: intent.timestampClient,
             payloadJson,
         });
+    }
+    noteIngressDrop(reason) {
+        this.ingressDropped += 1;
+        this.ingressDropsByReason[reason] = (this.ingressDropsByReason[reason] ?? 0) + 1;
     }
     async dispatchIngress(input) {
         const intent = (0, intentTypes_1.normalizeDomInput)(input);
@@ -127,7 +135,7 @@ class PageProjectionInputDispatch {
     }
     async resolveAndClick(selector, contextId = frame_1.CONTEXT_ID_ROOT) {
         const info = await this.resolveInContext(selector, contextId, 'click');
-        if (!info.ok || !info.id || info.generation == null || info.x == null || info.y == null) {
+        if (!info.ok || !info.id || info.x == null || info.y == null) {
             return { status: 'dropped', reason: info.reason ?? 'resolve_failed' };
         }
         const payloadJson = JSON.stringify({
@@ -138,7 +146,7 @@ class PageProjectionInputDispatch {
             modifiers: {},
         });
         const base = {
-            generation: info.generation,
+            generation: info.generation ?? 0,
             targetId: info.id,
             contextId,
             payloadJson,
@@ -154,39 +162,38 @@ class PageProjectionInputDispatch {
     }
     async resolveAndType(selector, value, contextId = frame_1.CONTEXT_ID_ROOT) {
         const info = await this.resolveInContext(selector, contextId, 'id');
-        if (!info.ok || !info.id || info.generation == null) {
+        if (!info.ok || !info.id) {
             return { status: 'dropped', reason: info.reason ?? 'resolve_failed' };
         }
         return this.dispatchIngress({
             type: 'input',
             targetId: info.id,
             contextId,
-            generation: info.generation,
+            generation: info.generation ?? 0,
             payloadJson: JSON.stringify({ value }),
             timestampClient: Date.now(),
         });
     }
     async resolveAndScrollElement(selector, scrollTop, contextId = frame_1.CONTEXT_ID_ROOT) {
         const info = await this.resolveInContext(selector, contextId, 'id');
-        if (!info.ok || !info.id || info.generation == null) {
+        if (!info.ok || !info.id) {
             return { status: 'dropped', reason: info.reason ?? 'resolve_failed' };
         }
         return this.dispatchIngress({
             type: 'scrollElement',
             targetId: info.id,
             contextId,
-            generation: info.generation,
+            generation: info.generation ?? 0,
             payloadJson: JSON.stringify({ scrollTop, scrollLeft: 0 }),
             timestampClient: Date.now(),
         });
     }
     async resolveAndScrollViewport(scrollY, scrollX = 0, contextId = frame_1.CONTEXT_ID_ROOT) {
-        await this.refreshGeneration(contextId);
         return this.dispatchIngress({
             type: 'scrollViewport',
             targetId: null,
             contextId,
-            generation: this.cachedGeneration,
+            generation: 0,
             payloadJson: JSON.stringify({ scrollX, scrollY }),
             timestampClient: Date.now(),
         });

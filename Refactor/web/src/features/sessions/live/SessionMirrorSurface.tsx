@@ -4,6 +4,7 @@ import {
   createProjectionClient,
 } from '@speculum/page-projection/projected/ProjectionClient'
 import { attachProjectedInputCapture } from '@speculum/page-projection/projected/input/projectedInputCapture'
+import { ScrollEchoGate } from '@speculum/page-projection/projected/input/scrollEchoGate'
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame'
 import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes'
 import type { PageProjectionFrame, PageProjectionIntent, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
@@ -16,10 +17,14 @@ import {
   FALLBACK_PAGE_PROJECTION_CLIENT_KNOBS,
   type PageProjectionClientKnobs,
 } from '@/lib/clientConfig'
+import {
+  ViewportSync,
+  measureHostElement,
+  type ViewportSize,
+} from '@speculum/page-projection/projected'
+import type { SessionDeviceProfile } from '@/lib/speculum'
 import type { CanvasSize } from './CanvasViewportSync'
 import { SessionViewport, type SessionViewportProps } from './SessionViewport'
-import { useMeasureHostSync } from './useMeasureHostSync'
-import { measureCanvasElement } from './CanvasViewportSync'
 import type { SessionViewportBounds } from './sessionViewportPolicy'
 import type {
   PageProjectionApplierProbe,
@@ -137,32 +142,71 @@ function PageProjectionV2Surface({
   const [knobs, setKnobs] = useState<PageProjectionClientKnobs>(
     knobsProp ?? FALLBACK_PAGE_PROJECTION_CLIENT_KNOBS,
   )
+  const viewportSyncRef = useRef<ViewportSync | null>(null)
+  const requestRemoteResizeRef = useRef(requestRemoteResize)
+  requestRemoteResizeRef.current = requestRemoteResize
 
-  useMeasureHostSync({
-    hostRef,
-    live,
-    requestRemoteResize,
-    viewportPolicy,
-    seedWidth: width,
-    seedHeight: height,
-    onApplied: (size) => {
-      onRemoteViewportAppliedRef.current?.(size)
-    },
-  })
+  useEffect(() => {
+    const host = hostRef.current
+    const request = requestRemoteResizeRef.current
+    if (!host || !live || !request || !viewportPolicy) {
+      viewportSyncRef.current?.dispose()
+      viewportSyncRef.current = null
+      return
+    }
+
+    const sync = new ViewportSync({
+      measure: () => measureHostElement(host),
+      resize: async (size: ViewportSize, device) => {
+        const result = await request(size, device as SessionDeviceProfile)
+        return {
+          applied: result.applied,
+          width: result.width,
+          height: result.height,
+          message: result.message ?? undefined,
+          errorCode: result.errorCode ?? undefined,
+        }
+      },
+      viewportPolicy,
+      onApplied: (size) => {
+        clientRef.current?.setCssSize(size.width, size.height)
+        viewportRef.current = size
+        onRemoteViewportAppliedRef.current?.(size)
+      },
+    })
+    // Apply local stage to seed immediately (ViewportSync.seedRemote also notifies onApplied).
+    clientRef.current?.setCssSize(width, height)
+    viewportRef.current = { width, height }
+    sync.seedRemote(width, height)
+    sync.observe(host)
+    viewportSyncRef.current = sync
+
+    return () => {
+      sync.dispose()
+      if (viewportSyncRef.current === sync) {
+        viewportSyncRef.current = null
+      }
+    }
+    // seed width/height bind once; remote ack updates via prop effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [live, viewportPolicy])
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     const reportLayout = () => {
-      const measureHost =
-        (host.querySelector('[data-pp-surface-host]') as HTMLElement | null) ?? host
-      onCanvasLayoutRef.current?.(measureCanvasElement(measureHost))
+      onCanvasLayoutRef.current?.(measureHostElement(host))
     }
     reportLayout()
     const observer = new ResizeObserver(reportLayout)
     observer.observe(host)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    clientRef.current?.setCssSize(width, height)
+    viewportRef.current = { width, height }
+  }, [width, height])
 
   useEffect(() => {
     if (knobsProp) {
@@ -257,6 +301,8 @@ function PageProjectionV2Surface({
     inputDetachRef.current = null
     const root = client.document.documentElement
     if (!root) return
+    // expect() before programmatic Projected scroll apply when that path exists.
+    const scrollEcho = new ScrollEchoGate()
     const detachRoot = attachProjectedInputCapture(
       root,
       client.getLiveRegistry(),
@@ -267,6 +313,7 @@ function PageProjectionV2Surface({
         getViewportSize: () => viewportRef.current,
         isArmed: () => client.isArmed,
         onMarkPropDirty: (id) => client.markPropDirty(id),
+        consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
         getSessionId: () => sessionRef.current.sessionId,
         getToken: () => sessionRef.current.token,
         getAssetBaseUrl: () =>
@@ -286,6 +333,7 @@ function PageProjectionV2Surface({
             getViewportSize: () => viewportRef.current,
             isArmed: info.isArmed,
             onMarkPropDirty: info.markPropDirty,
+            consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
             getSessionId: () => sessionRef.current.sessionId,
             getToken: () => sessionRef.current.token,
             getAssetBaseUrl: () =>
@@ -331,6 +379,9 @@ function PageProjectionV2Surface({
       },
     })
     clientRef.current = client
+    if (width > 0 && height > 0) {
+      client.setCssSize(width, height)
+    }
     return () => {
       inputDetachRef.current?.()
       inputDetachRef.current = null

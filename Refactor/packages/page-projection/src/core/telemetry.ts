@@ -44,7 +44,11 @@ export const DEFAULT_TELEMETRY_CONFIG: ProjectionTelemetryConfig = {
   aggregateIntervalMs: 10_000,
 };
 
-/** Lab inject / UI default — everything on. */
+/**
+ * Lab inject / UI default.
+ * `cssomPoll` stays off — at ~5 Hz it floods telemetry disk and steals Virtual time on live sites.
+ * Turn on explicitly when investigating CSSOM poll cost.
+ */
 export const LAB_TELEMETRY_DEFAULTS: ProjectionTelemetryConfig = {
   enabled: true,
   frameEmitted: true,
@@ -54,7 +58,7 @@ export const LAB_TELEMETRY_DEFAULTS: ProjectionTelemetryConfig = {
   desync: true,
   applyOverrun: true,
   clock: true,
-  cssomPoll: true,
+  cssomPoll: false,
   aggregateIntervalMs: 2_000,
 };
 

@@ -10,6 +10,7 @@
 
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'patchright';
 import {
+  type BrowserDeviceProfile,
   type BrowserEvalResult,
   type BrowserInput,
   type BrowserLaunchOptions,
@@ -46,9 +47,15 @@ import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 import { CdpBindingDataPlaneHost } from './cdpBindingDataPlaneHost';
 import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
 import { createScriptInjectMutator } from './csp/scriptInjectMutator';
-import { PageProjectionInputDispatch } from '../input/pageProjectionInputDispatch';
+import { PageProjectionInputDispatch, type PageProjectionInputPipelineMetrics } from '../input/pageProjectionInputDispatch';
 import { EditableFocus } from '../../../patchright/EditableFocus';
 import { matchesAllowedDomain } from '../../../patchright/Navigation';
+import {
+  deviceProfilesEqual,
+  proveLogicalViewport,
+  resolveDeviceProfile,
+} from '../../../patchright/device-emulation';
+import { validateResizeViewport, type ViewportPolicyBounds } from '../../../patchright/viewport-bounds';
 import type { DomInputIngress } from '@speculum/page-projection/core/input/intentTypes';
 import type {
   StateSnapshotOpts,
@@ -94,6 +101,9 @@ export class PageProjectionBrowserSession {
   private open = false;
   private width = 1280;
   private height = 720;
+  private viewportPolicy: ViewportPolicyBounds | null = null;
+  private device: BrowserDeviceProfile = resolveDeviceProfile(null);
+  private resizing = false;
   private url = 'about:blank';
   private launchOpts: BrowserLaunchOptions | null = null;
   private browser: Browser | null = null;
@@ -152,6 +162,8 @@ export class PageProjectionBrowserSession {
     this.launchOpts = options;
     this.width = options.width;
     this.height = options.height;
+    this.viewportPolicy = options.viewportPolicy;
+    this.device = resolveDeviceProfile(options.device);
     this.cpuAllowed = options.cpuProfiling === true;
     this.dataPlaneMode = options.projectionDataPlane === 'loopback' ? 'loopback' : 'cdp';
     if (options.mirrorMode !== 'pageProjection') {
@@ -218,7 +230,7 @@ export class PageProjectionBrowserSession {
       isOpen: this.open,
       tabCount: this.open ? 1 : 0,
       url: this.url,
-      resizing: false,
+      resizing: this.resizing,
       width: this.width,
       height: this.height,
       displayWidth: 0,
@@ -336,10 +348,129 @@ export class PageProjectionBrowserSession {
   }
 
   async resize(request: BrowserResizeRequest): Promise<BrowserResizeResult> {
-    this.width = request.width;
-    this.height = request.height;
-    await this.page?.setViewportSize({ width: this.width, height: this.height });
-    return { ok: true, width: this.width, height: this.height, chromeWidth: this.width, chromeHeight: this.height };
+    if (!this.open || !this.viewportPolicy) {
+      return {
+        ok: false,
+        width: this.width,
+        height: this.height,
+        errorCode: 'session_not_open',
+        phase: 'validate',
+        message: 'session not open',
+      };
+    }
+
+    const validated = validateResizeViewport(
+      request.width,
+      request.height,
+      this.viewportPolicy,
+    );
+    if (!validated.ok) {
+      return {
+        ok: false,
+        width: this.width,
+        height: this.height,
+        errorCode: validated.errorCode,
+        phase: 'validate',
+        message: validated.message,
+      };
+    }
+
+    const nextW = validated.width;
+    const nextH = validated.height;
+    const nextDevice = resolveDeviceProfile(request.device ?? this.device);
+
+    if (
+      nextW === this.width
+      && nextH === this.height
+      && deviceProfilesEqual(this.device, nextDevice)
+      && !this.resizing
+    ) {
+      return {
+        ok: true,
+        width: nextW,
+        height: nextH,
+        chromeWidth: nextW,
+        chromeHeight: nextH,
+      };
+    }
+
+    if (this.resizing) {
+      return {
+        ok: false,
+        width: this.width,
+        height: this.height,
+        errorCode: 'resize_busy',
+        phase: 'validate',
+        message: 'another resize is in progress',
+      };
+    }
+
+    this.resizing = true;
+    const previous = { width: this.width, height: this.height, device: this.device };
+    try {
+      // No page yet (launch before first navigate) — store only; prove on first page.
+      if (!this.page || !this.context) {
+        this.width = nextW;
+        this.height = nextH;
+        this.device = nextDevice;
+        return {
+          ok: true,
+          width: nextW,
+          height: nextH,
+          chromeWidth: nextW,
+          chromeHeight: nextH,
+        };
+      }
+
+      await this.page.setViewportSize({ width: nextW, height: nextH });
+      const cdp = await this.ensureCdp();
+      try {
+        const proven = await proveLogicalViewport(cdp, nextW, nextH, nextDevice, {
+          phase: 'resize_apply',
+          context: this.context,
+        });
+        this.width = proven.width;
+        this.height = proven.height;
+        this.device = proven.device;
+      } catch (err) {
+        // Soft accept after setViewportSize when prove fails on live pages without
+        // viewport-meta (same trap as launch). Hard-fail only for other errors.
+        if ((err as { errorCode?: string }).errorCode !== 'viewport_unproven') {
+          throw err;
+        }
+        this.width = nextW;
+        this.height = nextH;
+        this.device = nextDevice;
+      }
+      return {
+        ok: true,
+        width: this.width,
+        height: this.height,
+        chromeWidth: this.width,
+        chromeHeight: this.height,
+      };
+    } catch (err) {
+      this.width = previous.width;
+      this.height = previous.height;
+      this.device = previous.device;
+      try {
+        await this.page?.setViewportSize({ width: previous.width, height: previous.height });
+      } catch {
+        /* best-effort rollback */
+      }
+      const code = (err as { errorCode?: string }).errorCode ?? 'resize_failed';
+      const phase = (err as { phase?: string }).phase ?? 'resize_apply';
+      return {
+        ok: false,
+        width: this.width,
+        height: this.height,
+        errorCode: code,
+        phase,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      this.resizing = false;
+    }
   }
 
   async probe(request: BrowserProbeRequest): Promise<BrowserProbeResult> {
@@ -391,6 +522,9 @@ export class PageProjectionBrowserSession {
     return this.inputDispatch.dispatchIngress(input);
   }
 
+  getInputPipelineMetrics(): PageProjectionInputPipelineMetrics | null {
+    return this.inputDispatch?.getPipelineMetrics() ?? null;
+  }
 
   async resolveAndClickDomInput(
     selector: string,
@@ -653,6 +787,15 @@ export class PageProjectionBrowserSession {
     const p = await context.newPage();
     p.on('console', (msg) => this.events.onConsole(consoleLevel(msg.type()), msg.text()));
     p.on('pageerror', (err) => this.events.onConsole(3, err.message));
+    p.on('crash', () => {
+      if (!this.open) return;
+      this.open = false;
+      this.events.onCrash({
+        errorCode: 'page_crash',
+        phase: 'runtime',
+        message: 'chromium page crashed',
+      });
+    });
     p.on('framenavigated', (frame) => {
       try {
         if (frame !== p.mainFrame()) return;
@@ -690,6 +833,21 @@ export class PageProjectionBrowserSession {
       mutators: [cspDocumentMutator, createScriptInjectMutator(launchScripts)],
       storedScripts,
     });
+    // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).
+    try {
+      await proveLogicalViewport(this.cdpSession, this.width, this.height, this.device, {
+        phase: 'launch_apply',
+        context,
+      });
+    } catch (err) {
+      // Soft: context viewport already set; prove can fail on about:blank before meta.
+      // Resize path re-proves with full error surface.
+      if ((err as { errorCode?: string }).errorCode === 'viewport_unproven') {
+        /* continue — first paint pages install meta */
+      } else {
+        throw err;
+      }
+    }
     return p;
   }
 

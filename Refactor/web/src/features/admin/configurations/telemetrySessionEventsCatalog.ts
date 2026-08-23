@@ -285,7 +285,7 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
       {
         type: 'Telemetry.Sessions.PageProjection.Input.CdpDropped',
         label: 'Hop · CDP dropped',
-        help: 'Sidecar dropped the intent (generation_stale, ignored_wire_click, anchor_missing, invalid_coords, cdp_error, …).',
+        help: 'Sidecar dropped the intent (node_id_required, ignored_wire_click, anchor_missing, invalid_coords, cdp_error, …).',
         hotPath: true,
       },
     ],

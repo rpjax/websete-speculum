@@ -202,17 +202,28 @@
 
       main {
         display: grid;
-        grid-template-columns: 1fr min(400px, 38vw);
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
         min-height: 0;
+        overflow: hidden;
       }
-      @media (max-width: 960px) {
-        main { grid-template-columns: 1fr; }
-        aside { max-height: none; border-left: 0; border-top: 1px solid var(--line); }
+      /* Keep aside as a vertical rail; only stack on very narrow viewports. */
+      @media (max-width: 720px) {
+        main {
+          grid-template-columns: 1fr;
+          grid-template-rows: minmax(42vh, 1fr) minmax(240px, 48vh);
+        }
+        aside {
+          max-height: none;
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+        .surface-wrap { min-height: 0; }
       }
       .surface-wrap {
         position: relative;
         background: var(--surface);
-        min-height: 480px;
+        min-height: 0;
+        min-width: 0;
         overflow: auto;
       }
       .surface-empty {
@@ -241,7 +252,69 @@
         padding-left: 1.15rem;
         line-height: 1.55;
       }
-      #surfaceHost { min-height: 480px; width: 100%; }
+      #surfaceHost { min-height: 100%; width: 100%; height: 100%; }
+      .surface-wrap.is-crashed #surfaceHost {
+        pointer-events: none;
+        user-select: none;
+        filter: grayscale(0.35) brightness(0.72);
+      }
+      .surface-crash {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: rgba(10, 10, 10, 0.55);
+        backdrop-filter: blur(2px);
+        pointer-events: auto;
+        cursor: not-allowed;
+      }
+      .surface-wrap.is-crashed .surface-crash { display: flex; }
+      .surface-crash-card {
+        max-width: 26rem;
+        width: 100%;
+        padding: 1.15rem 1.25rem 1.2rem;
+        border-radius: 10px;
+        border: 1px solid #f0c4c0;
+        background: #fff8f7;
+        color: var(--ink);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+        pointer-events: auto;
+        cursor: default;
+        text-align: left;
+      }
+      .surface-crash-card .crash-kicker {
+        font-size: 11px;
+        font-weight: 650;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--danger);
+        margin: 0 0 0.35rem;
+      }
+      .surface-crash-card strong {
+        display: block;
+        font-size: 1.05rem;
+        font-weight: 650;
+        margin: 0 0 0.45rem;
+        letter-spacing: -0.02em;
+      }
+      .surface-crash-card .crash-detail {
+        margin: 0;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 11.5px;
+        line-height: 1.4;
+        color: var(--muted);
+        word-break: break-word;
+        white-space: pre-wrap;
+      }
+      .surface-crash-card .crash-hint {
+        margin: 0.7rem 0 0;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
 
       aside {
         border-left: 1px solid var(--line);
@@ -249,111 +322,178 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
+        min-width: 0;
         height: 100%;
         max-height: calc(100vh - var(--hdr-h, 9rem));
+        overflow: hidden;
       }
       .tabs {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 0;
         border-bottom: 1px solid var(--line);
         flex-shrink: 0;
+        background: #f4f4ef;
       }
       .tabs button {
-        flex: 1;
         border: 0;
         border-radius: 0;
         border-bottom: 2px solid transparent;
         background: transparent;
-        padding: 0.55rem 0.3rem;
+        padding: 0.65rem 0.35rem;
         color: var(--muted);
+        font-size: 12px;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tabs button:hover:not(.active) {
+        color: var(--ink);
+        background: #fafaf7;
       }
       .tabs button.active {
         color: var(--ink);
         border-bottom-color: var(--accent);
-        font-weight: 600;
+        font-weight: 650;
+        background: var(--panel);
       }
       .panel {
         flex: 1;
-        overflow: auto;
-        padding: 0.85rem 1rem 1.1rem;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding: 0.9rem 0.9rem 1.15rem;
         min-height: 0;
       }
       .metric-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 0.45rem;
+        grid-template-columns: repeat(auto-fill, minmax(7.25rem, 1fr));
+        gap: 0.4rem;
       }
       .metric {
         border: 1px solid var(--line);
-        border-radius: 6px;
-        padding: 0.5rem 0.6rem;
+        border-radius: 8px;
+        padding: 0.45rem 0.55rem;
         background: #fafaf7;
+        min-width: 0;
       }
       .metric .label {
-        font-size: 10.5px;
+        font-size: 10px;
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.04em;
+        font-weight: 600;
       }
       .metric .value {
         font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
-        font-size: 1.02rem;
-        margin-top: 0.12rem;
+        font-size: 0.98rem;
+        margin-top: 0.1rem;
+        font-variant-numeric: tabular-nums;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .stream-context-wrap {
-        margin-top: 0.85rem;
+        margin-top: 1rem;
       }
-      .stream-context-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
-        font-size: 10px;
+      .stream-context-wrap > .panel-title {
+        margin-bottom: 0.5rem;
       }
-      .stream-context-table th,
-      .stream-context-table td {
+      #streamContextList {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+      }
+      .ctx-card {
         border: 1px solid var(--line);
-        padding: 0.28rem 0.35rem;
-        text-align: right;
+        border-radius: 8px;
+        background: #fafaf7;
+        padding: 0.55rem 0.65rem 0.6rem;
+        min-width: 0;
       }
-      .stream-context-table th:first-child,
-      .stream-context-table td:first-child {
-        text-align: left;
+      .ctx-card.stream-root {
+        background: #f5f8ff;
+        border-color: #c9d6ff;
       }
-      .stream-context-table th {
+      .ctx-card-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+      }
+      .ctx-id {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-weight: 650;
+        font-size: 12px;
+      }
+      .ctx-seq {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 10.5px;
+        color: var(--muted);
+      }
+      .ctx-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+        gap: 0.3rem 0.4rem;
+      }
+      .ctx-stat {
+        min-width: 0;
+      }
+      .ctx-stat .k {
+        display: block;
         font-size: 9px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
         color: var(--muted);
-        background: #fafaf7;
         font-weight: 600;
       }
-      .stream-context-table tr.stream-root td {
-        background: #f5f8ff;
+      .ctx-stat .v {
+        display: block;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
-      .stream-context-table .stream-empty {
+      .stream-empty {
         text-align: center;
         color: var(--muted);
         font-style: italic;
+        font-size: 12px;
+        padding: 0.85rem 0.5rem;
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        background: #f7f7f2;
       }
-      #activity {
+      #activity, #consoleLog {
         font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
         font-size: 11px;
         margin-top: 0.5rem;
       }
-      #activity div {
+      #activity div, #consoleLog div {
         padding: 0.22rem 0;
         border-bottom: 1px solid #f0f0ea;
         word-break: break-word;
       }
+      #consoleLog .lvl-1 { color: var(--ink); }
+      #consoleLog .lvl-2 { color: var(--warn); }
+      #consoleLog .lvl-3, #consoleLog .lvl-err { color: var(--danger); }
       .cfg-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
         gap: 0.5rem;
-        margin: 0.32rem 0;
+        margin: 0.28rem 0;
+        min-width: 0;
       }
-      .cfg-row label { flex: 1; }
+      .cfg-row label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .cfg-row input[type="number"] {
         width: 5.5rem;
+        max-width: 100%;
         padding: 0.25rem 0.4rem;
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -370,6 +510,20 @@
         color: var(--muted);
         margin: 0 0 0.85rem;
         line-height: 1.4;
+      }
+      .debug-pre {
+        margin: 0 0 0.75rem;
+        padding: 0.5rem 0.6rem;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.35;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #f6f7f9;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        max-height: 9rem;
+        overflow: auto;
       }
       .verdict-list {
         display: flex;
@@ -396,12 +550,13 @@
       }
       .tl-row {
         display: grid;
-        grid-template-columns: 5.5rem 1fr auto;
-        gap: 0.4rem;
-        padding: 0.28rem 0.4rem;
+        grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr) auto;
+        gap: 0.35rem 0.45rem;
+        padding: 0.35rem 0.45rem;
         border: 1px solid var(--line);
-        border-radius: 5px;
+        border-radius: 6px;
         background: #fafaf7;
+        min-width: 0;
       }
       .tl-row.succeeded { border-color: #b7e0c5; }
       .tl-row.failed { border-color: #f0c4c0; background: #fdf4f3; }
@@ -462,6 +617,8 @@
         <span id="browseControls">
           <button type="button" id="browseStart" disabled>Start Virtual</button>
           <button type="button" id="browseNavigate" disabled title="Navigate live Virtual to the URL field">Navigate</button>
+          <button type="button" id="browseSnap" disabled title="Capture Virtual+Projected state snap">Snapshot</button>
+          <button type="button" id="browseValidate" disabled title="Fold isomorphism over collected browse snaps">Validate snaps</button>
           <button type="button" id="browseStop" disabled>Stop Virtual</button>
         </span>
         <span id="runControls" hidden>
@@ -492,11 +649,21 @@
           </div>
         </div>
         <div id="surfaceHost"></div>
+        <div class="surface-crash" id="surfaceCrash" hidden aria-live="assertive">
+          <div class="surface-crash-card" role="alert">
+            <p class="crash-kicker">Session fault</p>
+            <strong>Virtual crashed</strong>
+            <p class="crash-detail" id="surfaceCrashDetail">—</p>
+            <p class="crash-hint">Projected surface is frozen (no input). Check Debug / the dossier path in Activity. Start Virtual again when ready.</p>
+          </div>
+        </div>
       </div>
       <aside>
         <div class="tabs" role="tablist" aria-label="Investigation">
           <button type="button" data-tab="Stream" class="active" role="tab" aria-selected="true">Stream</button>
+          <button type="button" data-tab="Debug" role="tab" aria-selected="false">Debug</button>
           <button type="button" data-tab="Activity" role="tab" aria-selected="false">Activity</button>
+          <button type="button" data-tab="Console" role="tab" aria-selected="false">Console</button>
           <button type="button" data-tab="Config" role="tab" aria-selected="false">Config</button>
           <button type="button" data-tab="Progress" role="tab" aria-selected="false">Progress</button>
         </div>
@@ -511,35 +678,49 @@
             <div class="metric"><div class="label">Resyncs</div><div class="value" id="streamResync">0</div></div>
             <div class="metric"><div class="label">Ops (last)</div><div class="value" id="streamOps">—</div></div>
             <div class="metric"><div class="label">Apply ms</div><div class="value" id="streamApplyMs">—</div></div>
+            <div class="metric"><div class="label">Snaps</div><div class="value" id="streamSnaps">0</div></div>
           </div>
           <div class="stream-context-wrap">
             <h3 class="panel-title">By context</h3>
-            <table class="stream-context-table" aria-label="Per-context stream metrics">
-              <thead>
-                <tr>
-                  <th scope="col">Ctx</th>
-                  <th scope="col" title="Wire frame parts received">Wire</th>
-                  <th scope="col" title="Virtual frameEmitted">Emit</th>
-                  <th scope="col">Apply+</th>
-                  <th scope="col">Apply−</th>
-                  <th scope="col">Desync</th>
-                  <th scope="col">Resync</th>
-                  <th scope="col">Ovr</th>
-                  <th scope="col">Seq</th>
-                  <th scope="col">Build ms</th>
-                  <th scope="col">Apply ms</th>
-                </tr>
-              </thead>
-              <tbody id="streamContextBody">
-                <tr><td colspan="11" class="stream-empty">No context traffic yet</td></tr>
-              </tbody>
-            </table>
+            <div id="streamContextList" aria-label="Per-context stream metrics">
+              <div class="stream-empty">No context traffic yet</div>
+            </div>
           </div>
+        </div>
+        <div id="panelDebug" class="panel" hidden role="tabpanel">
+          <h2 class="panel-title">Browse debug</h2>
+          <p class="hint">Live probe every 2s while Virtual is up. Stop / crash writes the same fields into the dossier (<code>crash.json</code>, <code>probes/metrics.json</code>, <code>probes/input-pipeline.json</code>, <code>probes/cpu/</code>).</p>
+          <div class="metric-grid">
+            <div class="metric"><div class="label">Wall ms</div><div class="value" id="dbgWall">—</div></div>
+            <div class="metric"><div class="label">Intents</div><div class="value" id="dbgIntents">0</div></div>
+            <div class="metric"><div class="label">Intent drop</div><div class="value" id="dbgIntentDrop">0</div></div>
+            <div class="metric"><div class="label">Inject recv</div><div class="value" id="dbgInjectRecv">0</div></div>
+            <div class="metric"><div class="label">Inject drop</div><div class="value" id="dbgInjectDrop">0</div></div>
+            <div class="metric"><div class="label">Chain peak</div><div class="value" id="dbgChainPeak">0</div></div>
+            <div class="metric"><div class="label">Move collapse</div><div class="value" id="dbgMoveCollapse">0</div></div>
+            <div class="metric"><div class="label">Queue p95</div><div class="value" id="dbgQueueP95">—</div></div>
+            <div class="metric"><div class="label">Inject p95</div><div class="value" id="dbgInjectP95">—</div></div>
+            <div class="metric"><div class="label">Steady FPS</div><div class="value" id="dbgFps">—</div></div>
+            <div class="metric"><div class="label">Desync</div><div class="value" id="dbgDesync">0</div></div>
+            <div class="metric"><div class="label">CPU</div><div class="value" id="dbgCpu">off</div></div>
+          </div>
+          <h3 class="panel-title" style="margin-top:0.75rem">Crash</h3>
+          <pre id="dbgCrash" class="debug-pre">none</pre>
+          <h3 class="panel-title">Last drop / outcome</h3>
+          <pre id="dbgLastOutcome" class="debug-pre">—</pre>
+          <h3 class="panel-title">Drops by reason</h3>
+          <pre id="dbgDrops" class="debug-pre">{}</pre>
         </div>
         <div id="panelActivity" class="panel" hidden role="tabpanel">
           <h2 class="panel-title">Activity</h2>
           <button type="button" id="clearActivity">Clear log</button>
           <div id="activity"></div>
+        </div>
+        <div id="panelConsole" class="panel" hidden role="tabpanel">
+          <h2 class="panel-title">Console</h2>
+          <p class="hint">Virtual page / JS console (and pageerror). Written to dossier telemetry/console.ndjson.</p>
+          <button type="button" id="clearConsole">Clear</button>
+          <div id="consoleLog"></div>
         </div>
         <div id="panelConfig" class="panel" hidden role="tabpanel">
           <h2 class="panel-title">Telemetry</h2>
@@ -552,11 +733,17 @@
           <div class="cfg-row"><label for="tel_desync">desync</label><input id="tel_desync" type="checkbox" checked /></div>
           <div class="cfg-row"><label for="tel_applyOverrun">applyOverrun</label><input id="tel_applyOverrun" type="checkbox" checked /></div>
           <div class="cfg-row"><label for="tel_clock">clock</label><input id="tel_clock" type="checkbox" checked /></div>
-          <div class="cfg-row"><label for="tel_cssomPoll">cssomPoll</label><input id="tel_cssomPoll" type="checkbox" checked /></div>
+          <div class="cfg-row"><label for="tel_cssomPoll">cssomPoll</label><input id="tel_cssomPoll" type="checkbox" title="Off by default — floods disk and costs Virtual time on live sites" /></div>
           <div class="cfg-row"><label for="tel_aggregateIntervalMs">aggregateIntervalMs</label><input id="tel_aggregateIntervalMs" type="number" min="200" step="100" value="2000" /></div>
           <h2 class="panel-title" style="margin-top:1rem">Browse inject</h2>
-          <p class="hint">frameRateHz is sent with Browse Start Virtual only.</p>
+          <p class="hint">frameRateHz and CPU profile are sent with Browse Start Virtual only.</p>
           <div class="cfg-row"><label for="frameRateHz">frameRateHz</label><input id="frameRateHz" type="number" min="1" max="120" value="60" /></div>
+          <div class="cfg-row"><label for="browseCpu">cpuProfiling</label><input id="browseCpu" type="checkbox" /></div>
+          <p class="hint">When on: CDP CPU profile for the whole Browse session → <code>probes/cpu/</code> on Stop.</p>
+          <h2 class="panel-title" style="margin-top:1rem">Browse snaps</h2>
+          <p class="hint">Snapshot button is primary (table digest only — not full tree/cssom). Auto-snap optional while Virtual is live.</p>
+          <div class="cfg-row"><label for="autoSnap">auto-snap</label><input id="autoSnap" type="checkbox" /></div>
+          <div class="cfg-row"><label for="autoSnapIntervalMs">interval ms</label><input id="autoSnapIntervalMs" type="number" min="1000" step="500" value="5000" /></div>
         </div>
         <div id="panelProgress" class="panel" hidden role="tabpanel">
           <h2 class="panel-title">Run progress</h2>

@@ -1,12 +1,13 @@
 /**
- * PageProjection input dispatch — serial CDP chain via legacy DomElementInput.
+ * PageProjection input dispatch — serial CDP chain via DomElementInput.
+ * No generation sync with the frame plane: resolve nodeId when required → CDP.
  */
 
 import type { Page } from 'patchright';
 import {
   DomElementInput,
   type DomElementInputOutcome,
-  type DomProjectionInputHost,
+  type DomElementInputPipelineMetrics,
 } from '../../../patchright/mirror/dom/DomElementInput';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import {
@@ -14,7 +15,7 @@ import {
   normalizeDomInput,
   type PageProjectionIntentV2,
 } from '@speculum/page-projection/core/input/intentTypes';
-import { createVirtualTargetResolver, findFrameForContext, readVirtualGeneration } from './resolveVirtualNode';
+import { createVirtualTargetResolver, findFrameForContext } from './resolveVirtualNode';
 
 type ResolveHit = {
   ok: boolean;
@@ -25,20 +26,24 @@ type ResolveHit = {
   y?: number;
 };
 
+export type PageProjectionInputPipelineMetrics = {
+  ingressReceived: number;
+  ingressDropped: number;
+  ingressDropsByReason: Record<string, number>;
+  inject: DomElementInputPipelineMetrics;
+};
+
 export class PageProjectionInputDispatch {
   private readonly domInput: DomElementInput;
-  private readonly host: DomProjectionInputHost;
-  private cachedGeneration = 0;
+  private ingressReceived = 0;
+  private ingressDropped = 0;
+  private readonly ingressDropsByReason: Record<string, number> = {};
 
   constructor(private readonly page: Page) {
     const resolver = createVirtualTargetResolver(page);
-    this.host = {
-      getGeneration: () => this.cachedGeneration,
-      takeUpload: () => undefined,
-    };
     this.domInput = new DomElementInput(
       page,
-      this.host,
+      { takeUpload: () => undefined },
       {
         resolveTarget: (targetId, contextId) =>
           resolver.resolve(targetId, contextId ?? CONTEXT_ID_ROOT),
@@ -46,15 +51,19 @@ export class PageProjectionInputDispatch {
     );
   }
 
-  async refreshGeneration(contextId: number = CONTEXT_ID_ROOT): Promise<number> {
-    this.cachedGeneration = await readVirtualGeneration(this.page, contextId);
-    return this.cachedGeneration;
+  getPipelineMetrics(): PageProjectionInputPipelineMetrics {
+    return {
+      ingressReceived: this.ingressReceived,
+      ingressDropped: this.ingressDropped,
+      ingressDropsByReason: { ...this.ingressDropsByReason },
+      inject: this.domInput.getMetrics(),
+    };
   }
 
   async dispatchIntent(intent: PageProjectionIntentV2): Promise<DomElementInputOutcome> {
-    await this.refreshGeneration(intent.contextId);
-    let payloadJson = intent.payload;
+    this.ingressReceived += 1;
     const type = intent.type.trim().toLowerCase();
+    let payloadJson = intent.payload;
     const needsPageCoords =
       intent.contextId !== CONTEXT_ID_ROOT
       && (type === 'mousemove'
@@ -66,7 +75,10 @@ export class PageProjectionInputDispatch {
         || type === 'wheel');
     if (needsPageCoords) {
       const mapped = await this.mapNestedPayloadToPage(intent.contextId, payloadJson);
-      if (mapped == null) return { status: 'dropped', reason: 'frame_box_missing' };
+      if (mapped == null) {
+        this.noteIngressDrop('frame_box_missing');
+        return { status: 'dropped', reason: 'frame_box_missing' };
+      }
       payloadJson = mapped;
     }
     return this.domInput.dispatch({
@@ -77,6 +89,11 @@ export class PageProjectionInputDispatch {
       timestampClient: intent.timestampClient,
       payloadJson,
     });
+  }
+
+  private noteIngressDrop(reason: string): void {
+    this.ingressDropped += 1;
+    this.ingressDropsByReason[reason] = (this.ingressDropsByReason[reason] ?? 0) + 1;
   }
 
   async dispatchIngress(input: DomInputIngress): Promise<DomElementInputOutcome> {
@@ -161,7 +178,7 @@ export class PageProjectionInputDispatch {
     contextId: number = CONTEXT_ID_ROOT,
   ): Promise<DomElementInputOutcome> {
     const info = await this.resolveInContext(selector, contextId, 'click');
-    if (!info.ok || !info.id || info.generation == null || info.x == null || info.y == null) {
+    if (!info.ok || !info.id || info.x == null || info.y == null) {
       return { status: 'dropped', reason: info.reason ?? 'resolve_failed' };
     }
     const payloadJson = JSON.stringify({
@@ -172,7 +189,7 @@ export class PageProjectionInputDispatch {
       modifiers: {},
     });
     const base: DomInputIngress = {
-      generation: info.generation,
+      generation: info.generation ?? 0,
       targetId: info.id,
       contextId,
       payloadJson,
@@ -192,14 +209,14 @@ export class PageProjectionInputDispatch {
     contextId: number = CONTEXT_ID_ROOT,
   ): Promise<DomElementInputOutcome> {
     const info = await this.resolveInContext(selector, contextId, 'id');
-    if (!info.ok || !info.id || info.generation == null) {
+    if (!info.ok || !info.id) {
       return { status: 'dropped', reason: info.reason ?? 'resolve_failed' };
     }
     return this.dispatchIngress({
       type: 'input',
       targetId: info.id,
       contextId,
-      generation: info.generation,
+      generation: info.generation ?? 0,
       payloadJson: JSON.stringify({ value }),
       timestampClient: Date.now(),
     });
@@ -211,14 +228,14 @@ export class PageProjectionInputDispatch {
     contextId: number = CONTEXT_ID_ROOT,
   ): Promise<DomElementInputOutcome> {
     const info = await this.resolveInContext(selector, contextId, 'id');
-    if (!info.ok || !info.id || info.generation == null) {
+    if (!info.ok || !info.id) {
       return { status: 'dropped', reason: info.reason ?? 'resolve_failed' };
     }
     return this.dispatchIngress({
       type: 'scrollElement',
       targetId: info.id,
       contextId,
-      generation: info.generation,
+      generation: info.generation ?? 0,
       payloadJson: JSON.stringify({ scrollTop, scrollLeft: 0 }),
       timestampClient: Date.now(),
     });
@@ -229,12 +246,11 @@ export class PageProjectionInputDispatch {
     scrollX: number = 0,
     contextId: number = CONTEXT_ID_ROOT,
   ): Promise<DomElementInputOutcome> {
-    await this.refreshGeneration(contextId);
     return this.dispatchIngress({
       type: 'scrollViewport',
       targetId: null,
       contextId,
-      generation: this.cachedGeneration,
+      generation: 0,
       payloadJson: JSON.stringify({ scrollX, scrollY }),
       timestampClient: Date.now(),
     });

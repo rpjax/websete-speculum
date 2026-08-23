@@ -62,18 +62,3 @@ export function createVirtualTargetResolver(page: Page): VirtualTargetResolver {
     },
   };
 }
-
-/** Read producer generation for stale-intent drop (root context). */
-export async function readVirtualGeneration(page: Page, contextId: number = CONTEXT_ID_ROOT): Promise<number> {
-  const frame = await findFrameForContext(page, contextId);
-  if (!frame) return 0;
-  try {
-    return await frame.evaluate(() => {
-      const p = (globalThis as { __speculumProjection?: { domNodes?: { generation?: number } } })
-        .__speculumProjection;
-      return p?.domNodes?.generation ?? 0;
-    });
-  } catch {
-    return 0;
-  }
-}

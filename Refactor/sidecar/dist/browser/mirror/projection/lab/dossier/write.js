@@ -11,7 +11,9 @@ exports.urlSlug = urlSlug;
 exports.dossierDirName = dossierDirName;
 exports.createDossier = createDossier;
 exports.writeJson = writeJson;
+exports.writeJsonSync = writeJsonSync;
 exports.appendTelemetryEvent = appendTelemetryEvent;
+exports.appendNdjsonArtifact = appendNdjsonArtifact;
 exports.finalizeDossier = finalizeDossier;
 exports.writeBinaryArtifact = writeBinaryArtifact;
 const node_fs_1 = __importDefault(require("node:fs"));
@@ -71,6 +73,19 @@ async function writeJson(handle, relPath, data, kind) {
     else
         handle.artifacts.push(entry);
 }
+/** Sync write for crash / process-fault sinks (must land before process exit). */
+function writeJsonSync(handle, relPath, data, kind) {
+    const full = node_path_1.default.join(handle.dir, relPath);
+    node_fs_1.default.mkdirSync(node_path_1.default.dirname(full), { recursive: true });
+    const body = JSON.stringify(data, jsonSafeReplacer, 2);
+    node_fs_1.default.writeFileSync(full, body, 'utf8');
+    const existing = handle.artifacts.findIndex((a) => a.path === relPath);
+    const entry = { kind, path: relPath, bytes: Buffer.byteLength(body), contentType: 'application/json' };
+    if (existing >= 0)
+        handle.artifacts[existing] = entry;
+    else
+        handle.artifacts.push(entry);
+}
 async function appendTelemetryEvent(handle, event) {
     const line = `${JSON.stringify(event, jsonSafeReplacer)}\n`;
     const bytes = Buffer.byteLength(line);
@@ -91,6 +106,19 @@ async function appendTelemetryEvent(handle, event) {
         handle.artifacts.push({
             kind: 'telemetry.events',
             path: node_path_1.default.relative(handle.dir, handle.privateNdjsonPath).replace(/\\/g, '/'),
+            contentType: 'application/x-ndjson',
+        });
+    }
+}
+async function appendNdjsonArtifact(handle, relPath, event, kind) {
+    const full = node_path_1.default.join(handle.dir, relPath);
+    await node_fs_1.default.promises.mkdir(node_path_1.default.dirname(full), { recursive: true });
+    const line = `${JSON.stringify(event, jsonSafeReplacer)}\n`;
+    await node_fs_1.default.promises.appendFile(full, line, 'utf8');
+    if (!handle.artifacts.some((a) => a.path === relPath)) {
+        handle.artifacts.push({
+            kind,
+            path: relPath,
             contentType: 'application/x-ndjson',
         });
     }

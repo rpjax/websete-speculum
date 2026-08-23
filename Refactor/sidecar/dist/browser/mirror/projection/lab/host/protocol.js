@@ -27,6 +27,9 @@ function parseClientMessage(raw) {
         case 'client.intent':
         case 'client.tamperResult':
         case 'client.injectResult':
+        case 'client.resize':
+        case 'client.snapshot':
+        case 'client.validateSnaps':
             return msg;
         default:
             return { error: `unknown control type: ${type}`, code: 'unknown_type' };

@@ -36,7 +36,9 @@ export type ProjectionClientOptions = {
   width?: number;
   height?: number;
   onTelemetry?: (msg: Record<string, unknown>) => void;
-  /** Fires once, after the first frame (sequence 1) applies successfully. */
+  /** Fires when the live surface document is ready for interaction — first successful
+   *  apply, and again after every successful resync iframe swap (new Document identity).
+   *  Composition roots MUST (re)attach input capture here; do not assume once-only. */
   onArmed?: () => void;
   onDesync?: (reason: string) => void;
   /**
@@ -223,6 +225,15 @@ export class ProjectionClient {
     return this.surface.document;
   }
 
+  /** Confirmed Virtual CSS size on the projected stage (lockstep). */
+  setCssSize(width: number, height: number): void {
+    this.surface.setCssSize(width, height);
+  }
+
+  getCssSize(): { width: number; height: number } {
+    return this.surface.getCssSize();
+  }
+
   /** Digests of the live replicated table at the last applied sequence. */
   liveTableDigest(): {
     sequence: number;
@@ -384,11 +395,7 @@ export class ProjectionClient {
       onApplied: (frame, applyMs) => {
         if (state.swapped) {
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
-          if (!this.armed) {
-            this.armed = true;
-            this.everArmed = true;
-            this.onArmedCb?.();
-          }
+          if (!this.armed) this.notifyLiveSurfaceReady();
         } else {
           state.swapped = true;
           this.commitResyncSwap(frame, applyMs);
@@ -448,11 +455,15 @@ export class ProjectionClient {
       attempt: built.attempt,
     });
     this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
-    if (!this.armed) {
-      this.armed = true;
-      this.everArmed = true;
-      this.onArmedCb?.();
-    }
+    // New iframe Document — always re-notify so composition roots rebind capture.
+    this.notifyLiveSurfaceReady();
+  }
+
+  /** Live document is interactive (cold arm or post-swap). Idempotent armed flag; callback may re-fire. */
+  private notifyLiveSurfaceReady(): void {
+    this.armed = true;
+    this.everArmed = true;
+    this.onArmedCb?.();
   }
 
   /**

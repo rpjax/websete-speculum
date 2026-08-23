@@ -6,7 +6,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.findFrameForContext = findFrameForContext;
 exports.createVirtualTargetResolver = createVirtualTargetResolver;
-exports.readVirtualGeneration = readVirtualGeneration;
 const frame_1 = require("@speculum/page-projection/core/frame");
 function resolveTargetExpr(contextId, targetId) {
     const argsJson = JSON.stringify({ contextId, id: targetId });
@@ -62,21 +61,5 @@ function createVirtualTargetResolver(page) {
             return null;
         },
     };
-}
-/** Read producer generation for stale-intent drop (root context). */
-async function readVirtualGeneration(page, contextId = frame_1.CONTEXT_ID_ROOT) {
-    const frame = await findFrameForContext(page, contextId);
-    if (!frame)
-        return 0;
-    try {
-        return await frame.evaluate(() => {
-            const p = globalThis
-                .__speculumProjection;
-            return p?.domNodes?.generation ?? 0;
-        });
-    }
-    catch {
-        return 0;
-    }
 }
 //# sourceMappingURL=resolveVirtualNode.js.map

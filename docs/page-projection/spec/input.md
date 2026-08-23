@@ -1,5 +1,9 @@
 # PageProjection — input propagation & bindings
 
+> **Normative V4 dispatch:** **[input-v2.md](input-v2.md)** — **id-assertive** activation (2026-08-22).
+> This file is **V1 provenance** (I1–I5, inject chain, bindings, coalesce). Where it conflicts
+> with input-v2 (especially coords-only press/up or surface = document scroll height), **input-v2 wins**.
+
 > **V4:** intents address by `uint32` via the reverse map — never `speculum-anchor` on Virtual.
 > Caret is client-authoritative. Local-first feedback (P4) vs authoritative (P5): [budgets.md](budgets.md).
 > Frame/identity/recovery: [frame-protocol.md](frame-protocol.md). Index: [README.md](README.md).
@@ -7,8 +11,8 @@
 > as pre-V4 names; behaviour in the amended bullets still stands (no wire `click`, CDP-only dispatch,
 > inject chain, move collapsing, `setFiles`, disarm while desynced, two scroll intent types).
 
-**Status:** V1 contract **sealed as history of intent** (I1–I5). **Not** production-ready as-is.  
-**Ruling 2026-08-14:** input needs a **redesign** before production cutover ([roadmap.md](roadmap.md)). Do not treat T11 rename (`DomProjectionIntent` → `PageProjectionIntent`) as that redesign.
+**Status:** V1 contract **sealed as history of intent** (I1–I5). Normative product rule = [input-v2.md](input-v2.md).  
+**Ruling 2026-08-14:** redesign before cutover. **Amended 2026-08-22:** redesign primary = resolve `nodeId` then act — not CDP at payload `(x,y)` alone.
 
 > **Naming / supersession:** product mode/pipe is **PageProjection**
 > (`MirrorMode.PageProjection`), not `DomProjection`. E2E rename still applies
@@ -78,9 +82,11 @@ not `speculum-input-*` attributes (§7).
 
 ### 3.2 CDP-pure
 
-1. Element intents: `uint32` node id → Element (pierce-aware) via the identity map.
-2. Pointer motion: surface CSS coords → Virtual viewport CSS coords → CDP
-   `Input.dispatchMouseEvent` / `dispatchTouchEvent`.
+1. **Element activation** (`mousedown`/`mouseup`/`focus`/`blur`/`input`/`setFiles`/…):
+   `uint32` node id → Element (pierce-aware) via the identity map, **then** CDP on that
+   element. Payload `(x,y)` alone is **not** the activation algorithm — see [input-v2.md](input-v2.md).
+2. **Pointer motion** (`mousemove` / wheel hit): surface CSS coords → Virtual viewport CSS
+   coords → CDP `Input.dispatchMouseEvent` / `dispatchTouchEvent`.
 3. Prefer trusted CDP/Patchright over in-page `dispatchEvent` / `el.click()`.
 4. In-page DOM only as last-resort fallback (logged).
 5. Never map intents to OS EV_* streams.
@@ -101,7 +107,8 @@ not `speculum-input-*` attributes (§7).
 ## 4. Hard invariants
 
 1. No site JS on Projected.
-2. Element intents → `uint32` node id; motion → surface coordinates (§6.3).
+2. Element intents → `uint32` node id (**required**; resolve before CDP); motion → surface
+   coordinates (§6.3 / [input-v2.md](input-v2.md) coordinate space). Miss → drop closed.
 3. CDP-only; no OS/uinput.
 4. Structure/paint truth returns via F DomDiff.
 5. Drop intents with stale `generation`.
@@ -197,9 +204,9 @@ Unused fields are null/omitted. Evolve with schema version only if breaking.
 
 | Type | When emitted from Projected | Virtual CDP (primary) |
 |------|----------------------------|------------------------|
-| `mousemove` | coalesced move | `mouseMoved` |
-| `mousedown` | button down | `mousePressed` |
-| `mouseup` | button up | `mouseReleased` |
+| `mousemove` | coalesced move | `mouseMoved` at surface→viewport coords |
+| `mousedown` | button down | resolve `nodeId` → `mousePressed` on that element ([input-v2.md](input-v2.md)) |
+| `mouseup` | button up | resolve `nodeId` → `mouseReleased` on that element |
 | `pointermove` / `pointerdown` / `pointerup` | when `pointerType` is touch/pen or touch-primary session | touch and/or mouse per §6.6 |
 | `wheel` | wheel | mouse wheel |
 | `auxclick` | non-primary button click (after down/up) | **do not** extra CDP click — down/up already sent; auxclick is optional signal only (default: **omit wire**, rely on down/up) |
@@ -220,13 +227,19 @@ with an extra `element.click()` / click event (§6.5).
 onto arbitrary dropzones** (file **input** upload is in V1 — §6.9), exotic
 multi-touch beyond §6.6.
 
-### 6.3 Coordinate space (closed)
+### 6.3 Coordinate space (closed for **motion**; not activation primary)
+
+> **Supersession:** activation primary = [input-v2.md](input-v2.md) id resolve.
+> Coords below apply to `mousemove` / wheel and to **optional offsets** inside a
+> resolved element’s box — never as a substitute for missing `nodeId` on press/up.
 
 All pointer coordinates in payloads are **CSS pixels in surface space**:
 
-1. Let `surface` be the projection host that displays the Projected document
-   (same box used for viewport lockstep sizing).
-2. `rect = surface.getBoundingClientRect()`.
+1. Let `surface` be the projection **stage** / host content box that maps 1:1 to
+   the Virtual viewport (lockstep CSS size) — **not** the projected
+   `documentElement`’s full scrollable content height.
+2. `rect = surface.getBoundingClientRect()` (or equivalent visible viewport when
+   listeners run inside the surface iframe and the stage already matches Virtual).
 3.  
    `x = (event.clientX - rect.left) * (viewportWidth / rect.width)`  
    `y = (event.clientY - rect.top) * (viewportHeight / rect.height)`  
@@ -237,6 +250,8 @@ All pointer coordinates in payloads are **CSS pixels in surface space**:
 6. Use **CSS pixels**, not device pixels. CDP mouse events use the Virtual
    layout viewport coordinate system matching these values under lockstep.
 7. If `rect.width/height` is 0 (hidden), drop pointer intents.
+8. **Forbidden:** scaling against projected document scroll height (collapses Y
+   on long pages).
 
 Letterboxing / CSS scale on the surface is corrected by the
 `viewportSize / rectSize` factors above.
@@ -305,8 +320,9 @@ Do not open OS multitouch devices for Dom Projection.
 **Addressing is the `uint32` node id.** The frame plane addresses rows by `uint32`
 id (frame-protocol §1.2); there is no `DomSelector`/`childAt` locus. Intents likewise target an
 **element** (or the viewport) on Virtual via CDP — wire identity is the target's
-**`uint32` node id** (+ surface coords for pointer). No `childAt` / text-node
-locus on the input wire.
+**`uint32` node id**. Surface coords are for **motion** and optional hit offset —
+not an alternate address. No `childAt` / text-node locus on the input wire.
+Full primary table: [input-v2.md](input-v2.md).
 
 **Projected — element intents**
 
@@ -318,22 +334,25 @@ locus on the input wire.
    `setFiles` (§6.9). Motion path may still be remoted for antibot; the file
    chooser itself stays client-side.
 4. Require a resolvable `uint32` node id (walk up to the nearest ancestor that has one).
-5. Include `x`,`y` from §6.3 on pointer downs/ups even when a node id is set.
+5. May include `x`,`y` from §6.3 as **offset hint**; Virtual **must** resolve
+   `nodeId` before press/up. Missing id → do not emit (or sidecar drops closed).
 
 **Projected — motion**
 
-Surface coords only; anchor under point optional (diagnostics).
+Surface coords only; node id under point optional (diagnostics).
 
 **Projected — keyboard without focus**
 
-1. If an anchored control is focused → that anchor.
-2. Else last focused projection anchor in this generation.
-3. Else CDP `dispatchKeyEvent` **page-targeted** (no anchor) — modifiers and
+1. If an anchored control is focused → that id.
+2. Else last focused projection id in this generation.
+3. Else CDP `dispatchKeyEvent` **page-targeted** (no id) — modifiers and
    key still sent so document-level shortcuts can run on Virtual.
 
 **Virtual**
 
-Pierce-aware node-id resolve (id → Node via the identity map). On miss → §8 race policy.
+Pierce-aware node-id resolve (id → Node via the identity map) **before** CDP
+press/release for element pointer intents. On miss → drop closed (§8 race /
+[input-v2.md](input-v2.md)).
 
 ### 6.8 Right-click / context menu (closed)
 
@@ -562,10 +581,10 @@ Not every internal constant needs a knob — only the above.
 
 | Step | Owner |
 |------|--------|
-| Listeners, coord transform §6.3, coalesce, no-wire-click | Client |
+| Listeners, id hit-test, coord transform §6.3 (motion), coalesce, no-wire-click | Client |
 | `PageProjectionIntent` | Client |
 | Transport | Sessions data-plane |
-| Admit, inject chain, backpressure collapse, CDP dispatch | Sidecar PageProjection input (**not** `OsInputBackend`) |
+| Admit, inject chain, **nodeId resolve**, backpressure collapse, CDP dispatch | Sidecar PageProjection input (**not** `OsInputBackend`) |
 | DomDiff | F |
 
 ---
@@ -601,16 +620,18 @@ Exact catalog registration follows Sessions Diagnostics standards.
 
 ## 14. Hit-test Projected ≠ Virtual (closed mitigation)
 
-Cannot fully eliminate (e.g. CSS still loading). V1 mitigations:
+Cannot fully eliminate (e.g. CSS still loading). V1 mitigations — **amended by
+[input-v2.md](input-v2.md) id-assertive primary:**
 
-1. Viewport lockstep + §6.3 coord mapping.
-2. Prefer **anchor from element under point** at event time for downs (not only
-   coords) when an anchored node is hit.
-3. Do not send pointer intents until the surface is **armed** — the cold-start
+1. Viewport lockstep + §6.3 coord mapping **for motion**.
+2. **Activation:** resolve `nodeId` on Virtual before press/up — never coords-only CDP.
+3. Prefer **id from element under point** at event time for downs when an
+   interactive node is hit.
+4. Do not send pointer intents until the surface is **armed** — the cold-start
    `resync` frame for the current `generation` has applied and its closing `CHECK`
    verified (frame-protocol §5.8).
-4. Accept residual mismatch as non-support edge; metric if activate anchor ≠
-   topmost painted target heuristics (optional later).
+5. Miss on resolve → drop closed (not false “dispatched”). Residual paint mismatch
+   may remain; metric optional later.
 
 ---
 
@@ -641,19 +662,19 @@ wrong — document in product support matrix as limitation until a later design.
 |-------|----------|
 | OS vs CDP | Dom Projection CDP-only; Motor OS untouched |
 | Motion | mousemove/pointer/wheel in V1; coalesced; path before press |
-| Coordinates | Surface CSS px → viewport CSS px (§6.3) |
+| Coordinates | Motion: surface CSS px → viewport CSS px (§6.3). Activation: **id resolve** ([input-v2.md](input-v2.md)); coords optional offset |
 | Double-fire | No wire `click`; CDP pressed+released only; element.click fallback only (§6.5) |
 | Touch | Device profile / pointerType (§6.6) |
 | Context menu | preventDefault + right button down/up |
-| Key without focus | Last anchor → else page-level CDP key |
+| Key without focus | Last id → else page-level CDP key |
 | Race | Retry resolve then drop (§8) |
 | Backpressure | Collapse moves only; never drop presses/keys/input/setFiles (§6.4) |
 | DTO | §6.1 (+ file refs) |
-| Focus/blur | In V1 for anchored controls |
+| Focus/blur | In V1 for id-addressed controls |
 | **Desync/disarm** | Client-only; no intents while desynced; recovery = OOB `PageProjection.Resync`; **no** input `resync` type; Virtual unaware |
 | **Rename** | E2E with mode/pipe: Intent/FileRef/telemetry/APIs → `PageProjection*` (T11) |
 | **Scroll** | **`scrollViewport` + `scrollElement`** — absolute; per-scroller coalesce; mirrors Dom-plane diff ops; **no** single nullable `scroll` mega-payload |
-| **Intent address** | `uint32` node id (+ coords); no `DomSelector`/`childAt` locus |
+| **Intent address** | Element intents: `uint32` node id **required** before CDP; motion: surface coords; no `DomSelector`/`childAt` |
 | Submit | No separate intent |
 | Binding debounce | **Upstream-only** while dirty (default 1s); **never** delays intent send |
 | **File upload** | Client picker → dom-uploads / inline → `setFiles` + `setInputFiles` (§6.9) |

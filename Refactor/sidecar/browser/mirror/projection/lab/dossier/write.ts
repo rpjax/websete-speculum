@@ -92,6 +92,23 @@ export async function writeJson(
   else handle.artifacts.push(entry);
 }
 
+/** Sync write for crash / process-fault sinks (must land before process exit). */
+export function writeJsonSync(
+  handle: DossierHandle,
+  relPath: string,
+  data: unknown,
+  kind: string,
+): void {
+  const full = path.join(handle.dir, relPath);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  const body = JSON.stringify(data, jsonSafeReplacer, 2);
+  fs.writeFileSync(full, body, 'utf8');
+  const existing = handle.artifacts.findIndex((a) => a.path === relPath);
+  const entry: ManifestEntry = { kind, path: relPath, bytes: Buffer.byteLength(body), contentType: 'application/json' };
+  if (existing >= 0) handle.artifacts[existing] = entry;
+  else handle.artifacts.push(entry);
+}
+
 export async function appendTelemetryEvent(handle: DossierHandle, event: unknown): Promise<void> {
   const line = `${JSON.stringify(event, jsonSafeReplacer)}\n`;
   const bytes = Buffer.byteLength(line);
@@ -112,6 +129,25 @@ export async function appendTelemetryEvent(handle: DossierHandle, event: unknown
     handle.artifacts.push({
       kind: 'telemetry.events',
       path: path.relative(handle.dir, handle.privateNdjsonPath).replace(/\\/g, '/'),
+      contentType: 'application/x-ndjson',
+    });
+  }
+}
+
+export async function appendNdjsonArtifact(
+  handle: DossierHandle,
+  relPath: string,
+  event: unknown,
+  kind: string,
+): Promise<void> {
+  const full = path.join(handle.dir, relPath);
+  await fs.promises.mkdir(path.dirname(full), { recursive: true });
+  const line = `${JSON.stringify(event, jsonSafeReplacer)}\n`;
+  await fs.promises.appendFile(full, line, 'utf8');
+  if (!handle.artifacts.some((a) => a.path === relPath)) {
+    handle.artifacts.push({
+      kind,
+      path: relPath,
       contentType: 'application/x-ndjson',
     });
   }

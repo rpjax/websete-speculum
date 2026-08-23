@@ -114,17 +114,52 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
         payloadJson: string;
       }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
     };
-    const stale = await pushDom.pushInput({
+    // Wrong generation must NOT drop — input has no sync with frame generation.
+    const mismatchedGen = await pushDom.pushInput({
       ...base,
       type: 'mousedown',
       generation: info.generation + 99,
     });
-    assert.strictEqual(stale.status, 'dropped');
-    assert.strictEqual(stale.reason, 'generation_stale');
+    assert.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
 
+    const noId = await pushDom.pushInput({
+      ...base,
+      type: 'mousedown',
+      targetId: 0,
+      payloadJson: JSON.stringify({ x: 0, y: 0, button: 0, buttons: 0, modifiers: {} }),
+    });
+    assert.strictEqual(noId.status, 'dropped');
+    assert.strictEqual(noId.reason, 'node_id_required');
+
+    const missing = await pushDom.pushInput({
+      ...base,
+      type: 'mousedown',
+      targetId: 0x7fffffff,
+      payloadJson: JSON.stringify({ x: 0, y: 0, button: 0, buttons: 0, modifiers: {} }),
+    });
+    assert.strictEqual(missing.status, 'dropped');
+    assert.strictEqual(missing.reason, 'anchor_missing');
+
+    // Wrong payload coords outside the box must still activate — id-assertive falls back to box center.
+    const wrongCoordsPayload = JSON.stringify({
+      x: 0,
+      y: 0,
+      button: 0,
+      buttons: 0,
+      modifiers: {},
+    });
     for (const type of ['mousemove', 'mousedown', 'mouseup'] as const) {
-      const out = await pushDom.pushInput({ ...base, type });
-      assert.strictEqual(out.status, 'dispatched', type);
+      const out = await pushDom.pushInput({
+        ...base,
+        type,
+        payloadJson: type === 'mousemove' ? wrongCoordsPayload : wrongCoordsPayload,
+      });
+      if (type === 'mousemove') {
+        // Motion still needs finite coords — 0,0 is valid viewport edge.
+        assert.strictEqual(out.status, 'dispatched', type);
+      } else {
+        assert.strictEqual(out.status, 'dispatched', `${type} id-primary despite wrong coords`);
+      }
     }
 
     await wait(300);
@@ -133,12 +168,12 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
       `document.getElementById('status')?.getAttribute('data-state') ?? ''`,
     );
     assert.ok(status.ok, status.errorMessage);
-    assert.strictEqual(status.value, 'clicked', 'Virtual must reflect click');
+    assert.strictEqual(status.value, 'clicked', 'Virtual must reflect click via nodeId');
   } finally {
     await session.dispose();
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });
   }
-  console.log('[unit] PP input click + stale generation ok');
+  console.log('[unit] PP input click id-assertive (no generation sync) ok');
 }

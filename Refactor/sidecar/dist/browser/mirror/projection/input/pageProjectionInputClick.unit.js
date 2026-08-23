@@ -94,21 +94,55 @@ async function runPageProjectionInputClickUnitTests() {
             payloadJson,
         };
         const pushDom = session;
-        const stale = await pushDom.pushInput({
+        // Wrong generation must NOT drop — input has no sync with frame generation.
+        const mismatchedGen = await pushDom.pushInput({
             ...base,
             type: 'mousedown',
             generation: info.generation + 99,
         });
-        assert_1.default.strictEqual(stale.status, 'dropped');
-        assert_1.default.strictEqual(stale.reason, 'generation_stale');
+        assert_1.default.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
+        const noId = await pushDom.pushInput({
+            ...base,
+            type: 'mousedown',
+            targetId: 0,
+            payloadJson: JSON.stringify({ x: 0, y: 0, button: 0, buttons: 0, modifiers: {} }),
+        });
+        assert_1.default.strictEqual(noId.status, 'dropped');
+        assert_1.default.strictEqual(noId.reason, 'node_id_required');
+        const missing = await pushDom.pushInput({
+            ...base,
+            type: 'mousedown',
+            targetId: 0x7fffffff,
+            payloadJson: JSON.stringify({ x: 0, y: 0, button: 0, buttons: 0, modifiers: {} }),
+        });
+        assert_1.default.strictEqual(missing.status, 'dropped');
+        assert_1.default.strictEqual(missing.reason, 'anchor_missing');
+        // Wrong payload coords outside the box must still activate — id-assertive falls back to box center.
+        const wrongCoordsPayload = JSON.stringify({
+            x: 0,
+            y: 0,
+            button: 0,
+            buttons: 0,
+            modifiers: {},
+        });
         for (const type of ['mousemove', 'mousedown', 'mouseup']) {
-            const out = await pushDom.pushInput({ ...base, type });
-            assert_1.default.strictEqual(out.status, 'dispatched', type);
+            const out = await pushDom.pushInput({
+                ...base,
+                type,
+                payloadJson: type === 'mousemove' ? wrongCoordsPayload : wrongCoordsPayload,
+            });
+            if (type === 'mousemove') {
+                // Motion still needs finite coords — 0,0 is valid viewport edge.
+                assert_1.default.strictEqual(out.status, 'dispatched', type);
+            }
+            else {
+                assert_1.default.strictEqual(out.status, 'dispatched', `${type} id-primary despite wrong coords`);
+            }
         }
         await wait(300);
         const status = await session.evaluate(`document.getElementById('status')?.getAttribute('data-state') ?? ''`);
         assert_1.default.ok(status.ok, status.errorMessage);
-        assert_1.default.strictEqual(status.value, 'clicked', 'Virtual must reflect click');
+        assert_1.default.strictEqual(status.value, 'clicked', 'Virtual must reflect click via nodeId');
     }
     finally {
         await session.dispose();
@@ -116,6 +150,6 @@ async function runPageProjectionInputClickUnitTests() {
             server.close((err) => (err ? reject(err) : resolve()));
         });
     }
-    console.log('[unit] PP input click + stale generation ok');
+    console.log('[unit] PP input click id-assertive (no generation sync) ok');
 }
 //# sourceMappingURL=pageProjectionInputClick.unit.js.map

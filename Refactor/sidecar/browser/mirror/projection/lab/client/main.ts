@@ -4,7 +4,18 @@
 
 import { LabProjectedHarness } from './LabProjectedHarness';
 import { attachProjectedInputCapture } from '@speculum/page-projection/projected/input/projectedInputCapture';
+import { ScrollEchoGate } from '@speculum/page-projection/projected/input/scrollEchoGate';
 import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes';
+import {
+  ViewportSync,
+  measureHostElement,
+  LAB_VIEWPORT_POLICY,
+  normalizeSessionViewport,
+  detectViewportDeviceProfile,
+  type ViewportResizeResult,
+  type ViewportDeviceProfile,
+  type ViewportSize,
+} from '@speculum/page-projection/projected';
 import { snapshotTree } from '@speculum/page-projection/core/snapshot/domTreeSnapshot';
 import { snapshotFormControls } from '@speculum/page-projection/projected/formControlSnapshot';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
@@ -131,6 +142,31 @@ function logActivity(text: string): void {
   while (box.childElementCount > 200) box.lastChild?.remove();
 }
 
+function logConsole(level: number, text: string): void {
+  const row = document.createElement('div');
+  const lvl = level >= 3 ? 'lvl-3' : level === 2 ? 'lvl-2' : 'lvl-1';
+  row.className = lvl;
+  const tag = level >= 3 ? 'error' : level === 2 ? 'warn' : 'log';
+  row.textContent = `${new Date().toISOString().slice(11, 19)} [${tag}] ${text}`;
+  const box = $('consoleLog');
+  box.prepend(row);
+  while (box.childElementCount > 400) box.lastChild?.remove();
+}
+
+function formatIntentShort(intent: PageProjectionIntentV2 | Record<string, unknown>): string {
+  const rec = intent as Record<string, unknown>;
+  const kind =
+    typeof rec.type === 'string'
+      ? rec.type
+      : typeof rec.kind === 'string'
+        ? rec.kind
+        : typeof rec.op === 'string'
+          ? rec.op
+          : 'intent';
+  const id = rec.targetId ?? rec.nodeId ?? rec.id;
+  return id != null ? `${kind}#${id}` : kind;
+}
+
 function readTelemetryFromUi(): Record<string, unknown> {
   const cfg: Record<string, unknown> = { ...LAB_TELEMETRY_DEFAULTS };
   for (const key of TELEMETRY_BOOL_CAPS) {
@@ -154,11 +190,81 @@ export function bootLabClient(): void {
   let ws: WebSocket | null = null;
   let projection: LabProjectedHarness | null = null;
   const inputDetachers = new Map<number, () => void>();
-  const VIEWPORT = { width: 1280, height: 720 };
+  let canonicalViewport: ViewportSize = { width: 1280, height: 720 };
+  let viewportSync: ViewportSync | null = null;
+  let pendingResize: {
+    resolve: (result: ViewportResizeResult) => void;
+  } | null = null;
+  let bootDeviceProfile: ViewportDeviceProfile = detectViewportDeviceProfile();
+
+  function disposeViewportSync(): void {
+    viewportSync?.dispose();
+    viewportSync = null;
+    if (pendingResize) {
+      pendingResize.resolve({ applied: false, message: 'sync disposed', errorCode: 'disposed' });
+      pendingResize = null;
+    }
+  }
+
+  function requestRemoteResize(
+    size: ViewportSize,
+    device: ViewportDeviceProfile,
+  ): Promise<ViewportResizeResult> {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return Promise.resolve({
+        applied: false,
+        message: 'ws not open',
+        errorCode: 'ws_closed',
+      });
+    }
+    return new Promise((resolve) => {
+      if (pendingResize) {
+        pendingResize.resolve({ applied: false, message: 'superseded', errorCode: 'superseded' });
+      }
+      pendingResize = { resolve };
+      ws!.send(
+        JSON.stringify({
+          type: 'client.resize',
+          width: size.width,
+          height: size.height,
+          device,
+        }),
+      );
+    });
+  }
+
+  function startViewportSync(): void {
+    disposeViewportSync();
+    // Stage must match canonical before observe — seed may equal host and otherwise no-op.
+    projection?.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+    const sync = new ViewportSync({
+      measure: () => measureHostElement(surfaceHost),
+      resize: requestRemoteResize,
+      viewportPolicy: LAB_VIEWPORT_POLICY,
+      onApplied: (size) => {
+        canonicalViewport = size;
+        projection?.client.setCssSize(size.width, size.height);
+        logActivity(`viewport ${size.width}×${size.height}`);
+      },
+      onRejected: (detail) => {
+        logActivity(`viewport resize rejected: ${detail}`);
+      },
+    });
+    sync.seedRemote(canonicalViewport.width, canonicalViewport.height, bootDeviceProfile);
+    sync.observe(surfaceHost);
+    viewportSync = sync;
+  }
+
+  function measureAndNormalizeViewport(): ViewportSize {
+    const measured = measureHostElement(surfaceHost);
+    return normalizeSessionViewport(measured.width, measured.height, LAB_VIEWPORT_POLICY);
+  }
 
   function sendInputIntent(intent: PageProjectionIntentV2): void {
+    if (surfaceWrap.classList.contains('is-crashed')) return;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'client.intent', intent }));
+      logActivity(`intent ${formatIntentShort(intent)}`);
     }
   }
 
@@ -169,14 +275,18 @@ export function bootLabClient(): void {
     // Capture must bind inside the projected document. Listeners on the host
     // <iframe> never see pointer/keyboard events that fire in contentDocument.
     // Do not use `instanceof HTMLElement` — iframe realm makes it always false.
+    // ScrollEchoGate: call expect() before any programmatic Projected scroll apply;
+    // until apply sets scroll, consume is a no-op (local-first user scroll still intents).
+    const scrollEcho = new ScrollEchoGate();
     const rootSurface = client.document.documentElement;
     if (rootSurface && rootSurface.nodeType === 1) {
       const detach = attachProjectedInputCapture(rootSurface, client.getLiveRegistry(), sendInputIntent, {
         contextId: CONTEXT_ID_ROOT,
         getGeneration: () => client.getGeneration(),
-        getViewportSize: () => VIEWPORT,
+        getViewportSize: () => canonicalViewport,
         isArmed: () => client.isArmed,
         onMarkPropDirty: (id) => client.markPropDirty(id),
+        consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
       });
       inputDetachers.set(CONTEXT_ID_ROOT, detach);
     }
@@ -192,10 +302,11 @@ export function bootLabClient(): void {
           const win = nestedDoc?.defaultView;
           const w = win?.innerWidth ?? 0;
           const h = win?.innerHeight ?? 0;
-          return w > 0 && h > 0 ? { width: w, height: h } : VIEWPORT;
+          return w > 0 && h > 0 ? { width: w, height: h } : canonicalViewport;
         },
         isArmed: info.isArmed,
         onMarkPropDirty: info.markPropDirty,
+        consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
       });
       inputDetachers.set(info.contextId, detach);
     });
@@ -206,7 +317,35 @@ export function bootLabClient(): void {
   let sessionId: string | null = null;
   let phase: Phase = 'idle';
   let opsTotal = 0;
+  let browseSnapCount = 0;
+  let snapInFlight = false;
+  let autoSnapTimer: ReturnType<typeof setInterval> | null = null;
   const byContext = new Map<number, ContextStreamStats>();
+
+  function stopAutoSnap(): void {
+    if (autoSnapTimer) {
+      clearInterval(autoSnapTimer);
+      autoSnapTimer = null;
+    }
+  }
+
+  function requestBrowseSnap(label?: string): void {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !sessionLive || snapInFlight) return;
+    snapInFlight = true;
+    syncButtons();
+    ws.send(JSON.stringify({ type: 'client.snapshot', label }));
+  }
+
+  function startAutoSnap(): void {
+    stopAutoSnap();
+    const enabled = (document.getElementById('autoSnap') as HTMLInputElement | null)?.checked === true;
+    if (!enabled || !sessionLive) return;
+    const raw = Number((document.getElementById('autoSnapIntervalMs') as HTMLInputElement | null)?.value);
+    const intervalMs = Number.isFinite(raw) && raw >= 1000 ? raw : 5000;
+    autoSnapTimer = setInterval(() => {
+      requestBrowseSnap('auto');
+    }, intervalMs);
+  }
 
   function ctxStats(contextId: number): ContextStreamStats {
     let row = byContext.get(contextId);
@@ -260,6 +399,27 @@ export function bootLabClient(): void {
     surfaceWrap.classList.toggle('is-empty', empty);
   }
 
+  function showCrashOverlay(detail: string): void {
+    surfaceWrap.classList.add('is-crashed');
+    surfaceWrap.classList.remove('is-empty');
+    const overlay = $('surfaceCrash');
+    overlay.hidden = false;
+    $('surfaceCrashDetail').textContent = detail.trim() || 'unknown fault';
+    try {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+    } catch {
+      /* */
+    }
+  }
+
+  function clearCrashOverlay(): void {
+    surfaceWrap.classList.remove('is-crashed');
+    const overlay = document.getElementById('surfaceCrash');
+    if (overlay) overlay.hidden = true;
+    const detail = document.getElementById('surfaceCrashDetail');
+    if (detail) detail.textContent = '—';
+  }
+
   function measureHeader(): void {
     const h = $('labHeader').getBoundingClientRect().height;
     document.documentElement.style.setProperty('--hdr-h', `${Math.ceil(h)}px`);
@@ -305,6 +465,10 @@ export function bootLabClient(): void {
 
     ($('browseStart') as HTMLButtonElement).disabled = !open || mode !== 'browse' || sessionLive || runInFlight;
     ($('browseNavigate') as HTMLButtonElement).disabled = !open || mode !== 'browse' || !sessionLive || runInFlight;
+    ($('browseSnap') as HTMLButtonElement).disabled =
+      !open || mode !== 'browse' || !sessionLive || runInFlight || snapInFlight;
+    ($('browseValidate') as HTMLButtonElement).disabled =
+      !open || mode !== 'browse' || !sessionLive || runInFlight || browseSnapCount < 1 || snapInFlight;
     ($('browseStop') as HTMLButtonElement).disabled = !open || !sessionLive || mode !== 'browse' || runInFlight;
     ($('clearSurface') as HTMLButtonElement).disabled = !open || runInFlight;
     ($('runStart') as HTMLButtonElement).disabled = !open || mode !== 'run' || runInFlight;
@@ -379,7 +543,9 @@ export function bootLabClient(): void {
 
   function showTab(name: string): void {
     $('panelStream').hidden = name !== 'Stream';
+    $('panelDebug').hidden = name !== 'Debug';
     $('panelActivity').hidden = name !== 'Activity';
+    $('panelConsole').hidden = name !== 'Console';
     $('panelConfig').hidden = name !== 'Config';
     $('panelProgress').hidden = name !== 'Progress';
     document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
@@ -387,6 +553,46 @@ export function bootLabClient(): void {
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
+  }
+
+  function renderDebugProbe(payload: Record<string, unknown>): void {
+    const wall = typeof payload.wallMs === 'number' ? payload.wallMs : null;
+    $('dbgWall').textContent = wall != null ? String(Math.round(wall)) : '—';
+    const intentJournal = (payload.intentJournal ?? {}) as Record<string, unknown>;
+    $('dbgIntents').textContent = String(intentJournal.total ?? 0);
+    $('dbgIntentDrop').textContent = String(intentJournal.dropped ?? 0);
+    const pipe = (payload.inputPipeline ?? null) as Record<string, unknown> | null;
+    const inject = (pipe?.inject ?? null) as Record<string, unknown> | null;
+    $('dbgInjectRecv').textContent = String(inject?.received ?? pipe?.ingressReceived ?? 0);
+    $('dbgInjectDrop').textContent = String(
+      (typeof inject?.dropped === 'number' ? inject.dropped : 0)
+        + (typeof pipe?.ingressDropped === 'number' ? pipe.ingressDropped : 0),
+    );
+    $('dbgChainPeak').textContent = String(inject?.chainDepthPeak ?? 0);
+    $('dbgMoveCollapse').textContent = String(inject?.moveCollapseCount ?? 0);
+    const queue = (inject?.queueWaitMs ?? null) as { p95?: number } | null;
+    const injMs = (inject?.injectMs ?? null) as { p95?: number } | null;
+    $('dbgQueueP95').textContent =
+      queue && typeof queue.p95 === 'number' ? queue.p95.toFixed(1) : '—';
+    $('dbgInjectP95').textContent =
+      injMs && typeof injMs.p95 === 'number' ? injMs.p95.toFixed(1) : '—';
+    const metrics = (payload.metrics ?? {}) as Record<string, unknown>;
+    const fps = typeof metrics.steadyFps === 'number' ? metrics.steadyFps : null;
+    $('dbgFps').textContent = fps != null ? fps.toFixed(1) : '—';
+    $('dbgDesync').textContent = String(metrics.desyncCount ?? 0);
+    const cpuOn = payload.cpuProfiling === true;
+    const cpuRun = payload.cpuProfileStarted === true;
+    $('dbgCpu').textContent = cpuOn ? (cpuRun ? 'profiling' : 'armed') : 'off';
+    const crash = payload.crash;
+    $('dbgCrash').textContent = crash ? JSON.stringify(crash, null, 2) : 'none';
+    const last = inject?.lastOutcome ?? null;
+    $('dbgLastOutcome').textContent = last ? JSON.stringify(last, null, 2) : '—';
+    const drops = {
+      journal: intentJournal.dropsByError ?? {},
+      ingress: pipe?.ingressDropsByReason ?? {},
+      inject: inject?.dropsByReason ?? {},
+    };
+    $('dbgDrops').textContent = JSON.stringify(drops, null, 2);
   }
 
   function updateStream(): void {
@@ -402,51 +608,71 @@ export function bootLabClient(): void {
     if (root.generation !== null) $('streamGen').textContent = String(root.generation);
     if (root.lastApplyMs !== null) $('streamApplyMs').textContent = root.lastApplyMs.toFixed(1);
 
-    const tbody = $('streamContextBody');
-    tbody.replaceChildren();
+    const list = $('streamContextList');
+    list.replaceChildren();
     const ids = [...byContext.keys()].sort((a, b) => a - b);
     if (ids.length === 0) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = 11;
-      td.className = 'stream-empty';
-      td.textContent = 'No context traffic yet';
-      tr.append(td);
-      tbody.append(tr);
+      const empty = document.createElement('div');
+      empty.className = 'stream-empty';
+      empty.textContent = 'No context traffic yet';
+      list.append(empty);
       return;
     }
     for (const id of ids) {
       const s = byContext.get(id)!;
-      const tr = document.createElement('tr');
-      if (id === CONTEXT_ID_ROOT) tr.className = 'stream-root';
-      const cells = [
-        String(id),
-        String(s.wireFrames),
-        String(s.emitted),
-        String(s.applyOk),
-        s.applyFail > 0 ? String(s.applyFail) : '—',
-        String(s.desync),
-        String(s.resync),
-        s.overrun > 0 ? String(s.overrun) : '—',
-        s.lastSequence !== null ? String(s.lastSequence) : '—',
-        s.lastBuildMs !== null ? s.lastBuildMs.toFixed(1) : '—',
-        s.lastApplyMs !== null ? s.lastApplyMs.toFixed(1) : '—',
+      const card = document.createElement('article');
+      card.className = id === CONTEXT_ID_ROOT ? 'ctx-card stream-root' : 'ctx-card';
+
+      const head = document.createElement('div');
+      head.className = 'ctx-card-head';
+      const idEl = document.createElement('div');
+      idEl.className = 'ctx-id';
+      idEl.textContent = id === CONTEXT_ID_ROOT ? `ctx ${id} · root` : `ctx ${id}`;
+      const seqEl = document.createElement('div');
+      seqEl.className = 'ctx-seq';
+      seqEl.textContent = s.lastSequence !== null ? `seq ${s.lastSequence}` : 'seq —';
+      head.append(idEl, seqEl);
+
+      const stats = document.createElement('div');
+      stats.className = 'ctx-stats';
+      const rows: Array<[string, string, string?]> = [
+        ['Wire', String(s.wireFrames), 'Wire frame parts received'],
+        ['Emit', String(s.emitted), 'Virtual frameEmitted'],
+        ['Apply+', String(s.applyOk)],
+        ['Apply−', s.applyFail > 0 ? String(s.applyFail) : '—'],
+        ['Desync', String(s.desync)],
+        ['Resync', String(s.resync)],
+        ['Ovr', s.overrun > 0 ? String(s.overrun) : '—'],
+        ['Build', s.lastBuildMs !== null ? `${s.lastBuildMs.toFixed(1)} ms` : '—'],
+        ['Apply', s.lastApplyMs !== null ? `${s.lastApplyMs.toFixed(1)} ms` : '—'],
       ];
-      for (const text of cells) {
-        const td = document.createElement('td');
-        td.textContent = text;
-        tr.append(td);
+      for (const [k, v, title] of rows) {
+        const cell = document.createElement('div');
+        cell.className = 'ctx-stat';
+        if (title) cell.title = title;
+        const kEl = document.createElement('span');
+        kEl.className = 'k';
+        kEl.textContent = k;
+        const vEl = document.createElement('span');
+        vEl.className = 'v';
+        vEl.textContent = v;
+        cell.append(kEl, vEl);
+        stats.append(cell);
       }
-      tbody.append(tr);
+
+      card.append(head, stats);
+      list.append(card);
     }
   }
 
   function resetStreamCounters(): void {
     byContext.clear();
     opsTotal = 0;
+    browseSnapCount = 0;
     $('streamGen').textContent = '—';
     $('streamApplyMs').textContent = '—';
     $('streamOps').textContent = '—';
+    $('streamSnaps').textContent = '0';
     updateStream();
   }
 
@@ -454,8 +680,8 @@ export function bootLabClient(): void {
     if (projection) return projection;
     projection = new LabProjectedHarness({
       surfaceHost,
-      width: VIEWPORT.width,
-      height: VIEWPORT.height,
+      width: canonicalViewport.width,
+      height: canonicalViewport.height,
       onArmed: () => {
         bindInputSurfaces(projection!);
       },
@@ -501,6 +727,9 @@ export function bootLabClient(): void {
       },
     });
     setSurfaceEmpty(false);
+    if (canonicalViewport.width > 0 && canonicalViewport.height > 0) {
+      projection.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+    }
     return projection;
   }
 
@@ -612,9 +841,12 @@ export function bootLabClient(): void {
       phase = 'idle';
       sessionId = null;
       logActivity('ws close');
+      disposeViewportSync();
+      stopAutoSnap();
       ws = null;
       sessionLive = false;
       runInFlight = false;
+      snapInFlight = false;
       syncButtons();
     });
     ws.addEventListener('message', (ev) => {
@@ -708,6 +940,20 @@ export function bootLabClient(): void {
         );
         return;
       }
+      if (msg.type === 'session.resized') {
+        const pending = pendingResize;
+        if (pending) {
+          pendingResize = null;
+          pending.resolve({
+            applied: msg.applied === true,
+            width: typeof msg.width === 'number' ? msg.width : undefined,
+            height: typeof msg.height === 'number' ? msg.height : undefined,
+            message: typeof msg.message === 'string' ? msg.message : undefined,
+            errorCode: typeof msg.errorCode === 'string' ? msg.errorCode : undefined,
+          });
+        }
+        return;
+      }
       if (msg.type === 'session.hello') {
         sessionId = String(msg.sessionId ?? '');
         logActivity(`session.hello ${sessionId}`);
@@ -715,27 +961,95 @@ export function bootLabClient(): void {
         return;
       }
       if (msg.type === 'session.booted') {
+        clearCrashOverlay();
         sessionLive = true;
         sessionId = String(msg.sessionId ?? sessionId ?? '');
         phase = 'live';
+        browseSnapCount = 0;
+        $('streamSnaps').textContent = '0';
         logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+        startViewportSync();
+        if (msg.mode === 'browse') startAutoSnap();
         syncButtons();
         return;
       }
       if (msg.type === 'session.stopped') {
         sessionLive = false;
+        stopAutoSnap();
+        snapInFlight = false;
+        disposeViewportSync();
+        const reason = typeof msg.reason === 'string' ? msg.reason : '';
+        if (reason.startsWith('crash:') && phase !== 'fault') {
+          phase = 'fault';
+          showCrashOverlay(reason.slice('crash:'.length) || reason);
+        }
         if (!runInFlight && phase !== 'complete' && phase !== 'fault') phase = 'connected';
-        logActivity(`stopped ${msg.reason}`);
+        logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ''}`);
         syncButtons();
+        return;
+      }
+      if (msg.type === 'debug.probe') {
+        if (msg.payload && typeof msg.payload === 'object') {
+          renderDebugProbe(msg.payload as Record<string, unknown>);
+        }
         return;
       }
       if (msg.type === 'session.fault') {
         phase = 'fault';
-        setChip('chipPhase', `fault ${msg.message}`, 'danger');
-        logActivity(`fault ${msg.message}`);
+        const code = typeof msg.errorCode === 'string' ? msg.errorCode : '';
+        const detail = `${code ? `${code}: ` : ''}${msg.message}`;
+        setChip('chipPhase', `fault ${detail}`, 'danger');
+        logActivity(`fault ${detail}`);
+        if (typeof msg.dossierDir === 'string' && msg.dossierDir) {
+          logActivity(`fault dossier ${msg.dossierDir}`);
+        }
+        showCrashOverlay(detail);
+        if (msg.errorCode || msg.message) {
+          renderDebugProbe({
+            crash: {
+              errorCode: msg.errorCode,
+              message: msg.message,
+              phase: msg.phase,
+              dossierDir: msg.dossierDir,
+            },
+          });
+        }
         sessionLive = false;
         runInFlight = false;
+        stopAutoSnap();
+        snapInFlight = false;
         syncButtons();
+        return;
+      }
+      if (msg.type === 'console') {
+        const level = typeof msg.level === 'number' ? msg.level : 1;
+        const text = typeof msg.text === 'string' ? msg.text : String(msg.text ?? '');
+        logConsole(level, text);
+        if (level >= 3) logActivity(`console error ${text.slice(0, 120)}`);
+        return;
+      }
+      if (msg.type === 'snap.stored') {
+        snapInFlight = false;
+        browseSnapCount =
+          typeof msg.snapCount === 'number' ? msg.snapCount : browseSnapCount + 1;
+        $('streamSnaps').textContent = String(browseSnapCount);
+        const pass = msg.allPass === true ? 'pass' : 'fail';
+        logActivity(
+          `snap stored ${msg.id}${msg.label ? ` (${msg.label})` : ''} seq=${msg.sequence ?? '—'} ${pass} (n=${browseSnapCount})`,
+        );
+        syncButtons();
+        return;
+      }
+      if (msg.type === 'validate.result') {
+        const verdict = msg.allPass === true ? 'pass' : 'fail';
+        logActivity(
+          `validate ${verdict} snaps=${msg.snapCount} pass=${msg.pass} fail=${msg.fail} skipped=${msg.skipped}`,
+        );
+        setChip(
+          'chipPhase',
+          msg.allPass === true ? `iso pass (${msg.snapCount})` : `iso fail (${msg.fail})`,
+          msg.allPass === true ? 'ok' : 'danger',
+        );
         return;
       }
       if (msg.type === 'run.progress') {
@@ -762,6 +1076,18 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'error') {
         logActivity(`error ${msg.message}`);
+        if (msg.code === 'snapshot_failed' || msg.code === 'validate_failed') {
+          snapInFlight = false;
+          syncButtons();
+          return;
+        }
+        if (
+          msg.code === 'input_dispatch_failed'
+          || msg.code === 'input_unavailable'
+          || msg.code === 'input_dropped'
+        ) {
+          return;
+        }
         phase = 'fault';
         setChip('chipPhase', String(msg.message), 'danger');
         runInFlight = false;
@@ -791,17 +1117,44 @@ export function bootLabClient(): void {
   $('clearActivity').addEventListener('click', () => {
     $('activity').innerHTML = '';
   });
+  $('clearConsole').addEventListener('click', () => {
+    $('consoleLog').innerHTML = '';
+  });
+  (document.getElementById('autoSnap') as HTMLInputElement | null)?.addEventListener('change', () => {
+    if (sessionLive) startAutoSnap();
+    else stopAutoSnap();
+  });
+  (document.getElementById('autoSnapIntervalMs') as HTMLInputElement | null)?.addEventListener(
+    'change',
+    () => {
+      if (sessionLive) startAutoSnap();
+    },
+  );
 
   $('browseStart').addEventListener('click', () => {
+    // Measure first — never construct the projected stage at the 1280×720 default
+    // and then leave it stale when Virtual boots at the real host size.
+    clearCrashOverlay();
+    disposeViewportSync();
+    canonicalViewport = measureAndNormalizeViewport();
+    bootDeviceProfile = detectViewportDeviceProfile();
     const p = ensureProjection();
     p.resetSurface();
+    p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
     resetStreamCounters();
+    logActivity(
+      `browse.start viewport ${canonicalViewport.width}×${canonicalViewport.height}`,
+    );
     ws?.send(
       JSON.stringify({
         type: 'browse.start',
         url: urlInput.value,
+        width: canonicalViewport.width,
+        height: canonicalViewport.height,
+        device: bootDeviceProfile,
         frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
         telemetry: readTelemetryFromUi(),
+        cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
       }),
     );
   });
@@ -810,10 +1163,24 @@ export function bootLabClient(): void {
     ws?.send(JSON.stringify({ type: 'browse.navigate', url: urlInput.value }));
     logActivity(`navigate ${urlInput.value}`);
   });
+  $('browseSnap').addEventListener('click', () => {
+    requestBrowseSnap('manual');
+  });
+  $('browseValidate').addEventListener('click', () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || browseSnapCount < 1) return;
+    logActivity(`validate snaps… (n=${browseSnapCount})`);
+    ws.send(JSON.stringify({ type: 'client.validateSnaps' }));
+  });
   $('browseStop').addEventListener('click', () => {
+    stopAutoSnap();
+    snapInFlight = false;
+    syncButtons();
+    logActivity('browse.stop…');
     ws?.send(JSON.stringify({ type: 'browse.stop', exportDossier: true }));
   });
   $('clearSurface').addEventListener('click', () => {
+    clearCrashOverlay();
+    disposeViewportSync();
     if (projection) {
       projection.resetSurface();
     } else {
@@ -824,6 +1191,7 @@ export function bootLabClient(): void {
     ws?.send(JSON.stringify({ type: 'surface.clear' }));
   });
   $('runStart').addEventListener('click', () => {
+    clearCrashOverlay();
     const p = ensureProjection();
     p.resetSurface();
     runInFlight = true;

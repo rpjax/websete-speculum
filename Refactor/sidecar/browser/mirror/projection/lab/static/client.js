@@ -2630,7 +2630,7 @@
         desync: true,
         applyOverrun: true,
         clock: true,
-        cssomPoll: true,
+        cssomPoll: false,
         aggregateIntervalMs: 2e3
       };
       exports.TELEMETRY_BOOL_CAPS = [
@@ -3156,11 +3156,17 @@
       }
       function createSurfaceHost(container, opts = { width: 1280, height: 720 }) {
         container.style.position = "relative";
-        container.style.width = `${opts.width}px`;
-        container.style.height = `${opts.height}px`;
+        container.style.width = "100%";
+        container.style.height = "100%";
         container.style.overflow = "hidden";
         container.replaceChildren();
-        let activeIframe = attachBareIframe(container);
+        const stage = document.createElement("div");
+        stage.setAttribute("data-pp-surface-stage", "");
+        let cssW = Math.max(1, Math.round(opts.width));
+        let cssH = Math.max(1, Math.round(opts.height));
+        stage.style.cssText = `position:absolute;left:0;top:0;overflow:hidden;width:${cssW}px;height:${cssH}px`;
+        container.appendChild(stage);
+        let activeIframe = attachBareIframe(stage);
         let standbyIframe = null;
         return {
           get document() {
@@ -3169,7 +3175,7 @@
           beginResyncBuild() {
             if (standbyIframe !== null)
               standbyIframe.remove();
-            standbyIframe = attachBareIframe(container);
+            standbyIframe = attachBareIframe(stage);
             standbyIframe.style.visibility = "hidden";
             return docOf(standbyIframe);
           },
@@ -3196,8 +3202,17 @@
               standbyIframe.remove();
               standbyIframe = null;
             }
-            container.replaceChildren();
-            activeIframe = attachBareIframe(container);
+            stage.replaceChildren();
+            activeIframe = attachBareIframe(stage);
+          },
+          setCssSize(width, height) {
+            cssW = Math.max(1, Math.round(width));
+            cssH = Math.max(1, Math.round(height));
+            stage.style.width = `${cssW}px`;
+            stage.style.height = `${cssH}px`;
+          },
+          getCssSize() {
+            return { width: cssW, height: cssH };
           }
         };
       }
@@ -3350,6 +3365,13 @@
         get document() {
           return this.surface.document;
         }
+        /** Confirmed Virtual CSS size on the projected stage (lockstep). */
+        setCssSize(width, height) {
+          this.surface.setCssSize(width, height);
+        }
+        getCssSize() {
+          return this.surface.getCssSize();
+        }
         /** Digests of the live replicated table at the last applied sequence. */
         liveTableDigest() {
           return {
@@ -3486,11 +3508,8 @@
             onApplied: (frame, applyMs) => {
               if (state.swapped) {
                 this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
-                if (!this.armed) {
-                  this.armed = true;
-                  this.everArmed = true;
-                  this.onArmedCb?.();
-                }
+                if (!this.armed)
+                  this.notifyLiveSurfaceReady();
               } else {
                 state.swapped = true;
                 this.commitResyncSwap(frame, applyMs);
@@ -3547,11 +3566,13 @@
             attempt: built.attempt
           });
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
-          if (!this.armed) {
-            this.armed = true;
-            this.everArmed = true;
-            this.onArmedCb?.();
-          }
+          this.notifyLiveSurfaceReady();
+        }
+        /** Live document is interactive (cold arm or post-swap). Idempotent armed flag; callback may re-fire. */
+        notifyLiveSurfaceReady() {
+          this.armed = true;
+          this.everArmed = true;
+          this.onArmedCb?.();
         }
         /**
          * A resync frame's own phase 1/2 failed (frame-protocol.md: "a resync frame whose closing CHECK
@@ -3774,6 +3795,13 @@
         return null;
       }
       function attachProjectedInputCapture2(surface, registry, send, opts) {
+        const doc = surface.ownerDocument;
+        const win = doc.defaultView;
+        const liveRoot = () => doc.documentElement;
+        const inProjected = (node) => {
+          const root = liveRoot();
+          return root != null && root.contains(node);
+        };
         const fire = (intent2) => {
           if (!opts.isArmed())
             return;
@@ -3782,6 +3810,7 @@
         const intent = (type, nodeId, payload) => ({
           schemaVersion: intentTypes_1.INTENT_SCHEMA_VERSION,
           contextId: opts.contextId,
+          // Journal/debug only — sidecar does not gate dispatch on generation.
           generation: opts.getGeneration(),
           type,
           nodeId,
@@ -3789,15 +3818,14 @@
           payload
         });
         const nodeIdAtPoint = (clientX, clientY) => {
-          const parentDoc = surface.ownerDocument;
           let stack;
           try {
-            stack = parentDoc.elementsFromPoint(clientX, clientY);
+            stack = doc.elementsFromPoint(clientX, clientY);
           } catch {
             stack = [];
           }
           for (const node of stack) {
-            if (tagName(node) !== "IFRAME" || !surface.contains(node))
+            if (tagName(node) !== "IFRAME" || !inProjected(node))
               continue;
             const childDoc = node.contentDocument;
             if (!childDoc)
@@ -3815,7 +3843,7 @@
             if (hit != null)
               return hit;
           }
-          return pickInteractiveId(stack.filter((n) => surface.contains(n)));
+          return pickInteractiveId(stack.filter((n) => inProjected(n)));
         };
         const pickInteractiveId = (stack) => {
           let fallback = null;
@@ -3842,14 +3870,17 @@
           return registry.idOfNearest(target) ?? null;
         };
         const surfaceCoords = (event) => {
-          const rect = surface.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0)
+          if (!win)
+            return null;
+          const visW = win.innerWidth;
+          const visH = win.innerHeight;
+          if (visW <= 0 || visH <= 0)
             return null;
           const { width: vw, height: vh } = opts.getViewportSize();
           if (vw <= 0 || vh <= 0)
             return null;
-          const x = (event.clientX - rect.left) * (vw / rect.width);
-          const y = (event.clientY - rect.top) * (vh / rect.height);
+          const x = event.clientX * (vw / visW);
+          const y = event.clientY * (vh / visH);
           return { x: Math.min(Math.max(x, 0), vw), y: Math.min(Math.max(y, 0), vh) };
         };
         const basePayload = (event, extra = {}) => {
@@ -3969,13 +4000,11 @@
           if (!opts.isArmed())
             return;
           const el = event.target;
-          const doc2 = surface.ownerDocument;
-          const win2 = doc2.defaultView;
-          if (el === doc2 || el === win2 || isElement(el) && el === doc2.scrollingElement) {
-            if (!win2)
+          if (el === doc || el === win || isElement(el) && el === doc.scrollingElement) {
+            if (!win)
               return;
-            const top2 = win2.scrollY || doc2.scrollingElement?.scrollTop || 0;
-            const left2 = win2.scrollX || doc2.scrollingElement?.scrollLeft || 0;
+            const top2 = win.scrollY || doc.scrollingElement?.scrollTop || 0;
+            const left2 = win.scrollX || doc.scrollingElement?.scrollLeft || 0;
             if (opts.consumeScrollEcho?.("viewport", { top: top2, left: left2 })) {
               opts.onProgrammaticScrollSuppress?.("viewport");
               return;
@@ -4016,45 +4045,41 @@
             return;
           fire(intent("blur", nodeId, "{}"));
         };
-        const doc = surface.ownerDocument;
-        const win = doc.defaultView;
-        surface.addEventListener("pointermove", onPointerMove);
-        surface.addEventListener("pointerdown", onPointerDown);
-        surface.addEventListener("pointerup", onPointerUp);
-        surface.addEventListener("click", onClick, true);
-        surface.addEventListener("submit", onSubmit, true);
-        surface.addEventListener("contextmenu", onContextMenu, true);
-        surface.addEventListener("wheel", onWheel, { passive: false });
-        surface.addEventListener("input", onInput, true);
-        surface.addEventListener("change", onInput, true);
-        surface.addEventListener("keydown", onKey, true);
-        surface.addEventListener("keyup", onKey, true);
-        surface.addEventListener("scroll", onScroll, true);
+        doc.addEventListener("pointermove", onPointerMove, true);
+        doc.addEventListener("pointerdown", onPointerDown, true);
+        doc.addEventListener("pointerup", onPointerUp, true);
+        doc.addEventListener("click", onClick, true);
+        doc.addEventListener("submit", onSubmit, true);
+        doc.addEventListener("contextmenu", onContextMenu, true);
+        doc.addEventListener("wheel", onWheel, { capture: true, passive: true });
+        doc.addEventListener("input", onInput, true);
+        doc.addEventListener("change", onInput, true);
+        doc.addEventListener("keydown", onKey, true);
+        doc.addEventListener("keyup", onKey, true);
         doc.addEventListener("scroll", onScroll, true);
         win?.addEventListener("scroll", onScroll, true);
-        surface.addEventListener("focusin", onFocusIn, true);
-        surface.addEventListener("focusout", onFocusOut, true);
+        doc.addEventListener("focusin", onFocusIn, true);
+        doc.addEventListener("focusout", onFocusOut, true);
         return () => {
           if (moveRaf)
             cancelAnimationFrame(moveRaf);
           if (scrollRaf)
             cancelAnimationFrame(scrollRaf);
-          surface.removeEventListener("pointermove", onPointerMove);
-          surface.removeEventListener("pointerdown", onPointerDown);
-          surface.removeEventListener("pointerup", onPointerUp);
-          surface.removeEventListener("click", onClick, true);
-          surface.removeEventListener("submit", onSubmit, true);
-          surface.removeEventListener("contextmenu", onContextMenu, true);
-          surface.removeEventListener("wheel", onWheel);
-          surface.removeEventListener("input", onInput, true);
-          surface.removeEventListener("change", onInput, true);
-          surface.removeEventListener("keydown", onKey, true);
-          surface.removeEventListener("keyup", onKey, true);
-          surface.removeEventListener("scroll", onScroll, true);
+          doc.removeEventListener("pointermove", onPointerMove, true);
+          doc.removeEventListener("pointerdown", onPointerDown, true);
+          doc.removeEventListener("pointerup", onPointerUp, true);
+          doc.removeEventListener("click", onClick, true);
+          doc.removeEventListener("submit", onSubmit, true);
+          doc.removeEventListener("contextmenu", onContextMenu, true);
+          doc.removeEventListener("wheel", onWheel, true);
+          doc.removeEventListener("input", onInput, true);
+          doc.removeEventListener("change", onInput, true);
+          doc.removeEventListener("keydown", onKey, true);
+          doc.removeEventListener("keyup", onKey, true);
           doc.removeEventListener("scroll", onScroll, true);
           win?.removeEventListener("scroll", onScroll, true);
-          surface.removeEventListener("focusin", onFocusIn, true);
-          surface.removeEventListener("focusout", onFocusOut, true);
+          doc.removeEventListener("focusin", onFocusIn, true);
+          doc.removeEventListener("focusout", onFocusOut, true);
         };
       }
       exports.attachProjectedInputCapture = attachProjectedInputCapture2;
@@ -4062,6 +4087,524 @@
         return attachProjectedInputCapture2(surface, registry, send, opts);
       }
       exports.attachNestedProjectedInputCapture = attachNestedProjectedInputCapture;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/input/scrollEchoGate.js
+  var require_scrollEchoGate = __commonJS({
+    "../packages/page-projection/dist/projected/input/scrollEchoGate.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ScrollEchoGate = void 0;
+      var DEFAULT_TOLERANCE_PX = 2;
+      var DEFAULT_TTL_MS = 400;
+      var ScrollEchoGate2 = class {
+        pending = /* @__PURE__ */ new Map();
+        tolerancePx;
+        ttlMs;
+        constructor(opts) {
+          this.tolerancePx = opts?.tolerancePx ?? DEFAULT_TOLERANCE_PX;
+          this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
+        }
+        key(target) {
+          return target === "viewport" ? "viewport" : `el:${target}`;
+        }
+        /** Mark an upcoming programmatic scroll so the next matching sensor is swallowed. */
+        expect(target, pos) {
+          this.pending.set(this.key(target), {
+            top: pos.top,
+            left: pos.left,
+            expiresAt: Date.now() + this.ttlMs
+          });
+        }
+        /**
+         * @returns true when the observed scroll matches a pending expect (caller should not send intent).
+         */
+        consume(target, observed) {
+          const k = this.key(target);
+          const p = this.pending.get(k);
+          if (!p)
+            return false;
+          if (Date.now() > p.expiresAt) {
+            this.pending.delete(k);
+            return false;
+          }
+          const close = Math.abs(p.top - observed.top) <= this.tolerancePx && Math.abs(p.left - observed.left) <= this.tolerancePx;
+          if (!close)
+            return false;
+          this.pending.delete(k);
+          return true;
+        }
+        clear() {
+          this.pending.clear();
+        }
+      };
+      exports.ScrollEchoGate = ScrollEchoGate2;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/formControlSnapshot.js
+  var require_formControlSnapshot = __commonJS({
+    "../packages/page-projection/dist/projected/formControlSnapshot.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.snapshotFormControls = void 0;
+      var SKIP_INPUT_TYPES = /* @__PURE__ */ new Set(["file", "button", "submit", "reset", "image"]);
+      function snapshotFormControls2(doc) {
+        const out = [];
+        const nodes = doc.querySelectorAll("input, textarea, option");
+        for (let i = 0; i < nodes.length; i++) {
+          const el = nodes[i];
+          const snap = snapshotOne(el);
+          if (snap)
+            out.push(snap);
+        }
+        out.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+        return out;
+      }
+      exports.snapshotFormControls = snapshotFormControls2;
+      function snapshotOne(el) {
+        const tag = el.tagName;
+        if (tag === "TEXTAREA") {
+          const key2 = el.id || null;
+          if (!key2)
+            return null;
+          return { key: key2, value: el.value };
+        }
+        if (tag === "OPTION") {
+          const select = el.closest("select");
+          const selectId = select?.id || "";
+          const value = el.value;
+          if (!selectId && !value)
+            return null;
+          return { key: `option:${selectId}:${value}`, selected: el.selected };
+        }
+        if (tag !== "INPUT")
+          return null;
+        const input = el;
+        const type = (input.type || "text").toLowerCase();
+        if (SKIP_INPUT_TYPES.has(type))
+          return null;
+        const key = el.id || null;
+        if (!key)
+          return null;
+        if (type === "checkbox" || type === "radio")
+          return { key, checked: input.checked };
+        return { key, value: input.value };
+      }
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/viewportPolicy.js
+  var require_viewportPolicy = __commonJS({
+    "../packages/page-projection/dist/projected/viewportPolicy.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.measureHostElement = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.viewportSizesClose = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = void 0;
+      exports.VIEWPORT_POLICY_BASELINE = {
+        minWidth: 100,
+        minHeight: 100,
+        maxWidth: 4096,
+        maxHeight: 2160,
+        defaultWidth: 1280,
+        defaultHeight: 720
+      };
+      exports.LAB_VIEWPORT_POLICY = {
+        ...exports.VIEWPORT_POLICY_BASELINE
+      };
+      exports.VIEWPORT_SIZE_EPSILON = 2;
+      function viewportSizesClose(aW, aH, bW, bH, epsilon = exports.VIEWPORT_SIZE_EPSILON) {
+        return Math.abs(aW - bW) <= epsilon && Math.abs(aH - bH) <= epsilon;
+      }
+      exports.viewportSizesClose = viewportSizesClose;
+      function normalizeSessionViewport2(width, height, policy) {
+        const defaultW = policy.defaultWidth ?? policy.minWidth;
+        const defaultH = policy.defaultHeight ?? policy.minHeight;
+        let w = width > 0 ? Math.round(width) : defaultW;
+        let h = height > 0 ? Math.round(height) : defaultH;
+        w = Math.min(policy.maxWidth, Math.max(policy.minWidth, w));
+        h = Math.min(policy.maxHeight, Math.max(policy.minHeight, h));
+        return { width: w, height: h };
+      }
+      exports.normalizeSessionViewport = normalizeSessionViewport2;
+      function validateResizeViewport(width, height, policy) {
+        const w = Math.round(width);
+        const h = Math.round(height);
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w < policy.minWidth || h < policy.minHeight) {
+          return {
+            ok: false,
+            message: `viewport ${w}\xD7${h} below minimum ${policy.minWidth}\xD7${policy.minHeight}`
+          };
+        }
+        if (w > policy.maxWidth || h > policy.maxHeight) {
+          return {
+            ok: false,
+            message: `viewport ${w}\xD7${h} above maximum ${policy.maxWidth}\xD7${policy.maxHeight}`
+          };
+        }
+        return { ok: true, width: w, height: h };
+      }
+      exports.validateResizeViewport = validateResizeViewport;
+      function measureHostElement2(el) {
+        if (!el) {
+          return { width: 0, height: 0 };
+        }
+        return {
+          width: Math.round(el.clientWidth),
+          height: Math.round(el.clientHeight)
+        };
+      }
+      exports.measureHostElement = measureHostElement2;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/viewportDevice.js
+  var require_viewportDevice = __commonJS({
+    "../packages/page-projection/dist/projected/viewportDevice.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.detectViewportDeviceProfile = exports.deviceProfilesEqual = void 0;
+      function deviceProfilesEqual(a, b) {
+        return a.mobile === b.mobile && a.touch === b.touch && a.deviceScaleFactor === b.deviceScaleFactor && a.maxTouchPoints === b.maxTouchPoints && a.userAgentProfile === b.userAgentProfile && a.deviceCategory === b.deviceCategory && a.screenOrientation === b.screenOrientation;
+      }
+      exports.deviceProfilesEqual = deviceProfilesEqual;
+      function detectViewportDeviceProfile2() {
+        const coarse = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+        const hoverNone = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: none)").matches;
+        const maxTouch = typeof navigator !== "undefined" ? navigator.maxTouchPoints || 0 : 0;
+        const touchCapable = coarse || maxTouch > 0;
+        let uaMobile = false;
+        let uaTablet = false;
+        try {
+          const uaData = navigator.userAgentData;
+          const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+          if (typeof uaData?.mobile === "boolean")
+            uaMobile = uaData.mobile;
+          else
+            uaMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+          uaTablet = /iPad|Tablet|Android(?!.*Mobile)/i.test(ua) || uaMobile === false && touchCapable && Math.min(window.screen?.width ?? 0, window.screen?.height ?? 0) >= 600 && Math.max(window.screen?.width ?? 0, window.screen?.height ?? 0) >= 900;
+        } catch {
+        }
+        const phone = uaMobile && !uaTablet || coarse && hoverNone && !uaTablet;
+        const tablet = uaTablet || !phone && coarse && hoverNone && maxTouch > 0;
+        const mobile = phone || tablet;
+        const touch = touchCapable || mobile;
+        let dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+        if (!Number.isFinite(dpr) || dpr < 1)
+          dpr = 1;
+        if (dpr > 2)
+          dpr = 2;
+        let orientation;
+        try {
+          orientation = window.screen?.orientation?.type;
+        } catch {
+        }
+        const deviceCategory = phone ? "phone" : tablet ? "tablet" : "pc";
+        return {
+          mobile,
+          touch,
+          deviceScaleFactor: dpr,
+          maxTouchPoints: maxTouch,
+          userAgentProfile: phone ? "mobile" : tablet ? "tablet" : "desktop",
+          deviceCategory,
+          screenOrientation: orientation
+        };
+      }
+      exports.detectViewportDeviceProfile = detectViewportDeviceProfile2;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/viewportSync.js
+  var require_viewportSync = __commonJS({
+    "../packages/page-projection/dist/projected/viewportSync.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.measureHostElement = exports.ViewportSync = void 0;
+      var viewportPolicy_1 = require_viewportPolicy();
+      Object.defineProperty(exports, "measureHostElement", { enumerable: true, get: function() {
+        return viewportPolicy_1.measureHostElement;
+      } });
+      var viewportDevice_1 = require_viewportDevice();
+      var ViewportSync2 = class _ViewportSync {
+        measure;
+        resize;
+        viewportPolicy;
+        debounceMs;
+        isDeferred;
+        onApplied;
+        onRejected;
+        detectDevice;
+        remoteW = 0;
+        remoteH = 0;
+        deviceProfile = (0, viewportDevice_1.detectViewportDeviceProfile)();
+        resizeTimer = null;
+        resizeInFlight = false;
+        pending = false;
+        consecutiveRejects = 0;
+        observer = null;
+        viewportListenersAttached = false;
+        disposed = false;
+        /** Cap automatic retries after applied:false / throw so permanent faults do not spin. */
+        static MAX_REJECT_RETRIES = 5;
+        constructor(options) {
+          this.measure = options.measure;
+          this.resize = options.resize;
+          this.viewportPolicy = options.viewportPolicy;
+          this.debounceMs = options.debounceMs ?? 320;
+          this.isDeferred = options.isDeferred ?? (() => false);
+          this.onApplied = options.onApplied;
+          this.onRejected = options.onRejected;
+          this.detectDevice = options.detectDevice ?? viewportDevice_1.detectViewportDeviceProfile;
+        }
+        /** Last confirmed remote viewport (after applied resize / seed from start). */
+        get remoteSize() {
+          return { width: this.remoteW, height: this.remoteH };
+        }
+        get remoteDevice() {
+          return this.deviceProfile;
+        }
+        /** Seed confirmed size after Start / boot (already measured for launch). */
+        seedRemote(width, height, device) {
+          this.remoteW = width;
+          this.remoteH = height;
+          this.consecutiveRejects = 0;
+          if (device) {
+            this.deviceProfile = device;
+          }
+          this.onApplied?.({ width: this.remoteW, height: this.remoteH }, this.deviceProfile);
+        }
+        /** Observe the CSS layout host — never the inner surface stage / iframe. */
+        observe(element) {
+          this.observer?.disconnect();
+          this.observer = new ResizeObserver(() => {
+            const size = this.measure();
+            this.schedule(size.width, size.height);
+          });
+          this.observer.observe(element);
+          this.attachViewportListeners();
+        }
+        /**
+         * Debounced remote resize. Coalesces while in flight; flushes latest on complete.
+         * No-ops when within ε of the confirmed remote size and device is unchanged.
+         */
+        schedule(rawW, rawH) {
+          if (this.disposed) {
+            return;
+          }
+          if (this.isDeferred()) {
+            this.pending = true;
+            return;
+          }
+          if (this.resizeInFlight) {
+            this.pending = true;
+            return;
+          }
+          const validated = (0, viewportPolicy_1.validateResizeViewport)(rawW, rawH, this.viewportPolicy);
+          if (!validated.ok) {
+            return;
+          }
+          const { width: w, height: h } = validated;
+          const nextProfile = this.detectDevice();
+          if ((0, viewportPolicy_1.viewportSizesClose)(w, h, this.remoteW, this.remoteH) && (0, viewportDevice_1.deviceProfilesEqual)(this.deviceProfile, nextProfile)) {
+            return;
+          }
+          if (this.resizeTimer) {
+            clearTimeout(this.resizeTimer);
+          }
+          const delay = this.rejectBackoffMs();
+          this.resizeTimer = setTimeout(() => {
+            void this.invoke();
+          }, delay);
+        }
+        /** After IME closes (or deferral clears), apply any layout change deferred. */
+        flushPending() {
+          if (!this.pending || this.isDeferred() || this.disposed) {
+            return;
+          }
+          this.pending = false;
+          const size = this.measure();
+          this.schedule(size.width, size.height);
+        }
+        dispose() {
+          this.disposed = true;
+          if (this.resizeTimer) {
+            clearTimeout(this.resizeTimer);
+            this.resizeTimer = null;
+          }
+          this.observer?.disconnect();
+          this.observer = null;
+          this.detachViewportListeners();
+        }
+        onViewportEnvChange = () => {
+          const size = this.measure();
+          this.schedule(size.width, size.height);
+        };
+        attachViewportListeners() {
+          if (this.viewportListenersAttached || typeof window === "undefined") {
+            return;
+          }
+          this.viewportListenersAttached = true;
+          window.addEventListener("resize", this.onViewportEnvChange);
+          const vv = window.visualViewport;
+          if (vv) {
+            vv.addEventListener("resize", this.onViewportEnvChange);
+            vv.addEventListener("scroll", this.onViewportEnvChange);
+          }
+        }
+        detachViewportListeners() {
+          if (!this.viewportListenersAttached || typeof window === "undefined") {
+            return;
+          }
+          this.viewportListenersAttached = false;
+          window.removeEventListener("resize", this.onViewportEnvChange);
+          const vv = window.visualViewport;
+          if (vv) {
+            vv.removeEventListener("resize", this.onViewportEnvChange);
+            vv.removeEventListener("scroll", this.onViewportEnvChange);
+          }
+        }
+        rejectBackoffMs() {
+          if (this.consecutiveRejects <= 0) {
+            return this.debounceMs;
+          }
+          const factor = Math.min(8, 2 ** Math.min(this.consecutiveRejects, 3));
+          return Math.min(2e3, this.debounceMs * factor);
+        }
+        async invoke() {
+          if (this.disposed || this.resizeInFlight) {
+            return;
+          }
+          if (this.isDeferred()) {
+            this.pending = true;
+            return;
+          }
+          const latest = this.measure();
+          const validated = (0, viewportPolicy_1.validateResizeViewport)(latest.width, latest.height, this.viewportPolicy);
+          if (!validated.ok) {
+            return;
+          }
+          const targetW = validated.width;
+          const targetH = validated.height;
+          const profile = this.detectDevice();
+          if ((0, viewportPolicy_1.viewportSizesClose)(targetW, targetH, this.remoteW, this.remoteH) && (0, viewportDevice_1.deviceProfilesEqual)(this.deviceProfile, profile)) {
+            this.consecutiveRejects = 0;
+            return;
+          }
+          this.resizeInFlight = true;
+          try {
+            const result = await this.resize({ width: targetW, height: targetH }, profile);
+            if (this.disposed) {
+              return;
+            }
+            if (result.applied) {
+              this.remoteW = targetW;
+              this.remoteH = targetH;
+              this.deviceProfile = profile;
+              this.consecutiveRejects = 0;
+              this.onApplied?.({ width: targetW, height: targetH }, profile);
+            } else {
+              const detail = result.message || result.errorCode || "resize rejected";
+              this.onRejected?.(String(detail));
+              this.consecutiveRejects++;
+              if (this.consecutiveRejects <= _ViewportSync.MAX_REJECT_RETRIES) {
+                this.pending = true;
+              }
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.onRejected?.(message);
+            this.consecutiveRejects++;
+            if (this.consecutiveRejects <= _ViewportSync.MAX_REJECT_RETRIES) {
+              this.pending = true;
+            }
+          } finally {
+            this.resizeInFlight = false;
+            if (this.pending && !this.isDeferred() && !this.disposed) {
+              this.pending = false;
+              const size = this.measure();
+              this.schedule(size.width, size.height);
+            }
+          }
+        }
+      };
+      exports.ViewportSync = ViewportSync2;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/index.js
+  var require_projected = __commonJS({
+    "../packages/page-projection/dist/projected/index.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      var ProjectionClient_1 = require_ProjectionClient();
+      Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
+        return ProjectionClient_1.ProjectionClient;
+      } });
+      Object.defineProperty(exports, "createProjectionClient", { enumerable: true, get: function() {
+        return ProjectionClient_1.createProjectionClient;
+      } });
+      var applyDom_1 = require_applyDom();
+      Object.defineProperty(exports, "DomFrameApplier", { enumerable: true, get: function() {
+        return applyDom_1.DomFrameApplier;
+      } });
+      var registry_1 = require_registry();
+      Object.defineProperty(exports, "PageProjectionRegistry", { enumerable: true, get: function() {
+        return registry_1.PageProjectionRegistry;
+      } });
+      var surface_1 = require_surface();
+      Object.defineProperty(exports, "createSurfaceHost", { enumerable: true, get: function() {
+        return surface_1.createSurfaceHost;
+      } });
+      var nestedProjectedApply_1 = require_nestedProjectedApply();
+      Object.defineProperty(exports, "NestedProjectedApply", { enumerable: true, get: function() {
+        return nestedProjectedApply_1.NestedProjectedApply;
+      } });
+      var projectedInputCapture_1 = require_projectedInputCapture();
+      Object.defineProperty(exports, "attachProjectedInputCapture", { enumerable: true, get: function() {
+        return projectedInputCapture_1.attachProjectedInputCapture;
+      } });
+      var scrollEchoGate_1 = require_scrollEchoGate();
+      Object.defineProperty(exports, "ScrollEchoGate", { enumerable: true, get: function() {
+        return scrollEchoGate_1.ScrollEchoGate;
+      } });
+      var formControlSnapshot_1 = require_formControlSnapshot();
+      Object.defineProperty(exports, "snapshotFormControls", { enumerable: true, get: function() {
+        return formControlSnapshot_1.snapshotFormControls;
+      } });
+      var viewportSync_1 = require_viewportSync();
+      Object.defineProperty(exports, "ViewportSync", { enumerable: true, get: function() {
+        return viewportSync_1.ViewportSync;
+      } });
+      Object.defineProperty(exports, "measureHostElement", { enumerable: true, get: function() {
+        return viewportSync_1.measureHostElement;
+      } });
+      var viewportPolicy_1 = require_viewportPolicy();
+      Object.defineProperty(exports, "VIEWPORT_POLICY_BASELINE", { enumerable: true, get: function() {
+        return viewportPolicy_1.VIEWPORT_POLICY_BASELINE;
+      } });
+      Object.defineProperty(exports, "LAB_VIEWPORT_POLICY", { enumerable: true, get: function() {
+        return viewportPolicy_1.LAB_VIEWPORT_POLICY;
+      } });
+      Object.defineProperty(exports, "VIEWPORT_SIZE_EPSILON", { enumerable: true, get: function() {
+        return viewportPolicy_1.VIEWPORT_SIZE_EPSILON;
+      } });
+      Object.defineProperty(exports, "normalizeSessionViewport", { enumerable: true, get: function() {
+        return viewportPolicy_1.normalizeSessionViewport;
+      } });
+      Object.defineProperty(exports, "validateResizeViewport", { enumerable: true, get: function() {
+        return viewportPolicy_1.validateResizeViewport;
+      } });
+      Object.defineProperty(exports, "viewportSizesClose", { enumerable: true, get: function() {
+        return viewportPolicy_1.viewportSizesClose;
+      } });
+      var viewportDevice_1 = require_viewportDevice();
+      Object.defineProperty(exports, "detectViewportDeviceProfile", { enumerable: true, get: function() {
+        return viewportDevice_1.detectViewportDeviceProfile;
+      } });
+      Object.defineProperty(exports, "deviceProfilesEqual", { enumerable: true, get: function() {
+        return viewportDevice_1.deviceProfilesEqual;
+      } });
     }
   });
 
@@ -4137,58 +4680,6 @@
         for (let i = 0; i < children.length; i++)
           out.push(walkNode(children[i]));
         return out;
-      }
-    }
-  });
-
-  // ../packages/page-projection/dist/projected/formControlSnapshot.js
-  var require_formControlSnapshot = __commonJS({
-    "../packages/page-projection/dist/projected/formControlSnapshot.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.snapshotFormControls = void 0;
-      var SKIP_INPUT_TYPES = /* @__PURE__ */ new Set(["file", "button", "submit", "reset", "image"]);
-      function snapshotFormControls2(doc) {
-        const out = [];
-        const nodes = doc.querySelectorAll("input, textarea, option");
-        for (let i = 0; i < nodes.length; i++) {
-          const el = nodes[i];
-          const snap = snapshotOne(el);
-          if (snap)
-            out.push(snap);
-        }
-        out.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-        return out;
-      }
-      exports.snapshotFormControls = snapshotFormControls2;
-      function snapshotOne(el) {
-        const tag = el.tagName;
-        if (tag === "TEXTAREA") {
-          const key2 = el.id || null;
-          if (!key2)
-            return null;
-          return { key: key2, value: el.value };
-        }
-        if (tag === "OPTION") {
-          const select = el.closest("select");
-          const selectId = select?.id || "";
-          const value = el.value;
-          if (!selectId && !value)
-            return null;
-          return { key: `option:${selectId}:${value}`, selected: el.selected };
-        }
-        if (tag !== "INPUT")
-          return null;
-        const input = el;
-        const type = (input.type || "text").toLowerCase();
-        if (SKIP_INPUT_TYPES.has(type))
-          return null;
-        const key = el.id || null;
-        if (!key)
-          return null;
-        if (type === "checkbox" || type === "radio")
-          return { key, checked: input.checked };
-        return { key, value: input.value };
       }
     }
   });
@@ -4309,6 +4800,8 @@
 
   // browser/mirror/projection/lab/client/main.ts
   var import_projectedInputCapture = __toESM(require_projectedInputCapture());
+  var import_scrollEchoGate = __toESM(require_scrollEchoGate());
+  var import_projected = __toESM(require_projected());
   var import_domTreeSnapshot = __toESM(require_domTreeSnapshot());
   var import_formControlSnapshot = __toESM(require_formControlSnapshot());
   var import_decode = __toESM(require_decode());
@@ -4395,6 +4888,22 @@
     box.prepend(row);
     while (box.childElementCount > 200) box.lastChild?.remove();
   }
+  function logConsole(level, text) {
+    const row = document.createElement("div");
+    const lvl = level >= 3 ? "lvl-3" : level === 2 ? "lvl-2" : "lvl-1";
+    row.className = lvl;
+    const tag = level >= 3 ? "error" : level === 2 ? "warn" : "log";
+    row.textContent = `${(/* @__PURE__ */ new Date()).toISOString().slice(11, 19)} [${tag}] ${text}`;
+    const box = $("consoleLog");
+    box.prepend(row);
+    while (box.childElementCount > 400) box.lastChild?.remove();
+  }
+  function formatIntentShort(intent) {
+    const rec = intent;
+    const kind = typeof rec.type === "string" ? rec.type : typeof rec.kind === "string" ? rec.kind : typeof rec.op === "string" ? rec.op : "intent";
+    const id = rec.targetId ?? rec.nodeId ?? rec.id;
+    return id != null ? `${kind}#${id}` : kind;
+  }
   function readTelemetryFromUi() {
     const cfg = { ...import_telemetry.LAB_TELEMETRY_DEFAULTS };
     for (const key of import_telemetry.TELEMETRY_BOOL_CAPS) {
@@ -4416,23 +4925,85 @@
     let ws = null;
     let projection = null;
     const inputDetachers = /* @__PURE__ */ new Map();
-    const VIEWPORT = { width: 1280, height: 720 };
+    let canonicalViewport = { width: 1280, height: 720 };
+    let viewportSync = null;
+    let pendingResize = null;
+    let bootDeviceProfile = (0, import_projected.detectViewportDeviceProfile)();
+    function disposeViewportSync() {
+      viewportSync?.dispose();
+      viewportSync = null;
+      if (pendingResize) {
+        pendingResize.resolve({ applied: false, message: "sync disposed", errorCode: "disposed" });
+        pendingResize = null;
+      }
+    }
+    function requestRemoteResize(size, device) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return Promise.resolve({
+          applied: false,
+          message: "ws not open",
+          errorCode: "ws_closed"
+        });
+      }
+      return new Promise((resolve) => {
+        if (pendingResize) {
+          pendingResize.resolve({ applied: false, message: "superseded", errorCode: "superseded" });
+        }
+        pendingResize = { resolve };
+        ws.send(
+          JSON.stringify({
+            type: "client.resize",
+            width: size.width,
+            height: size.height,
+            device
+          })
+        );
+      });
+    }
+    function startViewportSync() {
+      disposeViewportSync();
+      projection?.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+      const sync = new import_projected.ViewportSync({
+        measure: () => (0, import_projected.measureHostElement)(surfaceHost),
+        resize: requestRemoteResize,
+        viewportPolicy: import_projected.LAB_VIEWPORT_POLICY,
+        onApplied: (size) => {
+          canonicalViewport = size;
+          projection?.client.setCssSize(size.width, size.height);
+          logActivity(`viewport ${size.width}\xD7${size.height}`);
+        },
+        onRejected: (detail) => {
+          logActivity(`viewport resize rejected: ${detail}`);
+        }
+      });
+      sync.seedRemote(canonicalViewport.width, canonicalViewport.height, bootDeviceProfile);
+      sync.observe(surfaceHost);
+      viewportSync = sync;
+    }
+    function measureAndNormalizeViewport() {
+      const measured = (0, import_projected.measureHostElement)(surfaceHost);
+      return (0, import_projected.normalizeSessionViewport)(measured.width, measured.height, import_projected.LAB_VIEWPORT_POLICY);
+    }
     function sendInputIntent(intent) {
+      if (surfaceWrap.classList.contains("is-crashed")) return;
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "client.intent", intent }));
+        logActivity(`intent ${formatIntentShort(intent)}`);
       }
     }
     function bindInputSurfaces(client) {
       for (const detach of inputDetachers.values()) detach();
       inputDetachers.clear();
+      const scrollEcho = new import_scrollEchoGate.ScrollEchoGate();
       const rootSurface = client.document.documentElement;
       if (rootSurface && rootSurface.nodeType === 1) {
         const detach = (0, import_projectedInputCapture.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
           contextId: import_frame2.CONTEXT_ID_ROOT,
           getGeneration: () => client.getGeneration(),
-          getViewportSize: () => VIEWPORT,
+          getViewportSize: () => canonicalViewport,
           isArmed: () => client.isArmed,
-          onMarkPropDirty: (id) => client.markPropDirty(id)
+          onMarkPropDirty: (id) => client.markPropDirty(id),
+          consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed)
         });
         inputDetachers.set(import_frame2.CONTEXT_ID_ROOT, detach);
       }
@@ -4447,10 +5018,11 @@
             const win = nestedDoc?.defaultView;
             const w = win?.innerWidth ?? 0;
             const h = win?.innerHeight ?? 0;
-            return w > 0 && h > 0 ? { width: w, height: h } : VIEWPORT;
+            return w > 0 && h > 0 ? { width: w, height: h } : canonicalViewport;
           },
           isArmed: info.isArmed,
-          onMarkPropDirty: info.markPropDirty
+          onMarkPropDirty: info.markPropDirty,
+          consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed)
         });
         inputDetachers.set(info.contextId, detach);
       });
@@ -4461,7 +5033,32 @@
     let sessionId = null;
     let phase = "idle";
     let opsTotal = 0;
+    let browseSnapCount = 0;
+    let snapInFlight = false;
+    let autoSnapTimer = null;
     const byContext = /* @__PURE__ */ new Map();
+    function stopAutoSnap() {
+      if (autoSnapTimer) {
+        clearInterval(autoSnapTimer);
+        autoSnapTimer = null;
+      }
+    }
+    function requestBrowseSnap(label) {
+      if (!ws || ws.readyState !== WebSocket.OPEN || !sessionLive || snapInFlight) return;
+      snapInFlight = true;
+      syncButtons();
+      ws.send(JSON.stringify({ type: "client.snapshot", label }));
+    }
+    function startAutoSnap() {
+      stopAutoSnap();
+      const enabled = document.getElementById("autoSnap")?.checked === true;
+      if (!enabled || !sessionLive) return;
+      const raw = Number(document.getElementById("autoSnapIntervalMs")?.value);
+      const intervalMs = Number.isFinite(raw) && raw >= 1e3 ? raw : 5e3;
+      autoSnapTimer = setInterval(() => {
+        requestBrowseSnap("auto");
+      }, intervalMs);
+    }
     function ctxStats(contextId) {
       let row = byContext.get(contextId);
       if (!row) {
@@ -4507,6 +5104,24 @@
     function setSurfaceEmpty(empty) {
       surfaceWrap.classList.toggle("is-empty", empty);
     }
+    function showCrashOverlay(detail) {
+      surfaceWrap.classList.add("is-crashed");
+      surfaceWrap.classList.remove("is-empty");
+      const overlay = $("surfaceCrash");
+      overlay.hidden = false;
+      $("surfaceCrashDetail").textContent = detail.trim() || "unknown fault";
+      try {
+        document.activeElement?.blur?.();
+      } catch {
+      }
+    }
+    function clearCrashOverlay() {
+      surfaceWrap.classList.remove("is-crashed");
+      const overlay = document.getElementById("surfaceCrash");
+      if (overlay) overlay.hidden = true;
+      const detail = document.getElementById("surfaceCrashDetail");
+      if (detail) detail.textContent = "\u2014";
+    }
     function measureHeader() {
       const h = $("labHeader").getBoundingClientRect().height;
       document.documentElement.style.setProperty("--hdr-h", `${Math.ceil(h)}px`);
@@ -4535,6 +5150,8 @@
       $("disconnect").disabled = !open;
       $("browseStart").disabled = !open || mode !== "browse" || sessionLive || runInFlight;
       $("browseNavigate").disabled = !open || mode !== "browse" || !sessionLive || runInFlight;
+      $("browseSnap").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || snapInFlight;
+      $("browseValidate").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || browseSnapCount < 1 || snapInFlight;
       $("browseStop").disabled = !open || !sessionLive || mode !== "browse" || runInFlight;
       $("clearSurface").disabled = !open || runInFlight;
       $("runStart").disabled = !open || mode !== "run" || runInFlight;
@@ -4591,7 +5208,9 @@
     }
     function showTab(name) {
       $("panelStream").hidden = name !== "Stream";
+      $("panelDebug").hidden = name !== "Debug";
       $("panelActivity").hidden = name !== "Activity";
+      $("panelConsole").hidden = name !== "Console";
       $("panelConfig").hidden = name !== "Config";
       $("panelProgress").hidden = name !== "Progress";
       document.querySelectorAll("[data-tab]").forEach((btn) => {
@@ -4599,6 +5218,42 @@
         btn.classList.toggle("active", on);
         btn.setAttribute("aria-selected", on ? "true" : "false");
       });
+    }
+    function renderDebugProbe(payload) {
+      const wall = typeof payload.wallMs === "number" ? payload.wallMs : null;
+      $("dbgWall").textContent = wall != null ? String(Math.round(wall)) : "\u2014";
+      const intentJournal = payload.intentJournal ?? {};
+      $("dbgIntents").textContent = String(intentJournal.total ?? 0);
+      $("dbgIntentDrop").textContent = String(intentJournal.dropped ?? 0);
+      const pipe = payload.inputPipeline ?? null;
+      const inject = pipe?.inject ?? null;
+      $("dbgInjectRecv").textContent = String(inject?.received ?? pipe?.ingressReceived ?? 0);
+      $("dbgInjectDrop").textContent = String(
+        (typeof inject?.dropped === "number" ? inject.dropped : 0) + (typeof pipe?.ingressDropped === "number" ? pipe.ingressDropped : 0)
+      );
+      $("dbgChainPeak").textContent = String(inject?.chainDepthPeak ?? 0);
+      $("dbgMoveCollapse").textContent = String(inject?.moveCollapseCount ?? 0);
+      const queue = inject?.queueWaitMs ?? null;
+      const injMs = inject?.injectMs ?? null;
+      $("dbgQueueP95").textContent = queue && typeof queue.p95 === "number" ? queue.p95.toFixed(1) : "\u2014";
+      $("dbgInjectP95").textContent = injMs && typeof injMs.p95 === "number" ? injMs.p95.toFixed(1) : "\u2014";
+      const metrics = payload.metrics ?? {};
+      const fps = typeof metrics.steadyFps === "number" ? metrics.steadyFps : null;
+      $("dbgFps").textContent = fps != null ? fps.toFixed(1) : "\u2014";
+      $("dbgDesync").textContent = String(metrics.desyncCount ?? 0);
+      const cpuOn = payload.cpuProfiling === true;
+      const cpuRun = payload.cpuProfileStarted === true;
+      $("dbgCpu").textContent = cpuOn ? cpuRun ? "profiling" : "armed" : "off";
+      const crash = payload.crash;
+      $("dbgCrash").textContent = crash ? JSON.stringify(crash, null, 2) : "none";
+      const last = inject?.lastOutcome ?? null;
+      $("dbgLastOutcome").textContent = last ? JSON.stringify(last, null, 2) : "\u2014";
+      const drops = {
+        journal: intentJournal.dropsByError ?? {},
+        ingress: pipe?.ingressDropsByReason ?? {},
+        inject: inject?.dropsByReason ?? {}
+      };
+      $("dbgDrops").textContent = JSON.stringify(drops, null, 2);
     }
     function updateStream() {
       const root = ctxStats(import_frame2.CONTEXT_ID_ROOT);
@@ -4612,58 +5267,75 @@
       }
       if (root.generation !== null) $("streamGen").textContent = String(root.generation);
       if (root.lastApplyMs !== null) $("streamApplyMs").textContent = root.lastApplyMs.toFixed(1);
-      const tbody = $("streamContextBody");
-      tbody.replaceChildren();
+      const list = $("streamContextList");
+      list.replaceChildren();
       const ids = [...byContext.keys()].sort((a, b) => a - b);
       if (ids.length === 0) {
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 11;
-        td.className = "stream-empty";
-        td.textContent = "No context traffic yet";
-        tr.append(td);
-        tbody.append(tr);
+        const empty = document.createElement("div");
+        empty.className = "stream-empty";
+        empty.textContent = "No context traffic yet";
+        list.append(empty);
         return;
       }
       for (const id of ids) {
         const s = byContext.get(id);
-        const tr = document.createElement("tr");
-        if (id === import_frame2.CONTEXT_ID_ROOT) tr.className = "stream-root";
-        const cells = [
-          String(id),
-          String(s.wireFrames),
-          String(s.emitted),
-          String(s.applyOk),
-          s.applyFail > 0 ? String(s.applyFail) : "\u2014",
-          String(s.desync),
-          String(s.resync),
-          s.overrun > 0 ? String(s.overrun) : "\u2014",
-          s.lastSequence !== null ? String(s.lastSequence) : "\u2014",
-          s.lastBuildMs !== null ? s.lastBuildMs.toFixed(1) : "\u2014",
-          s.lastApplyMs !== null ? s.lastApplyMs.toFixed(1) : "\u2014"
+        const card = document.createElement("article");
+        card.className = id === import_frame2.CONTEXT_ID_ROOT ? "ctx-card stream-root" : "ctx-card";
+        const head = document.createElement("div");
+        head.className = "ctx-card-head";
+        const idEl = document.createElement("div");
+        idEl.className = "ctx-id";
+        idEl.textContent = id === import_frame2.CONTEXT_ID_ROOT ? `ctx ${id} \xB7 root` : `ctx ${id}`;
+        const seqEl = document.createElement("div");
+        seqEl.className = "ctx-seq";
+        seqEl.textContent = s.lastSequence !== null ? `seq ${s.lastSequence}` : "seq \u2014";
+        head.append(idEl, seqEl);
+        const stats = document.createElement("div");
+        stats.className = "ctx-stats";
+        const rows = [
+          ["Wire", String(s.wireFrames), "Wire frame parts received"],
+          ["Emit", String(s.emitted), "Virtual frameEmitted"],
+          ["Apply+", String(s.applyOk)],
+          ["Apply\u2212", s.applyFail > 0 ? String(s.applyFail) : "\u2014"],
+          ["Desync", String(s.desync)],
+          ["Resync", String(s.resync)],
+          ["Ovr", s.overrun > 0 ? String(s.overrun) : "\u2014"],
+          ["Build", s.lastBuildMs !== null ? `${s.lastBuildMs.toFixed(1)} ms` : "\u2014"],
+          ["Apply", s.lastApplyMs !== null ? `${s.lastApplyMs.toFixed(1)} ms` : "\u2014"]
         ];
-        for (const text of cells) {
-          const td = document.createElement("td");
-          td.textContent = text;
-          tr.append(td);
+        for (const [k, v, title] of rows) {
+          const cell = document.createElement("div");
+          cell.className = "ctx-stat";
+          if (title) cell.title = title;
+          const kEl = document.createElement("span");
+          kEl.className = "k";
+          kEl.textContent = k;
+          const vEl = document.createElement("span");
+          vEl.className = "v";
+          vEl.textContent = v;
+          cell.append(kEl, vEl);
+          stats.append(cell);
         }
-        tbody.append(tr);
+        card.append(head, stats);
+        list.append(card);
       }
     }
     function resetStreamCounters() {
       byContext.clear();
       opsTotal = 0;
+      browseSnapCount = 0;
       $("streamGen").textContent = "\u2014";
       $("streamApplyMs").textContent = "\u2014";
       $("streamOps").textContent = "\u2014";
+      $("streamSnaps").textContent = "0";
       updateStream();
     }
     function ensureProjection() {
       if (projection) return projection;
       projection = new LabProjectedHarness({
         surfaceHost,
-        width: VIEWPORT.width,
-        height: VIEWPORT.height,
+        width: canonicalViewport.width,
+        height: canonicalViewport.height,
         onArmed: () => {
           bindInputSurfaces(projection);
         },
@@ -4705,6 +5377,9 @@
         }
       });
       setSurfaceEmpty(false);
+      if (canonicalViewport.width > 0 && canonicalViewport.height > 0) {
+        projection.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+      }
       return projection;
     }
     function appendProgress(msg) {
@@ -4806,9 +5481,12 @@
         phase = "idle";
         sessionId = null;
         logActivity("ws close");
+        disposeViewportSync();
+        stopAutoSnap();
         ws = null;
         sessionLive = false;
         runInFlight = false;
+        snapInFlight = false;
         syncButtons();
       });
       ws.addEventListener("message", (ev) => {
@@ -4902,6 +5580,20 @@
           );
           return;
         }
+        if (msg.type === "session.resized") {
+          const pending = pendingResize;
+          if (pending) {
+            pendingResize = null;
+            pending.resolve({
+              applied: msg.applied === true,
+              width: typeof msg.width === "number" ? msg.width : void 0,
+              height: typeof msg.height === "number" ? msg.height : void 0,
+              message: typeof msg.message === "string" ? msg.message : void 0,
+              errorCode: typeof msg.errorCode === "string" ? msg.errorCode : void 0
+            });
+          }
+          return;
+        }
         if (msg.type === "session.hello") {
           sessionId = String(msg.sessionId ?? "");
           logActivity(`session.hello ${sessionId}`);
@@ -4909,27 +5601,94 @@
           return;
         }
         if (msg.type === "session.booted") {
+          clearCrashOverlay();
           sessionLive = true;
           sessionId = String(msg.sessionId ?? sessionId ?? "");
           phase = "live";
+          browseSnapCount = 0;
+          $("streamSnaps").textContent = "0";
           logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+          startViewportSync();
+          if (msg.mode === "browse") startAutoSnap();
           syncButtons();
           return;
         }
         if (msg.type === "session.stopped") {
           sessionLive = false;
+          stopAutoSnap();
+          snapInFlight = false;
+          disposeViewportSync();
+          const reason = typeof msg.reason === "string" ? msg.reason : "";
+          if (reason.startsWith("crash:") && phase !== "fault") {
+            phase = "fault";
+            showCrashOverlay(reason.slice("crash:".length) || reason);
+          }
           if (!runInFlight && phase !== "complete" && phase !== "fault") phase = "connected";
-          logActivity(`stopped ${msg.reason}`);
+          logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ""}`);
           syncButtons();
+          return;
+        }
+        if (msg.type === "debug.probe") {
+          if (msg.payload && typeof msg.payload === "object") {
+            renderDebugProbe(msg.payload);
+          }
           return;
         }
         if (msg.type === "session.fault") {
           phase = "fault";
-          setChip("chipPhase", `fault ${msg.message}`, "danger");
-          logActivity(`fault ${msg.message}`);
+          const code = typeof msg.errorCode === "string" ? msg.errorCode : "";
+          const detail = `${code ? `${code}: ` : ""}${msg.message}`;
+          setChip("chipPhase", `fault ${detail}`, "danger");
+          logActivity(`fault ${detail}`);
+          if (typeof msg.dossierDir === "string" && msg.dossierDir) {
+            logActivity(`fault dossier ${msg.dossierDir}`);
+          }
+          showCrashOverlay(detail);
+          if (msg.errorCode || msg.message) {
+            renderDebugProbe({
+              crash: {
+                errorCode: msg.errorCode,
+                message: msg.message,
+                phase: msg.phase,
+                dossierDir: msg.dossierDir
+              }
+            });
+          }
           sessionLive = false;
           runInFlight = false;
+          stopAutoSnap();
+          snapInFlight = false;
           syncButtons();
+          return;
+        }
+        if (msg.type === "console") {
+          const level = typeof msg.level === "number" ? msg.level : 1;
+          const text = typeof msg.text === "string" ? msg.text : String(msg.text ?? "");
+          logConsole(level, text);
+          if (level >= 3) logActivity(`console error ${text.slice(0, 120)}`);
+          return;
+        }
+        if (msg.type === "snap.stored") {
+          snapInFlight = false;
+          browseSnapCount = typeof msg.snapCount === "number" ? msg.snapCount : browseSnapCount + 1;
+          $("streamSnaps").textContent = String(browseSnapCount);
+          const pass = msg.allPass === true ? "pass" : "fail";
+          logActivity(
+            `snap stored ${msg.id}${msg.label ? ` (${msg.label})` : ""} seq=${msg.sequence ?? "\u2014"} ${pass} (n=${browseSnapCount})`
+          );
+          syncButtons();
+          return;
+        }
+        if (msg.type === "validate.result") {
+          const verdict = msg.allPass === true ? "pass" : "fail";
+          logActivity(
+            `validate ${verdict} snaps=${msg.snapCount} pass=${msg.pass} fail=${msg.fail} skipped=${msg.skipped}`
+          );
+          setChip(
+            "chipPhase",
+            msg.allPass === true ? `iso pass (${msg.snapCount})` : `iso fail (${msg.fail})`,
+            msg.allPass === true ? "ok" : "danger"
+          );
           return;
         }
         if (msg.type === "run.progress") {
@@ -4955,6 +5714,14 @@
         }
         if (msg.type === "error") {
           logActivity(`error ${msg.message}`);
+          if (msg.code === "snapshot_failed" || msg.code === "validate_failed") {
+            snapInFlight = false;
+            syncButtons();
+            return;
+          }
+          if (msg.code === "input_dispatch_failed" || msg.code === "input_unavailable" || msg.code === "input_dropped") {
+            return;
+          }
           phase = "fault";
           setChip("chipPhase", String(msg.message), "danger");
           runInFlight = false;
@@ -4983,16 +5750,41 @@
     $("clearActivity").addEventListener("click", () => {
       $("activity").innerHTML = "";
     });
+    $("clearConsole").addEventListener("click", () => {
+      $("consoleLog").innerHTML = "";
+    });
+    document.getElementById("autoSnap")?.addEventListener("change", () => {
+      if (sessionLive) startAutoSnap();
+      else stopAutoSnap();
+    });
+    document.getElementById("autoSnapIntervalMs")?.addEventListener(
+      "change",
+      () => {
+        if (sessionLive) startAutoSnap();
+      }
+    );
     $("browseStart").addEventListener("click", () => {
+      clearCrashOverlay();
+      disposeViewportSync();
+      canonicalViewport = measureAndNormalizeViewport();
+      bootDeviceProfile = (0, import_projected.detectViewportDeviceProfile)();
       const p = ensureProjection();
       p.resetSurface();
+      p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
       resetStreamCounters();
+      logActivity(
+        `browse.start viewport ${canonicalViewport.width}\xD7${canonicalViewport.height}`
+      );
       ws?.send(
         JSON.stringify({
           type: "browse.start",
           url: urlInput.value,
+          width: canonicalViewport.width,
+          height: canonicalViewport.height,
+          device: bootDeviceProfile,
           frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
-          telemetry: readTelemetryFromUi()
+          telemetry: readTelemetryFromUi(),
+          cpuProfiling: document.getElementById("browseCpu")?.checked === true
         })
       );
     });
@@ -5001,10 +5793,24 @@
       ws?.send(JSON.stringify({ type: "browse.navigate", url: urlInput.value }));
       logActivity(`navigate ${urlInput.value}`);
     });
+    $("browseSnap").addEventListener("click", () => {
+      requestBrowseSnap("manual");
+    });
+    $("browseValidate").addEventListener("click", () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN || browseSnapCount < 1) return;
+      logActivity(`validate snaps\u2026 (n=${browseSnapCount})`);
+      ws.send(JSON.stringify({ type: "client.validateSnaps" }));
+    });
     $("browseStop").addEventListener("click", () => {
+      stopAutoSnap();
+      snapInFlight = false;
+      syncButtons();
+      logActivity("browse.stop\u2026");
       ws?.send(JSON.stringify({ type: "browse.stop", exportDossier: true }));
     });
     $("clearSurface").addEventListener("click", () => {
+      clearCrashOverlay();
+      disposeViewportSync();
       if (projection) {
         projection.resetSurface();
       } else {
@@ -5015,6 +5821,7 @@
       ws?.send(JSON.stringify({ type: "surface.clear" }));
     });
     $("runStart").addEventListener("click", () => {
+      clearCrashOverlay();
       const p = ensureProjection();
       p.resetSurface();
       runInFlight = true;

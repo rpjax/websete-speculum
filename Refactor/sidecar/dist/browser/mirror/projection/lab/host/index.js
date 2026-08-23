@@ -4,6 +4,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 const server_1 = require("./server");
+const chassis_1 = require("./chassis");
 function envInt(name, fallback) {
     const raw = process.env[name];
     if (raw === undefined || raw === '')
@@ -12,6 +13,7 @@ function envInt(name, fallback) {
     return Number.isFinite(n) ? n : fallback;
 }
 async function main() {
+    (0, chassis_1.installLabProcessCrashHooks)();
     const opts = {
         host: process.env.SPECULUM_LAB_HOST ?? '127.0.0.1',
         port: envInt('SPECULUM_LAB_PORT', 4077),

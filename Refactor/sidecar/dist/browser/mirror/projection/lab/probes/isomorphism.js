@@ -285,24 +285,27 @@ function contextPasses(ctx) {
 async function runIsomorphism(opts) {
     const getClient = opts.getClientSnapshot;
     const resume = opts.session.resumeClocks;
+    const halt = opts.session.haltClocks;
     const contextIds = opts.contextIds?.length ? [...opts.contextIds] : [1];
     const session = opts.session;
+    const capture = {
+        table: opts.virtualCapture?.table ?? 'full',
+        liveChildOrder: opts.virtualCapture?.liveChildOrder ?? true,
+        tree: opts.virtualCapture?.tree ?? true,
+        cssom: opts.virtualCapture?.cssom ?? 'scan',
+        formProps: opts.virtualCapture?.formProps ?? true,
+        frameNewNodes: opts.virtualCapture?.frameNewNodes ?? true,
+    };
     if (!session.getStateSnapshot && !session.snapshotContext) {
         return emptyIsoResult([
             { id: 'isomorphism', reason: 'session does not expose getStateSnapshot/snapshotContext' },
         ]);
     }
     try {
+        await halt?.call(opts.session);
         const contexts = {};
         for (const contextId of contextIds) {
-            const view = await captureVirtualLabSnap(session, contextId, {
-                table: 'full',
-                liveChildOrder: true,
-                tree: true,
-                cssom: 'scan',
-                formProps: true,
-                frameNewNodes: true,
-            });
+            const view = await captureVirtualLabSnap(session, contextId, { ...capture });
             const mapped = view.ok
                 ? {
                     ok: true,

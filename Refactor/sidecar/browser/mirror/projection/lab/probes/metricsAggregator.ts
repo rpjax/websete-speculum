@@ -143,6 +143,17 @@ export class MetricsAggregator {
     this.wireBytesTotal += byteLength;
   }
 
+  reset(): void {
+    this.frameEmitted.length = 0;
+    this.applyResults.length = 0;
+    this.cssomPolls.length = 0;
+    this.desyncCount = 0;
+    this.applyOverrunCount = 0;
+    this.transportDeferredCount = 0;
+    this.wireBytesTotal = 0;
+    this.perContext.clear();
+  }
+
   getSummary(wallMs: number): MetricsSummary {
     const bootstrapFrame = this.frameEmitted.find((f) => f.sequence === 1) ?? null;
     const steady = this.frameEmitted.filter((f) => f.sequence !== 1);

@@ -1,4 +1,5 @@
 import type { BrowserLaunchOptions } from '../../../BrowserSession';
+import { LAB_VIEWPORT_POLICY } from '@speculum/page-projection/projected';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 
 /** Fill Sessions Launch fields the lab/.NET Launch would supply so lab callers stay thin. */
@@ -8,12 +9,7 @@ export function labLaunchOptions(
   return {
     width: overrides.width ?? 1280,
     height: overrides.height ?? 720,
-    viewportPolicy: overrides.viewportPolicy ?? {
-      minWidth: 100,
-      minHeight: 100,
-      maxWidth: 1920,
-      maxHeight: 1080,
-    },
+    viewportPolicy: overrides.viewportPolicy ?? LAB_VIEWPORT_POLICY,
     screencastMaxEncodeScale: overrides.screencastMaxEncodeScale ?? 1,
     mirrorMode: overrides.mirrorMode ?? 'pageProjection',
     frameQueueCapacity: overrides.frameQueueCapacity ?? 8192,

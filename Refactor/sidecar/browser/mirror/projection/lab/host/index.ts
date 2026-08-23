@@ -3,6 +3,7 @@
  */
 
 import { createLabServer, type LabServerOptions } from './server';
+import { installLabProcessCrashHooks } from './chassis';
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -12,6 +13,7 @@ function envInt(name: string, fallback: number): number {
 }
 
 async function main(): Promise<void> {
+  installLabProcessCrashHooks();
   const opts: LabServerOptions = {
     host: process.env.SPECULUM_LAB_HOST ?? '127.0.0.1',
     port: envInt('SPECULUM_LAB_PORT', 4077),

@@ -11,7 +11,11 @@ export type LabClientMessage =
       url: string;
       frameRateHz?: number;
       telemetry?: Record<string, unknown>;
+      cpuProfiling?: boolean;
       headed?: boolean;
+      width?: number;
+      height?: number;
+      device?: Record<string, unknown>;
     }
   | { type: 'browse.stop'; exportDossier?: boolean }
   | { type: 'browse.navigate'; url: string }
@@ -53,13 +57,21 @@ export type LabClientMessage =
   | { type: 'client.intent'; intent: Record<string, unknown> }
   | { type: 'client.tamperResult'; ok: boolean; reason?: string | null }
   | {
+      type: 'client.resize';
+      width: number;
+      height: number;
+      device?: Record<string, unknown>;
+    }
+  | {
       type: 'client.injectResult';
       sequence?: number | null;
       generation?: number | null;
       desynced?: boolean;
       applyError?: string | null;
       tableHash?: string | null;
-    };
+    }
+  | { type: 'client.snapshot'; label?: string }
+  | { type: 'client.validateSnaps' };
 
 export type LabHostMessage =
   | { type: 'session.hello'; sessionId: string; protocolVersion: typeof LAB_PROTOCOL_VERSION }
@@ -76,7 +88,14 @@ export type LabHostMessage =
       reason: string;
       dossierDir?: string;
     }
-  | { type: 'session.fault'; sessionId: string; message: string }
+  | {
+      type: 'session.fault';
+      sessionId: string;
+      message: string;
+      errorCode?: string;
+      phase?: string;
+      dossierDir?: string;
+    }
   | {
       type: 'run.progress';
       sessionId: string;
@@ -92,11 +111,39 @@ export type LabHostMessage =
       verdictsSummary: { pass: number; fail: number; skipped: number };
     }
   | { type: 'stats'; payload: Record<string, unknown> }
+  | { type: 'debug.probe'; payload: Record<string, unknown> }
   | { type: 'telemetry'; message: unknown }
   | { type: 'error'; message: string; code?: string }
+  | {
+      type: 'session.resized';
+      applied: boolean;
+      width: number;
+      height: number;
+      errorCode?: string;
+      message?: string;
+    }
   | { type: 'requestSnapshot'; contextId: number }
   | { type: 'lab.tamper'; kind: 'ghostRule' }
-  | { type: 'lab.injectFrame'; bytes: string };
+  | { type: 'lab.injectFrame'; bytes: string }
+  | { type: 'console'; level: number; text: string; t: number }
+  | {
+      type: 'snap.stored';
+      id: string;
+      sequence: number | null;
+      generation: number | null;
+      allPass: boolean;
+      label?: string;
+      snapCount: number;
+    }
+  | {
+      type: 'validate.result';
+      allPass: boolean;
+      snapCount: number;
+      pass: number;
+      fail: number;
+      skipped: number;
+      dossierPath?: string;
+    };
 
 export function parseClientMessage(raw: unknown): LabClientMessage | { error: string; code: string } {
   if (!raw || typeof raw !== 'object') return { error: 'invalid JSON control message', code: 'invalid_json' };
@@ -117,6 +164,9 @@ export function parseClientMessage(raw: unknown): LabClientMessage | { error: st
     case 'client.intent':
     case 'client.tamperResult':
     case 'client.injectResult':
+    case 'client.resize':
+    case 'client.snapshot':
+    case 'client.validateSnaps':
       return msg as LabClientMessage;
     default:
       return { error: `unknown control type: ${type}`, code: 'unknown_type' };

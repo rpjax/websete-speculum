@@ -25,6 +25,7 @@ export class WsLabConnection {
   private chassis: LabChassis;
   private closed = false;
   private runInFlight = false;
+  private debugProbeTimer: ReturnType<typeof setInterval> | null = null;
   private pendingSnapshot: {
     resolve: (snap: ClientStateSnapshot | null) => void;
     timer: ReturnType<typeof setTimeout>;
@@ -43,14 +44,64 @@ export class WsLabConnection {
     this.chassis = new LabChassis({ headless: opts.headless });
     this.id = this.chassis.connectionId;
     this.client = client;
-    this.chassis.setFrameRelay((buf) => {
+    this.bindChassisRelays(this.chassis);
+    this.send({ type: 'session.hello', sessionId: this.id, protocolVersion: LAB_PROTOCOL_VERSION });
+  }
+
+  private bindChassisRelays(chassis: LabChassis): void {
+    chassis.setFrameRelay((buf) => {
       const c = this.client;
       if (c !== null && c.readyState === c.OPEN) c.send(buf, { binary: true });
     });
-    this.chassis.setTelemetryRelay((message) => {
-      this.send({ type: 'telemetry', message });
+    chassis.setTelemetryRelay((message) => this.send({ type: 'telemetry', message }));
+    chassis.setConsoleRelay((ev) => {
+      this.send({ type: 'console', level: ev.level, text: ev.text, t: ev.t });
     });
-    this.send({ type: 'session.hello', sessionId: this.id, protocolVersion: LAB_PROTOCOL_VERSION });
+    chassis.setFaultRelay((fault) => {
+      this.send({
+        type: 'session.fault',
+        sessionId: chassis.sessionId ?? this.id,
+        message: fault.message,
+        errorCode: fault.errorCode,
+        phase: fault.phase,
+        dossierDir: chassis.dossierHandle?.dir,
+      });
+      // Persist full browse probes on crash without requiring Stop.
+      if (fault.source !== 'process') {
+        this.stopDebugProbe();
+        void (async () => {
+          const sid = chassis.sessionId ?? this.id;
+          const dossierDir =
+            (await chassis.exportDossier([], chassis.sessionWallMs())) ?? undefined;
+          await chassis.disposeVirtual();
+          this.send({
+            type: 'session.stopped',
+            sessionId: sid,
+            reason: `crash:${fault.errorCode}`,
+            dossierDir,
+          });
+        })();
+      }
+    });
+    chassis.setDebugRelay((payload) => {
+      this.send({ type: 'debug.probe', payload });
+    });
+    chassis.setClientSnapshotProvider((contextId) => this.requestClientSnapshot(contextId));
+  }
+
+  private startDebugProbe(): void {
+    this.stopDebugProbe();
+    this.debugProbeTimer = setInterval(() => {
+      if (this.closed) return;
+      this.chassis.pushDebugProbe();
+    }, 2000);
+  }
+
+  private stopDebugProbe(): void {
+    if (this.debugProbeTimer) {
+      clearInterval(this.debugProbeTimer);
+      this.debugProbeTimer = null;
+    }
   }
 
   private send(msg: LabHostMessage): void {
@@ -138,8 +189,12 @@ export class WsLabConnection {
             url: this.resolveUrl(msg.url.trim()),
             frameRateHz: msg.frameRateHz,
             telemetry: msg.telemetry ?? LAB_TELEMETRY_DEFAULTS,
-            cpuProfiling: false,
+            cpuProfiling: msg.cpuProfiling === true,
+            width: typeof msg.width === 'number' ? msg.width : undefined,
+            height: typeof msg.height === 'number' ? msg.height : undefined,
+            device: msg.device,
           });
+          this.startDebugProbe();
           this.send({
             type: 'session.booted',
             sessionId: record.sessionId,
@@ -148,10 +203,14 @@ export class WsLabConnection {
             dossierDir: record.dossierDir,
           });
         } catch (err) {
+          this.stopDebugProbe();
           this.send({
             type: 'session.fault',
             sessionId: this.chassis.sessionId ?? this.id,
             message: err instanceof Error ? err.message : String(err),
+            errorCode: 'browse_boot_failed',
+            phase: 'boot',
+            dossierDir: this.chassis.dossierHandle?.dir,
           });
         }
         return;
@@ -175,10 +234,33 @@ export class WsLabConnection {
       case 'browse.stop': {
         const sid = this.chassis.sessionId ?? this.id;
         let dossierDir: string | undefined;
-        if (msg.exportDossier) {
-          dossierDir = (await this.chassis.exportDossier([], 0)) ?? undefined;
+        this.stopDebugProbe();
+        const wallMs = this.chassis.sessionWallMs();
+        // Close Virtual first so a hung browse snap / CDP evaluate cannot block Stop.
+        // Stored snaps validate from journal (no live dump). Export writes files after close.
+        if (msg.exportDossier && this.chassis.browseSnapCount > 0) {
+          try {
+            const validated = await this.chassis.validateBrowseSnaps();
+            this.send({
+              type: 'validate.result',
+              allPass: validated.allPass,
+              snapCount: validated.snapCount,
+              pass: validated.pass,
+              fail: validated.fail,
+              skipped: validated.skipped,
+            });
+          } catch (err) {
+            this.send({
+              type: 'error',
+              message: err instanceof Error ? err.message : String(err),
+              code: 'validate_failed',
+            });
+          }
         }
         await this.chassis.disposeVirtual();
+        if (msg.exportDossier) {
+          dossierDir = (await this.chassis.exportDossier([], wallMs)) ?? undefined;
+        }
         this.send({ type: 'session.stopped', sessionId: sid, reason: 'browse.stop', dossierDir });
         return;
       }
@@ -200,13 +282,9 @@ export class WsLabConnection {
             reason: 'runColdBoot',
           });
           // fresh chassis for cold run
+          this.stopDebugProbe();
           this.chassis = new LabChassis({ headless: this.opts.headless });
-          this.chassis.setFrameRelay((buf) => {
-            const c = this.client;
-            if (c !== null && c.readyState === c.OPEN) c.send(buf, { binary: true });
-          });
-          this.chassis.setTelemetryRelay((message) => this.send({ type: 'telemetry', message }));
-
+          this.bindChassisRelays(this.chassis);
           const bp = loadBlueprint(msg.blueprintId);
           const overrides = (msg.overrides ?? {}) as {
             url?: string;
@@ -282,7 +360,9 @@ export class WsLabConnection {
       }
       case 'client.intent': {
         const session = this.chassis.browser;
-        const push = (session as { pushInput?: (i: unknown) => Promise<unknown> } | null)?.pushInput?.bind(session);
+        const push = (session as {
+          pushInput?: (i: unknown) => Promise<{ status: string; reason?: string } | unknown>;
+        } | null)?.pushInput?.bind(session);
         if (!push) {
           this.send({ type: 'error', message: 'pushInput unavailable', code: 'input_unavailable' });
           return;
@@ -292,14 +372,77 @@ export class WsLabConnection {
           this.send({ type: 'error', message: 'client.intent missing intent', code: 'invalid_intent' });
           return;
         }
-        void push(intentRaw)
-          .catch((err: unknown) => {
+        const intent = intentRaw as Record<string, unknown>;
+        try {
+          const out = await push(intent);
+          if (
+            out
+            && typeof out === 'object'
+            && (out as { status?: string }).status === 'dropped'
+          ) {
+            const reason = (out as { reason?: string }).reason ?? 'dropped';
+            await this.chassis.journalIntent(intent, { ok: false, error: reason });
             this.send({
               type: 'error',
-              message: err instanceof Error ? err.message : String(err),
-              code: 'input_dispatch_failed',
+              message: `intent dropped: ${reason}`,
+              code: 'input_dropped',
             });
+            return;
+          }
+          await this.chassis.journalIntent(intent, { ok: true });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          await this.chassis.journalIntent(intent, { ok: false, error: message });
+          this.send({
+            type: 'error',
+            message,
+            code: 'input_dispatch_failed',
           });
+        }
+        return;
+      }
+      case 'client.snapshot': {
+        try {
+          const record = await this.chassis.captureBrowseSnap(
+            typeof msg.label === 'string' ? msg.label : undefined,
+          );
+          this.send({
+            type: 'snap.stored',
+            id: record.id,
+            sequence: (record.iso as { sequence?: number | null } | null)?.sequence ?? null,
+            generation: (record.iso as { generation?: number | null } | null)?.generation ?? null,
+            allPass: record.allPass,
+            label: record.label,
+            snapCount: this.chassis.browseSnapCount,
+          });
+        } catch (err) {
+          this.send({
+            type: 'error',
+            message: err instanceof Error ? err.message : String(err),
+            code: 'snapshot_failed',
+          });
+        }
+        return;
+      }
+      case 'client.validateSnaps': {
+        try {
+          const validated = await this.chassis.validateBrowseSnaps();
+          this.send({
+            type: 'validate.result',
+            allPass: validated.allPass,
+            snapCount: validated.snapCount,
+            pass: validated.pass,
+            fail: validated.fail,
+            skipped: validated.skipped,
+            dossierPath: this.chassis.dossierHandle?.dir,
+          });
+        } catch (err) {
+          this.send({
+            type: 'error',
+            message: err instanceof Error ? err.message : String(err),
+            code: 'validate_failed',
+          });
+        }
         return;
       }
       case 'client.snapshotResult': {
@@ -363,6 +506,44 @@ export class WsLabConnection {
         }
         return;
       }
+      case 'client.resize': {
+        if (typeof msg.width !== 'number' || typeof msg.height !== 'number') {
+          this.send({
+            type: 'session.resized',
+            applied: false,
+            width: 0,
+            height: 0,
+            errorCode: 'bad_request',
+            message: 'client.resize width/height required',
+          });
+          return;
+        }
+        try {
+          const result = await this.chassis.resize({
+            width: msg.width,
+            height: msg.height,
+            device: msg.device,
+          });
+          this.send({
+            type: 'session.resized',
+            applied: result.ok,
+            width: result.width,
+            height: result.height,
+            errorCode: result.errorCode,
+            message: result.message,
+          });
+        } catch (err) {
+          this.send({
+            type: 'session.resized',
+            applied: false,
+            width: msg.width,
+            height: msg.height,
+            errorCode: 'resize_failed',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
+      }
       default:
         this.send({ type: 'error', message: 'unhandled type', code: 'unknown_type' });
     }
@@ -371,6 +552,7 @@ export class WsLabConnection {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.stopDebugProbe();
     if (this.pendingSnapshot) {
       clearTimeout(this.pendingSnapshot.timer);
       this.pendingSnapshot.resolve(null);

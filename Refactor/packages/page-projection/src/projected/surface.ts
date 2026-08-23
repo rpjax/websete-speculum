@@ -1,15 +1,9 @@
 /**
- * Lab surface — real double buffer (Stage 4, frame-protocol-production-completeness, §5.8
- * "Client side"). One visible (active) iframe plus, only while a resync build is in flight, one
- * invisible (standby) iframe: `beginResyncBuild()` builds a whole new document in the standby
- * iframe via the ordinary two-phase apply (§6), completely isolated from the currently visible
- * surface; `commitSwap()` promotes it after the resync frame's own closing `CHECK` verifies OK
- * (§5.8: "the new condition is this frame's closing CHECK verifies OK"), tearing down the old
- * active iframe in the same call — a single reflow, not a new "reconnect the root" instruction.
- * `discardBuild()` drops an abandoned/failed build without ever touching the visible surface —
- * the whole point of building off-surface: Phase 2 "cannot fail" (§6) is an engineering claim, not
- * a proof for every op, and a recovery mechanism is exactly the wrong place to bet the only
- * remaining good state on that claim holding for every frame, forever.
+ * Projected surface — real double buffer (Stage 4, frame-protocol §5.8).
+ *
+ * Host model (viewport lockstep): the **outer** `container` stays fluid (100% of the measure
+ * host). An inner **stage** holds fixed CSS px matching the confirmed Virtual viewport.
+ * ResizeObserver must observe the fluid outer host, never this stage.
  */
 
 export type SurfaceHost = {
@@ -32,6 +26,9 @@ export type SurfaceHost = {
   discardBuild(): void;
   /** Tear down iframes and attach a fresh bare document (lab Clear / after Stop). */
   reset(): void;
+  /** Lockstep CSS box for the projected stage (confirmed Virtual size). */
+  setCssSize(width: number, height: number): void;
+  getCssSize(): { width: number; height: number };
 };
 
 function attachBareIframe(container: HTMLElement): HTMLIFrameElement {
@@ -61,13 +58,22 @@ export function createSurfaceHost(
   container: HTMLElement,
   opts: { width: number; height: number } = { width: 1280, height: 720 },
 ): SurfaceHost {
+  // Fluid outer — fills the measure host; does not lock the host to fixed px.
   container.style.position = 'relative';
-  container.style.width = `${opts.width}px`;
-  container.style.height = `${opts.height}px`;
+  container.style.width = '100%';
+  container.style.height = '100%';
   container.style.overflow = 'hidden';
   container.replaceChildren();
 
-  let activeIframe = attachBareIframe(container);
+  const stage = document.createElement('div');
+  stage.setAttribute('data-pp-surface-stage', '');
+  let cssW = Math.max(1, Math.round(opts.width));
+  let cssH = Math.max(1, Math.round(opts.height));
+  stage.style.cssText =
+    `position:absolute;left:0;top:0;overflow:hidden;width:${cssW}px;height:${cssH}px`;
+  container.appendChild(stage);
+
+  let activeIframe = attachBareIframe(stage);
   let standbyIframe: HTMLIFrameElement | null = null;
 
   return {
@@ -76,7 +82,7 @@ export function createSurfaceHost(
     },
     beginResyncBuild(): Document {
       if (standbyIframe !== null) standbyIframe.remove();
-      standbyIframe = attachBareIframe(container);
+      standbyIframe = attachBareIframe(stage);
       standbyIframe.style.visibility = 'hidden';
       return docOf(standbyIframe);
     },
@@ -102,8 +108,17 @@ export function createSurfaceHost(
         standbyIframe.remove();
         standbyIframe = null;
       }
-      container.replaceChildren();
-      activeIframe = attachBareIframe(container);
+      stage.replaceChildren();
+      activeIframe = attachBareIframe(stage);
+    },
+    setCssSize(width: number, height: number): void {
+      cssW = Math.max(1, Math.round(width));
+      cssH = Math.max(1, Math.round(height));
+      stage.style.width = `${cssW}px`;
+      stage.style.height = `${cssH}px`;
+    },
+    getCssSize(): { width: number; height: number } {
+      return { width: cssW, height: cssH };
     },
   };
 }

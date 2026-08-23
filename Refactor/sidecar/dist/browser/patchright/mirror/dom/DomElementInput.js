@@ -15,6 +15,7 @@ class DomElementInput {
     /** §6.4 defaults — collapse moves under inject-chain pressure. */
     static INJECT_CHAIN_MAX_DEPTH = 64;
     static INJECT_MOVE_COLLAPSE_AGE_MS = 50;
+    static LATENCY_SAMPLES = 256;
     chain = Promise.resolve();
     chainDepth = 0;
     lastMove = null;
@@ -24,26 +25,49 @@ class DomElementInput {
     moveFlushEnqueued = false;
     /** Keys that used insertText on keydown — skip matching keyup. */
     insertTextKeys = new Set();
+    received = 0;
+    dispatched = 0;
+    dropped = 0;
+    dropsByReason = {};
+    byType = {};
+    chainDepthPeak = 0;
+    moveCollapseCount = 0;
+    moveHeldUnderDepth = 0;
+    queueWaitSamples = [];
+    injectSamples = [];
+    lastOutcome = null;
     constructor(page, projection, options) {
         this.page = page;
         this.projection = projection;
         this.options = options;
     }
+    getMetrics() {
+        return {
+            received: this.received,
+            dispatched: this.dispatched,
+            dropped: this.dropped,
+            dropsByReason: { ...this.dropsByReason },
+            byType: Object.fromEntries(Object.entries(this.byType).map(([k, v]) => [k, { ...v }])),
+            chainDepthCurrent: this.chainDepth,
+            chainDepthPeak: this.chainDepthPeak,
+            moveCollapseCount: this.moveCollapseCount,
+            moveHeldUnderDepth: this.moveHeldUnderDepth,
+            pendingMove: this.pendingMove != null,
+            moveFlushEnqueued: this.moveFlushEnqueued,
+            queueWaitMs: latencyStats(this.queueWaitSamples),
+            injectMs: latencyStats(this.injectSamples),
+            lastOutcome: this.lastOutcome,
+        };
+    }
     async dispatch(event) {
         const type = event.type.trim().toLowerCase();
+        const enqueuedAt = Date.now();
         // Coalesce moves: update latest sample; enqueue at most one flush (§6.4).
         // Presses/keys never sit behind a backlog of N move chain tasks.
         if (type === 'mousemove' || type === 'pointermove') {
-            const currentGen = this.projection?.getGeneration?.() ?? 0;
-            if (event.generation != null
-                && event.generation > 0
-                && currentGen > 0
-                && event.generation !== currentGen) {
-                return { status: 'dropped', reason: 'generation_stale' };
-            }
             const payload = parsePayload(event.payloadJson);
             if (!this.acceptMove(payload)) {
-                return { status: 'dropped', reason: 'invalid_coords' };
+                return this.finish(type, { status: 'dropped', reason: 'invalid_coords' });
             }
             // Under depth/age pressure: keep latest sample only — never deepen the chain
             // with another move-flush task (hard rule: collapse moves, never drop presses).
@@ -55,17 +79,25 @@ class DomElementInput {
                 if (!this.moveFlushEnqueued && this.chainDepth >= DomElementInput.INJECT_CHAIN_MAX_DEPTH) {
                     // Depth already saturated with protected work — sample is held in pendingMove
                     // and will flush before the next protected intent via flushMove().
-                    return { status: 'dispatched' };
+                    this.moveHeldUnderDepth += 1;
+                    return this.finish(type, { status: 'dispatched' });
                 }
-                if (this.moveFlushEnqueued)
-                    return { status: 'dispatched' };
+                if (this.moveFlushEnqueued) {
+                    this.moveCollapseCount += 1;
+                    return this.finish(type, { status: 'dispatched' });
+                }
+                if (aged)
+                    this.moveCollapseCount += 1;
             }
             if (!this.moveFlushEnqueued) {
                 this.moveFlushEnqueued = true;
                 this.chainDepth += 1;
+                this.noteDepthPeak();
                 let flushOutcome = { status: 'dispatched' };
                 const flush = this.chain.then(async () => {
                     this.moveFlushEnqueued = false;
+                    this.pushSample(this.queueWaitSamples, Date.now() - enqueuedAt);
+                    const injectStarted = Date.now();
                     try {
                         await this.flushMove();
                     }
@@ -73,18 +105,23 @@ class DomElementInput {
                         flushOutcome = { status: 'dropped', reason: 'cdp_error' };
                     }
                     finally {
+                        this.pushSample(this.injectSamples, Date.now() - injectStarted);
                         this.chainDepth = Math.max(0, this.chainDepth - 1);
                     }
                 });
                 this.chain = flush;
                 await flush;
-                return flushOutcome;
+                return this.finish(type, flushOutcome);
             }
-            return { status: 'dispatched' };
+            this.moveCollapseCount += 1;
+            return this.finish(type, { status: 'dispatched' });
         }
         let outcome = { status: 'dispatched' };
         this.chainDepth += 1;
+        this.noteDepthPeak();
         const run = async () => {
+            this.pushSample(this.queueWaitSamples, Date.now() - enqueuedAt);
+            const injectStarted = Date.now();
             try {
                 outcome = await this.dispatchNow(event);
             }
@@ -92,12 +129,43 @@ class DomElementInput {
                 outcome = { status: 'dropped', reason: 'cdp_error' };
             }
             finally {
+                this.pushSample(this.injectSamples, Date.now() - injectStarted);
                 this.chainDepth = Math.max(0, this.chainDepth - 1);
             }
         };
         this.chain = this.chain.then(run, run);
         await this.chain;
+        return this.finish(type, outcome);
+    }
+    finish(type, outcome) {
+        this.received += 1;
+        let row = this.byType[type];
+        if (!row) {
+            row = { received: 0, dispatched: 0, dropped: 0 };
+            this.byType[type] = row;
+        }
+        row.received += 1;
+        if (outcome.status === 'dropped') {
+            this.dropped += 1;
+            row.dropped += 1;
+            this.dropsByReason[outcome.reason] = (this.dropsByReason[outcome.reason] ?? 0) + 1;
+            this.lastOutcome = { t: Date.now(), type, status: 'dropped', reason: outcome.reason };
+        }
+        else {
+            this.dispatched += 1;
+            row.dispatched += 1;
+            this.lastOutcome = { t: Date.now(), type, status: 'dispatched' };
+        }
         return outcome;
+    }
+    noteDepthPeak() {
+        if (this.chainDepth > this.chainDepthPeak)
+            this.chainDepthPeak = this.chainDepth;
+    }
+    pushSample(bucket, value) {
+        bucket.push(value);
+        if (bucket.length > DomElementInput.LATENCY_SAMPLES)
+            bucket.shift();
     }
     async dispatchNow(event) {
         const type = event.type.trim().toLowerCase();
@@ -108,13 +176,6 @@ class DomElementInput {
         // Never honor wire click — would double-fire with pressed/released.
         if (type === 'click' || type === 'auxclick') {
             return { status: 'dropped', reason: 'ignored_wire_click' };
-        }
-        const currentGen = this.projection?.getGeneration?.() ?? 0;
-        if (event.generation != null
-            && event.generation > 0
-            && currentGen > 0
-            && event.generation !== currentGen) {
-            return { status: 'dropped', reason: 'generation_stale' };
         }
         const payload = parsePayload(event.payloadJson);
         if (type === 'mousemove' || type === 'pointermove') {
@@ -127,11 +188,11 @@ class DomElementInput {
         }
         await this.flushMove();
         if (type === 'mousedown' || type === 'pointerdown') {
-            const reason = await this.dispatchMouse('mousePressed', payload);
+            const reason = await this.dispatchMouse('mousePressed', payload, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'mouseup' || type === 'pointerup') {
-            const reason = await this.dispatchMouse('mouseReleased', payload);
+            const reason = await this.dispatchMouse('mouseReleased', payload, event.targetId, event.contextId);
             return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
         }
         if (type === 'wheel') {
@@ -189,24 +250,37 @@ class DomElementInput {
         this.lastMove = next;
         await this.page.mouse.move(next.x, next.y);
     }
-    /** @returns drop reason or null when CDP work ran. */
-    async dispatchMouse(type, payload) {
-        const x = Number(payload.x);
-        const y = Number(payload.y);
-        if (!Number.isFinite(x) || !Number.isFinite(y))
-            return 'invalid_coords';
-        const button = mouseButtonName(payload.button);
-        if (type === 'mousePressed') {
-            await this.page.mouse.move(x, y);
-            this.lastMove = { x, y };
-            await this.page.mouse.down({ button });
+    /**
+     * Id-assertive press/release (input-v2): resolve targetId → hit point → CDP.
+     * Hit point = payload x/y when inside the resolved element's box (Projected click
+     * position); otherwise box center. Coords alone never activate without a resolved id.
+     * @returns drop reason or null when CDP work ran.
+     */
+    async dispatchMouse(type, payload, targetId, contextId) {
+        if (targetId == null || targetId <= 0)
+            return 'node_id_required';
+        const el = await this.resolveElement(null, targetId, contextId);
+        if (!el)
+            return 'anchor_missing';
+        try {
+            const box = await el.boundingBox();
+            if (!box || box.width <= 0 || box.height <= 0)
+                return 'box_missing';
+            const point = hitPointInBox(box, payload.x, payload.y);
+            const button = mouseButtonName(payload.button);
+            await this.page.mouse.move(point.x, point.y);
+            this.lastMove = point;
+            if (type === 'mousePressed') {
+                await this.page.mouse.down({ button });
+            }
+            else {
+                await this.page.mouse.up({ button });
+            }
+            return null;
         }
-        else {
-            await this.page.mouse.move(x, y);
-            this.lastMove = { x, y };
-            await this.page.mouse.up({ button });
+        finally {
+            await el.dispose().catch(() => undefined);
         }
-        return null;
     }
     async dispatchWheel(payload) {
         const x = Number(payload.x);
@@ -503,5 +577,39 @@ function mouseButtonName(button) {
     if (button === 2)
         return 'right';
     return 'left';
+}
+/** Prefer Projected click coords when they land inside the resolved box; else center. */
+function hitPointInBox(box, payloadX, payloadY) {
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    const x = Number(payloadX);
+    const y = Number(payloadY);
+    if (!Number.isFinite(x) || !Number.isFinite(y))
+        return center;
+    // Small slack for subpixel / rounding between Projected scale and Virtual box.
+    const slack = 1;
+    if (x < box.x - slack
+        || y < box.y - slack
+        || x > box.x + box.width + slack
+        || y > box.y + box.height + slack) {
+        return center;
+    }
+    return {
+        x: Math.min(Math.max(x, box.x), box.x + box.width),
+        y: Math.min(Math.max(y, box.y), box.y + box.height),
+    };
+}
+function latencyStats(samples) {
+    if (samples.length === 0)
+        return { count: 0, min: 0, avg: 0, p95: 0, max: 0 };
+    const sorted = [...samples].sort((a, b) => a - b);
+    const sum = sorted.reduce((a, b) => a + b, 0);
+    const p95Idx = Math.min(sorted.length - 1, Math.floor(0.95 * sorted.length));
+    return {
+        count: sorted.length,
+        min: sorted[0],
+        avg: sum / sorted.length,
+        p95: sorted[p95Idx],
+        max: sorted[sorted.length - 1],
+    };
 }
 //# sourceMappingURL=DomElementInput.js.map

@@ -453,15 +453,34 @@ export async function runIsomorphism(opts: {
   getClientSnapshot?: (
     contextId: number,
   ) => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
+  /** Defaults = full lab iso (tree + cssom scan). Browse debug uses a lighter set. */
+  virtualCapture?: {
+    table?: 'digest' | 'full';
+    liveChildOrder?: boolean;
+    tree?: boolean;
+    cssom?: 'none' | 'committed' | 'scan';
+    formProps?: boolean;
+    frameNewNodes?: boolean;
+  };
 }): Promise<IsomorphismResult> {
   const getClient = opts.getClientSnapshot;
   const resume = opts.session.resumeClocks;
+  const halt = opts.session.haltClocks;
   const contextIds = opts.contextIds?.length ? [...opts.contextIds] : [1];
   const session = opts.session as BrowserSession & {
     getStateSnapshot?: (contextId: number, opts?: StateSnapshotOpts) => Promise<StateSnapshotResult>;
     snapshotContext?: SnapshotContextFn;
     resumeClocks?: () => Promise<unknown>;
+    haltClocks?: () => Promise<unknown>;
   };
+  const capture = {
+    table: opts.virtualCapture?.table ?? 'full',
+    liveChildOrder: opts.virtualCapture?.liveChildOrder ?? true,
+    tree: opts.virtualCapture?.tree ?? true,
+    cssom: opts.virtualCapture?.cssom ?? 'scan',
+    formProps: opts.virtualCapture?.formProps ?? true,
+    frameNewNodes: opts.virtualCapture?.frameNewNodes ?? true,
+  } as const;
 
   if (!session.getStateSnapshot && !session.snapshotContext) {
     return emptyIsoResult([
@@ -470,16 +489,10 @@ export async function runIsomorphism(opts: {
   }
 
   try {
+    await halt?.call(opts.session);
     const contexts: Record<number, ContextIsoResult> = {};
     for (const contextId of contextIds) {
-      const view = await captureVirtualLabSnap(session, contextId, {
-        table: 'full',
-        liveChildOrder: true,
-        tree: true,
-        cssom: 'scan',
-        formProps: true,
-        frameNewNodes: true,
-      });
+      const view = await captureVirtualLabSnap(session, contextId, { ...capture });
       const mapped = view.ok
         ? {
             ok: true as const,

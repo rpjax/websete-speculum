@@ -1,18 +1,18 @@
 # PageProjection — input propagation & bindings
 
-> **Normative V4 dispatch:** **[input-v2.md](input-v2.md)** — **id-assertive** activation (2026-08-22).
+> **Normative V4 dispatch:** **[input-v2.md](input-v2.md)** — **A/B/C** (2026-08-23). Id-assertive activate superseded.
 > This file is **V1 provenance** (I1–I5, inject chain, bindings, coalesce). Where it conflicts
-> with input-v2 (especially coords-only press/up or surface = document scroll height), **input-v2 wins**.
+> with input-v2, **input-v2 wins**.
 
-> **V4:** intents address by `uint32` via the reverse map — never `speculum-anchor` on Virtual.
+> **V4:** Mode A activates by viewport coords via CDP; Mode B addresses `uint32` via Virtual `domNodes` (Control plane); Mode C (`setFiles`) may CDP-resolve a handle.
 > Caret is client-authoritative. Local-first feedback (P4) vs authoritative (P5): [budgets.md](budgets.md).
 > Frame/identity/recovery: [frame-protocol.md](frame-protocol.md). Index: [README.md](README.md).
 > Where this file still says `DomProjection`, `diff-streams.md`, or engine-redesign §5.9, treat those
-> as pre-V4 names; behaviour in the amended bullets still stands (no wire `click`, CDP-only dispatch,
-> inject chain, move collapsing, `setFiles`, disarm while desynced, two scroll intent types).
+> as pre-V4 names; behaviour in the amended bullets still stands (no wire `click`, inject chain,
+> move collapsing, `setFiles`, two scroll intent types) except where input-v2 A/B/C overrides.
 
 **Status:** V1 contract **sealed as history of intent** (I1–I5). Normative product rule = [input-v2.md](input-v2.md).  
-**Ruling 2026-08-14:** redesign before cutover. **Amended 2026-08-22:** redesign primary = resolve `nodeId` then act — not CDP at payload `(x,y)` alone.
+**Ruling 2026-08-14:** redesign before cutover. **Amended 2026-08-22** then **2026-08-23:** live hot path = A/B/C, not id-assertive CDP resolve on every press.
 
 > **Naming / supersession:** product mode/pipe is **PageProjection**
 > (`MirrorMode.PageProjection`), not `DomProjection`. E2E rename still applies

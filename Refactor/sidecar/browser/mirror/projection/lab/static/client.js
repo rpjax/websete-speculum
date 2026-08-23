@@ -3738,6 +3738,7 @@
           type: raw.type.trim(),
           nodeId: nodeId != null && nodeId > 0 ? nodeId : null,
           timestampClient: raw.timestampClient ?? null,
+          wallClientMs: raw.wallClientMs ?? null,
           payload
         };
       }
@@ -3748,6 +3749,7 @@
           targetId: intent.nodeId,
           generation: intent.generation,
           timestampClient: intent.timestampClient,
+          wallClientMs: intent.wallClientMs,
           payloadJson: intent.payload,
           contextId: intent.contextId
         };
@@ -3803,8 +3805,11 @@
           return root != null && root.contains(node);
         };
         const fire = (intent2) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
+          opts.metrics?.noteEmit(intent2.type);
           void Promise.resolve(send(intent2)).catch(() => void 0);
         };
         const intent = (type, nodeId, payload) => ({
@@ -3815,6 +3820,7 @@
           type,
           nodeId,
           timestampClient: performance.now(),
+          wallClientMs: Date.now(),
           payload
         });
         const nodeIdAtPoint = (clientX, clientY) => {
@@ -3872,16 +3878,39 @@
         const surfaceCoords = (event) => {
           if (!win)
             return null;
-          const visW = win.innerWidth;
-          const visH = win.innerHeight;
+          let x = event.clientX;
+          let y = event.clientY;
+          let walk = win;
+          let rootWin = win;
+          while (walk) {
+            rootWin = walk;
+            let frameEl = null;
+            try {
+              frameEl = walk.frameElement;
+            } catch {
+              break;
+            }
+            if (!frameEl)
+              break;
+            const rect = frameEl.getBoundingClientRect();
+            x += rect.left;
+            y += rect.top;
+            try {
+              walk = walk.parent;
+            } catch {
+              break;
+            }
+          }
+          const visW = rootWin.innerWidth;
+          const visH = rootWin.innerHeight;
           if (visW <= 0 || visH <= 0)
             return null;
           const { width: vw, height: vh } = opts.getViewportSize();
           if (vw <= 0 || vh <= 0)
             return null;
-          const x = event.clientX * (vw / visW);
-          const y = event.clientY * (vh / visH);
-          return { x: Math.min(Math.max(x, 0), vw), y: Math.min(Math.max(y, 0), vh) };
+          const sx = x * (vw / visW);
+          const sy = y * (vh / visH);
+          return { x: Math.min(Math.max(sx, 0), vw), y: Math.min(Math.max(sy, 0), vh) };
         };
         const basePayload = (event, extra = {}) => {
           const coords = surfaceCoords(event);
@@ -3906,33 +3935,47 @@
             fire(m);
         };
         const onPointerMove = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           const payload = basePayload(event);
-          if (!payload)
+          if (!payload) {
+            opts.metrics?.noteSkip("no_coords");
             return;
+          }
+          if (pendingMove)
+            opts.metrics?.noteMoveCoalesce();
           pendingMove = intent("mousemove", null, payload);
           if (!moveRaf)
             moveRaf = requestAnimationFrame(flushMove);
         };
         const onPointerDown = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           if (moveRaf) {
             cancelAnimationFrame(moveRaf);
             flushMove();
           }
           const payload = basePayload(event);
-          if (!payload)
+          if (!payload) {
+            opts.metrics?.noteSkip("no_coords");
             return;
+          }
           fire(intent("mousedown", nodeIdOf(event.target, { x: event.clientX, y: event.clientY }), payload));
         };
         const onPointerUp = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           const payload = basePayload(event);
-          if (!payload)
+          if (!payload) {
+            opts.metrics?.noteSkip("no_coords");
             return;
+          }
           fire(intent("mouseup", nodeIdOf(event.target, { x: event.clientX, y: event.clientY }), payload));
         };
         const onClick = (event) => {
@@ -3950,14 +3993,18 @@
           void event;
         };
         const onInput = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           const target = event.target;
           if (!isElement(target))
             return;
           const nodeId = registry.idOfNearest(target);
-          if (nodeId == null)
+          if (nodeId == null) {
+            opts.metrics?.noteSkip("no_node");
             return;
+          }
           opts.onMarkPropDirty?.(nodeId);
           const control = asFormControl(target);
           const value = control?.value ?? "";
@@ -3965,8 +4012,10 @@
           fire(intent("input", nodeId, JSON.stringify({ value, checked })));
         };
         const onKey = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           const tag = tagName(event.target);
           const type = tag === "INPUT" ? event.target.type : tag === "BUTTON" ? event.target.type : "";
           if (event.key === "Enter" && (tag === "A" || tag === "BUTTON" && type === "submit" || tag === "INPUT" && (type === "submit" || type === "image"))) {
@@ -3997,8 +4046,10 @@
           }
         };
         const onScroll = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           const el = event.target;
           if (el === doc || el === win || isElement(el) && el === doc.scrollingElement) {
             if (!win)
@@ -4009,6 +4060,8 @@
               opts.onProgrammaticScrollSuppress?.("viewport");
               return;
             }
+            if (pendingViewport)
+              opts.metrics?.noteScrollCoalesce();
             pendingViewport = intent("scrollViewport", null, JSON.stringify({ scrollX: left2, scrollY: top2 }));
             if (!scrollRaf)
               scrollRaf = requestAnimationFrame(flushScroll);
@@ -4017,32 +4070,44 @@
           if (!isElement(el))
             return;
           const nodeId = registry.idOfNearest(el);
-          if (nodeId == null)
+          if (nodeId == null) {
+            opts.metrics?.noteSkip("no_node");
             return;
+          }
           const top = el.scrollTop;
           const left = el.scrollLeft;
           if (opts.consumeScrollEcho?.(nodeId, { top, left })) {
             opts.onProgrammaticScrollSuppress?.(nodeId);
             return;
           }
+          if (pendingElements.has(nodeId))
+            opts.metrics?.noteScrollCoalesce();
           pendingElements.set(nodeId, intent("scrollElement", nodeId, JSON.stringify({ scrollTop: top, scrollLeft: left })));
           if (!scrollRaf)
             scrollRaf = requestAnimationFrame(flushScroll);
         };
         const onFocusIn = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           const nodeId = nodeIdOf(event.target);
-          if (nodeId == null)
+          if (nodeId == null) {
+            opts.metrics?.noteSkip("no_node");
             return;
+          }
           fire(intent("focus", nodeId, "{}"));
         };
         const onFocusOut = (event) => {
-          if (!opts.isArmed())
+          if (!opts.isArmed()) {
+            opts.metrics?.noteSkip("disarmed");
             return;
+          }
           const nodeId = nodeIdOf(event.target);
-          if (nodeId == null)
+          if (nodeId == null) {
+            opts.metrics?.noteSkip("no_node");
             return;
+          }
           fire(intent("blur", nodeId, "{}"));
         };
         doc.addEventListener("pointermove", onPointerMove, true);
@@ -4087,6 +4152,87 @@
         return attachProjectedInputCapture2(surface, registry, send, opts);
       }
       exports.attachNestedProjectedInputCapture = attachNestedProjectedInputCapture;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/input/inputCaptureMetrics.js
+  var require_inputCaptureMetrics = __commonJS({
+    "../packages/page-projection/dist/projected/input/inputCaptureMetrics.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ProjectedInputCaptureMetrics = void 0;
+      var SAMPLE_CAP = 256;
+      function emptyStats() {
+        return { count: 0, min: 0, avg: 0, p95: 0, max: 0 };
+      }
+      function latencyStats(samples) {
+        if (samples.length === 0)
+          return emptyStats();
+        const sorted = [...samples].sort((a, b) => a - b);
+        const sum = sorted.reduce((a, b) => a + b, 0);
+        const p95Idx = Math.min(sorted.length - 1, Math.floor(0.95 * sorted.length));
+        return {
+          count: sorted.length,
+          min: sorted[0],
+          avg: sum / sorted.length,
+          p95: sorted[p95Idx],
+          max: sorted[sorted.length - 1]
+        };
+      }
+      var ProjectedInputCaptureMetrics2 = class {
+        emitted = 0;
+        emittedByType = {};
+        moveCoalesced = 0;
+        scrollCoalesced = 0;
+        skippedDisarmed = 0;
+        skippedNoCoords = 0;
+        skippedNoNodeId = 0;
+        lastEmitWallMs = null;
+        intervalSamples = [];
+        noteEmit(type) {
+          this.emitted += 1;
+          const key = type || "unknown";
+          this.emittedByType[key] = (this.emittedByType[key] ?? 0) + 1;
+          const now = Date.now();
+          if (this.lastEmitWallMs != null) {
+            const gap = now - this.lastEmitWallMs;
+            if (Number.isFinite(gap) && gap >= 0) {
+              this.intervalSamples.push(gap);
+              if (this.intervalSamples.length > SAMPLE_CAP)
+                this.intervalSamples.shift();
+            }
+          }
+          this.lastEmitWallMs = now;
+        }
+        noteMoveCoalesce() {
+          this.moveCoalesced += 1;
+        }
+        noteScrollCoalesce() {
+          this.scrollCoalesced += 1;
+        }
+        noteSkip(reason) {
+          if (reason === "disarmed")
+            this.skippedDisarmed += 1;
+          else if (reason === "no_coords")
+            this.skippedNoCoords += 1;
+          else
+            this.skippedNoNodeId += 1;
+        }
+        snapshot() {
+          return {
+            emitted: this.emitted,
+            emittedByType: { ...this.emittedByType },
+            moveCoalesced: this.moveCoalesced,
+            scrollCoalesced: this.scrollCoalesced,
+            skippedDisarmed: this.skippedDisarmed,
+            skippedNoCoords: this.skippedNoCoords,
+            skippedNoNodeId: this.skippedNoNodeId,
+            emitIntervalMs: latencyStats(this.intervalSamples),
+            lastEmitWallMs: this.lastEmitWallMs
+          };
+        }
+      };
+      exports.ProjectedInputCaptureMetrics = ProjectedInputCaptureMetrics2;
     }
   });
 
@@ -4536,7 +4682,7 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
@@ -4563,6 +4709,10 @@
       var projectedInputCapture_1 = require_projectedInputCapture();
       Object.defineProperty(exports, "attachProjectedInputCapture", { enumerable: true, get: function() {
         return projectedInputCapture_1.attachProjectedInputCapture;
+      } });
+      var inputCaptureMetrics_1 = require_inputCaptureMetrics();
+      Object.defineProperty(exports, "ProjectedInputCaptureMetrics", { enumerable: true, get: function() {
+        return inputCaptureMetrics_1.ProjectedInputCaptureMetrics;
       } });
       var scrollEchoGate_1 = require_scrollEchoGate();
       Object.defineProperty(exports, "ScrollEchoGate", { enumerable: true, get: function() {
@@ -4799,9 +4949,8 @@
   };
 
   // browser/mirror/projection/lab/client/main.ts
-  var import_projectedInputCapture = __toESM(require_projectedInputCapture());
-  var import_scrollEchoGate = __toESM(require_scrollEchoGate());
   var import_projected = __toESM(require_projected());
+  var import_projected2 = __toESM(require_projected());
   var import_domTreeSnapshot = __toESM(require_domTreeSnapshot());
   var import_formControlSnapshot = __toESM(require_formControlSnapshot());
   var import_decode = __toESM(require_decode());
@@ -4925,10 +5074,11 @@
     let ws = null;
     let projection = null;
     const inputDetachers = /* @__PURE__ */ new Map();
+    let inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
     let canonicalViewport = { width: 1280, height: 720 };
     let viewportSync = null;
     let pendingResize = null;
-    let bootDeviceProfile = (0, import_projected.detectViewportDeviceProfile)();
+    let bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
     function disposeViewportSync() {
       viewportSync?.dispose();
       viewportSync = null;
@@ -4963,10 +5113,10 @@
     function startViewportSync() {
       disposeViewportSync();
       projection?.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-      const sync = new import_projected.ViewportSync({
-        measure: () => (0, import_projected.measureHostElement)(surfaceHost),
+      const sync = new import_projected2.ViewportSync({
+        measure: () => (0, import_projected2.measureHostElement)(surfaceHost),
         resize: requestRemoteResize,
-        viewportPolicy: import_projected.LAB_VIEWPORT_POLICY,
+        viewportPolicy: import_projected2.LAB_VIEWPORT_POLICY,
         onApplied: (size) => {
           canonicalViewport = size;
           projection?.client.setCssSize(size.width, size.height);
@@ -4981,8 +5131,8 @@
       viewportSync = sync;
     }
     function measureAndNormalizeViewport() {
-      const measured = (0, import_projected.measureHostElement)(surfaceHost);
-      return (0, import_projected.normalizeSessionViewport)(measured.width, measured.height, import_projected.LAB_VIEWPORT_POLICY);
+      const measured = (0, import_projected2.measureHostElement)(surfaceHost);
+      return (0, import_projected2.normalizeSessionViewport)(measured.width, measured.height, import_projected2.LAB_VIEWPORT_POLICY);
     }
     function sendInputIntent(intent) {
       if (surfaceWrap.classList.contains("is-crashed")) return;
@@ -4994,16 +5144,18 @@
     function bindInputSurfaces(client) {
       for (const detach of inputDetachers.values()) detach();
       inputDetachers.clear();
-      const scrollEcho = new import_scrollEchoGate.ScrollEchoGate();
+      inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
+      const scrollEcho = new import_projected.ScrollEchoGate();
       const rootSurface = client.document.documentElement;
       if (rootSurface && rootSurface.nodeType === 1) {
-        const detach = (0, import_projectedInputCapture.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
+        const detach = (0, import_projected.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
           contextId: import_frame2.CONTEXT_ID_ROOT,
           getGeneration: () => client.getGeneration(),
           getViewportSize: () => canonicalViewport,
           isArmed: () => client.isArmed,
           onMarkPropDirty: (id) => client.markPropDirty(id),
-          consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed)
+          consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+          metrics: inputCaptureMetrics
         });
         inputDetachers.set(import_frame2.CONTEXT_ID_ROOT, detach);
       }
@@ -5011,18 +5163,15 @@
         const nestedDoc = info.surface.contentDocument;
         const nestedSurface = nestedDoc?.documentElement;
         if (!nestedSurface || nestedSurface.nodeType !== 1) return;
-        const detach = (0, import_projectedInputCapture.attachProjectedInputCapture)(nestedSurface, info.registry, sendInputIntent, {
+        const detach = (0, import_projected.attachProjectedInputCapture)(nestedSurface, info.registry, sendInputIntent, {
           contextId: info.contextId,
           getGeneration: info.getGeneration,
-          getViewportSize: () => {
-            const win = nestedDoc?.defaultView;
-            const w = win?.innerWidth ?? 0;
-            const h = win?.innerHeight ?? 0;
-            return w > 0 && h > 0 ? { width: w, height: h } : canonicalViewport;
-          },
+          // Mode A coords are root Virtual viewport — same canonical size as root capture.
+          getViewportSize: () => canonicalViewport,
           isArmed: info.isArmed,
           onMarkPropDirty: info.markPropDirty,
-          consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed)
+          consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+          metrics: inputCaptureMetrics
         });
         inputDetachers.set(info.contextId, detach);
       });
@@ -5767,7 +5916,7 @@
       clearCrashOverlay();
       disposeViewportSync();
       canonicalViewport = measureAndNormalizeViewport();
-      bootDeviceProfile = (0, import_projected.detectViewportDeviceProfile)();
+      bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
       const p = ensureProjection();
       p.resetSurface();
       p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
@@ -5806,7 +5955,13 @@
       snapInFlight = false;
       syncButtons();
       logActivity("browse.stop\u2026");
-      ws?.send(JSON.stringify({ type: "browse.stop", exportDossier: true }));
+      ws?.send(
+        JSON.stringify({
+          type: "browse.stop",
+          exportDossier: true,
+          inputCapture: inputCaptureMetrics.snapshot()
+        })
+      );
     });
     $("clearSurface").addEventListener("click", () => {
       clearCrashOverlay();

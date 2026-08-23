@@ -89,7 +89,7 @@ async function runPageProjectionInputClickUnitTests() {
         });
         const base = {
             generation: info.generation,
-            targetId: info.id,
+            targetId: null,
             contextId: 1,
             payloadJson,
         };
@@ -101,48 +101,40 @@ async function runPageProjectionInputClickUnitTests() {
             generation: info.generation + 99,
         });
         assert_1.default.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
-        const noId = await pushDom.pushInput({
+        // Mode A: missing nodeId is fine (journal-only); invalid coords still drop.
+        const noIdOk = await pushDom.pushInput({
             ...base,
             type: 'mousedown',
             targetId: 0,
-            payloadJson: JSON.stringify({ x: 0, y: 0, button: 0, buttons: 0, modifiers: {} }),
+            payloadJson: JSON.stringify({ x: info.x, y: info.y, button: 0, buttons: 0, modifiers: {} }),
         });
-        assert_1.default.strictEqual(noId.status, 'dropped');
-        assert_1.default.strictEqual(noId.reason, 'node_id_required');
-        const missing = await pushDom.pushInput({
+        assert_1.default.strictEqual(noIdOk.status, 'dispatched', 'Mode A ignores nodeId');
+        const badCoords = await pushDom.pushInput({
             ...base,
             type: 'mousedown',
-            targetId: 0x7fffffff,
-            payloadJson: JSON.stringify({ x: 0, y: 0, button: 0, buttons: 0, modifiers: {} }),
+            payloadJson: JSON.stringify({ y: 0, button: 0, buttons: 0, modifiers: {} }),
         });
-        assert_1.default.strictEqual(missing.status, 'dropped');
-        assert_1.default.strictEqual(missing.reason, 'anchor_missing');
-        // Wrong payload coords outside the box must still activate — id-assertive falls back to box center.
-        const wrongCoordsPayload = JSON.stringify({
-            x: 0,
-            y: 0,
-            button: 0,
-            buttons: 0,
-            modifiers: {},
+        assert_1.default.strictEqual(badCoords.status, 'dropped');
+        assert_1.default.strictEqual(badCoords.reason, 'invalid_coords');
+        // Mode B still requires nodeId.
+        const scrollNoId = await pushDom.pushInput({
+            type: 'scrollElement',
+            generation: info.generation,
+            targetId: 0,
+            contextId: 1,
+            payloadJson: JSON.stringify({ scrollTop: 10, scrollLeft: 0 }),
         });
+        assert_1.default.strictEqual(scrollNoId.status, 'dropped');
+        assert_1.default.strictEqual(scrollNoId.reason, 'node_id_required');
+        // Activate at button center via Mode A coords (no resolve).
         for (const type of ['mousemove', 'mousedown', 'mouseup']) {
-            const out = await pushDom.pushInput({
-                ...base,
-                type,
-                payloadJson: type === 'mousemove' ? wrongCoordsPayload : wrongCoordsPayload,
-            });
-            if (type === 'mousemove') {
-                // Motion still needs finite coords — 0,0 is valid viewport edge.
-                assert_1.default.strictEqual(out.status, 'dispatched', type);
-            }
-            else {
-                assert_1.default.strictEqual(out.status, 'dispatched', `${type} id-primary despite wrong coords`);
-            }
+            const out = await pushDom.pushInput({ ...base, type });
+            assert_1.default.strictEqual(out.status, 'dispatched', type);
         }
         await wait(300);
         const status = await session.evaluate(`document.getElementById('status')?.getAttribute('data-state') ?? ''`);
         assert_1.default.ok(status.ok, status.errorMessage);
-        assert_1.default.strictEqual(status.value, 'clicked', 'Virtual must reflect click via nodeId');
+        assert_1.default.strictEqual(status.value, 'clicked', 'Virtual must reflect click via Mode A CDP coords');
     }
     finally {
         await session.dispose();
@@ -150,6 +142,6 @@ async function runPageProjectionInputClickUnitTests() {
             server.close((err) => (err ? reject(err) : resolve()));
         });
     }
-    console.log('[unit] PP input click id-assertive (no generation sync) ok');
+    console.log('[unit] PP input click Mode A coords (no resolve) ok');
 }
 //# sourceMappingURL=pageProjectionInputClick.unit.js.map

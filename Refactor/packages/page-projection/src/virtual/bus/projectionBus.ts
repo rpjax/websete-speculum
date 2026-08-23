@@ -19,6 +19,14 @@ export type ResyncRequestEvent = {
   sequence?: number;
 };
 
+/** Mode B input — Control plane entry at root, then fan-out like resync. */
+export type ControlInputEvent = {
+  contextId: number;
+  intentType: string;
+  nodeId: number | null;
+  payload?: unknown;
+};
+
 export type SnapshotRpcOpts = SnapshotOptions & {
   includeTree?: boolean;
 };
@@ -60,6 +68,15 @@ type LooseEnvelope =
       reason?: string;
       generation?: number;
       sequence?: number;
+    }
+  | {
+      channel: typeof PROJECTION_BUS_CHANNEL;
+      kind: 'loose';
+      type: 'controlInput';
+      contextId: number;
+      intentType: string;
+      nodeId: number | null;
+      payload?: unknown;
     }
   | {
       channel: typeof PROJECTION_BUS_CHANNEL;
@@ -124,6 +141,7 @@ export class ProjectionBus {
   private lookupScopeId: ((source: MessageEventSource) => number | undefined) | null = null;
   private readonly frameListeners = new Set<(bytes: Uint8Array) => void>();
   private readonly resyncListeners = new Set<(req: ResyncRequestEvent) => void>();
+  private readonly controlInputListeners = new Set<(req: ControlInputEvent) => void>();
   private readonly telemetryListeners = new Set<(message: ProjectionTelemetryMessage) => void>();
   private mine = 1;
   private snapshotHandler: SnapshotHandler | null = null;
@@ -172,9 +190,20 @@ export class ProjectionBus {
     return () => this.resyncListeners.delete(cb);
   }
 
+  onControlInput(cb: (req: ControlInputEvent) => void): () => void {
+    this.controlInputListeners.add(cb);
+    return () => this.controlInputListeners.delete(cb);
+  }
+
   onTelemetry(cb: (message: ProjectionTelemetryMessage) => void): () => void {
     this.telemetryListeners.add(cb);
     return () => this.telemetryListeners.delete(cb);
+  }
+
+  /** After Control plane `input` — local listeners + nested producer fan-out. */
+  publishControlInput(req: ControlInputEvent): void {
+    this.dispatchControlInput(req);
+    this.fanoutControlInput(req);
   }
 
   emitFrame(bytes: Uint8Array): void {
@@ -465,17 +494,29 @@ export class ProjectionBus {
       this.postToParent(env);
       return;
     }
-    if (env.type !== 'resyncRequest') return;
-    // Fan-down only (root → nested after Control-plane entry). Upward loose resync is forbidden.
+    if (env.type === 'resyncRequest') {
+      // Fan-down only (root → nested after Control-plane entry). Upward loose resync is forbidden.
+      if (event.source !== this.parent) return;
+      const req: ResyncRequestEvent = {
+        contextId: env.contextId,
+        reason: env.reason,
+        generation: env.generation,
+        sequence: env.sequence,
+      };
+      this.dispatchResync(req);
+      this.fanoutResync(req);
+      return;
+    }
+    if (env.type !== 'controlInput') return;
     if (event.source !== this.parent) return;
-    const req: ResyncRequestEvent = {
+    const input: ControlInputEvent = {
       contextId: env.contextId,
-      reason: env.reason,
-      generation: env.generation,
-      sequence: env.sequence,
+      intentType: env.intentType,
+      nodeId: env.nodeId,
+      payload: env.payload,
     };
-    this.dispatchResync(req);
-    this.fanoutResync(req);
+    this.dispatchControlInput(input);
+    this.fanoutControlInput(input);
   }
 
   private async handleControl(env: ControlEnvelope, event: MessageEvent): Promise<void> {
@@ -722,6 +763,10 @@ export class ProjectionBus {
     for (const cb of this.resyncListeners) cb(req);
   }
 
+  private dispatchControlInput(req: ControlInputEvent): void {
+    for (const cb of this.controlInputListeners) cb(req);
+  }
+
   private dispatchTelemetry(message: ProjectionTelemetryMessage): void {
     for (const cb of this.telemetryListeners) cb(message);
   }
@@ -747,6 +792,23 @@ export class ProjectionBus {
           reason: req.reason,
           generation: req.generation,
           sequence: req.sequence,
+        },
+        '*',
+      );
+    });
+  }
+
+  private fanoutControlInput(req: ControlInputEvent): void {
+    this.forEachChildWindow((w) => {
+      w.postMessage(
+        {
+          channel: PROJECTION_BUS_CHANNEL,
+          kind: 'loose',
+          type: 'controlInput',
+          contextId: req.contextId,
+          intentType: req.intentType,
+          nodeId: req.nodeId,
+          payload: req.payload,
         },
         '*',
       );

@@ -11,7 +11,7 @@
 
 **Shipped:** contract hygiene + Integration Live surface (gates 6.6 + 8 path + 10 smoke). Lab aliases out. Launch split + Frames stream. `web/live/page` apply deleted.
 
-**Input design (2026-08-22):** [input-v2.md](input-v2.md) **id-assertive** (resolve `nodeId` → CDP); **no generation sync** with the frame plane. Coords for `mousemove` / wheel. ScrollEchoGate on lab/Live capture when programmatic scroll apply exists.
+**Input design (2026-08-23):** [input-v2.md](input-v2.md) **A/B/C** — A CDP fire-and-forget (pointer/key/viewport); B Control→`domNodes` (scrollElement/focus/blur/input); C CDP handle only for `setFiles`. Id-assertive activate superseded. No generation/sequence gates.
 
 **Next product work (ordered):**
 1. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
@@ -46,7 +46,7 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Off-`childNodes` subtrees (LOCKED) | **[subtrees.md](subtrees.md)** — two kinds only: shadow vs nested browsing context |
 | Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
 | Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus (postMessage) |
-| Input intents | **[input-v2.md](input-v2.md)** (normative V4; **id-assertive** activation 2026-08-22) — [input.md](input.md) is V1 provenance only |
+| Input intents | **[input-v2.md](input-v2.md)** (normative V4; **A/B/C** dispatch 2026-08-23) — [input.md](input.md) is V1 provenance only |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Virtual Document **CSP surgery** (cutover session) | **[csp.md](csp.md)** |
 | Session / mirror-mode contracts (sidecar port) | **[browser-session.md](browser-session.md)** — SEALED 2026-08-21 |

@@ -238,7 +238,9 @@ class PageProjectionBrowserSession {
             this.cdpSession = null;
         }
         this.page = await this.freshPage(dataPlaneUrl, opts);
-        this.inputDispatch = new pageProjectionInputDispatch_1.PageProjectionInputDispatch(this.page);
+        this.inputDispatch = new pageProjectionInputDispatch_1.PageProjectionInputDispatch(this.page, {
+            sendControl: (message) => this.sendControl(message),
+        });
         const allowed = opts.allowedNavigationDomains;
         if (allowed && allowed.length > 0) {
             try {

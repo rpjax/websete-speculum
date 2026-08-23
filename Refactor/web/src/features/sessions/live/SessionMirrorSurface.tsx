@@ -322,9 +322,12 @@ function PageProjectionV2Surface({
     )
     const nestedDetachers: Array<() => void> = []
     client.forEachNestedInputSurface((info) => {
+      const nestedDoc = info.surface.contentDocument
+      const nestedSurface = nestedDoc?.documentElement
+      if (!nestedSurface || nestedSurface.nodeType !== 1) return
       nestedDetachers.push(
         attachProjectedInputCapture(
-          info.surface,
+          nestedSurface,
           info.registry,
           (intent) => onDomInputRef.current(intentToWire(intent)),
           {

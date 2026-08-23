@@ -1,6 +1,6 @@
 /**
- * PageProjection input dispatch — serial CDP chain via DomElementInput.
- * No generation sync with the frame plane: resolve nodeId when required → CDP.
+ * PageProjection input dispatch — A/B/C (input-v2 2026-08-23).
+ * A: CDP fire-and-forget. B: Control → Virtual.domNodes. C: setFiles CDP resolve only.
  */
 
 import type { Page } from 'patchright';
@@ -8,6 +8,7 @@ import {
   DomElementInput,
   type DomElementInputOutcome,
   type DomElementInputPipelineMetrics,
+  type DomElementInputLatencyStats,
 } from '../../../patchright/mirror/dom/DomElementInput';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import {
@@ -16,6 +17,11 @@ import {
   type PageProjectionIntentV2,
 } from '@speculum/page-projection/core/input/intentTypes';
 import { createVirtualTargetResolver, findFrameForContext } from './resolveVirtualNode';
+
+const MODE_B = new Set(['scrollelement', 'focus', 'blur', 'input']);
+const LATENCY_SAMPLES = 256;
+
+export type InputDispatchMode = 'A' | 'B' | 'C';
 
 type ResolveHit = {
   ok: boolean;
@@ -26,27 +32,122 @@ type ResolveHit = {
   y?: number;
 };
 
+export type PageProjectionInputDispatchOptions = {
+  /** Mode B — same Control plane as requestResync. */
+  sendControl?: (message: Record<string, unknown>) => void;
+};
+
+export type ModePipelineMetrics = {
+  received: number;
+  dispatched: number;
+  dropped: number;
+  dropsByReason: Record<string, number>;
+  byType: Record<string, { received: number; dispatched: number; dropped: number }>;
+  dispatchMs: DomElementInputLatencyStats;
+};
+
 export type PageProjectionInputPipelineMetrics = {
   ingressReceived: number;
   ingressDropped: number;
   ingressDropsByReason: Record<string, number>;
+  byMode: {
+    A: ModePipelineMetrics;
+    B: ModePipelineMetrics;
+    C: ModePipelineMetrics;
+  };
+  /** Sidecar receive wall − intent.wallClientMs (when present). */
+  clientLagMs: DomElementInputLatencyStats;
   inject: DomElementInputPipelineMetrics;
+  lastOutcome: {
+    t: number;
+    type: string;
+    mode: InputDispatchMode;
+    status: 'dispatched' | 'dropped';
+    reason?: string;
+    dispatchMs?: number;
+    clientLagMs?: number;
+  } | null;
 };
+
+type ModeBucket = {
+  received: number;
+  dispatched: number;
+  dropped: number;
+  dropsByReason: Record<string, number>;
+  byType: Record<string, { received: number; dispatched: number; dropped: number }>;
+  dispatchSamples: number[];
+};
+
+function emptyMode(): ModeBucket {
+  return {
+    received: 0,
+    dispatched: 0,
+    dropped: 0,
+    dropsByReason: {},
+    byType: {},
+    dispatchSamples: [],
+  };
+}
+
+function latencyStats(samples: readonly number[]): DomElementInputLatencyStats {
+  if (samples.length === 0) return { count: 0, min: 0, avg: 0, p95: 0, max: 0 };
+  const sorted = [...samples].sort((a, b) => a - b);
+  const sum = sorted.reduce((a, b) => a + b, 0);
+  const p95Idx = Math.min(sorted.length - 1, Math.floor(0.95 * sorted.length));
+  return {
+    count: sorted.length,
+    min: sorted[0]!,
+    avg: sum / sorted.length,
+    p95: sorted[p95Idx]!,
+    max: sorted[sorted.length - 1]!,
+  };
+}
+
+function snapshotMode(b: ModeBucket): ModePipelineMetrics {
+  return {
+    received: b.received,
+    dispatched: b.dispatched,
+    dropped: b.dropped,
+    dropsByReason: { ...b.dropsByReason },
+    byType: Object.fromEntries(Object.entries(b.byType).map(([k, v]) => [k, { ...v }])),
+    dispatchMs: latencyStats(b.dispatchSamples),
+  };
+}
+
+export function classifyInputMode(type: string): InputDispatchMode {
+  const t = type.trim().toLowerCase();
+  if (t === 'setfiles') return 'C';
+  if (MODE_B.has(t)) return 'B';
+  return 'A';
+}
 
 export class PageProjectionInputDispatch {
   private readonly domInput: DomElementInput;
+  private readonly sendControl: ((message: Record<string, unknown>) => void) | null;
+  private readonly resolver: ReturnType<typeof createVirtualTargetResolver>;
   private ingressReceived = 0;
   private ingressDropped = 0;
   private readonly ingressDropsByReason: Record<string, number> = {};
+  private readonly modes: Record<InputDispatchMode, ModeBucket> = {
+    A: emptyMode(),
+    B: emptyMode(),
+    C: emptyMode(),
+  };
+  private readonly clientLagSamples: number[] = [];
+  private lastOutcome: PageProjectionInputPipelineMetrics['lastOutcome'] = null;
 
-  constructor(private readonly page: Page) {
-    const resolver = createVirtualTargetResolver(page);
+  constructor(
+    private readonly page: Page,
+    opts?: PageProjectionInputDispatchOptions,
+  ) {
+    this.sendControl = opts?.sendControl ?? null;
+    this.resolver = createVirtualTargetResolver(page);
     this.domInput = new DomElementInput(
       page,
       { takeUpload: () => undefined },
       {
         resolveTarget: (targetId, contextId) =>
-          resolver.resolve(targetId, contextId ?? CONTEXT_ID_ROOT),
+          this.resolver.resolve(targetId, contextId ?? CONTEXT_ID_ROOT),
       },
     );
   }
@@ -56,39 +157,102 @@ export class PageProjectionInputDispatch {
       ingressReceived: this.ingressReceived,
       ingressDropped: this.ingressDropped,
       ingressDropsByReason: { ...this.ingressDropsByReason },
+      byMode: {
+        A: snapshotMode(this.modes.A),
+        B: snapshotMode(this.modes.B),
+        C: snapshotMode(this.modes.C),
+      },
+      clientLagMs: latencyStats(this.clientLagSamples),
       inject: this.domInput.getMetrics(),
+      lastOutcome: this.lastOutcome,
     };
   }
 
   async dispatchIntent(intent: PageProjectionIntentV2): Promise<DomElementInputOutcome> {
+    const receivedAt = Date.now();
     this.ingressReceived += 1;
     const type = intent.type.trim().toLowerCase();
-    let payloadJson = intent.payload;
-    const needsPageCoords =
-      intent.contextId !== CONTEXT_ID_ROOT
-      && (type === 'mousemove'
-        || type === 'mousedown'
-        || type === 'mouseup'
-        || type === 'pointermove'
-        || type === 'pointerdown'
-        || type === 'pointerup'
-        || type === 'wheel');
-    if (needsPageCoords) {
-      const mapped = await this.mapNestedPayloadToPage(intent.contextId, payloadJson);
-      if (mapped == null) {
-        this.noteIngressDrop('frame_box_missing');
-        return { status: 'dropped', reason: 'frame_box_missing' };
-      }
-      payloadJson = mapped;
+    const mode = classifyInputMode(type);
+    const bucket = this.modes[mode];
+    bucket.received += 1;
+    let row = bucket.byType[type];
+    if (!row) {
+      row = { received: 0, dispatched: 0, dropped: 0 };
+      bucket.byType[type] = row;
     }
-    return this.domInput.dispatch({
-      type: intent.type,
-      targetId: intent.nodeId,
-      contextId: intent.contextId,
-      generation: intent.generation,
-      timestampClient: intent.timestampClient,
-      payloadJson,
-    });
+    row.received += 1;
+
+    let clientLagMs: number | undefined;
+    if (typeof intent.wallClientMs === 'number' && Number.isFinite(intent.wallClientMs)) {
+      const lag = receivedAt - intent.wallClientMs;
+      if (lag >= 0 && lag < 60_000) {
+        clientLagMs = lag;
+        this.clientLagSamples.push(lag);
+        if (this.clientLagSamples.length > LATENCY_SAMPLES) this.clientLagSamples.shift();
+      }
+    }
+
+    const started = Date.now();
+    let outcome: DomElementInputOutcome;
+
+    if (mode === 'B') {
+      if (intent.nodeId == null || intent.nodeId <= 0) {
+        outcome = { status: 'dropped', reason: 'node_id_required' };
+      } else if (!this.sendControl) {
+        outcome = { status: 'dropped', reason: 'control_unavailable' };
+      } else {
+        this.sendControl({
+          type: 'input',
+          contextId: intent.contextId > 0 ? intent.contextId : CONTEXT_ID_ROOT,
+          intentType: type,
+          nodeId: intent.nodeId,
+          payload: intent.payload,
+        });
+        outcome = { status: 'dispatched' };
+      }
+    } else {
+      // Mode A (+ C setFiles): CDP. No nested frame map — client sends root viewport coords.
+      outcome = await this.domInput.dispatch({
+        type: intent.type,
+        targetId: mode === 'C' ? intent.nodeId : null,
+        contextId: intent.contextId,
+        generation: intent.generation,
+        timestampClient: intent.timestampClient,
+        payloadJson: intent.payload,
+      });
+    }
+
+    const dispatchMs = Date.now() - started;
+    bucket.dispatchSamples.push(dispatchMs);
+    if (bucket.dispatchSamples.length > LATENCY_SAMPLES) bucket.dispatchSamples.shift();
+
+    if (outcome.status === 'dropped') {
+      this.noteIngressDrop(outcome.reason);
+      bucket.dropped += 1;
+      row.dropped += 1;
+      bucket.dropsByReason[outcome.reason] = (bucket.dropsByReason[outcome.reason] ?? 0) + 1;
+      this.lastOutcome = {
+        t: Date.now(),
+        type,
+        mode,
+        status: 'dropped',
+        reason: outcome.reason,
+        dispatchMs,
+        clientLagMs,
+      };
+    } else {
+      bucket.dispatched += 1;
+      row.dispatched += 1;
+      this.lastOutcome = {
+        t: Date.now(),
+        type,
+        mode,
+        status: 'dispatched',
+        dispatchMs,
+        clientLagMs,
+      };
+    }
+    return outcome;
   }
 
   private noteIngressDrop(reason: string): void {
@@ -101,40 +265,7 @@ export class PageProjectionInputDispatch {
     return this.dispatchIntent(intent);
   }
 
-  /** Nested capture sends viewport-local coords; CDP mouse needs page coords. */
-  private async mapNestedPayloadToPage(contextId: number, payloadJson: string): Promise<string | null> {
-    let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(payloadJson) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-    const x = Number(payload.x);
-    const y = Number(payload.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return payloadJson;
-    const frame = await findFrameForContext(this.page, contextId);
-    const pagePt = await this.pageCoordsForFramePoint(frame, contextId, x, y);
-    if (!pagePt) return null;
-    return JSON.stringify({ ...payload, x: pagePt.x, y: pagePt.y });
-  }
-
-  private async pageCoordsForFramePoint(
-    frame: Awaited<ReturnType<typeof findFrameForContext>>,
-    contextId: number,
-    x: number,
-    y: number,
-  ): Promise<{ x: number; y: number } | null> {
-    if (!frame || contextId === CONTEXT_ID_ROOT) return { x, y };
-    try {
-      const frameEl = await frame.frameElement();
-      const box = frameEl ? await frameEl.boundingBox() : null;
-      if (!box) return null;
-      return { x: box.x + x, y: box.y + y };
-    } catch {
-      return null;
-    }
-  }
-
+  /** Lab blueprint helper — one-shot query for coords, then Mode A CDP. Not the live hot path. */
   private async resolveInContext(
     selector: string,
     contextId: number,
@@ -166,7 +297,6 @@ export class PageProjectionInputDispatch {
       if (!hit || typeof hit !== 'object' || !('ok' in (hit as object))) {
         return { ok: false, reason: 'evaluate_empty' };
       }
-      // Frame-local coords — dispatchIntent maps nested → page for CDP mouse.
       return hit as ResolveHit;
     } catch {
       return { ok: false, reason: 'evaluate_failed' };
@@ -181,19 +311,38 @@ export class PageProjectionInputDispatch {
     if (!info.ok || !info.id || info.x == null || info.y == null) {
       return { status: 'dropped', reason: info.reason ?? 'resolve_failed' };
     }
+    // Nested blueprint: map frame-local center to page for CDP (harness only).
+    let x = info.x;
+    let y = info.y;
+    if (contextId !== CONTEXT_ID_ROOT) {
+      const frame = await findFrameForContext(this.page, contextId);
+      if (frame) {
+        try {
+          const frameEl = await frame.frameElement();
+          const box = frameEl ? await frameEl.boundingBox() : null;
+          if (box) {
+            x = box.x + x;
+            y = box.y + y;
+          }
+        } catch {
+          /* keep frame-local */
+        }
+      }
+    }
     const payloadJson = JSON.stringify({
-      x: info.x,
-      y: info.y,
+      x,
+      y,
       button: 0,
       buttons: 0,
       modifiers: {},
     });
     const base: DomInputIngress = {
       generation: info.generation ?? 0,
-      targetId: info.id,
-      contextId,
+      targetId: null,
+      contextId: CONTEXT_ID_ROOT,
       payloadJson,
       timestampClient: Date.now(),
+      wallClientMs: Date.now(),
       type: 'mousemove',
     };
     for (const type of ['mousemove', 'mousedown', 'mouseup'] as const) {
@@ -219,6 +368,7 @@ export class PageProjectionInputDispatch {
       generation: info.generation ?? 0,
       payloadJson: JSON.stringify({ value }),
       timestampClient: Date.now(),
+      wallClientMs: Date.now(),
     });
   }
 
@@ -238,6 +388,7 @@ export class PageProjectionInputDispatch {
       generation: info.generation ?? 0,
       payloadJson: JSON.stringify({ scrollTop, scrollLeft: 0 }),
       timestampClient: Date.now(),
+      wallClientMs: Date.now(),
     });
   }
 
@@ -253,6 +404,7 @@ export class PageProjectionInputDispatch {
       generation: 0,
       payloadJson: JSON.stringify({ scrollX, scrollY }),
       timestampClient: Date.now(),
+      wallClientMs: Date.now(),
     });
   }
 }

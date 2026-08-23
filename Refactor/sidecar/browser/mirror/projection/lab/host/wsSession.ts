@@ -236,6 +236,9 @@ export class WsLabConnection {
         let dossierDir: string | undefined;
         this.stopDebugProbe();
         const wallMs = this.chassis.sessionWallMs();
+        if (msg.inputCapture != null) {
+          this.chassis.setInputCaptureMetrics(msg.inputCapture);
+        }
         // Close Virtual first so a hung browse snap / CDP evaluate cannot block Stop.
         // Stored snaps validate from journal (no live dump). Export writes files after close.
         if (msg.exportDossier && this.chassis.browseSnapCount > 0) {
@@ -362,8 +365,16 @@ export class WsLabConnection {
         const session = this.chassis.browser;
         const push = (session as {
           pushInput?: (i: unknown) => Promise<{ status: string; reason?: string } | unknown>;
-        } | null)?.pushInput?.bind(session);
-        if (!push) {
+          getInputPipelineMetrics?: () => {
+            lastOutcome?: {
+              mode?: 'A' | 'B' | 'C';
+              dispatchMs?: number;
+              clientLagMs?: number;
+            } | null;
+          };
+        } | null);
+        const pushFn = push?.pushInput?.bind(session);
+        if (!pushFn) {
           this.send({ type: 'error', message: 'pushInput unavailable', code: 'input_unavailable' });
           return;
         }
@@ -373,15 +384,24 @@ export class WsLabConnection {
           return;
         }
         const intent = intentRaw as Record<string, unknown>;
+        const timingOf = () => {
+          const last = push?.getInputPipelineMetrics?.()?.lastOutcome;
+          return {
+            mode: last?.mode,
+            dispatchMs: last?.dispatchMs,
+            clientLagMs: last?.clientLagMs,
+          };
+        };
         try {
-          const out = await push(intent);
+          const out = await pushFn(intent);
+          const timing = timingOf();
           if (
             out
             && typeof out === 'object'
             && (out as { status?: string }).status === 'dropped'
           ) {
             const reason = (out as { reason?: string }).reason ?? 'dropped';
-            await this.chassis.journalIntent(intent, { ok: false, error: reason });
+            await this.chassis.journalIntent(intent, { ok: false, error: reason, ...timing });
             this.send({
               type: 'error',
               message: `intent dropped: ${reason}`,
@@ -389,10 +409,10 @@ export class WsLabConnection {
             });
             return;
           }
-          await this.chassis.journalIntent(intent, { ok: true });
+          await this.chassis.journalIntent(intent, { ok: true, ...timing });
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
-          await this.chassis.journalIntent(intent, { ok: false, error: message });
+          await this.chassis.journalIntent(intent, { ok: false, error: message, ...timingOf() });
           this.send({
             type: 'error',
             message,

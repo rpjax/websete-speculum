@@ -20,13 +20,14 @@
 
 | Date | Topic | Where the full text is |
 |------|-------|------------------------|
-| 2026-08-22 | **Input plane = no sync** — no `generation_stale` gate; no CDP/frame generation coupling on intent path. Dumb pipe: capture → resolve nodeId → CDP. Envelope `generation` journal-only. | [input-v2.md](input-v2.md) |
+| 2026-08-23 | **Input A/B/C LOCKED** — A = CDP fire-and-forget (pointer/key/viewport); B = Control→`domNodes` (`scrollElement`/`focus`/`blur`/`input`); C = CDP handle **only** `setFiles`. Id-assertive activate SUPERSEDED. No sidecar table replica for input. | [input-v2.md](input-v2.md) |
+| 2026-08-22 | **Input plane = no sync** — no `generation_stale` gate; no CDP/frame generation coupling on intent path. Envelope `generation` journal-only. **Amended 2026-08-23** by A/B/C (activate is coords CDP, not resolve). | [input-v2.md](input-v2.md) |
 | 2026-08-22 | **Input capture Document + onArmed re-fire** — listeners on Document (survive in-place `<html>` replace); `onArmed` after every resync iframe swap so lab/Live rebind. Once-only arm = stage navigates to shell origin (lab `not found`). | [input-v2.md](input-v2.md) Client capture |
 | 2026-08-21 | **BrowserSession mirror contracts SEALED** — [browser-session.md](browser-session.md): core + PP + video; sinks; permission host; raw `getStateSnapshot`; `requestResync` only; no diagnostics facade; CPU profile on core | browser-session.md + observability.md §5 + open.md CUTOVER-SESSION |
 | 2026-08-21 | **Contract cutover impl** — sealed factory Live; `PageProjectionBrowserSession`; delete `LivePageProjection`; wire `RequestResync` / drop GetResync+ReportClientState | CUTOVER-WORKSPACE + sidecar + Api |
 | 2026-08-20 | **CSP SEALED** — [csp.md](csp.md) §§3–7 + `session/csp/*`; units/e2e. Next cutover: script inject (same hook). | csp.md + CUTOVER-WORKSPACE |
 | 2026-08-20 | **CSP cutover redesign** — surgical Response-stage Document mutate; nonce strip + compensation; amends E-03/E-08 (CSP ok ≠ page WS prod). | [csp.md](csp.md) |
-| 2026-08-22 | **Input V2 id-assertive LOCKED** — press/up/focus/input resolve `nodeId` then CDP on that element; coords-only activation = defect. Coords keep `mousemove`/wheel + optional offset. Surface = stage (not document scroll height). Lab M1 blueprints still the effect bar; Browse/Live impl must catch up. | [input-v2.md](input-v2.md) + input.md supersession |
+| 2026-08-22 | **Input V2 id-assertive LOCKED** — press/up/focus/input resolve `nodeId` then CDP on that element; coords-only activation = defect. **SUPERSEDED 2026-08-23** by Input A/B/C (activate = Mode A CDP coords). | [input-v2.md](input-v2.md) |
 | 2026-08-20 | **Input V2 lab M1 closed** — [input-v2.md](input-v2.md); gate 6 lab blueprints. Touch/OS pointer intents **out of scope** (Projected local/native). MotorAssert on Live = **cutover** (gate 10). **Amended 2026-08-22** by id-assertive dispatch ruling. | roadmap.md + input-v2.md + README Now |
 | 2026-08-13 | Table = replicated structure (P0); two-phase apply; preTableHash; 27 opcodes; no MOVE/REPLACE; prevSibling topology; tableHash; STR_DEF deferred; establish **deleted**; id 1 = Document; producer construction §5; P8 no lifecycle branches | frame-protocol.md decision log |
 | 2026-08-13 | OPEN-5 closed: `emitResyncFrame` / `resyncVirtual`; double-buffer swap on CHECK | frame-protocol.md §5.8 + log |

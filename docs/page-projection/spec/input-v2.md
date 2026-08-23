@@ -1,26 +1,35 @@
 # PageProjection Input V2
 
 **Status:** normative for V4 / cutover gate 6 ([roadmap.md](roadmap.md)).  
-**Supersedes** unrevised sections of [input.md](input.md) wherever they conflict — especially dispatch primary for press/up and §6.3 surface vs document scroll height.  
+**Supersedes** unrevised sections of [input.md](input.md) wherever they conflict — especially dispatch primary and §6.3 surface vs document scroll height.  
 **Boundary:** input is a **separate feature** — it must not change the frame algorithm (`virtual/**`, opcodes, apply/resync).
 
-**Ruling 2026-08-22:** element activation is **id-assertive**. Coords-only CDP for `mousedown`/`mouseup` is a **defect**, not the design. Lab M1 blueprints (2026-08-20) remain the effect bar; Browse / Live / `resolveAndClick` share `DomElementInput.dispatchMouse` (resolve → hit point in box → CDP).
+**Ruling 2026-08-23 (A/B/C dispatch — LOCKED):** input is **fire-and-forget** and as cheap as possible.
 
-**Ruling 2026-08-22 (input = no sync):** the input plane **does not sync** with frame generation, apply, or resync. It is a dumb pipe: capture → intent → resolve `nodeId` when required → CDP. Dropping intents as `generation_stale`, CDP-reading generation, or coupling frame headers into dispatch is a **defect**.
+| Mode | Intents | Mechanics |
+|------|---------|-----------|
+| **A** | `mousemove` / `pointermove`, `mousedown` / `mouseup` (+ pointer*), `wheel`, `keydown` / `keyup`, `scrollViewport` | CDP only. Coords / keys / viewport scroll. **Zero** resolve, frame walk, generation/sequence gate. Miss or wrong target because Virtual moved = **expected**. |
+| **B** | `scrollElement`, `focus`, `blur`, `input` | Sidecar → **Control plane** `{ type: 'input', ... }` → Virtual `domNodes.get(nodeId)` → JS. O(1). Missing node = no-op. |
+| **C** | **`setFiles` only** | CDP handle resolve + `setInputFiles` — rare exception. |
+
+**SUPERSEDED:** 2026-08-22 id-assertive activate (resolve `nodeId` → bounding box → CDP press). That path must not run on A.
+
+**Ruling 2026-08-22 (input = no sync):** the input plane **does not sync** with frame generation, apply, or resync. No `generation_stale`, no sequence gate, no sidecar copy of the identity table for input.
 
 ---
 
 ## Three planes
 
 ```text
-Projected  ──intents──►  sidecar (serial CDP chain)  ──►  Virtual
+Projected  ──intents──►  sidecar
+                           ├─ A ──CDP Input/keyboard──► Virtual
+                           ├─ B ──Control plane───────► Virtual.domNodes
+                           └─ C ──CDP resolve+files───► Virtual
 Virtual    ──frames──►  sidecar  ──DataPlane──►  Projected
-Projected  ──control──►  sidecar  (requestResync, snapshot, …)
+Projected  ──control──►  sidecar  (requestResync, Mode B input, …)
 ```
 
-Production: web/hub → sidecar → CDP. Lab: `client.intent` on lab WS.
-
-Frames sync DOM/CSSOM. Input only injects gesture — **no shared generation gate** between the two planes.
+Production: web/hub → sidecar. Lab: `client.intent` on lab WS.
 
 ---
 
@@ -29,143 +38,108 @@ Frames sync DOM/CSSOM. Input only injects gesture — **no shared generation gat
 | Field | Type | Notes |
 |-------|------|-------|
 | `schemaVersion` | u8 | `1` |
-| `contextId` | u32 | Same as frame header; root = `1` |
-| `generation` | u32 | Optional journal/debug only — **not** a dispatch gate |
-| `type` | string | See dispatch table — **no wire `click`** |
-| `nodeId` | u32 \| null | Required for element intents; null only where the table allows |
+| `contextId` | u32 | Root = `1`. Mode B: producer applies only if `contextId === mine`. Mode A: journal; coords are **root viewport**. |
+| `generation` | u32 | Journal/debug only — **not** a dispatch gate |
+| `type` | string | See table — **no wire `click`** |
+| `nodeId` | u32 \| null | **Required for B and C.** Mode A: optional journal only — dispatch **ignores** it |
 | `timestampClient` | f64 | Optional |
 | `payload` | JSON | Coords, keys, scroll, form values |
 
 Hub DTO: [PageProjectionIntent.cs](../../Refactor/Speculum.Api/Sessions/Mirror/PageProjection/PageProjectionIntent.cs) (`targetId` = `nodeId`, `contextId` default `1`).
 
+Sidecar **must not** maintain a passive replica of the Virtual identity table for input lookups.
+
 ---
 
-## Dispatch primary (LOCKED 2026-08-22)
+## Dispatch primary (LOCKED 2026-08-23)
 
 ### Principle
 
-Projected capture is **listeners on the projected document**. Sidecar dispatch is **assertive by node id** for anything that means “act on this element.” Pixel coords alone must not be the activation algorithm — they drift when Projected scroll / DOM lag Virtual (real sites: Eneba-class).
+Projected capture emits intents. Sidecar classifies A / B / C and injects. **No proof that the hit target matches `nodeId` on A.** Performance > safety nets; polish the product until races are rare enough — do not paper over with resolve.
 
-`ok: true` / `status: dispatched` after CDP at an arbitrary `(x,y)` is **not** success if the intent carried a `nodeId` that was never resolved.
+### Per-type
 
-### Per-type primary
+| Type | Mode | `nodeId` | Primary |
+|------|------|----------|---------|
+| `mousedown` / `mouseup` / `pointerdown` / `pointerup` | **A** | ignored | CDP press/release at payload `(x,y)` (root viewport CSS px) |
+| `mousemove` / `pointermove` | **A** | ignored | CDP `mouseMoved` at `(x,y)`; coalesce under inject-chain pressure |
+| `wheel` | **A** | ignored | CDP wheel at `(x,y)` |
+| `keydown` / `keyup` | **A** | ignored | CDP key → **current focus** on Virtual |
+| `scrollViewport` | **A** | null | Absolute page `scrollX`/`scrollY` (CDP/evaluate viewport only — no element resolve) |
+| `scrollElement` | **B** | **required** | Control → `el.scrollTop` / `scrollLeft` |
+| `focus` / `blur` | **B** | **required** | Control → `el.focus()` / `blur()` |
+| `input` | **B** | **required** | Control → value / checked + `input`/`change` |
+| `setFiles` | **C** | **required** | CDP resolve handle → `setInputFiles` |
 
-| Type | `nodeId` | Primary on Virtual | Coords role |
-|------|----------|--------------------|-------------|
-| `mousedown` / `mouseup` / `pointerdown` / `pointerup` | **Required** | Resolve `(contextId, nodeId)` → Element. CDP press/release on that element (center of box, or payload offset **inside** the element’s client box — never page coords in isolation) | Optional hit offset relative to the resolved element |
-| `focus` / `blur` | **Required** | Resolve id → focus/blur that element | None |
-| `input` | **Required** | Resolve id → set value / checked on that control | None |
-| `keydown` / `keyup` | Preferred | If id present → focus then key; else page-targeted key (document shortcuts) | None |
-| `scrollElement` | **Required** | Absolute `scrollTop`/`scrollLeft` on that element | None |
-| `scrollViewport` | **null** | Absolute page `scrollX`/`scrollY` | None |
-| `mousemove` / `pointermove` | null (or diagnostic only) | Surface → viewport CSS coords → CDP `mouseMoved` | **Primary** (continuous hover) |
-| `wheel` | optional | Coords (and nested frame map) → CDP wheel; do not treat as activation | Primary for hit position |
-| `setFiles` | **Required** | Resolve id → `setInputFiles` | None |
+**No wire `click`.** Projected `click` / `contextmenu`: `preventDefault`; activation is down+up (A).
 
-**No wire `click`.** Projected `click` / `contextmenu`: `preventDefault` as today; activation is only down+up (and motion path for antibot). Prefer trusted CDP press/release over in-page `el.click()`; `el.click()` only as logged fallback after press/release failure for that gesture — never both for the same gesture.
+### Drop / ignore
 
-### Drop closed (fail closed)
+| Condition | Behaviour |
+|-----------|-----------|
+| Wire `click` / `auxclick` | drop `ignored_wire_click` |
+| Mode A invalid coords | drop `invalid_coords` |
+| Mode A/C CDP failure | drop `cdp_error` |
+| Mode B missing `nodeId` | drop `node_id_required` |
+| Mode B node missing in `domNodes` | **no-op** (not a hard fail) |
+| Mode C resolve miss | drop `anchor_missing` |
 
-Drop with an explicit reason (never silent “dispatched” at the wrong place):
-
-| Condition | Example reason |
-|-----------|----------------|
-| Element intent missing `nodeId` | `node_id_required` |
-| Resolve miss in Virtual map | `anchor_missing` / `node_unresolved` |
-| Nested context frame missing | `context_frame_missing` |
-| Wire `click` / `auxclick` | `ignored_wire_click` |
-| Invalid motion coords | `invalid_coords` |
-| CDP inject failure | `cdp_error` |
-
-**Not a drop reason:** stale / mismatched `generation`. Sidecar must not compare intent generation to Virtual or frame headers.
-
-Journal / lab Activity must surface drops. “Dispatched” without resolve for a required-id intent is a product bug.
+**Not drop reasons:** stale generation, sequence mismatch, “coord not on nodeId”.
 
 ### Nested documents
 
-Same rules with `contextId ≠ 1`: resolve in the producer frame for that context. Nested capture already sends frame-local coords for **motion**; for **press/up**, id resolve is primary — nested bounding-box maps are for motion/wheel, not a substitute for missing id.
+Mode **A:** capture maps nested event coords into **root Virtual viewport** before send. Sidecar never walks frames for A.  
+Mode **B:** `contextId` selects the producer instance; that instance applies on its own `domNodes`.
 
 ---
 
-## Coordinate space (motion + optional offset)
+## Coordinate space (Mode A)
 
-Applies to **`mousemove` / wheel** and to **optional offsets** on press/up — not as the activation primary.
-
-1. **`surface`** = the projection **stage** (lockstep CSS box / host that maps 1:1 to the Virtual viewport) — **not** `documentElement`’s full scroll height.
-2. Map event viewport-local coords through that surface rect (or equivalent visible viewport: `innerWidth`/`innerHeight` when listeners sit inside the iframe and the stage already matches Virtual size) into Virtual viewport CSS px.
-3. Clamp to the Virtual viewport.
+1. **`surface`** = projection **stage** (1:1 Virtual viewport) — not `documentElement` scroll height.
+2. Map event `clientX/Y` through stage → Virtual viewport CSS px; clamp.
+3. Nested iframe: offset into root space **on the client**.
 4. Speculum chrome outside the surface does not emit intents.
-5. Never scale against the projected document’s scrollable content height — that collapses Y on long pages (defect observed on Eneba).
-
-Letterboxing / CSS scale: correct with `viewportSize / surfaceRectSize` when the stage is letterboxed inside a larger host.
 
 ---
 
 ## Client capture
 
-Module: [`projectedInputCapture.ts`](../../Refactor/packages/page-projection/src/projected/input/projectedInputCapture.ts) (shared; `web/` SessionMirrorSurface + lab client attach it).
+Module: [`projectedInputCapture.ts`](../../Refactor/packages/page-projection/src/projected/input/projectedInputCapture.ts).
 
-- Listeners on the **Projected `Document`** (capture phase), not on a cached `documentElement` — apply may replace `<html>` in place; Document identity is stable for one surface iframe.
-- After a **resync iframe swap** (new Document), `ProjectionClient` **`onArmed` fires again** — composition roots MUST re-attach capture (lab + Live already do via `onArmed → bindInput`). Treating `onArmed` as once-only is a defect (leaked native `<a href>` → navigates the stage iframe off the projected document).
-- **Armed** = local gate only (“surface exists / apply ready”); **zero intents** while disarmed. Not a Virtual generation sync. `click`/`submit`/`contextmenu` still `preventDefault` while attached (even if disarmed) so the stage cannot navigate away.
-- For activate: resolve `nodeId` via registry (interactive prefer + nearest id walk) — same spirit as lab `resolveAndClick`.
+- Listeners on Projected **Document** (capture); re-attach after resync iframe swap (`onArmed` again).
+- **Armed** = local gate only. `click`/`submit`/`contextmenu` always `preventDefault` while attached.
 - Move coalesce @ rAF; flush before down/up.
-- Local-first scroll: do not `preventDefault` wheel — overflow paints; `scroll` → `scrollElement` / `scrollViewport`.
-- Form edit: `markPropDirty(nodeId)` → `FormPropDirty` skip on upstream `PROP_SET`.
-- Cross-realm: never `instanceof HTMLElement` from the shell Window against Projected nodes — use `nodeType` / `tagName`.
-- Scroll echo (`consumeScrollEcho`) must be wired on lab + Live when Virtual applies programmatic scroll — prevent feedback loops; does not replace id-assertive press.
-- Envelope `generation` may be filled for journal/debug; sidecar ignores it for dispatch.
+- Local-first scroll: do not `preventDefault` wheel; `scroll` → `scrollElement` / `scrollViewport`.
+- Form edit: `markPropDirty(nodeId)` for Mode B `input`.
+- Mode A may still stamp `nodeId` for journal; dispatch ignores it.
+- Scroll echo on Mode B scroll apply (Virtual notes before mutate).
 
 ---
 
-## Sidecar dispatch
+## Sidecar + Virtual
 
-Modules: [`pageProjectionInputDispatch.ts`](../../Refactor/sidecar/browser/mirror/projection/input/pageProjectionInputDispatch.ts) + [`DomElementInput.ts`](../../Refactor/sidecar/browser/patchright/mirror/dom/DomElementInput.ts).
+**A:** [`DomElementInput`](../../Refactor/sidecar/browser/patchright/mirror/dom/DomElementInput.ts) / dispatch — CDP mouse/key/viewport only.  
+**B:** `PageProjectionBrowserSession.sendControl({ type: 'input', contextId, intentType, nodeId, payload })` → Virtual Control handler → `domNodes.get`.  
+**C:** resolve + `setInputFiles` only for `setFiles`.
 
-**Required order for element pointer intents:**
+**Forbidden on A:** `evaluateHandle` / `boundingBox` / `domNodes.get` via CDP / `findFrameForContext` / generation refresh.
 
-1. **Resolve `(contextId, nodeId)`** → Virtual `ElementHandle` via `__speculumProjection.domNodes.get` in the correct frame. Miss → drop.
-2. Compute CDP page point from the **resolved element’s box** (payload point inside box, else center). Nested: map frame-local → page if needed.
-3. Inject chain: flush coalesced move if any, then `mouseMoved` → `mousePressed` / `mouseReleased` at that point (or equivalent Patchright mouse on the handle).
-4. Motion-only intents skip step 1–2 resolve and use surface→viewport coords only.
-
-**Forbidden on the intent path:** CDP `evaluate` for generation, `noteGeneration` from frame headers, `generation_stale` drops.
-
-Entry: `PageProjectionBrowserSession.pushInput` / gRPC `PushDomInput` / lab `client.intent`. Blueprint `resolveAndClick` and the live path share id-first press/up.
-
-**Impl:** `DomElementInput.dispatchMouse` resolves `targetId`, then CDP at the payload point when it lies inside the resolved box, otherwise box center. Missing id → `node_id_required`; resolve miss → `anchor_missing`.
-
----
-
-## Why not coords-only activation
-
-| Failure mode | Coords-only | Id-assertive |
-|--------------|-------------|--------------|
-| Projected scrolled ahead of Virtual | Miss | Hits resolved node (or drops closed) |
-| Overlay / sticky / transform | Pixel under cursor ≠ intended control | Intended control |
-| DOM desync (Projected shows node Virtual lacks) | False “dispatched” | Drop `node_unresolved` |
-| Long-page surface rect bug | Systematic Y collapse | Irrelevant to primary |
-
-Scroll can still “look fine” on Projected while Virtual lags — that is a **scroll lockstep** concern, not a license for coords-only click.
+Entry: `pushInput` / gRPC / lab `client.intent`. Lab `resolveAndClick` helpers may synthesize Mode A coords from a one-shot Virtual query for blueprints — that is **test harness**, not the live hot path.
 
 ---
 
 ## MVP gates (lab blueprints)
 
-Closed 2026-08-20 as effect bar (still required):
+| Id | Blueprint | Assert | Mode |
+|----|-----------|--------|------|
+| M1a | `input-click` | `#status` → `clicked` | A |
+| M1b | `input-forms` | `#field` value | B `input` |
+| M1c | `input-scroll` | `#scroller.scrollTop` | B |
+| M1c+ | `input-scroll-components` | panels + page `scrollY` | B + A |
+| M1c nested | `input-iframe-scroll` | nested scroller | B |
+| M1d | `input-iframe-click` | nested status | A (root-mapped coords) |
 
-| Id | Blueprint | Assert |
-|----|-----------|--------|
-| M1a | `input-click` | `#status` → `clicked` on Virtual |
-| M1b | `input-forms` | `#field` value after `input` intent |
-| M1c | `input-scroll` | `#scroller.scrollTop` after `scrollElement` |
-| M1c+ | `input-scroll-components` | `#panel-list` / `#panel-feed` + page `scrollY` |
-| M1c nested | `input-iframe-scroll` | nested `#inner-scroller.scrollTop` |
-| M1d | `input-iframe-click` | inner `#inner-status` in nested context |
-
-**Add / keep:** human Browse on a scrolling real site must activate by id (effect on Virtual), not by lucky pixel. Unit: `runPageProjectionInputClickUnitTests`.
-
-Live MotorAssert / Sessions E2E = **cutover** ([roadmap.md](roadmap.md) gate 10), not a substitute for this contract.
+Unit: `runPageProjectionInputClickUnitTests` — Mode A coords activate. Live MotorAssert = cutover gate 10.
 
 ---
 
@@ -173,10 +147,10 @@ Live MotorAssert / Sessions E2E = **cutover** ([roadmap.md](roadmap.md) gate 10)
 
 | Item | Why |
 |------|-----|
-| Touch / pointer as separate OS intents | Projected is local on the user’s device — native touch/hover/`:active` |
-| IME/composition, OS DnD onto dropzones, pixel caret sync | Deferred |
-| `setFiles` completeness | Optional later; shape already id-required |
-| Changing frame opcodes / apply for input | Forbidden by boundary |
+| Touch / OS pointer intents | Projected is local on the user device |
+| Sidecar identity-table replica for input | Lookup for B lives in Virtual |
+| Sequence / generation gates on intents | Fire-and-forget |
+| Changing frame opcodes for input | Boundary |
 
 ---
 
@@ -184,15 +158,15 @@ Live MotorAssert / Sessions E2E = **cutover** ([roadmap.md](roadmap.md) gate 10)
 
 | Layer | Path |
 |-------|------|
-| Types | `@speculum/page-projection` / sidecar `intentTypes` |
-| Virtual resolve | `projection/input/resolveVirtualNode.ts` |
-| Dispatch | `projection/input/pageProjectionInputDispatch.ts` + `DomElementInput.ts` |
-| Capture | `projected/input/projectedInputCapture.ts` |
-| Session | `PageProjectionBrowserSession.pushInput` |
-| Lab WS | `lab/host/protocol.ts` → `client.intent` |
+| Types | `@speculum/page-projection` intent types |
+| A + C | `pageProjectionInputDispatch.ts` + `DomElementInput.ts` |
+| B Virtual | producer Control handler (`type: 'input'`) |
+| Capture | `projectedInputCapture.ts` |
+| Session | `PageProjectionBrowserSession.pushInput` / `sendControl` |
+| Lab WS | `client.intent` |
 
 ---
 
 ## Provenance
 
-V1 history and inject-chain / coalesce / bindings detail: [input.md](input.md). Where that file still implies “motion coords activate the click,” **this file wins**.
+V1 history: [input.md](input.md). Id-assertive activate (2026-08-22) is **historical**; this file’s A/B/C ruling wins.

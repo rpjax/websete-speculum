@@ -315,9 +315,14 @@ export class DomElementInput {
       const reason = await this.dispatchKey(type, event.anchor, payload, event.targetId, event.contextId);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
-    if (type === 'input') {
-      const reason = await this.dispatchInput(event.anchor, payload, event.targetId, event.contextId);
-      return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
+    // Mode B (scrollElement / focus / blur / input) is Control → Virtual.domNodes — not CDP here.
+    if (
+      type === 'input'
+      || type === 'scrollelement'
+      || type === 'focus'
+      || type === 'blur'
+    ) {
+      return { status: 'dropped', reason: 'mode_b_via_control' };
     }
     if (type === 'setfiles') {
       const reason = await this.dispatchSetFiles(event.anchor, payload, event.targetId, event.contextId);
@@ -326,18 +331,6 @@ export class DomElementInput {
     if (type === 'scrollviewport') {
       await this.dispatchScrollViewport(payload);
       return { status: 'dispatched' };
-    }
-    if (type === 'scrollelement') {
-      const reason = await this.dispatchScrollElement(event.anchor, payload, event.targetId, event.contextId);
-      return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
-    }
-    if (type === 'focus') {
-      const reason = await this.focusAnchor(event.anchor, event.targetId, event.contextId);
-      return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
-    }
-    if (type === 'blur') {
-      const reason = await this.blurAnchor(event.anchor, event.targetId, event.contextId);
-      return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     return { status: 'dropped', reason: 'unknown_type' };
   }
@@ -363,36 +356,27 @@ export class DomElementInput {
   }
 
   /**
-   * Id-assertive press/release (input-v2): resolve targetId → hit point → CDP.
-   * Hit point = payload x/y when inside the resolved element's box (Projected click
-   * position); otherwise box center. Coords alone never activate without a resolved id.
-   * @returns drop reason or null when CDP work ran.
+   * Mode A press/release: CDP at payload viewport coords. No resolve / boundingBox.
+   * Miss or wrong target = expected under fire-and-forget.
    */
   private async dispatchMouse(
     type: 'mousePressed' | 'mouseReleased',
     payload: IntentPayload,
-    targetId?: number | null,
-    contextId?: number,
+    _targetId?: number | null,
+    _contextId?: number,
   ): Promise<string | null> {
-    if (targetId == null || targetId <= 0) return 'node_id_required';
-    const el = await this.resolveElement(null, targetId, contextId);
-    if (!el) return 'anchor_missing';
-    try {
-      const box = await el.boundingBox();
-      if (!box || box.width <= 0 || box.height <= 0) return 'box_missing';
-      const point = hitPointInBox(box, payload.x, payload.y);
-      const button = mouseButtonName(payload.button);
-      await this.page.mouse.move(point.x, point.y);
-      this.lastMove = point;
-      if (type === 'mousePressed') {
-        await this.page.mouse.down({ button });
-      } else {
-        await this.page.mouse.up({ button });
-      }
-      return null;
-    } finally {
-      await el.dispose().catch(() => undefined);
+    const x = Number(payload.x);
+    const y = Number(payload.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 'invalid_coords';
+    const button = mouseButtonName(payload.button);
+    await this.page.mouse.move(x, y);
+    this.lastMove = { x, y };
+    if (type === 'mousePressed') {
+      await this.page.mouse.down({ button });
+    } else {
+      await this.page.mouse.up({ button });
     }
+    return null;
   }
 
   private async dispatchWheel(payload: IntentPayload): Promise<void> {
@@ -407,18 +391,14 @@ export class DomElementInput {
     await this.page.mouse.wheel(deltaX, deltaY);
   }
 
-  /** @returns drop reason or null when CDP work ran / intentional keyup skip after insertText. */
+  /** Mode A key — CDP to current focus. No element resolve. */
   private async dispatchKey(
     type: 'keydown' | 'keyup',
-    anchor: string | null | undefined,
+    _anchor: string | null | undefined,
     payload: IntentPayload,
-    targetId?: number | null,
-    contextId?: number,
+    _targetId?: number | null,
+    _contextId?: number,
   ): Promise<string | null> {
-    if (anchor || (targetId && targetId > 0)) {
-      const focusReason = await this.focusAnchor(anchor, targetId, contextId);
-      if (focusReason) return focusReason;
-    }
     const key = typeof payload.key === 'string' ? payload.key : '';
     if (!key) return 'empty_key';
     if (type === 'keydown') {
@@ -438,51 +418,6 @@ export class DomElementInput {
       await this.page.keyboard.up(key);
     }
     return null;
-  }
-
-  private async dispatchInput(
-    anchor: string | null | undefined,
-    payload: IntentPayload,
-    targetId?: number | null,
-    contextId?: number,
-  ): Promise<string | null> {
-    const el = await this.resolveElement(anchor, targetId, contextId);
-    if (!el) return 'anchor_missing';
-    try {
-      await el.focus();
-      if (typeof payload.checked === 'boolean') {
-        await el.evaluate((node, checked) => {
-          const input = node as {
-            type?: string;
-            checked?: boolean;
-            dispatchEvent: (e: unknown) => boolean;
-          };
-          const Ev = (globalThis as { Event: new (t: string, i?: object) => unknown }).Event;
-          if (input.type === 'checkbox' || input.type === 'radio') {
-            input.checked = checked;
-            input.dispatchEvent(new Ev('input', { bubbles: true }));
-            input.dispatchEvent(new Ev('change', { bubbles: true }));
-          }
-        }, payload.checked);
-        return null;
-      }
-      const value = typeof payload.value === 'string' ? payload.value : '';
-      await el.fill(value, { force: true, timeout: 2_000 }).catch(async () => {
-        await el.evaluate((node, v) => {
-          const input = node as {
-            value?: string;
-            dispatchEvent: (e: unknown) => boolean;
-          };
-          const Ev = (globalThis as { Event: new (t: string, i?: object) => unknown }).Event;
-          if ('value' in input) input.value = v;
-          input.dispatchEvent(new Ev('input', { bubbles: true }));
-          input.dispatchEvent(new Ev('change', { bubbles: true }));
-        }, value);
-      });
-      return null;
-    } finally {
-      await el.dispose().catch(() => undefined);
-    }
   }
 
   private async dispatchSetFiles(
@@ -565,105 +500,6 @@ export class DomElementInput {
       },
       { x, y },
     );
-  }
-
-  private async dispatchScrollElement(
-    anchor: string | null | undefined,
-    payload: IntentPayload,
-    targetId?: number | null,
-    contextId?: number,
-  ): Promise<string | null> {
-    const top = Number(payload.scrollTop ?? 0);
-    const left = Number(payload.scrollLeft ?? 0);
-    const el = await this.resolveElement(anchor, targetId, contextId);
-    if (!el) return 'anchor_missing';
-    try {
-      await el.evaluate(
-        (node, pos) => {
-          const n = node as {
-            scrollTop: number;
-            scrollLeft: number;
-            getAttribute: (k: string) => string | null;
-          };
-          const a = n.getAttribute('speculum-anchor');
-          const g = globalThis as typeof globalThis & {
-            __speculumDomNoteScrollEcho?: (n: unknown) => void;
-            __speculumDomConsumeScrollEchoIfAt?: (n: unknown) => boolean;
-            top?: {
-              __speculumDomNoteScrollEcho?: (n: unknown) => void;
-              __speculumDomConsumeScrollEchoIfAt?: (n: unknown) => boolean;
-            };
-          };
-          let note = g.__speculumDomNoteScrollEcho;
-          let consume = g.__speculumDomConsumeScrollEchoIfAt;
-          if (!note || !consume) {
-            try {
-              note = note ?? g.top?.__speculumDomNoteScrollEcho;
-              consume = consume ?? g.top?.__speculumDomConsumeScrollEchoIfAt;
-            } catch { /* XO */ }
-          }
-          if (a) {
-            const mark = { element: { anchor: a, top: pos.top, left: pos.left } };
-            // Contract: note before mutate so sync scroll sensors see the echo mark.
-            note?.(mark);
-            const beforeTop = n.scrollTop || 0;
-            const beforeLeft = n.scrollLeft || 0;
-            n.scrollTop = pos.top;
-            n.scrollLeft = pos.left;
-            const afterTop = n.scrollTop || 0;
-            const afterLeft = n.scrollLeft || 0;
-            if (
-              beforeTop === afterTop
-              && beforeLeft === afterLeft
-              && afterTop === pos.top
-              && afterLeft === pos.left
-            ) {
-              consume?.(mark);
-            }
-          } else {
-            n.scrollTop = pos.top;
-            n.scrollLeft = pos.left;
-          }
-        },
-        { top, left },
-      );
-      return null;
-    } finally {
-      await el.dispose().catch(() => undefined);
-    }
-  }
-
-  private async focusAnchor(
-    anchor: string | null | undefined,
-    targetId?: number | null,
-    contextId?: number,
-  ): Promise<string | null> {
-    const el = await this.resolveElement(anchor, targetId, contextId);
-    if (!el) return 'anchor_missing';
-    try {
-      await el.focus();
-      return null;
-    } finally {
-      await el.dispose().catch(() => undefined);
-    }
-  }
-
-  private async blurAnchor(
-    anchor: string | null | undefined,
-    targetId?: number | null,
-    contextId?: number,
-  ): Promise<string | null> {
-    const el = await this.resolveElement(anchor, targetId, contextId);
-    if (!el) return 'anchor_missing';
-    try {
-      await el.evaluate((node) => {
-        const n = node as { blur?: () => void };
-        n.blur?.();
-      });
-      return null;
-    } finally {
-      await el.dispose().catch(() => undefined);
-    }
   }
 
   /**
@@ -749,32 +585,6 @@ function mouseButtonName(button: number | undefined): 'left' | 'middle' | 'right
   if (button === 1) return 'middle';
   if (button === 2) return 'right';
   return 'left';
-}
-
-/** Prefer Projected click coords when they land inside the resolved box; else center. */
-function hitPointInBox(
-  box: { x: number; y: number; width: number; height: number },
-  payloadX: number | undefined,
-  payloadY: number | undefined,
-): { x: number; y: number } {
-  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const x = Number(payloadX);
-  const y = Number(payloadY);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return center;
-  // Small slack for subpixel / rounding between Projected scale and Virtual box.
-  const slack = 1;
-  if (
-    x < box.x - slack
-    || y < box.y - slack
-    || x > box.x + box.width + slack
-    || y > box.y + box.height + slack
-  ) {
-    return center;
-  }
-  return {
-    x: Math.min(Math.max(x, box.x), box.x + box.width),
-    y: Math.min(Math.max(y, box.y), box.y + box.height),
-  };
 }
 
 function latencyStats(samples: readonly number[]): DomElementInputLatencyStats {

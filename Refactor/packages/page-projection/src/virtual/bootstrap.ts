@@ -36,6 +36,7 @@ import type { CssomTableLiveOracleResult } from '../core/cssomTableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import { PlaneChannel, type DataPlane } from '../core/plane';
 import type { CssomPollStats } from './cssom/cssomPoller';
+import { applyControlInput, type ControlInputMessage } from './input/applyControlInput';
 
 declare global {
   var __speculumProjection:
@@ -254,6 +255,17 @@ void (async () => {
     });
   });
 
+  bus.onControlInput((req) => {
+    if (req.contextId !== mine) return;
+    applyControlInput(domNodes, {
+      type: 'input',
+      contextId: req.contextId,
+      intentType: req.intentType,
+      nodeId: req.nodeId,
+      payload: req.payload as ControlInputMessage['payload'],
+    });
+  });
+
   if (dataPlane) {
     dataPlane.setHandler((channel, payload) => {
       if (channel !== PlaneChannel.Control) return;
@@ -270,10 +282,24 @@ void (async () => {
         generation?: unknown;
         sequence?: unknown;
         contextId?: unknown;
+        intentType?: unknown;
+        nodeId?: unknown;
+        payload?: unknown;
       };
-      if (req.type !== 'requestResync') return;
       const contextId =
         typeof req.contextId === 'number' && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
+
+      if (req.type === 'input') {
+        bus.publishControlInput({
+          contextId,
+          intentType: typeof req.intentType === 'string' ? req.intentType : '',
+          nodeId: typeof req.nodeId === 'number' ? req.nodeId : null,
+          payload: req.payload,
+        });
+        return;
+      }
+
+      if (req.type !== 'requestResync') return;
       console.log(
         '[speculumProjection] resync requested — reason=%s contextId=%s clientGeneration=%s clientSequence=%s',
         String(req.reason),

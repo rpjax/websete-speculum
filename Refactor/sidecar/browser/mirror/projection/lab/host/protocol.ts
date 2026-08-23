@@ -17,7 +17,7 @@ export type LabClientMessage =
       height?: number;
       device?: Record<string, unknown>;
     }
-  | { type: 'browse.stop'; exportDossier?: boolean }
+  | { type: 'browse.stop'; exportDossier?: boolean; inputCapture?: unknown }
   | { type: 'browse.navigate'; url: string }
   | {
       type: 'run.start';

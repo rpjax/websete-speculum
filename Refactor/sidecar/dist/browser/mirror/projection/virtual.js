@@ -3805,6 +3805,7 @@
     lookupScopeId = null;
     frameListeners = /* @__PURE__ */ new Set();
     resyncListeners = /* @__PURE__ */ new Set();
+    controlInputListeners = /* @__PURE__ */ new Set();
     telemetryListeners = /* @__PURE__ */ new Set();
     mine = 1;
     snapshotHandler = null;
@@ -3844,9 +3845,18 @@
       this.resyncListeners.add(cb);
       return () => this.resyncListeners.delete(cb);
     }
+    onControlInput(cb) {
+      this.controlInputListeners.add(cb);
+      return () => this.controlInputListeners.delete(cb);
+    }
     onTelemetry(cb) {
       this.telemetryListeners.add(cb);
       return () => this.telemetryListeners.delete(cb);
+    }
+    /** After Control plane `input` — local listeners + nested producer fan-out. */
+    publishControlInput(req) {
+      this.dispatchControlInput(req);
+      this.fanoutControlInput(req);
     }
     emitFrame(bytes) {
       if (this.emitFrameFn) {
@@ -4120,16 +4130,28 @@
         this.postToParent(env);
         return;
       }
-      if (env.type !== "resyncRequest") return;
+      if (env.type === "resyncRequest") {
+        if (event.source !== this.parent) return;
+        const req = {
+          contextId: env.contextId,
+          reason: env.reason,
+          generation: env.generation,
+          sequence: env.sequence
+        };
+        this.dispatchResync(req);
+        this.fanoutResync(req);
+        return;
+      }
+      if (env.type !== "controlInput") return;
       if (event.source !== this.parent) return;
-      const req = {
+      const input = {
         contextId: env.contextId,
-        reason: env.reason,
-        generation: env.generation,
-        sequence: env.sequence
+        intentType: env.intentType,
+        nodeId: env.nodeId,
+        payload: env.payload
       };
-      this.dispatchResync(req);
-      this.fanoutResync(req);
+      this.dispatchControlInput(input);
+      this.fanoutControlInput(input);
     }
     async handleControl(env, event) {
       if (env.type === "response") {
@@ -4368,6 +4390,9 @@
     dispatchResync(req) {
       for (const cb of this.resyncListeners) cb(req);
     }
+    dispatchControlInput(req) {
+      for (const cb of this.controlInputListeners) cb(req);
+    }
     dispatchTelemetry(message) {
       for (const cb of this.telemetryListeners) cb(message);
     }
@@ -4391,6 +4416,22 @@
             reason: req.reason,
             generation: req.generation,
             sequence: req.sequence
+          },
+          "*"
+        );
+      });
+    }
+    fanoutControlInput(req) {
+      this.forEachChildWindow((w) => {
+        w.postMessage(
+          {
+            channel: PROJECTION_BUS_CHANNEL,
+            kind: "loose",
+            type: "controlInput",
+            contextId: req.contextId,
+            intentType: req.intentType,
+            nodeId: req.nodeId,
+            payload: req.payload
           },
           "*"
         );
@@ -4837,6 +4878,98 @@
     };
   }
 
+  // ../packages/page-projection/src/virtual/input/applyControlInput.ts
+  function parsePayload(raw) {
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw;
+    }
+    if (typeof raw === "string") {
+      try {
+        const v = JSON.parse(raw);
+        if (v && typeof v === "object" && !Array.isArray(v)) return v;
+      } catch {
+      }
+    }
+    return {};
+  }
+  function scrollEchoApis() {
+    const g = globalThis;
+    let note = g.__speculumDomNoteScrollEcho;
+    let consume = g.__speculumDomConsumeScrollEchoIfAt;
+    if (!note || !consume) {
+      try {
+        note = note ?? g.top?.__speculumDomNoteScrollEcho;
+        consume = consume ?? g.top?.__speculumDomConsumeScrollEchoIfAt;
+      } catch {
+      }
+    }
+    return { note, consume };
+  }
+  function applyControlInput(domNodes, msg) {
+    const intentType = typeof msg.intentType === "string" ? msg.intentType.trim().toLowerCase() : "";
+    const nodeId = typeof msg.nodeId === "number" ? msg.nodeId : 0;
+    if (nodeId <= 0) return;
+    const el = domNodes.get(nodeId);
+    if (!el || el.nodeType !== 1) return;
+    const payload = parsePayload(msg.payload);
+    if (intentType === "scrollelement") {
+      const top = Number(payload.scrollTop ?? 0);
+      const left = Number(payload.scrollLeft ?? 0);
+      const node = el;
+      const { note, consume } = scrollEchoApis();
+      const mark = { element: { nodeId, top, left } };
+      note?.(mark);
+      const beforeTop = node.scrollTop || 0;
+      const beforeLeft = node.scrollLeft || 0;
+      node.scrollTop = top;
+      node.scrollLeft = left;
+      const afterTop = node.scrollTop || 0;
+      const afterLeft = node.scrollLeft || 0;
+      if (beforeTop === afterTop && beforeLeft === afterLeft && afterTop === top && afterLeft === left) {
+        consume?.(mark);
+      }
+      return;
+    }
+    if (intentType === "focus") {
+      try {
+        el.focus?.({ preventScroll: true });
+      } catch {
+        try {
+          el.focus?.();
+        } catch {
+        }
+      }
+      return;
+    }
+    if (intentType === "blur") {
+      try {
+        el.blur?.();
+      } catch {
+      }
+      return;
+    }
+    if (intentType === "input") {
+      const tag = el.tagName?.toUpperCase?.() ?? "";
+      if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
+      const input = el;
+      const Ev = globalThis.Event;
+      if (typeof payload.checked === "boolean" && tag === "INPUT") {
+        const htmlInput = input;
+        if (htmlInput.type === "checkbox" || htmlInput.type === "radio") {
+          htmlInput.checked = payload.checked;
+          htmlInput.dispatchEvent(new Ev("input", { bubbles: true }));
+          htmlInput.dispatchEvent(new Ev("change", { bubbles: true }));
+          return;
+        }
+      }
+      if (typeof payload.value === "string") {
+        input.value = payload.value;
+        input.dispatchEvent(new Ev("input", { bubbles: true }));
+        input.dispatchEvent(new Ev("change", { bubbles: true }));
+      }
+    }
+  }
+
   // ../packages/page-projection/src/virtual/bootstrap.ts
   document.currentScript?.remove();
   void (async () => {
@@ -4968,6 +5101,16 @@
         return frame;
       });
     });
+    bus.onControlInput((req) => {
+      if (req.contextId !== mine) return;
+      applyControlInput(domNodes, {
+        type: "input",
+        contextId: req.contextId,
+        intentType: req.intentType,
+        nodeId: req.nodeId,
+        payload: req.payload
+      });
+    });
     if (dataPlane) {
       dataPlane.setHandler((channel, payload) => {
         if (channel !== 2 /* Control */) return;
@@ -4979,8 +5122,17 @@
         }
         if (typeof msg !== "object" || msg === null) return;
         const req = msg;
-        if (req.type !== "requestResync") return;
         const contextId = typeof req.contextId === "number" && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
+        if (req.type === "input") {
+          bus.publishControlInput({
+            contextId,
+            intentType: typeof req.intentType === "string" ? req.intentType : "",
+            nodeId: typeof req.nodeId === "number" ? req.nodeId : null,
+            payload: req.payload
+          });
+          return;
+        }
+        if (req.type !== "requestResync") return;
         console.log(
           "[speculumProjection] resync requested \u2014 reason=%s contextId=%s clientGeneration=%s clientSequence=%s",
           String(req.reason),

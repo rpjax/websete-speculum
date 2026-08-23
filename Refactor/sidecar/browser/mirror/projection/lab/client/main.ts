@@ -3,8 +3,11 @@
  */
 
 import { LabProjectedHarness } from './LabProjectedHarness';
-import { attachProjectedInputCapture } from '@speculum/page-projection/projected/input/projectedInputCapture';
-import { ScrollEchoGate } from '@speculum/page-projection/projected/input/scrollEchoGate';
+import {
+  attachProjectedInputCapture,
+  ProjectedInputCaptureMetrics,
+  ScrollEchoGate,
+} from '@speculum/page-projection/projected';
 import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes';
 import {
   ViewportSync,
@@ -190,6 +193,8 @@ export function bootLabClient(): void {
   let ws: WebSocket | null = null;
   let projection: LabProjectedHarness | null = null;
   const inputDetachers = new Map<number, () => void>();
+  /** Shared across root + nested surfaces — Stop dumps into dossier. */
+  let inputCaptureMetrics = new ProjectedInputCaptureMetrics();
   let canonicalViewport: ViewportSize = { width: 1280, height: 720 };
   let viewportSync: ViewportSync | null = null;
   let pendingResize: {
@@ -271,6 +276,7 @@ export function bootLabClient(): void {
   function bindInputSurfaces(client: LabProjectedHarness): void {
     for (const detach of inputDetachers.values()) detach();
     inputDetachers.clear();
+    inputCaptureMetrics = new ProjectedInputCaptureMetrics();
 
     // Capture must bind inside the projected document. Listeners on the host
     // <iframe> never see pointer/keyboard events that fire in contentDocument.
@@ -287,6 +293,7 @@ export function bootLabClient(): void {
         isArmed: () => client.isArmed,
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+        metrics: inputCaptureMetrics,
       });
       inputDetachers.set(CONTEXT_ID_ROOT, detach);
     }
@@ -298,15 +305,12 @@ export function bootLabClient(): void {
       const detach = attachProjectedInputCapture(nestedSurface, info.registry, sendInputIntent, {
         contextId: info.contextId,
         getGeneration: info.getGeneration,
-        getViewportSize: () => {
-          const win = nestedDoc?.defaultView;
-          const w = win?.innerWidth ?? 0;
-          const h = win?.innerHeight ?? 0;
-          return w > 0 && h > 0 ? { width: w, height: h } : canonicalViewport;
-        },
+        // Mode A coords are root Virtual viewport — same canonical size as root capture.
+        getViewportSize: () => canonicalViewport,
         isArmed: info.isArmed,
         onMarkPropDirty: info.markPropDirty,
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+        metrics: inputCaptureMetrics,
       });
       inputDetachers.set(info.contextId, detach);
     });
@@ -1176,7 +1180,13 @@ export function bootLabClient(): void {
     snapInFlight = false;
     syncButtons();
     logActivity('browse.stop…');
-    ws?.send(JSON.stringify({ type: 'browse.stop', exportDossier: true }));
+    ws?.send(
+      JSON.stringify({
+        type: 'browse.stop',
+        exportDossier: true,
+        inputCapture: inputCaptureMetrics.snapshot(),
+      }),
+    );
   });
   $('clearSurface').addEventListener('click', () => {
     clearCrashOverlay();

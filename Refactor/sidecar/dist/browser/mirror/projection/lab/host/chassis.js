@@ -165,6 +165,8 @@ class LabChassis {
     browseSnapEpoch = 0;
     /** Captured before disposeVirtual so Stop export still has inject metrics. */
     lastInputPipelineMetrics = null;
+    /** Client capture counters from browse.stop payload. */
+    lastInputCaptureMetrics = null;
     getClientSnapshotFn = null;
     static BROWSE_SNAP_TIMEOUT_MS = 45_000;
     journal = {
@@ -575,6 +577,9 @@ class LabChassis {
             intent,
             ok: result.ok,
             error: result.error,
+            mode: result.mode,
+            dispatchMs: result.dispatchMs,
+            clientLagMs: result.clientLagMs,
         };
         this.journal.intents.push(entry);
         this.eventCounts.intent = (this.eventCounts.intent ?? 0) + 1;
@@ -585,6 +590,10 @@ class LabChassis {
         if (this.dossier && (!motion || !result.ok)) {
             await (0, write_1.appendNdjsonArtifact)(this.dossier, 'journal/intents.jsonl', entry, 'journal.intents');
         }
+    }
+    /** Client capture snapshot from browse.stop — written into input-pipeline probe. */
+    setInputCaptureMetrics(metrics) {
+        this.lastInputCaptureMetrics = metrics ?? null;
     }
     /**
      * Browse debug snap: digest/table pair for root + Projected nested contexts.
@@ -792,18 +801,56 @@ class LabChassis {
             dropsByError[i.error] = (dropsByError[i.error] ?? 0) + 1;
         }
         const byType = {};
+        const byMode = {};
+        const dispatchSamples = [];
+        const lagSamples = [];
         for (const i of intents) {
             const t = typeof i.intent.type === 'string' ? i.intent.type : 'unknown';
             byType[t] = (byType[t] ?? 0) + 1;
+            const mode = i.mode ?? '?';
+            let m = byMode[mode];
+            if (!m) {
+                m = { total: 0, ok: 0, dropped: 0 };
+                byMode[mode] = m;
+            }
+            m.total += 1;
+            if (i.ok)
+                m.ok += 1;
+            else
+                m.dropped += 1;
+            if (typeof i.dispatchMs === 'number' && Number.isFinite(i.dispatchMs)) {
+                dispatchSamples.push(i.dispatchMs);
+            }
+            if (typeof i.clientLagMs === 'number' && Number.isFinite(i.clientLagMs)) {
+                lagSamples.push(i.clientLagMs);
+            }
         }
+        const pct = (samples) => {
+            if (samples.length === 0)
+                return { count: 0, min: 0, avg: 0, p95: 0, max: 0 };
+            const sorted = [...samples].sort((a, b) => a - b);
+            const sum = sorted.reduce((a, b) => a + b, 0);
+            const p95Idx = Math.min(sorted.length - 1, Math.floor(0.95 * sorted.length));
+            return {
+                count: sorted.length,
+                min: sorted[0],
+                avg: sum / sorted.length,
+                p95: sorted[p95Idx],
+                max: sorted[sorted.length - 1],
+            };
+        };
         await (0, write_1.writeJson)(this.dossier, 'probes/input-pipeline.json', {
             wallMs,
+            capture: this.lastInputCaptureMetrics,
             journal: {
                 total: intents.length,
                 ok: intents.filter((x) => x.ok).length,
                 dropped: intents.filter((x) => !x.ok).length,
                 dropsByError,
                 byType,
+                byMode,
+                dispatchMs: pct(dispatchSamples),
+                clientLagMs: pct(lagSamples),
             },
             dispatch: inject,
             crash: this.crash,

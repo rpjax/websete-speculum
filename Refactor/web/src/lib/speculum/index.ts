@@ -12,10 +12,12 @@ export {
   DefaultHubPath,
   DefaultTransportPath,
   DefaultStreamPath,
-  SessionAuthQueryParam,
-  SessionCacheBustQueryParam,
 } from './constants'
 export type { PipeKindValue, DataStreamTransportKind } from './constants'
+
+// Session auth param names live in the page-projection package (single source).
+export { SessionAuthQueryParam, SessionCacheBustQueryParam } from './sessionBindingAuth'
+
 
 export { Emitter } from './emitter'
 export { writePipeHeader, writeMessage, FramedReader } from './framing'

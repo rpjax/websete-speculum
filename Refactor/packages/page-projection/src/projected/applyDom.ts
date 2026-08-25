@@ -43,6 +43,12 @@ import { ReplicatedTable } from '../core/replicatedTable';
 import { applyFrameToTableChecked } from '../core/replicatedTableApply';
 import type { PageProjectionRegistry } from './registry';
 import { isNestedHostNavAttr } from '../core/nestedNav';
+import {
+  installScriptingOnPaintParity,
+  paintParityInstalled,
+  paritySheetForDocument,
+  withScriptingOnPaintParity,
+} from './scriptingOnPaintParity';
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -66,11 +72,22 @@ export interface DomFrameApplierOptions {
   onDesync?: (info: DomDesyncInfo) => void;
   onApplied?: (frame: AssembledFrame, applyMs: number) => void;
   onOverrun?: (durationMs: number, lastSequence: number) => void;
+  /** Client-side warn (e.g. paint-parity sheet failed) — not a table desync. */
+  onWarn?: (message: string) => void;
   applyBudgetMs?: number;
   /** Parent installs the nested apply into this blank host. */
   onNestedHost?: (el: HTMLIFrameElement, childScopeId: number) => void;
   /** Host row dropped — dispose the nested apply for that childScopeId. */
   onNestedHostDrop?: (childScopeId: number) => void;
+  /**
+   * Stamp `/w7s/virtual-*` URLs with session auth before paint (virtual-assets §1.1).
+   * Composition root supplies token + asset base; applier stays host-agnostic.
+   */
+  stampUrl?: (name: string, value: string) => string;
+  /** Stamp cssText / rule text the same way. */
+  stampCssText?: (text: string) => string;
+  /** Projected scrollable index (D-UI-32) — updated on element create / style attrs. */
+  scrollableIndex?: import('./scroll/scrollableIndex').ScrollableIndex;
 }
 
 export class DomFrameApplier {
@@ -87,6 +104,7 @@ export class DomFrameApplier {
   private readonly sheetHost = new Map<number, number>();
   private readonly childScopes = new Map<number, number>();
   private readonly nestedHostIds = new Set<number>();
+  private paritySheet: CSSStyleSheet | null = null;
 
   constructor(doc: Document, registry: PageProjectionRegistry, options: DomFrameApplierOptions = {}) {
     this.doc = doc;
@@ -176,6 +194,7 @@ export class DomFrameApplier {
       }
     }
     if (!this.cssomHandlesMatchTable()) return false;
+    this.ensurePaintParity();
     this.options.onApplied?.(frame, performance.now() - start);
     return true;
   }
@@ -262,10 +281,30 @@ export class DomFrameApplier {
     this.sheets.clear();
     this.rules.clear();
     this.sheetHost.clear();
+    this.paritySheet = null;
     try {
-      this.doc.adoptedStyleSheets = [];
-    } catch {
-      /* adoptedStyleSheets may be missing on a test document */
+      installScriptingOnPaintParity(this.doc);
+      const sheet = paritySheetForDocument(this.doc);
+      this.paritySheet = sheet ?? null;
+      this.doc.adoptedStyleSheets = sheet != null ? [sheet] : [];
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      this.options.onWarn?.(`scriptingOnPaintParity: clearCssom failed: ${detail}`);
+    }
+  }
+
+  /**
+   * K5 sandbox has no `allow-scripts`; hide `<noscript>` like Chromium with JS on.
+   * Call after phase-2 materialize — EPOCH_RESET may run while `defaultView`/head are gone.
+   */
+  private ensurePaintParity(): void {
+    installScriptingOnPaintParity(this.doc);
+    const sheet = paritySheetForDocument(this.doc);
+    if (sheet != null) this.paritySheet = sheet;
+    if (!paintParityInstalled(this.doc) && this.doc.documentElement != null) {
+      this.options.onWarn?.(
+        'scriptingOnPaintParity: install failed after apply (no adopted sheet and no style element)',
+      );
     }
   }
 
@@ -361,7 +400,7 @@ export class DomFrameApplier {
   private setAdoptedOf(hostNode: number, next: CSSStyleSheet[]): boolean {
     try {
       if (hostNode === 0) {
-        this.doc.adoptedStyleSheets = next;
+        this.doc.adoptedStyleSheets = withScriptingOnPaintParity(this.doc, next);
         return true;
       }
       const root = this.shadowRootOfHost(hostNode);
@@ -486,7 +525,7 @@ export class DomFrameApplier {
     }
     let inserted: number;
     try {
-      inserted = sheet.insertRule(op.text, index);
+      inserted = sheet.insertRule(this.options.stampCssText?.(op.text) ?? op.text, index);
     } catch {
       return this.fail('malformed', 'ruleNew', op.id);
     }
@@ -528,7 +567,9 @@ export class DomFrameApplier {
       return this.fail('bad_target', 'ruleSet', op.id);
     }
     try {
-      (rule as CSSStyleRule).style.cssText = declarationBlockFromRuleText(op.text);
+      (rule as CSSStyleRule).style.cssText = declarationBlockFromRuleText(
+        this.options.stampCssText?.(op.text) ?? op.text,
+      );
       return true;
     } catch {
       return this.fail('malformed', 'ruleSet', op.id);
@@ -546,7 +587,9 @@ export class DomFrameApplier {
       }
     }
     for (let i = 0; i < op.ids.length; i++) {
-      const node = this.registry.get(op.ids[i]!);
+      const id = op.ids[i]!;
+      this.options.scrollableIndex?.onNodeDrop(id);
+      const node = this.registry.get(id);
       if (node !== undefined) this.registry.unregisterSubtree(node);
     }
     for (const id of [...this.sheets.keys()]) {
@@ -573,7 +616,7 @@ export class DomFrameApplier {
       const attrs =
         op.nestedHost === true ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name)) : op.attrs;
       // SEAL-DOM-P0-ATTR: register only after attrs land — failed setAttribute → desync.
-      if (!applyAttrs(node as Element, attrs)) {
+      if (!applyAttrs(node as Element, attrs, this.options.stampUrl)) {
         return this.fail('malformed', 'nodeNew', op.id);
       }
       if (op.nestedHost === true && op.childScopeId != null) {
@@ -605,6 +648,9 @@ export class DomFrameApplier {
       return this.fail('bad_target', 'nodeNew', op.id);
     }
     this.registry.register(op.id, node);
+    if (op.kind === NodeKind.Element) {
+      this.noteScrollable(op.id, node as Element);
+    }
     return true;
   }
 
@@ -654,9 +700,10 @@ export class DomFrameApplier {
     const attrs = this.nestedHostIds.has(op.node)
       ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name))
       : op.attrs;
-    if (!applyAttrs(node as Element, attrs)) {
+    if (!applyAttrs(node as Element, attrs, this.options.stampUrl)) {
       return this.fail('malformed', 'attrSet', op.node);
     }
+    this.noteScrollable(op.node, node as Element);
     return true;
   }
 
@@ -707,9 +754,41 @@ export class DomFrameApplier {
     // would dispose the applier that already consumed buffered nested frames).
     if (el.contentWindow) this.options.onNestedHost?.(el, childScopeId);
   }
+
+  private noteScrollable(id: number, el: Element): void {
+    const index = this.options.scrollableIndex;
+    if (!index) return;
+    const tag = el.tagName.toUpperCase();
+    if (tag === 'TEXTAREA') {
+      index.onNodeCreate(id, { overflowY: 'scroll' });
+      return;
+    }
+    let styleHint: { overflow?: string; overflowX?: string; overflowY?: string } = {};
+    try {
+      const inline = el.getAttribute('style') ?? '';
+      const oy = /overflow-y\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
+      const ox = /overflow-x\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
+      const o = /(?:^|;)\s*overflow\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
+      styleHint = { overflowY: oy, overflowX: ox, overflow: o };
+      if (!oy && !ox && !o && el.isConnected) {
+        const cs = el.ownerDocument.defaultView?.getComputedStyle(el);
+        if (cs) styleHint = { overflowY: cs.overflowY, overflowX: cs.overflowX, overflow: cs.overflow };
+      }
+    } catch {
+      /* */
+    }
+    index.recheck(id, styleHint);
+  }
 }
 
 /** SEAL-DOM-P0-ATTR / PP-APPLY-2: failed setAttribute → false (callers desync). */
-function applyAttrs(el: Element, attrs: AttrPair[]): boolean {
-  return applyAttrPairs((name, value) => el.setAttribute(name, value), attrs);
+function applyAttrs(
+  el: Element,
+  attrs: AttrPair[],
+  stampUrl?: (name: string, value: string) => string,
+): boolean {
+  return applyAttrPairs((name, value) => {
+    const stamped = stampUrl ? stampUrl(name, value) : value;
+    el.setAttribute(name, stamped);
+  }, attrs);
 }

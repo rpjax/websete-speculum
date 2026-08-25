@@ -74,6 +74,10 @@ export class LabProjectedHarness {
     return this.client.getLiveRegistry();
   }
 
+  getScrollableIndex() {
+    return this.client.getScrollableIndex();
+  }
+
   markPropDirty(id: number): void {
     this.client.markPropDirty(id);
   }

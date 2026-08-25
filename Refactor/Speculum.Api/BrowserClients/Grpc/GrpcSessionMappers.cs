@@ -926,6 +926,22 @@ internal static class GrpcSessionMappers
         {
             mapped.ContextId = input.ContextId;
         }
+        if (input.SchemaVersion > 0)
+        {
+            mapped.SchemaVersion = input.SchemaVersion;
+        }
+        if (input.ViewportW is { } vw)
+        {
+            mapped.ViewportW = vw;
+        }
+        if (input.ViewportH is { } vh)
+        {
+            mapped.ViewportH = vh;
+        }
+        if (!string.IsNullOrWhiteSpace(input.Census))
+        {
+            mapped.Census = input.Census;
+        }
 
         domInput = mapped;
         return true;

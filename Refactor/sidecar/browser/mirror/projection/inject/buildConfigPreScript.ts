@@ -21,15 +21,11 @@ export type ProjectionConfigPreScriptOptions = {
   cssomPollHz?: number;
 };
 
-/**
- * Returns a JS statement string suitable for `addInitScript` / CDP evaluate-on-new-document,
- * injected **before** the main Virtual bundle.
- */
-export function buildConfigPreScript(opts: ProjectionConfigPreScriptOptions): string {
+export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Record<string, unknown> {
   const transport = opts.transport ?? 'loopback';
   const dataPlaneUrl = (opts.dataPlaneUrl ?? '').trim();
   if (transport === 'loopback' && dataPlaneUrl.length === 0) {
-    throw new Error('buildConfigPreScript: dataPlaneUrl is required when transport is "loopback"');
+    throw new Error('buildConfigPayload: dataPlaneUrl is required when transport is "loopback"');
   }
 
   const payload: Record<string, unknown> = {
@@ -44,7 +40,15 @@ export function buildConfigPreScript(opts: ProjectionConfigPreScriptOptions): st
   if (opts.telemetry !== undefined) payload.telemetry = opts.telemetry;
   if (opts.generation !== undefined) payload.generation = opts.generation;
   if (opts.cssomPollHz !== undefined) payload.cssomPollHz = opts.cssomPollHz;
+  return payload;
+}
 
+/**
+ * Returns a JS statement string suitable for `addInitScript` / CDP evaluate-on-new-document,
+ * injected **before** the main Virtual bundle.
+ */
+export function buildConfigPreScript(opts: ProjectionConfigPreScriptOptions): string {
+  const payload = buildConfigPayload(opts);
   // This runs as its own separate injected `<script>` tag (Patchright leaves it attached to
   // the document — see bootstrap.ts's matching `currentScript.remove()` for why that matters);
   // clean up after itself the same way, or `virtual.js`'s own removal of *its* tag still leaves

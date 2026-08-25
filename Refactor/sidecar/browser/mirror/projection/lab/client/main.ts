@@ -3,6 +3,7 @@
  */
 
 import { LabProjectedHarness } from './LabProjectedHarness';
+import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes';
 import {
   attachProjectedInputCapture,
   ProjectedInputCaptureMetrics,
@@ -195,6 +196,8 @@ export function bootLabClient(): void {
   const inputDetachers = new Map<number, () => void>();
   /** Shared across root + nested surfaces — Stop dumps into dossier. */
   let inputCaptureMetrics = new ProjectedInputCaptureMetrics();
+  let sessionToken = '';
+  let assetBaseUrl = window.location.origin;
   let canonicalViewport: ViewportSize = { width: 1280, height: 720 };
   let viewportSync: ViewportSync | null = null;
   let pendingResize: {
@@ -265,11 +268,32 @@ export function bootLabClient(): void {
     return normalizeSessionViewport(measured.width, measured.height, LAB_VIEWPORT_POLICY);
   }
 
-  function sendInputIntent(intent: PageProjectionIntentV2): void {
+  function sendInputIntent(intent: UnifiedIntent): void {
     if (surfaceWrap.classList.contains('is-crashed')) return;
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'client.intent', intent }));
-      logActivity(`intent ${formatIntentShort(intent)}`);
+      const payload: Record<string, unknown> = { schemaVersion: intent.schemaVersion, type: intent.type };
+      if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
+        payload.x = intent.x;
+        payload.y = intent.y;
+        payload.viewportW = intent.viewportW;
+        payload.viewportH = intent.viewportH;
+        payload.button = intent.button;
+        if (intent.census) payload.census = intent.census;
+        payload.payload = JSON.stringify({ x: intent.x, y: intent.y, button: intent.button });
+      } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
+        payload.key = intent.key;
+        payload.code = intent.code;
+        payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
+      } else if (intent.type === 'scrollSet') {
+        payload.contextId = intent.contextId;
+        payload.nodeId = intent.nodeId;
+        payload.scrollX = intent.scrollX;
+        payload.scrollY = intent.scrollY;
+        payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
+      }
+      payload.timestampClient = intent.timestampClient;
+      ws.send(JSON.stringify({ type: 'client.intent', intent: payload }));
+      logActivity(`intent ${formatIntentShort(intent as unknown as PageProjectionIntentV2)}`);
     }
   }
 
@@ -293,6 +317,7 @@ export function bootLabClient(): void {
         isArmed: () => client.isArmed,
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+        scrollIndex: client.getScrollableIndex(),
         metrics: inputCaptureMetrics,
       });
       inputDetachers.set(CONTEXT_ID_ROOT, detach);
@@ -310,6 +335,7 @@ export function bootLabClient(): void {
         isArmed: info.isArmed,
         onMarkPropDirty: info.markPropDirty,
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+        scrollIndex: client.getScrollableIndex(),
         metrics: inputCaptureMetrics,
       });
       inputDetachers.set(info.contextId, detach);
@@ -429,6 +455,42 @@ export function bootLabClient(): void {
     document.documentElement.style.setProperty('--hdr-h', `${Math.ceil(h)}px`);
   }
 
+  let labFullscreen = false;
+
+  function syncFullscreenUi(): void {
+    document.body.classList.toggle('lab-fullscreen', labFullscreen);
+    const exitBtn = $('exitFullscreen') as HTMLButtonElement;
+    exitBtn.setAttribute('aria-hidden', labFullscreen ? 'false' : 'true');
+    const enterBtn = $('enterFullscreen') as HTMLButtonElement;
+    enterBtn.setAttribute('aria-pressed', labFullscreen ? 'true' : 'false');
+    if (!labFullscreen) measureHeader();
+  }
+
+  async function enterLabFullscreen(): Promise<void> {
+    labFullscreen = true;
+    syncFullscreenUi();
+    try {
+      const root = document.documentElement;
+      if (!document.fullscreenElement && typeof root.requestFullscreen === 'function') {
+        await root.requestFullscreen();
+      }
+    } catch {
+      /* CSS chrome hide still works when native fullscreen is denied (common on mobile). */
+    }
+    logActivity('fullscreen on');
+  }
+
+  async function exitLabFullscreen(): Promise<void> {
+    labFullscreen = false;
+    syncFullscreenUi();
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+    } catch {
+      /* */
+    }
+    logActivity('fullscreen off');
+  }
+
   function refreshStatus(): void {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setChip('chipWs', 'ws idle');
@@ -535,8 +597,8 @@ export function bootLabClient(): void {
       urlInput.readOnly = false;
       urlLabel.textContent = 'URL';
       urlInput.title = 'Editable — free navigation target';
-      if (fixtureSelect.value) {
-        urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+      if (!urlInput.value || urlInput.value.startsWith(`${location.origin}/fixtures/`)) {
+        urlInput.value = 'https://www.eneba.com';
       }
     } else {
       modeBlurb.textContent = 'Cold blueprint DAG — URL is locked to the blueprint; soak may override duration/probes.';
@@ -686,13 +748,19 @@ export function bootLabClient(): void {
       surfaceHost,
       width: canonicalViewport.width,
       height: canonicalViewport.height,
+      getToken: () => sessionToken,
+      getAssetBaseUrl: () => assetBaseUrl,
       onArmed: () => {
         bindInputSurfaces(projection!);
       },
       onTelemetry: (msg) => {
         observeStreamTelemetry(msg);
-        const m = msg as { kind?: string; contextId?: number; opCount?: number; ok?: boolean; errorCode?: string };
+        const m = msg as { kind?: string; contextId?: number; opCount?: number; ok?: boolean; errorCode?: string; message?: string };
         const ctxId = typeof m.contextId === 'number' ? m.contextId : CONTEXT_ID_ROOT;
+        if (m.kind === 'clientWarn' && typeof m.message === 'string') {
+          logConsole(3, m.message);
+          logActivity(m.message);
+        }
         if (m.kind === 'applyResult' && m.ok === true && ctxId !== CONTEXT_ID_ROOT && projection) {
           bindInputSurfaces(projection);
         }
@@ -798,7 +866,7 @@ export function bootLabClient(): void {
         urlInput.value = `${location.origin}/fixtures/${demo.path}`;
       }
     } catch {
-      if (mode === 'browse') urlInput.value = `${location.origin}/fixtures/demo.html`;
+      if (mode === 'browse') urlInput.value = 'https://www.eneba.com';
     }
   }
 
@@ -960,6 +1028,8 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'session.hello') {
         sessionId = String(msg.sessionId ?? '');
+        sessionToken = String((msg as { sessionToken?: string }).sessionToken ?? '');
+        assetBaseUrl = window.location.origin;
         logActivity(`session.hello ${sessionId}`);
         refreshStatus();
         return;
@@ -1233,6 +1303,21 @@ export function bootLabClient(): void {
   });
 
   window.addEventListener('resize', measureHeader);
+  $('enterFullscreen').addEventListener('click', () => {
+    void enterLabFullscreen();
+  });
+  $('exitFullscreen').addEventListener('click', () => {
+    void exitLabFullscreen();
+  });
+  document.addEventListener('fullscreenchange', () => {
+    if (labFullscreen && document.fullscreenElement !== document.documentElement) {
+      labFullscreen = false;
+      syncFullscreenUi();
+    }
+  });
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && labFullscreen) void exitLabFullscreen();
+  });
 
   void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
     showMode('browse');

@@ -6,7 +6,7 @@ import {
 import { attachProjectedInputCapture } from '@speculum/page-projection/projected/input/projectedInputCapture'
 import { ScrollEchoGate } from '@speculum/page-projection/projected/input/scrollEchoGate'
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame'
-import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes'
+import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes'
 import type { PageProjectionFrame, PageProjectionIntent, MirrorMode, SessionFrame, SessionInput } from '@/lib/speculum'
 import { appendSessionBindingQuery } from '@/lib/speculum/sessionBindingAuth'
 import { cn } from '@/lib/utils'
@@ -71,15 +71,37 @@ function toIngestBytes(body: PageProjectionFrame['body']): Uint8Array | null {
   return null
 }
 
-function intentToWire(intent: PageProjectionIntentV2): PageProjectionIntent {
+function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
+  const payload: Record<string, unknown> = {}
+  if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
+    payload.x = intent.x
+    payload.y = intent.y
+    if (intent.button) payload.button = intent.button
+  } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
+    payload.key = intent.key
+    payload.code = intent.code
+    if (intent.modifiers) payload.modifiers = intent.modifiers
+  } else if (intent.type === 'scrollSet') {
+    payload.scrollX = intent.scrollX
+    payload.scrollY = intent.scrollY
+  } else if (intent.type === 'setFiles') {
+    payload.files = intent.files
+  }
   return {
-    generation: intent.generation,
+    generation: 0,
     type: intent.type,
     anchor: null,
-    targetId: intent.nodeId ?? null,
-    timestampClient: intent.timestampClient,
-    payload: intent.payload,
-    contextId: intent.contextId,
+    targetId: intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.nodeId : null,
+    timestampClient: intent.timestampClient ?? null,
+    payload: JSON.stringify(payload),
+    contextId: intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.contextId : 1,
+    schemaVersion: intent.schemaVersion,
+    viewportW: 'viewportW' in intent ? intent.viewportW : null,
+    viewportH: 'viewportH' in intent ? intent.viewportH : null,
+    census:
+      (intent.type === 'down' || intent.type === 'up') && intent.census
+        ? JSON.stringify(intent.census)
+        : null,
   }
 }
 
@@ -303,6 +325,7 @@ function PageProjectionV2Surface({
     if (!root) return
     // expect() before programmatic Projected scroll apply when that path exists.
     const scrollEcho = new ScrollEchoGate()
+    const rootWin = client.document.defaultView
     const detachRoot = attachProjectedInputCapture(
       root,
       client.getLiveRegistry(),
@@ -311,9 +334,11 @@ function PageProjectionV2Surface({
         contextId: CONTEXT_ID_ROOT,
         getGeneration: () => client.getGeneration(),
         getViewportSize: () => viewportRef.current,
+        getRootWindow: () => rootWin,
         isArmed: () => client.isArmed,
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+        scrollIndex: client.getScrollableIndex(),
         getSessionId: () => sessionRef.current.sessionId,
         getToken: () => sessionRef.current.token,
         getAssetBaseUrl: () =>
@@ -334,9 +359,11 @@ function PageProjectionV2Surface({
             contextId: info.contextId,
             getGeneration: info.getGeneration,
             getViewportSize: () => viewportRef.current,
+            getRootWindow: () => rootWin,
             isArmed: info.isArmed,
             onMarkPropDirty: info.markPropDirty,
             consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+            scrollIndex: client.getScrollableIndex(),
             getSessionId: () => sessionRef.current.sessionId,
             getToken: () => sessionRef.current.token,
             getAssetBaseUrl: () =>
@@ -358,6 +385,9 @@ function PageProjectionV2Surface({
       surfaceHost: host,
       width,
       height,
+      getToken: () => sessionRef.current.token,
+      getAssetBaseUrl: () =>
+        sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
       onArmed: () => {
         bindInput(client)
         onFrameObserveRef.current?.({

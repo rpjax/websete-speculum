@@ -9,13 +9,13 @@ import { ConsoleFrameTransport } from '../transport/consoleFrameTransport';
 import { LoopbackFrameTransport } from '../transport/loopbackFrameTransport';
 import { CdpBindingFrameTransport } from '../transport/cdpBindingFrameTransport';
 import { NullFrameTransport } from '../transport/nullFrameTransport';
-import { ProjectionBus } from '../bus/projectionBus';
+import { VirtualDomainBus } from '../bus/virtualDomainBus';
 import { ContextIdMint } from '../../core/contextIdMint';
 import type { ProjectionConfig } from '../config/projectionConfig';
 
 export class RootRuntime {
   readonly mintAllocator = new ContextIdMint();
-  readonly bus: ProjectionBus;
+  readonly bus: VirtualDomainBus;
   readonly frameTransport: FrameTransport;
   readonly dataPlane: DataPlane | null;
   readonly loopback: LoopbackFrameTransport | null;
@@ -49,7 +49,7 @@ export class RootRuntime {
     this.dataPlane = dataPlane;
     this.loopback = loopback;
     this.cdp = cdp;
-    this.bus = new ProjectionBus({
+    this.bus = new VirtualDomainBus({
       window: win,
       role: 'root',
       mint: () => this.mint(),

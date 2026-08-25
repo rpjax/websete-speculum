@@ -20,6 +20,17 @@ async function runPageProjectionInputClickUnitTests() {
         console.log('[unit] PP input click skipped (SPECULUM_SKIP_PP_SESSION=1)');
         return;
     }
+    let uinputOk = false;
+    try {
+        uinputOk = require('../../../patchright/input/uinput').uinputAvailable() === true;
+    }
+    catch {
+        uinputOk = false;
+    }
+    if (!uinputOk) {
+        console.log('[unit] PP input click skipped (no /dev/uinput)');
+        return;
+    }
     const { fixturesDir } = (0, assetRoots_1.labAssetRoots)();
     const fixture = node_path_1.default.join(fixturesDir, 'input-click.html');
     assert_1.default.ok(node_fs_1.default.existsSync(fixture), `missing fixture ${fixture}`);

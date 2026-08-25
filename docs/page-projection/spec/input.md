@@ -1,53 +1,28 @@
 # PageProjection — input propagation & bindings
 
-> **Normative V4 dispatch:** **[input-v2.md](input-v2.md)** — **A/B/C** (2026-08-23). Id-assertive activate superseded.
-> This file is **V1 provenance** (I1–I5, inject chain, bindings, coalesce). Where it conflicts
-> with input-v2, **input-v2 wins**.
+> **Normative hot path (2026-08-25):** **OS unified input** — UnifiedIntent → EventApplier → uinput ABS.
+> Design: [input-unified-design-draft.md](input-unified-design-draft.md). Lab/E2E: Docker `/dev/uinput` ([LAB-DOCKER.md](../../Refactor/sidecar/LAB-DOCKER.md)).
+> [input-v2.md](input-v2.md) A/B/C CDP is **superseded on the PP hot path** (kept as history).
 
-> **V4:** Mode A activates by viewport coords via CDP; Mode B addresses `uint32` via Virtual `domNodes` (Control plane); Mode C (`setFiles`) may CDP-resolve a handle.
-> Caret is client-authoritative. Local-first feedback (P4) vs authoritative (P5): [budgets.md](budgets.md).
+> **V4 historical:** Mode A/B/C CDP (input-v2). **Current:** pointer/keys = OS; scroll = `scrollSet` + S6 census Phase A on Virtual; no CDP Mode A/B for PP.
+
 > Frame/identity/recovery: [frame-protocol.md](frame-protocol.md). Index: [README.md](README.md).
-> Where this file still says `DomProjection`, `diff-streams.md`, or engine-redesign §5.9, treat those
-> as pre-V4 names; behaviour in the amended bullets still stands (no wire `click`, inject chain,
-> move collapsing, `setFiles`, two scroll intent types) except where input-v2 A/B/C overrides.
 
-**Status:** V1 contract **sealed as history of intent** (I1–I5). Normative product rule = [input-v2.md](input-v2.md).  
-**Ruling 2026-08-14:** redesign before cutover. **Amended 2026-08-22** then **2026-08-23:** live hot path = A/B/C, not id-assertive CDP resolve on every press.
+**Status:** Hot path = OS peripherals. V1/V2 text below is provenance where not contradicted.
 
-> **Naming / supersession:** product mode/pipe is **PageProjection**
-> (`MirrorMode.PageProjection`), not `DomProjection`. E2E rename still applies
-> when the redesigned contract lands. Sealed planes: [frame-protocol.md](frame-protocol.md), [cssom.md](cssom.md).
-
-
-**Scope:** how user intent on the **Projected DOM** is captured, sent, and
-applied on the **Virtual DOM** — and how upstream control state from F binds
-back without fighting the user.
-
-**Not this document:** the Virtual → client frame pipeline —
-[frame-protocol.md](frame-protocol.md) (pre-V4 `diff-pipeline.md` is archived); virtual
-asset serve; F coalesce knobs; **video-mirror / OS (uinput) input** — that
-stack stays on `MirrorMode.VideoStreaming` and is intentionally separate.
-
-**Related:** [architecture.md](../../architecture.md) · [naming.md](../../naming.md) ·
-Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover)
+**Related:** [architecture.md](../../architecture.md) · [naming.md](../../naming.md)
 
 ---
 
 ## 1. Purpose
 
 ```
-User → Projected DOM (capture) → wire intent → Virtual DOM (CDP dispatch)
-                                              ↓
-                                         site JS runs
-                                              ↓
-                                         F emits DomDiff
-                                              ↓
-                                         Projected DOM updates
+User → Projected (UnifiedIntent + census) → wire → SidecarBuffer → EventApplier
+                                              ├─ Phase A applyScrollCensus (Virtual)
+                                              └─ Phase B ABS uinput → Chromium on Display
 ```
 
-No site JS on Projected. Antibot-relevant pointer **paths** are remoted over
-**CDP only** (never OS/uinput). Upstream control state is `PROP_SET` (property),
-not `speculum-input-*` attributes (§7).
+No site JS on Projected. Pointer path is **OS ABS** (fail-closed without `/dev/uinput`).
 
 ---
 

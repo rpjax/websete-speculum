@@ -11,6 +11,7 @@ import { MutationBuffer } from './dom/mutationBuffer';
 import { DomMutationObserver } from './dom/domMutationObserver';
 import { DomNodeTable } from './dom/domNodeTable';
 import { DOCUMENT_ID, CONTEXT_ID_ROOT } from '../core/frame';
+import { CONTEXT_ID_PROVISIONAL } from '../core/contextBusConstants';
 import { OpCode } from '../core/opcodes';
 import { ReplicatedTable } from '../core/replicatedTable';
 import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
@@ -28,8 +29,9 @@ import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
 import { BusFrameTransport } from './transport/busFrameTransport';
-import { ProjectionBus } from './bus/projectionBus';
+import { VirtualDomainBus } from './bus/virtualDomainBus';
 import { RootRuntime } from './runtime/rootRuntime';
+import { ContextRegistry } from './runtime/contextRegistry';
 import { ChildScopeIndex, createMintPort } from './dom/childScopes';
 import type { TableLiveOracleResult } from '../core/tableLiveOracle';
 import type { CssomTableLiveOracleResult } from '../core/cssomTableLiveOracle';
@@ -37,6 +39,8 @@ import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import { PlaneChannel, type DataPlane } from '../core/plane';
 import type { CssomPollStats } from './cssom/cssomPoller';
 import { applyControlInput, type ControlInputMessage } from './input/applyControlInput';
+import { applyScrollPositions } from './input/applyScrollPositions';
+import type { ScrollCensus } from '../core/input/unifiedIntentTypes';
 
 declare global {
   var __speculumProjection:
@@ -88,15 +92,22 @@ declare global {
           contextId: number,
           opts?: { cssom?: 'none' | 'committed' | 'scan'; includeTree?: boolean },
         ) => Promise<
-          | { ok: true; value: import('./bus/projectionBus').SnapshotRpcPayload }
+          | { ok: true; value: import('./bus/virtualDomainBus').SnapshotRpcPayload }
           | { ok: false; reason: string }
         >;
         snapshotAllKnown: (
           contextIds: number[],
           opts?: { cssom?: 'none' | 'committed' | 'scan'; includeTree?: boolean },
-        ) => Promise<Record<number, import('./bus/projectionBus').SnapshotRpcPayload | { ok: false; reason: string }>>;
+        ) => Promise<Record<number, import('./bus/virtualDomainBus').SnapshotRpcPayload | { ok: false; reason: string }>>;
         resumeContext: (contextId: number) => Promise<{ ok: boolean; reason?: string }>;
         resumeAllKnown: (contextIds: number[]) => Promise<Record<number, { ok: boolean; reason?: string }>>;
+        applyScrollCensus: (census: ScrollCensus) => Promise<{ ok: boolean; missingNodeIds?: number[]; reason?: string }>;
+        applyScrollSet: (args: {
+          contextId: number;
+          nodeId: number | null;
+          scrollX: number;
+          scrollY: number;
+        }) => Promise<{ ok: boolean; reason?: string }>;
       }
     | undefined;
 }
@@ -105,14 +116,21 @@ document.currentScript?.remove();
 
 void (async () => {
   if (globalThis.__speculumProjection) return;
+  const bootGlobal = globalThis as { __speculumProjectionBoot?: Promise<void> };
+  if (bootGlobal.__speculumProjectionBoot) {
+    await bootGlobal.__speculumProjectionBoot;
+    return;
+  }
 
+  bootGlobal.__speculumProjectionBoot = (async () => {
+  try {
   const config = readProjectionConfig();
   const isRoot = window.parent === window;
   let mine = CONTEXT_ID_ROOT;
   let frameTransport: FrameTransport;
   let dataPlane: DataPlane | null = null;
   let loopback: LoopbackFrameTransport | null = null;
-  let bus: ProjectionBus;
+  let bus: VirtualDomainBus;
   let mintFn: () => number | null;
 
   if (isRoot) {
@@ -129,9 +147,25 @@ void (async () => {
       console.error('[speculumProjection] data plane open failed', err);
     }
   } else {
-    bus = new ProjectionBus({ window, parent: window.parent, role: 'nested' });
+    // Provisional bus id — must not collide with CONTEXT_ID_ROOT (1) while getScopeId pending.
+    bus = new VirtualDomainBus({
+      window,
+      parent: window.parent,
+      role: 'nested',
+      contextId: CONTEXT_ID_PROVISIONAL,
+    });
     frameTransport = new BusFrameTransport(bus);
     mintFn = createMintPort({ requestMint: () => bus.requestMint() });
+    while (true) {
+      try {
+        const parentReady = (window.parent as { __speculumProjection?: { contextId?: number } })
+          .__speculumProjection?.contextId === CONTEXT_ID_ROOT;
+        if (parentReady) break;
+      } catch {
+        /* cross-origin parent */
+      }
+      await new Promise((r) => setTimeout(r, 16));
+    }
     mine = await bus.getScopeId();
   }
 
@@ -223,6 +257,11 @@ void (async () => {
 
   bus.setMine(mine);
 
+  const contextRegistry = isRoot ? new ContextRegistry(bus) : null;
+  if (contextRegistry && isRoot) {
+    contextRegistry.announceRootOnline(mine);
+  }
+
   const snapshotPlanes = {
     domNodes,
     table,
@@ -245,6 +284,8 @@ void (async () => {
     cssom.start();
     domMutationObserver.syncObservedShadowRoots(domNodes);
   });
+
+  bus.setApplyScrollHandler((positions) => applyScrollPositions(domNodes, document, positions));
 
   bus.onResyncRequest((req) => {
     if (req.contextId !== mine) return;
@@ -390,5 +431,28 @@ void (async () => {
       );
       return Object.fromEntries(entries);
     },
+    applyScrollCensus: async (census) => {
+      const missingNodeIds: number[] = [];
+      for (const ctx of census.contexts) {
+        const r = await bus.requestApplyScroll(ctx.contextId, ctx.positions);
+        if (!r.ok) return { ok: false, reason: r.reason ?? 'apply_scroll_failed', missingNodeIds };
+        if (r.missingNodeIds) missingNodeIds.push(...r.missingNodeIds);
+      }
+      return { ok: true, missingNodeIds };
+    },
+    applyScrollSet: async (args) => {
+      const r = await bus.requestApplyScroll(args.contextId, [
+        { nodeId: args.nodeId, scrollX: args.scrollX, scrollY: args.scrollY },
+      ]);
+      if (!r.ok) return { ok: false, reason: r.reason ?? 'apply_scroll_failed' };
+      return { ok: true };
+    },
   };
+  } catch (err) {
+    console.error('[speculumProjection] bootstrap failed', err);
+    throw err;
+  }
+  })();
+
+  await bootGlobal.__speculumProjectionBoot;
 })();

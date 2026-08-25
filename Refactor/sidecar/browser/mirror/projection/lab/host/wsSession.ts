@@ -3,6 +3,7 @@
  */
 
 import type { WebSocket } from 'ws';
+import { randomUUID } from 'node:crypto';
 import type { TreeNode } from '@speculum/page-projection/core/treeNode';
 import type { ReplicatedTableDigest } from '@speculum/page-projection/core/tableDigest';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
@@ -20,6 +21,8 @@ export type WsLabOptions = {
 
 export class WsLabConnection {
   readonly id: string;
+  /** Binding token for `/w7s/virtual-*` (virtual-assets §1.1) — same reserved query name as Live. */
+  readonly sessionToken: string;
   private client: WebSocket | null;
   private readonly opts: WsLabOptions;
   private chassis: LabChassis;
@@ -43,9 +46,41 @@ export class WsLabConnection {
     this.opts = opts;
     this.chassis = new LabChassis({ headless: opts.headless });
     this.id = this.chassis.connectionId;
+    this.sessionToken = randomUUID();
     this.client = client;
     this.bindChassisRelays(this.chassis);
-    this.send({ type: 'session.hello', sessionId: this.id, protocolVersion: LAB_PROTOCOL_VERSION });
+    this.send({
+      type: 'session.hello',
+      sessionId: this.id,
+      sessionToken: this.sessionToken,
+      protocolVersion: LAB_PROTOCOL_VERSION,
+    });
+  }
+
+  async getAsset(
+    key: string,
+    opts?: { kind?: string; rangeHeader?: string },
+  ): Promise<{
+    body: Uint8Array;
+    contentType: string;
+    statusCode?: number;
+    contentRange?: string;
+    passThrough?: boolean;
+  } | null> {
+    const session = this.chassis.browser as {
+      getAsset?(
+        k: string,
+        o?: { kind?: string; rangeHeader?: string },
+      ): Promise<{
+        body: Uint8Array;
+        contentType: string;
+        statusCode?: number;
+        contentRange?: string;
+        passThrough?: boolean;
+      } | null>;
+    } | null;
+    if (!session?.getAsset) return null;
+    return session.getAsset(key, opts);
   }
 
   private bindChassisRelays(chassis: LabChassis): void {
@@ -367,11 +402,12 @@ export class WsLabConnection {
           pushInput?: (i: unknown) => Promise<{ status: string; reason?: string } | unknown>;
           getInputPipelineMetrics?: () => {
             lastOutcome?: {
-              mode?: 'A' | 'B' | 'C';
+              mode?: 'A' | 'B' | 'C' | 'OS';
               dispatchMs?: number;
               clientLagMs?: number;
             } | null;
           };
+          getInputBackend?: () => 'os';
         } | null);
         const pushFn = push?.pushInput?.bind(session);
         if (!pushFn) {
@@ -387,7 +423,7 @@ export class WsLabConnection {
         const timingOf = () => {
           const last = push?.getInputPipelineMetrics?.()?.lastOutcome;
           return {
-            mode: last?.mode,
+            mode: (last?.mode ?? push?.getInputBackend?.() ?? 'OS') as 'OS',
             dispatchMs: last?.dispatchMs,
             clientLagMs: last?.clientLagMs,
           };

@@ -1768,6 +1768,96 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/scriptingOnPaintParity.js
+  var require_scriptingOnPaintParity = __commonJS({
+    "../packages/page-projection/dist/projected/scriptingOnPaintParity.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.withScriptingOnPaintParity = exports.installScriptingOnPaintParity = exports.paintParityInstalled = exports.hasParityStyleElement = exports.paritySheetForDocument = exports.PARITY_STYLE_ATTR = exports.SCRIPTING_ON_PAINT_PARITY_CSS = void 0;
+      exports.SCRIPTING_ON_PAINT_PARITY_CSS = "noscript{display:none!important}";
+      exports.PARITY_STYLE_ATTR = "data-speculum-scripting-on-paint-parity";
+      var parityByDocument = /* @__PURE__ */ new WeakMap();
+      function paritySheetForDocument(doc) {
+        return parityByDocument.get(doc);
+      }
+      exports.paritySheetForDocument = paritySheetForDocument;
+      function hasParityStyleElement(doc) {
+        return doc.querySelector(`style[${exports.PARITY_STYLE_ATTR}]`) != null;
+      }
+      exports.hasParityStyleElement = hasParityStyleElement;
+      function paintParityInstalled(doc) {
+        const sheet = parityByDocument.get(doc);
+        if (sheet !== void 0) {
+          try {
+            if (Array.from(doc.adoptedStyleSheets).includes(sheet))
+              return true;
+          } catch {
+          }
+        }
+        return hasParityStyleElement(doc);
+      }
+      exports.paintParityInstalled = paintParityInstalled;
+      function installScriptingOnPaintParity(doc) {
+        if (installConstructableParity(doc))
+          return;
+        installParityStyleElement(doc);
+      }
+      exports.installScriptingOnPaintParity = installScriptingOnPaintParity;
+      function installConstructableParity(doc) {
+        const existing = parityByDocument.get(doc);
+        if (existing !== void 0) {
+          try {
+            const list = Array.from(doc.adoptedStyleSheets);
+            if (!list.includes(existing)) {
+              doc.adoptedStyleSheets = [existing, ...list.filter((s) => s !== existing)];
+            }
+            return true;
+          } catch {
+            parityByDocument.delete(doc);
+          }
+        }
+        const view = doc.defaultView;
+        if (view === null || typeof view.CSSStyleSheet !== "function")
+          return false;
+        try {
+          const sheet = new view.CSSStyleSheet();
+          sheet.replaceSync(exports.SCRIPTING_ON_PAINT_PARITY_CSS);
+          const rest = Array.from(doc.adoptedStyleSheets).filter((s) => s !== sheet);
+          doc.adoptedStyleSheets = [sheet, ...rest];
+          parityByDocument.set(doc, sheet);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      function installParityStyleElement(doc) {
+        if (hasParityStyleElement(doc))
+          return true;
+        const head = doc.head;
+        const host = head ?? doc.documentElement;
+        if (host == null)
+          return false;
+        const el = doc.createElement("style");
+        el.setAttribute(exports.PARITY_STYLE_ATTR, "");
+        el.textContent = exports.SCRIPTING_ON_PAINT_PARITY_CSS;
+        if (head != null)
+          head.appendChild(el);
+        else
+          host.insertBefore(el, host.firstChild);
+        return true;
+      }
+      function withScriptingOnPaintParity(doc, sheets) {
+        if (installConstructableParity(doc)) {
+          const parity = parityByDocument.get(doc);
+          return [parity, ...sheets.filter((s) => s !== parity)];
+        }
+        installParityStyleElement(doc);
+        return sheets;
+      }
+      exports.withScriptingOnPaintParity = withScriptingOnPaintParity;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/applyDom.js
   var require_applyDom = __commonJS({
     "../packages/page-projection/dist/projected/applyDom.js"(exports) {
@@ -1786,6 +1876,7 @@
       var replicatedTable_1 = require_replicatedTable();
       var replicatedTableApply_1 = require_replicatedTableApply();
       var nestedNav_1 = require_nestedNav();
+      var scriptingOnPaintParity_1 = require_scriptingOnPaintParity();
       var DomFrameApplier = class {
         queued = [];
         raf = null;
@@ -1800,6 +1891,7 @@
         sheetHost = /* @__PURE__ */ new Map();
         childScopes = /* @__PURE__ */ new Map();
         nestedHostIds = /* @__PURE__ */ new Set();
+        paritySheet = null;
         constructor(doc, registry, options = {}) {
           this.doc = doc;
           this.registry = registry;
@@ -1877,6 +1969,7 @@
           }
           if (!this.cssomHandlesMatchTable())
             return false;
+          this.ensurePaintParity();
           this.options.onApplied?.(frame, performance.now() - start);
           return true;
         }
@@ -1957,9 +2050,28 @@
           this.sheets.clear();
           this.rules.clear();
           this.sheetHost.clear();
+          this.paritySheet = null;
           try {
-            this.doc.adoptedStyleSheets = [];
-          } catch {
+            (0, scriptingOnPaintParity_1.installScriptingOnPaintParity)(this.doc);
+            const sheet = (0, scriptingOnPaintParity_1.paritySheetForDocument)(this.doc);
+            this.paritySheet = sheet ?? null;
+            this.doc.adoptedStyleSheets = sheet != null ? [sheet] : [];
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
+            this.options.onWarn?.(`scriptingOnPaintParity: clearCssom failed: ${detail}`);
+          }
+        }
+        /**
+         * K5 sandbox has no `allow-scripts`; hide `<noscript>` like Chromium with JS on.
+         * Call after phase-2 materialize — EPOCH_RESET may run while `defaultView`/head are gone.
+         */
+        ensurePaintParity() {
+          (0, scriptingOnPaintParity_1.installScriptingOnPaintParity)(this.doc);
+          const sheet = (0, scriptingOnPaintParity_1.paritySheetForDocument)(this.doc);
+          if (sheet != null)
+            this.paritySheet = sheet;
+          if (!(0, scriptingOnPaintParity_1.paintParityInstalled)(this.doc) && this.doc.documentElement != null) {
+            this.options.onWarn?.("scriptingOnPaintParity: install failed after apply (no adopted sheet and no style element)");
           }
         }
         /**
@@ -2052,7 +2164,7 @@
         setAdoptedOf(hostNode, next) {
           try {
             if (hostNode === 0) {
-              this.doc.adoptedStyleSheets = next;
+              this.doc.adoptedStyleSheets = (0, scriptingOnPaintParity_1.withScriptingOnPaintParity)(this.doc, next);
               return true;
             }
             const root = this.shadowRootOfHost(hostNode);
@@ -2182,7 +2294,7 @@
           }
           let inserted;
           try {
-            inserted = sheet.insertRule(op.text, index);
+            inserted = sheet.insertRule(this.options.stampCssText?.(op.text) ?? op.text, index);
           } catch {
             return this.fail("malformed", "ruleNew", op.id);
           }
@@ -2226,7 +2338,7 @@
             return this.fail("bad_target", "ruleSet", op.id);
           }
           try {
-            rule.style.cssText = (0, cssomApplyIndex_1.declarationBlockFromRuleText)(op.text);
+            rule.style.cssText = (0, cssomApplyIndex_1.declarationBlockFromRuleText)(this.options.stampCssText?.(op.text) ?? op.text);
             return true;
           } catch {
             return this.fail("malformed", "ruleSet", op.id);
@@ -2272,7 +2384,7 @@
             const uri = (0, elementNs_1.elementNsUri)(op.ns, op.uri);
             node = this.doc.createElementNS(uri, op.name);
             const attrs = op.nestedHost === true ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name)) : op.attrs;
-            if (!applyAttrs(node, attrs)) {
+            if (!applyAttrs(node, attrs, this.options.stampUrl)) {
               return this.fail("malformed", "nodeNew", op.id);
             }
             if (op.nestedHost === true && op.childScopeId != null) {
@@ -2359,7 +2471,7 @@
           if (!node || node.nodeType !== Node.ELEMENT_NODE)
             return this.fail("address_miss", "attrSet", op.node);
           const attrs = this.nestedHostIds.has(op.node) ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name)) : op.attrs;
-          if (!applyAttrs(node, attrs)) {
+          if (!applyAttrs(node, attrs, this.options.stampUrl)) {
             return this.fail("malformed", "attrSet", op.node);
           }
           return true;
@@ -2415,9 +2527,80 @@
         }
       };
       exports.DomFrameApplier = DomFrameApplier;
-      function applyAttrs(el, attrs) {
-        return (0, attrApply_1.applyAttrPairs)((name, value) => el.setAttribute(name, value), attrs);
+      function applyAttrs(el, attrs, stampUrl) {
+        return (0, attrApply_1.applyAttrPairs)((name, value) => {
+          const stamped = stampUrl ? stampUrl(name, value) : value;
+          el.setAttribute(name, stamped);
+        }, attrs);
       }
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/input/projectedNativeGuard.js
+  var require_projectedNativeGuard = __commonJS({
+    "../packages/page-projection/dist/projected/input/projectedNativeGuard.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.attachProjectedNativeGuard = exports.layoutViewportSize = exports.suppressProjectedDefault = exports.isProjectedNavigable = exports.eventTargetElement = void 0;
+      function eventTargetElement(target) {
+        if (!target || typeof target !== "object")
+          return null;
+        const node = target;
+        if (node.nodeType === 1)
+          return node;
+        const parent = node.parentElement;
+        return parent;
+      }
+      exports.eventTargetElement = eventTargetElement;
+      function isProjectedNavigable(target) {
+        const el = eventTargetElement(target);
+        if (el == null)
+          return false;
+        return el.closest("a[href], area[href]") != null;
+      }
+      exports.isProjectedNavigable = isProjectedNavigable;
+      function suppressProjectedDefault(event) {
+        if (event.cancelable)
+          event.preventDefault();
+        event.stopPropagation();
+      }
+      exports.suppressProjectedDefault = suppressProjectedDefault;
+      function layoutViewportSize(win) {
+        const el = win.document.documentElement;
+        const width = el?.clientWidth || win.innerWidth;
+        const height = el?.clientHeight || win.innerHeight;
+        return { width, height };
+      }
+      exports.layoutViewportSize = layoutViewportSize;
+      function attachProjectedNativeGuard(doc) {
+        const onActivate = (event) => suppressProjectedDefault(event);
+        const onPointerDown = (event) => {
+          const pe = event;
+          if (typeof pe.button === "number" && pe.button !== 0)
+            return;
+          if (isProjectedNavigable(event.target))
+            suppressProjectedDefault(event);
+        };
+        const onTouchStart = (event) => {
+          if (isProjectedNavigable(event.target))
+            suppressProjectedDefault(event);
+        };
+        doc.addEventListener("click", onActivate, true);
+        doc.addEventListener("auxclick", onActivate, true);
+        doc.addEventListener("dblclick", onActivate, true);
+        doc.addEventListener("submit", onActivate, true);
+        doc.addEventListener("pointerdown", onPointerDown, true);
+        doc.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+        return () => {
+          doc.removeEventListener("click", onActivate, true);
+          doc.removeEventListener("auxclick", onActivate, true);
+          doc.removeEventListener("dblclick", onActivate, true);
+          doc.removeEventListener("submit", onActivate, true);
+          doc.removeEventListener("pointerdown", onPointerDown, true);
+          doc.removeEventListener("touchstart", onTouchStart, true);
+        };
+      }
+      exports.attachProjectedNativeGuard = attachProjectedNativeGuard;
     }
   });
 
@@ -2427,9 +2610,11 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.createNestedResyncSurface = void 0;
+      var projectedNativeGuard_1 = require_projectedNativeGuard();
       function stripBareDocument(doc) {
         while (doc.firstChild)
           doc.removeChild(doc.firstChild);
+        (0, projectedNativeGuard_1.attachProjectedNativeGuard)(doc);
       }
       function docOf(iframe) {
         const doc = iframe.contentDocument;
@@ -2438,6 +2623,9 @@
         return doc;
       }
       function createNestedResyncSurface(primaryHost) {
+        const primaryDoc = primaryHost.contentDocument;
+        if (primaryDoc)
+          (0, projectedNativeGuard_1.attachProjectedNativeGuard)(primaryDoc);
         let activeIframe = primaryHost;
         let standbyIframe = null;
         function attachStandbySibling() {
@@ -2773,6 +2961,184 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/sessionBindingAuth.js
+  var require_sessionBindingAuth = __commonJS({
+    "../packages/page-projection/dist/projected/sessionBindingAuth.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.stampAttrAuth = exports.stampAuthInServedBody = exports.stampCssTextAuth = exports.stampSrcsetAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = void 0;
+      exports.SessionAuthQueryParam = "speculum-session-token";
+      exports.SessionCacheBustQueryParam = "speculum-cache-bust";
+      function isVirtualAssetUrl(url) {
+        return url.startsWith("/w7s/virtual-") || url.includes("/virtual-");
+      }
+      exports.isVirtualAssetUrl = isVirtualAssetUrl;
+      function appendSessionAuth(url, token, assetBaseUrl = "") {
+        if (!url || !token)
+          return url;
+        if (!isVirtualAssetUrl(url))
+          return url;
+        const base = assetBaseUrl.replace(/\/$/, "");
+        const absolute = url.startsWith("http") ? url : `${base}${url.startsWith("/") ? url : `/${url}`}`;
+        return setReservedParam(absolute, exports.SessionAuthQueryParam, token);
+      }
+      exports.appendSessionAuth = appendSessionAuth;
+      function appendCacheBust(url, value) {
+        if (!url)
+          return url;
+        return setReservedParam(url, exports.SessionCacheBustQueryParam, String(value));
+      }
+      exports.appendCacheBust = appendCacheBust;
+      function appendSessionBindingQuery(url, sessionId, token) {
+        url.searchParams.set("sessionId", sessionId);
+        url.searchParams.set(exports.SessionAuthQueryParam, token);
+        return url;
+      }
+      exports.appendSessionBindingQuery = appendSessionBindingQuery;
+      function setReservedParam(url, name, value) {
+        const hashAt = url.indexOf("#");
+        const fragment = hashAt >= 0 ? url.slice(hashAt) : "";
+        const withoutFragment = hashAt >= 0 ? url.slice(0, hashAt) : url;
+        const queryAt = withoutFragment.indexOf("?");
+        const path = queryAt >= 0 ? withoutFragment.slice(0, queryAt) : withoutFragment;
+        const rawQuery = queryAt >= 0 ? withoutFragment.slice(queryAt + 1) : "";
+        const lowered = name.toLowerCase();
+        const kept = rawQuery.split("&").filter((part) => part.length > 0).filter((part) => {
+          const eq = part.indexOf("=");
+          const key = eq >= 0 ? part.slice(0, eq) : part;
+          return key.toLowerCase() !== lowered;
+        });
+        kept.push(`${name}=${encodeURIComponent(value)}`);
+        return `${path}?${kept.join("&")}${fragment}`;
+      }
+      function stampSrcsetAuth(value, token, assetBaseUrl) {
+        if (!token || !value)
+          return value;
+        return value.split(",").map((part) => {
+          const trimmed = part.trim();
+          if (!trimmed)
+            return part;
+          const bits = trimmed.split(/\s+/);
+          const u = bits[0];
+          const rest = bits.slice(1).join(" ");
+          const stamped = appendSessionAuth(u, token, assetBaseUrl);
+          return rest ? `${stamped} ${rest}` : stamped;
+        }).join(", ");
+      }
+      exports.stampSrcsetAuth = stampSrcsetAuth;
+      function stampCssTextAuth(css, token, assetBaseUrl) {
+        if (!token || !css)
+          return css;
+        let out = css.replace(/url\(\s*(['"]?)([^)'"]+)\1\s*\)/gi, (match, quote, raw) => {
+          if (!isVirtualAssetUrl(raw))
+            return match;
+          return `url(${quote}${appendSessionAuth(raw, token, assetBaseUrl)}${quote})`;
+        });
+        out = out.replace(/@import\s+(['"])([^'"]+)\1/gi, (match, quote, raw) => {
+          if (!isVirtualAssetUrl(raw))
+            return match;
+          return `@import ${quote}${appendSessionAuth(raw, token, assetBaseUrl)}${quote}`;
+        });
+        out = mapImageSetInners(out, (inner) => inner.replace(/(['"]?)(\/?w7s\/virtual-[^'")\s]+|https?:\/\/[^'")\s]*\/virtual-[^'")\s]+)\1/gi, (m, q, u) => {
+          if (!isVirtualAssetUrl(u))
+            return m;
+          return `${q}${appendSessionAuth(u, token, assetBaseUrl)}${q}`;
+        }));
+        return out;
+      }
+      exports.stampCssTextAuth = stampCssTextAuth;
+      function mapImageSetInners(css, mapInner) {
+        const needle = "image-set(";
+        let out = "";
+        let i = 0;
+        const lower = css.toLowerCase();
+        while (i < css.length) {
+          const idx = lower.indexOf(needle, i);
+          if (idx < 0) {
+            out += css.slice(i);
+            break;
+          }
+          out += css.slice(i, idx);
+          const openKw = css.slice(idx, idx + needle.length);
+          const start = idx + needle.length;
+          let depth = 1;
+          let j = start;
+          while (j < css.length && depth > 0) {
+            const c = css[j];
+            if (c === "(")
+              depth++;
+            else if (c === ")")
+              depth--;
+            j++;
+          }
+          if (depth !== 0) {
+            out += css.slice(idx);
+            break;
+          }
+          const inner = css.slice(start, j - 1);
+          out += `${openKw}${mapInner(inner)})`;
+          i = j;
+        }
+        return out;
+      }
+      function stampAuthInServedBody(body, contentType, token) {
+        if (!token || !body)
+          return body;
+        const ct = contentType.toLowerCase();
+        if (ct.includes("text/css"))
+          return stampCssTextAuth(body, token, "");
+        if (ct.includes("mpegurl") || ct.includes("dash+xml") || ct.includes("x-mpegurl") || ct.includes("apple.mpegurl")) {
+          return stampManifestAuth(body, token);
+        }
+        return body;
+      }
+      exports.stampAuthInServedBody = stampAuthInServedBody;
+      function stampManifestAuth(body, token) {
+        return body.split("\n").map((line) => {
+          const trimmed = line.trim();
+          if (!trimmed)
+            return line;
+          if (trimmed.startsWith("#")) {
+            return line.replace(/URI="([^"]+)"/gi, (_m, raw) => {
+              if (!isVirtualAssetUrl(raw))
+                return _m;
+              return `URI="${appendSessionAuth(raw, token, "")}"`;
+            });
+          }
+          if (!isVirtualAssetUrl(trimmed))
+            return line;
+          const lead = line.match(/^\s*/)?.[0] ?? "";
+          return lead + appendSessionAuth(trimmed, token, "");
+        }).join("\n");
+      }
+      var URL_ATTR_STAMP = /* @__PURE__ */ new Set([
+        "src",
+        "href",
+        "xlink:href",
+        "data-src",
+        "poster",
+        "srcset",
+        "imagesrcset",
+        "style"
+      ]);
+      function stampAttrAuth(name, value, token, assetBaseUrl) {
+        if (!token || !value)
+          return value;
+        const lower = name.toLowerCase();
+        if (!URL_ATTR_STAMP.has(lower))
+          return value;
+        if (lower === "srcset" || lower === "imagesrcset") {
+          return stampSrcsetAuth(value, token, assetBaseUrl);
+        }
+        if (lower === "style") {
+          return stampCssTextAuth(value, token, assetBaseUrl);
+        }
+        return appendSessionAuth(value, token, assetBaseUrl);
+      }
+      exports.stampAttrAuth = stampAttrAuth;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/nestedProjectedApply.js
   var require_nestedProjectedApply = __commonJS({
     "../packages/page-projection/dist/projected/nestedProjectedApply.js"(exports) {
@@ -2787,6 +3153,7 @@
       var opcodes_1 = require_opcodes();
       var tableDigest_1 = require_tableDigest();
       var telemetry_1 = require_telemetry();
+      var sessionBindingAuth_1 = require_sessionBindingAuth();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -2812,6 +3179,8 @@
         onNestedHostDropCb;
         onTelemetry;
         onRequestResyncCb;
+        getToken;
+        getAssetBaseUrl;
         constructor(opts) {
           this.contextId = opts.contextId;
           this.hostIframe = opts.hostIframe;
@@ -2820,6 +3189,8 @@
           this.onNestedHostDropCb = opts.onNestedHostDrop;
           this.onTelemetry = opts.onTelemetry;
           this.onRequestResyncCb = opts.onRequestResync;
+          this.getToken = opts.getToken;
+          this.getAssetBaseUrl = opts.getAssetBaseUrl;
           this.surface = (0, nestedResyncSurface_1.createNestedResyncSurface)(opts.hostIframe);
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, opts.document);
@@ -2886,7 +3257,20 @@
         }
         createApplier(doc, registry, initiallyLive) {
           const state = { swapped: initiallyLive };
+          const token = () => this.getToken?.() || "";
+          const base = () => this.getAssetBaseUrl?.() || "";
           return new applyDom_1.DomFrameApplier(doc, registry, {
+            stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, token(), base()),
+            stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, token(), base()),
+            onWarn: (message) => {
+              this.onTelemetry?.({
+                v: telemetry_1.TELEMETRY_WIRE_VERSION,
+                contextId: this.contextId,
+                kind: "clientWarn",
+                t: performance.now(),
+                message
+              });
+            },
             onDesync: (info) => {
               if (state.swapped) {
                 this.reportApplyResult({
@@ -3220,6 +3604,46 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/scroll/scrollableIndex.js
+  var require_scrollableIndex = __commonJS({
+    "../packages/page-projection/dist/projected/scroll/scrollableIndex.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ScrollableIndex = exports.isScrollableStyle = void 0;
+      function isScrollableStyle(style) {
+        const axes = [style.overflowY, style.overflowX, style.overflow];
+        return axes.some((v) => v === "auto" || v === "scroll" || v === "overlay");
+      }
+      exports.isScrollableStyle = isScrollableStyle;
+      var ScrollableIndex = class {
+        ids = /* @__PURE__ */ new Set();
+        get size() {
+          return this.ids.size;
+        }
+        has(nodeId) {
+          return this.ids.has(nodeId);
+        }
+        entries() {
+          return [...this.ids];
+        }
+        onNodeCreate(nodeId, style) {
+          if (isScrollableStyle(style))
+            this.ids.add(nodeId);
+        }
+        onNodeDrop(nodeId) {
+          this.ids.delete(nodeId);
+        }
+        recheck(nodeId, style) {
+          if (isScrollableStyle(style))
+            this.ids.add(nodeId);
+          else
+            this.ids.delete(nodeId);
+        }
+      };
+      exports.ScrollableIndex = ScrollableIndex;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/ProjectionClient.js
   var require_ProjectionClient = __commonJS({
     "../packages/page-projection/dist/projected/ProjectionClient.js"(exports) {
@@ -3235,6 +3659,8 @@
       var frame_1 = require_frame();
       var opcodes_1 = require_opcodes();
       var telemetry_1 = require_telemetry();
+      var sessionBindingAuth_1 = require_sessionBindingAuth();
+      var scrollableIndex_1 = require_scrollableIndex();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -3246,6 +3672,11 @@
         onArmedCb;
         onDesyncCb;
         onRequestResyncCb;
+        getToken;
+        getAssetBaseUrl;
+        token;
+        assetBaseUrl;
+        scrollIndex = new scrollableIndex_1.ScrollableIndex();
         /** The currently-live target — reassigned wholesale on a successful resync swap. */
         live;
         /** Set only while a resync response is being built into the standby surface; `null` otherwise. */
@@ -3280,6 +3711,10 @@
           this.onArmedCb = opts.onArmed;
           this.onDesyncCb = opts.onDesync;
           this.onRequestResyncCb = opts.onRequestResync;
+          this.getToken = opts.getToken;
+          this.getAssetBaseUrl = opts.getAssetBaseUrl;
+          this.token = opts.token;
+          this.assetBaseUrl = opts.assetBaseUrl;
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, this.surface.document);
           this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
@@ -3297,6 +3732,8 @@
             hostIframe: iframe,
             document: doc,
             contextId,
+            getToken: () => this.resolveToken(),
+            getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
             onNestedHost: (iframe2, childScopeId) => this.installNestedHost(iframe2, childScopeId),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onTelemetry: (msg) => this.onTelemetry?.(msg),
@@ -3338,6 +3775,10 @@
         }
         getLiveRegistry() {
           return this.live.registry;
+        }
+        /** Projected scrollable index (D-UI-32) for S6 census. */
+        getScrollableIndex() {
+          return this.scrollIndex;
         }
         markPropDirty(id) {
           this.live.applier.markPropDirty(id);
@@ -3485,11 +3926,28 @@
          * that's what creates this target) — every callback after that behaves like an ordinary live
          * frame, whether this *is* the live target from construction or was just promoted to it.
          */
+        resolveToken() {
+          return this.getToken?.() || this.token || "";
+        }
+        resolveAssetBaseUrl() {
+          return this.getAssetBaseUrl?.() || this.assetBaseUrl || "";
+        }
         createApplier(doc, registry, initiallyLive) {
           const state = { swapped: initiallyLive };
           const applier = new applyDom_1.DomFrameApplier(doc, registry, {
+            stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
+            stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, this.resolveToken(), this.resolveAssetBaseUrl()),
             onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+            onWarn: (message) => {
+              this.onTelemetry?.({
+                v: telemetry_1.TELEMETRY_WIRE_VERSION,
+                contextId: frame_1.CONTEXT_ID_ROOT,
+                kind: "clientWarn",
+                t: performance.now(),
+                message
+              });
+            },
             onDesync: (info) => {
               if (state.swapped) {
                 this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
@@ -3720,48 +4178,105 @@
     }
   });
 
-  // ../packages/page-projection/dist/core/input/intentTypes.js
-  var require_intentTypes = __commonJS({
-    "../packages/page-projection/dist/core/input/intentTypes.js"(exports) {
+  // ../packages/page-projection/dist/core/input/unifiedIntentTypes.js
+  var require_unifiedIntentTypes = __commonJS({
+    "../packages/page-projection/dist/core/input/unifiedIntentTypes.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.isPageProjectionIntentV2 = exports.intentV2ToLegacy = exports.normalizeDomInput = exports.INTENT_SCHEMA_VERSION = void 0;
-      var frame_1 = require_frame();
-      exports.INTENT_SCHEMA_VERSION = 1;
-      function normalizeDomInput(raw) {
-        const nodeId = raw.nodeId ?? raw.targetId ?? null;
-        const payload = raw.payload ?? raw.payloadJson ?? "{}";
-        return {
-          schemaVersion: exports.INTENT_SCHEMA_VERSION,
-          contextId: raw.contextId && raw.contextId > 0 ? raw.contextId : frame_1.CONTEXT_ID_ROOT,
-          generation: raw.generation ?? 0,
-          type: raw.type.trim(),
-          nodeId: nodeId != null && nodeId > 0 ? nodeId : null,
-          timestampClient: raw.timestampClient ?? null,
-          wallClientMs: raw.wallClientMs ?? null,
-          payload
-        };
+      exports.UNIFIED_INTENT_SCHEMA_VERSION = void 0;
+      exports.UNIFIED_INTENT_SCHEMA_VERSION = 1;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/input/ClientBuffer.js
+  var require_ClientBuffer = __commonJS({
+    "../packages/page-projection/dist/projected/input/ClientBuffer.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ClientBuffer = void 0;
+      var NEVER_DROP = /* @__PURE__ */ new Set(["down", "up"]);
+      var ClientBuffer = class {
+        moveTimer = null;
+        pendingMove = null;
+        scrollTimers = /* @__PURE__ */ new Map();
+        pendingScroll = /* @__PURE__ */ new Map();
+        enqueue(intent, flush) {
+          if (intent.type === "move") {
+            this.pendingMove = intent;
+            if (this.moveTimer)
+              clearTimeout(this.moveTimer);
+            this.moveTimer = setTimeout(() => {
+              if (this.pendingMove)
+                flush(this.pendingMove);
+              this.pendingMove = null;
+              this.moveTimer = null;
+            }, 50);
+            return;
+          }
+          if (intent.type === "scrollSet") {
+            const key = `${intent.contextId}:${intent.nodeId ?? "v"}`;
+            this.pendingScroll.set(key, intent);
+            const prev = this.scrollTimers.get(key);
+            if (prev)
+              clearTimeout(prev);
+            this.scrollTimers.set(key, setTimeout(() => {
+              const pending = this.pendingScroll.get(key);
+              this.pendingScroll.delete(key);
+              this.scrollTimers.delete(key);
+              if (pending)
+                flush(pending);
+            }, 100));
+            return;
+          }
+          if (NEVER_DROP.has(intent.type)) {
+            flush(intent);
+            return;
+          }
+          flush(intent);
+        }
+        dispose() {
+          if (this.moveTimer)
+            clearTimeout(this.moveTimer);
+          this.moveTimer = null;
+          this.pendingMove = null;
+          for (const t of this.scrollTimers.values())
+            clearTimeout(t);
+          this.scrollTimers.clear();
+          this.pendingScroll.clear();
+        }
+      };
+      exports.ClientBuffer = ClientBuffer;
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/input/snapshotScrollCensus.js
+  var require_snapshotScrollCensus = __commonJS({
+    "../packages/page-projection/dist/projected/input/snapshotScrollCensus.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.snapshotScrollCensus = void 0;
+      function snapshotScrollCensus(args) {
+        const positions = [];
+        const { doc, win, registry, scrollIndex } = args;
+        const top = win?.scrollY || doc.scrollingElement?.scrollTop || 0;
+        const left = win?.scrollX || doc.scrollingElement?.scrollLeft || 0;
+        positions.push({ nodeId: null, scrollX: left, scrollY: top });
+        if (scrollIndex) {
+          for (const nodeId of scrollIndex.entries()) {
+            const node = registry.get(nodeId);
+            if (!node || node.nodeType !== 1)
+              continue;
+            const el = node;
+            positions.push({
+              nodeId,
+              scrollX: el.scrollLeft || 0,
+              scrollY: el.scrollTop || 0
+            });
+          }
+        }
+        return { contexts: [{ contextId: args.contextId, positions }] };
       }
-      exports.normalizeDomInput = normalizeDomInput;
-      function intentV2ToLegacy(intent) {
-        return {
-          type: intent.type,
-          targetId: intent.nodeId,
-          generation: intent.generation,
-          timestampClient: intent.timestampClient,
-          wallClientMs: intent.wallClientMs,
-          payloadJson: intent.payload,
-          contextId: intent.contextId
-        };
-      }
-      exports.intentV2ToLegacy = intentV2ToLegacy;
-      function isPageProjectionIntentV2(raw) {
-        if (!raw || typeof raw !== "object")
-          return false;
-        const o = raw;
-        return o.schemaVersion === exports.INTENT_SCHEMA_VERSION && typeof o.contextId === "number" && typeof o.generation === "number" && typeof o.type === "string" && (o.nodeId === null || typeof o.nodeId === "number") && typeof o.payload === "string";
-      }
-      exports.isPageProjectionIntentV2 = isPageProjectionIntentV2;
+      exports.snapshotScrollCensus = snapshotScrollCensus;
     }
   });
 
@@ -3771,119 +4286,51 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.attachNestedProjectedInputCapture = exports.attachProjectedInputCapture = void 0;
-      var intentTypes_1 = require_intentTypes();
-      var INTERACTIVE = 'a, button, [role="button"], input, select, textarea, summary, label, [role="link"], [role="menuitem"]';
+      var unifiedIntentTypes_1 = require_unifiedIntentTypes();
+      var ClientBuffer_1 = require_ClientBuffer();
+      var snapshotScrollCensus_1 = require_snapshotScrollCensus();
       function isElement(node) {
         return !!node && typeof node === "object" && node.nodeType === 1;
-      }
-      function isNode(node) {
-        return !!node && typeof node === "object" && typeof node.nodeType === "number";
       }
       function tagName(node) {
         return isElement(node) ? node.tagName.toUpperCase() : "";
       }
-      function asFormControl(node) {
-        const tag = node.tagName.toUpperCase();
-        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
-          const el = node;
-          const out = { value: el.value };
-          if (tag === "INPUT") {
-            const input = el;
-            if (input.type === "checkbox" || input.type === "radio")
-              out.checked = input.checked;
-          }
-          return out;
-        }
-        return null;
+      function buttonFromEvent(button) {
+        if (button === 1)
+          return "middle";
+        if (button === 2)
+          return "right";
+        return "left";
       }
       function attachProjectedInputCapture2(surface, registry, send, opts) {
         const doc = surface.ownerDocument;
         const win = doc.defaultView;
-        const liveRoot = () => doc.documentElement;
-        const inProjected = (node) => {
-          const root = liveRoot();
-          return root != null && root.contains(node);
-        };
-        const fire = (intent2) => {
+        const buffer = new ClientBuffer_1.ClientBuffer();
+        const fire = (intent) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
             return;
           }
-          opts.metrics?.noteEmit(intent2.type);
-          void Promise.resolve(send(intent2)).catch(() => void 0);
+          opts.metrics?.noteEmit(intent.type);
+          void Promise.resolve(send(intent)).catch(() => void 0);
         };
-        const intent = (type, nodeId, payload) => ({
-          schemaVersion: intentTypes_1.INTENT_SCHEMA_VERSION,
-          contextId: opts.contextId,
-          // Journal/debug only — sidecar does not gate dispatch on generation.
-          generation: opts.getGeneration(),
-          type,
-          nodeId,
-          timestampClient: performance.now(),
-          wallClientMs: Date.now(),
-          payload
-        });
-        const nodeIdAtPoint = (clientX, clientY) => {
-          let stack;
-          try {
-            stack = doc.elementsFromPoint(clientX, clientY);
-          } catch {
-            stack = [];
-          }
-          for (const node of stack) {
-            if (tagName(node) !== "IFRAME" || !inProjected(node))
-              continue;
-            const childDoc = node.contentDocument;
-            if (!childDoc)
-              continue;
-            const rect = node.getBoundingClientRect();
-            const cx = clientX - rect.left;
-            const cy = clientY - rect.top;
-            let inner;
-            try {
-              inner = childDoc.elementsFromPoint(cx, cy);
-            } catch {
-              continue;
-            }
-            const hit = pickInteractiveId(inner);
-            if (hit != null)
-              return hit;
-          }
-          return pickInteractiveId(stack.filter((n) => inProjected(n)));
+        const enqueue = (intent) => {
+          buffer.enqueue(intent, fire);
         };
-        const pickInteractiveId = (stack) => {
-          let fallback = null;
-          for (const node of stack) {
-            const anchored = node.closest(INTERACTIVE) ?? node;
-            const id = registry.idOfNearest(anchored);
-            if (id == null)
-              continue;
-            if (anchored.matches(INTERACTIVE))
-              return id;
-            if (fallback == null)
-              fallback = id;
-          }
-          return fallback;
+        const viewportStamp = () => {
+          const { width, height } = opts.getViewportSize();
+          return { viewportW: width, viewportH: height };
         };
-        const nodeIdOf = (target, point) => {
-          if (point) {
-            const hit = nodeIdAtPoint(point.x, point.y);
-            if (hit != null)
-              return hit;
-          }
-          if (!isNode(target))
-            return null;
-          return registry.idOfNearest(target) ?? null;
-        };
-        const surfaceCoords = (event) => {
+        const surfaceCoordsFromClient = (clientX, clientY) => {
           if (!win)
             return null;
-          let x = event.clientX;
-          let y = event.clientY;
+          let x = clientX;
+          let y = clientY;
+          const rootWin = opts.getRootWindow?.() ?? win;
+          if (!rootWin)
+            return null;
           let walk = win;
-          let rootWin = win;
-          while (walk) {
-            rootWin = walk;
+          while (walk && walk !== rootWin) {
             let frameEl = null;
             try {
               frameEl = walk.frameElement;
@@ -3910,73 +4357,57 @@
             return null;
           const sx = x * (vw / visW);
           const sy = y * (vh / visH);
-          return { x: Math.min(Math.max(sx, 0), vw), y: Math.min(Math.max(sy, 0), vh) };
-        };
-        const basePayload = (event, extra = {}) => {
-          const coords = surfaceCoords(event);
-          if (!coords)
-            return null;
-          return JSON.stringify({
-            x: coords.x,
-            y: coords.y,
-            button: "button" in event ? event.button : 0,
-            buttons: "buttons" in event ? event.buttons : 0,
-            modifiers: { alt: event.altKey, ctrl: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey },
-            ...extra
-          });
-        };
-        let moveRaf = 0;
-        let pendingMove = null;
-        const flushMove = () => {
-          moveRaf = 0;
-          const m = pendingMove;
-          pendingMove = null;
-          if (m)
-            fire(m);
+          return { x: Math.min(Math.max(sx, 0), vw - 1e-6), y: Math.min(Math.max(sy, 0), vh - 1e-6) };
         };
         const onPointerMove = (event) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
             return;
           }
-          const payload = basePayload(event);
-          if (!payload) {
+          const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
+          if (!coords) {
             opts.metrics?.noteSkip("no_coords");
             return;
           }
-          if (pendingMove)
-            opts.metrics?.noteMoveCoalesce();
-          pendingMove = intent("mousemove", null, payload);
-          if (!moveRaf)
-            moveRaf = requestAnimationFrame(flushMove);
+          opts.metrics?.noteMoveCoalesce();
+          const stamp = viewportStamp();
+          enqueue({
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type: "move",
+            timestampClient: performance.now(),
+            ...stamp,
+            x: coords.x,
+            y: coords.y
+          });
         };
-        const onPointerDown = (event) => {
+        const onPointerEdge = (event, type) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
             return;
           }
-          if (moveRaf) {
-            cancelAnimationFrame(moveRaf);
-            flushMove();
-          }
-          const payload = basePayload(event);
-          if (!payload) {
+          const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
+          if (!coords) {
             opts.metrics?.noteSkip("no_coords");
             return;
           }
-          fire(intent("mousedown", nodeIdOf(event.target, { x: event.clientX, y: event.clientY }), payload));
-        };
-        const onPointerUp = (event) => {
-          if (!opts.isArmed()) {
-            opts.metrics?.noteSkip("disarmed");
-            return;
-          }
-          const payload = basePayload(event);
-          if (!payload) {
-            opts.metrics?.noteSkip("no_coords");
-            return;
-          }
-          fire(intent("mouseup", nodeIdOf(event.target, { x: event.clientX, y: event.clientY }), payload));
+          const stamp = viewportStamp();
+          const census = (0, snapshotScrollCensus_1.snapshotScrollCensus)({
+            contextId: opts.contextId,
+            doc,
+            win,
+            registry,
+            scrollIndex: opts.scrollIndex ?? null
+          });
+          enqueue({
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type,
+            timestampClient: performance.now(),
+            ...stamp,
+            x: coords.x,
+            y: coords.y,
+            button: buttonFromEvent(event.button),
+            census
+          });
         };
         const onClick = (event) => {
           event.preventDefault();
@@ -3987,29 +4418,7 @@
           event.stopPropagation();
         };
         const onContextMenu = (event) => event.preventDefault();
-        const onWheel = (event) => {
-          if (!opts.isArmed())
-            return;
-          void event;
-        };
-        const onInput = (event) => {
-          if (!opts.isArmed()) {
-            opts.metrics?.noteSkip("disarmed");
-            return;
-          }
-          const target = event.target;
-          if (!isElement(target))
-            return;
-          const nodeId = registry.idOfNearest(target);
-          if (nodeId == null) {
-            opts.metrics?.noteSkip("no_node");
-            return;
-          }
-          opts.onMarkPropDirty?.(nodeId);
-          const control = asFormControl(target);
-          const value = control?.value ?? "";
-          const checked = control?.checked;
-          fire(intent("input", nodeId, JSON.stringify({ value, checked })));
+        const onWheel = (_event) => {
         };
         const onKey = (event) => {
           if (!opts.isArmed()) {
@@ -4022,28 +4431,19 @@
             event.preventDefault();
             event.stopPropagation();
           }
-          const nodeId = nodeIdOf(event.target);
-          fire(intent(event.type === "keyup" ? "keyup" : "keydown", nodeId, JSON.stringify({
+          enqueue({
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type: event.type === "keyup" ? "keyUp" : "keyDown",
+            timestampClient: performance.now(),
             key: event.key,
             code: event.code,
-            repeat: event.repeat,
-            modifiers: { alt: event.altKey, ctrl: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey }
-          })));
-        };
-        let scrollRaf = 0;
-        let pendingViewport = null;
-        const pendingElements = /* @__PURE__ */ new Map();
-        const flushScroll = () => {
-          scrollRaf = 0;
-          if (pendingViewport) {
-            const v = pendingViewport;
-            pendingViewport = null;
-            fire(v);
-          }
-          for (const [id, msg] of pendingElements) {
-            pendingElements.delete(id);
-            fire(msg);
-          }
+            modifiers: {
+              alt: event.altKey,
+              ctrl: event.ctrlKey,
+              meta: event.metaKey,
+              shift: event.shiftKey
+            }
+          });
         };
         const onScroll = (event) => {
           if (!opts.isArmed()) {
@@ -4060,11 +4460,16 @@
               opts.onProgrammaticScrollSuppress?.("viewport");
               return;
             }
-            if (pendingViewport)
-              opts.metrics?.noteScrollCoalesce();
-            pendingViewport = intent("scrollViewport", null, JSON.stringify({ scrollX: left2, scrollY: top2 }));
-            if (!scrollRaf)
-              scrollRaf = requestAnimationFrame(flushScroll);
+            opts.metrics?.noteScrollCoalesce();
+            enqueue({
+              schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+              type: "scrollSet",
+              timestampClient: performance.now(),
+              contextId: opts.contextId,
+              nodeId: null,
+              scrollX: left2,
+              scrollY: top2
+            });
             return;
           }
           if (!isElement(el))
@@ -4080,36 +4485,30 @@
             opts.onProgrammaticScrollSuppress?.(nodeId);
             return;
           }
-          if (pendingElements.has(nodeId))
-            opts.metrics?.noteScrollCoalesce();
-          pendingElements.set(nodeId, intent("scrollElement", nodeId, JSON.stringify({ scrollTop: top, scrollLeft: left })));
-          if (!scrollRaf)
-            scrollRaf = requestAnimationFrame(flushScroll);
+          opts.metrics?.noteScrollCoalesce();
+          enqueue({
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type: "scrollSet",
+            timestampClient: performance.now(),
+            contextId: opts.contextId,
+            nodeId,
+            scrollX: left,
+            scrollY: top
+          });
         };
-        const onFocusIn = (event) => {
-          if (!opts.isArmed()) {
-            opts.metrics?.noteSkip("disarmed");
+        const onInput = (event) => {
+          if (!opts.isArmed())
             return;
-          }
-          const nodeId = nodeIdOf(event.target);
-          if (nodeId == null) {
-            opts.metrics?.noteSkip("no_node");
+          const target = event.target;
+          if (!isElement(target))
             return;
-          }
-          fire(intent("focus", nodeId, "{}"));
+          const nodeId = registry.idOfNearest(target);
+          if (nodeId == null)
+            return;
+          opts.onMarkPropDirty?.(nodeId);
         };
-        const onFocusOut = (event) => {
-          if (!opts.isArmed()) {
-            opts.metrics?.noteSkip("disarmed");
-            return;
-          }
-          const nodeId = nodeIdOf(event.target);
-          if (nodeId == null) {
-            opts.metrics?.noteSkip("no_node");
-            return;
-          }
-          fire(intent("blur", nodeId, "{}"));
-        };
+        const onPointerDown = (event) => onPointerEdge(event, "down");
+        const onPointerUp = (event) => onPointerEdge(event, "up");
         doc.addEventListener("pointermove", onPointerMove, true);
         doc.addEventListener("pointerdown", onPointerDown, true);
         doc.addEventListener("pointerup", onPointerUp, true);
@@ -4123,13 +4522,8 @@
         doc.addEventListener("keyup", onKey, true);
         doc.addEventListener("scroll", onScroll, true);
         win?.addEventListener("scroll", onScroll, true);
-        doc.addEventListener("focusin", onFocusIn, true);
-        doc.addEventListener("focusout", onFocusOut, true);
         return () => {
-          if (moveRaf)
-            cancelAnimationFrame(moveRaf);
-          if (scrollRaf)
-            cancelAnimationFrame(scrollRaf);
+          buffer.dispose();
           doc.removeEventListener("pointermove", onPointerMove, true);
           doc.removeEventListener("pointerdown", onPointerDown, true);
           doc.removeEventListener("pointerup", onPointerUp, true);
@@ -4143,8 +4537,6 @@
           doc.removeEventListener("keyup", onKey, true);
           doc.removeEventListener("scroll", onScroll, true);
           win?.removeEventListener("scroll", onScroll, true);
-          doc.removeEventListener("focusin", onFocusIn, true);
-          doc.removeEventListener("focusout", onFocusOut, true);
         };
       }
       exports.attachProjectedInputCapture = attachProjectedInputCapture2;
@@ -4682,7 +5074,7 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
@@ -4754,6 +5146,37 @@
       } });
       Object.defineProperty(exports, "deviceProfilesEqual", { enumerable: true, get: function() {
         return viewportDevice_1.deviceProfilesEqual;
+      } });
+      var sessionBindingAuth_1 = require_sessionBindingAuth();
+      Object.defineProperty(exports, "SessionAuthQueryParam", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.SessionAuthQueryParam;
+      } });
+      Object.defineProperty(exports, "SessionCacheBustQueryParam", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.SessionCacheBustQueryParam;
+      } });
+      Object.defineProperty(exports, "isVirtualAssetUrl", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.isVirtualAssetUrl;
+      } });
+      Object.defineProperty(exports, "appendSessionAuth", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.appendSessionAuth;
+      } });
+      Object.defineProperty(exports, "appendCacheBust", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.appendCacheBust;
+      } });
+      Object.defineProperty(exports, "appendSessionBindingQuery", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.appendSessionBindingQuery;
+      } });
+      Object.defineProperty(exports, "stampAttrAuth", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.stampAttrAuth;
+      } });
+      Object.defineProperty(exports, "stampCssTextAuth", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.stampCssTextAuth;
+      } });
+      Object.defineProperty(exports, "stampSrcsetAuth", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.stampSrcsetAuth;
+      } });
+      Object.defineProperty(exports, "stampAuthInServedBody", { enumerable: true, get: function() {
+        return sessionBindingAuth_1.stampAuthInServedBody;
       } });
     }
   });
@@ -4882,6 +5305,9 @@
     }
     getLiveRegistry() {
       return this.client.getLiveRegistry();
+    }
+    getScrollableIndex() {
+      return this.client.getScrollableIndex();
     }
     markPropDirty(id) {
       this.client.markPropDirty(id);
@@ -5075,6 +5501,8 @@
     let projection = null;
     const inputDetachers = /* @__PURE__ */ new Map();
     let inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
+    let sessionToken = "";
+    let assetBaseUrl = window.location.origin;
     let canonicalViewport = { width: 1280, height: 720 };
     let viewportSync = null;
     let pendingResize = null;
@@ -5137,7 +5565,28 @@
     function sendInputIntent(intent) {
       if (surfaceWrap.classList.contains("is-crashed")) return;
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "client.intent", intent }));
+        const payload = { schemaVersion: intent.schemaVersion, type: intent.type };
+        if (intent.type === "move" || intent.type === "down" || intent.type === "up") {
+          payload.x = intent.x;
+          payload.y = intent.y;
+          payload.viewportW = intent.viewportW;
+          payload.viewportH = intent.viewportH;
+          payload.button = intent.button;
+          if (intent.census) payload.census = intent.census;
+          payload.payload = JSON.stringify({ x: intent.x, y: intent.y, button: intent.button });
+        } else if (intent.type === "keyDown" || intent.type === "keyUp") {
+          payload.key = intent.key;
+          payload.code = intent.code;
+          payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
+        } else if (intent.type === "scrollSet") {
+          payload.contextId = intent.contextId;
+          payload.nodeId = intent.nodeId;
+          payload.scrollX = intent.scrollX;
+          payload.scrollY = intent.scrollY;
+          payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
+        }
+        payload.timestampClient = intent.timestampClient;
+        ws.send(JSON.stringify({ type: "client.intent", intent: payload }));
         logActivity(`intent ${formatIntentShort(intent)}`);
       }
     }
@@ -5155,6 +5604,7 @@
           isArmed: () => client.isArmed,
           onMarkPropDirty: (id) => client.markPropDirty(id),
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+          scrollIndex: client.getScrollableIndex(),
           metrics: inputCaptureMetrics
         });
         inputDetachers.set(import_frame2.CONTEXT_ID_ROOT, detach);
@@ -5171,6 +5621,7 @@
           isArmed: info.isArmed,
           onMarkPropDirty: info.markPropDirty,
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
+          scrollIndex: client.getScrollableIndex(),
           metrics: inputCaptureMetrics
         });
         inputDetachers.set(info.contextId, detach);
@@ -5275,6 +5726,36 @@
       const h = $("labHeader").getBoundingClientRect().height;
       document.documentElement.style.setProperty("--hdr-h", `${Math.ceil(h)}px`);
     }
+    let labFullscreen = false;
+    function syncFullscreenUi() {
+      document.body.classList.toggle("lab-fullscreen", labFullscreen);
+      const exitBtn = $("exitFullscreen");
+      exitBtn.setAttribute("aria-hidden", labFullscreen ? "false" : "true");
+      const enterBtn = $("enterFullscreen");
+      enterBtn.setAttribute("aria-pressed", labFullscreen ? "true" : "false");
+      if (!labFullscreen) measureHeader();
+    }
+    async function enterLabFullscreen() {
+      labFullscreen = true;
+      syncFullscreenUi();
+      try {
+        const root = document.documentElement;
+        if (!document.fullscreenElement && typeof root.requestFullscreen === "function") {
+          await root.requestFullscreen();
+        }
+      } catch {
+      }
+      logActivity("fullscreen on");
+    }
+    async function exitLabFullscreen() {
+      labFullscreen = false;
+      syncFullscreenUi();
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+      } catch {
+      }
+      logActivity("fullscreen off");
+    }
     function refreshStatus() {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setChip("chipWs", "ws idle");
@@ -5346,8 +5827,8 @@
         urlInput.readOnly = false;
         urlLabel.textContent = "URL";
         urlInput.title = "Editable \u2014 free navigation target";
-        if (fixtureSelect.value) {
-          urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+        if (!urlInput.value || urlInput.value.startsWith(`${location.origin}/fixtures/`)) {
+          urlInput.value = "https://www.eneba.com";
         }
       } else {
         modeBlurb.textContent = "Cold blueprint DAG \u2014 URL is locked to the blueprint; soak may override duration/probes.";
@@ -5485,6 +5966,8 @@
         surfaceHost,
         width: canonicalViewport.width,
         height: canonicalViewport.height,
+        getToken: () => sessionToken,
+        getAssetBaseUrl: () => assetBaseUrl,
         onArmed: () => {
           bindInputSurfaces(projection);
         },
@@ -5492,6 +5975,10 @@
           observeStreamTelemetry(msg);
           const m = msg;
           const ctxId = typeof m.contextId === "number" ? m.contextId : import_frame2.CONTEXT_ID_ROOT;
+          if (m.kind === "clientWarn" && typeof m.message === "string") {
+            logConsole(3, m.message);
+            logActivity(m.message);
+          }
           if (m.kind === "applyResult" && m.ok === true && ctxId !== import_frame2.CONTEXT_ID_ROOT && projection) {
             bindInputSurfaces(projection);
           }
@@ -5585,7 +6072,7 @@
           urlInput.value = `${location.origin}/fixtures/${demo.path}`;
         }
       } catch {
-        if (mode === "browse") urlInput.value = `${location.origin}/fixtures/demo.html`;
+        if (mode === "browse") urlInput.value = "https://www.eneba.com";
       }
     }
     async function loadBlueprints() {
@@ -5745,6 +6232,8 @@
         }
         if (msg.type === "session.hello") {
           sessionId = String(msg.sessionId ?? "");
+          sessionToken = String(msg.sessionToken ?? "");
+          assetBaseUrl = window.location.origin;
           logActivity(`session.hello ${sessionId}`);
           refreshStatus();
           return;
@@ -6007,6 +6496,21 @@
       );
     });
     window.addEventListener("resize", measureHeader);
+    $("enterFullscreen").addEventListener("click", () => {
+      void enterLabFullscreen();
+    });
+    $("exitFullscreen").addEventListener("click", () => {
+      void exitLabFullscreen();
+    });
+    document.addEventListener("fullscreenchange", () => {
+      if (labFullscreen && document.fullscreenElement !== document.documentElement) {
+        labFullscreen = false;
+        syncFullscreenUi();
+      }
+    });
+    window.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && labFullscreen) void exitLabFullscreen();
+    });
     void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
       showMode("browse");
       measureHeader();

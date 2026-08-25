@@ -134,6 +134,7 @@ class UinputDevice {
             // Relative mouse only. Absolute ABS under xf86-input-evdev often fails to
             // deliver core pointer clicks to Chrome. Keyboard is a separate uinput
             // device (openKeyboard) so X can bind a real CoreKeyboard.
+            // Unified PP path uses {@link openAbsPointer} (D-UI-02 / D-UI-20) instead.
             ioctl(fd, UI_SET_RELBIT, exports.REL_X);
             ioctl(fd, UI_SET_RELBIT, exports.REL_Y);
             ioctl(fd, UI_SET_RELBIT, exports.REL_WHEEL);
@@ -145,6 +146,49 @@ class UinputDevice {
                 /* optional */
             }
             writeUserDev(fd, name, /*bustype*/ 0x03, /*vendor*/ 0x0001, /*product*/ 0x0001);
+            ioctl(fd, UI_DEV_CREATE, 0);
+            return new UinputDevice(fd, name);
+        }
+        catch (err) {
+            try {
+                fs.closeSync(fd);
+            }
+            catch {
+                /* */
+            }
+            throw err;
+        }
+    }
+    /**
+     * Absolute core pointer (D-UI-02). Range = display R−1. No REL axes.
+     * Spike D-UI-20 must PASS before this is the production PP path.
+     */
+    static openAbsPointer(name, absMaxX, absMaxY) {
+        const fd = openUinputFd();
+        try {
+            ioctl(fd, UI_SET_EVBIT, exports.EV_KEY);
+            ioctl(fd, UI_SET_EVBIT, exports.EV_ABS);
+            ioctl(fd, UI_SET_EVBIT, exports.EV_SYN);
+            ioctl(fd, UI_SET_KEYBIT, exports.BTN_LEFT);
+            ioctl(fd, UI_SET_KEYBIT, exports.BTN_RIGHT);
+            ioctl(fd, UI_SET_KEYBIT, exports.BTN_MIDDLE);
+            ioctl(fd, UI_SET_KEYBIT, exports.BTN_TOOL_PEN);
+            ioctl(fd, UI_SET_ABSBIT, exports.ABS_X);
+            ioctl(fd, UI_SET_ABSBIT, exports.ABS_Y);
+            try {
+                ioctl(fd, UI_SET_PROPBIT, exports.INPUT_PROP_POINTER);
+            }
+            catch {
+                /* optional */
+            }
+            const absmax = new Int32Array(ABS_CNT);
+            const absmin = new Int32Array(ABS_CNT);
+            absmax[exports.ABS_X] = Math.max(0, absMaxX);
+            absmax[exports.ABS_Y] = Math.max(0, absMaxY);
+            writeUserDev(fd, name, 
+            /*bustype*/ 0x03, 
+            /*vendor*/ 0x0001, 
+            /*product*/ 0x0010, absmin, absmax);
             ioctl(fd, UI_DEV_CREATE, 0);
             return new UinputDevice(fd, name);
         }

@@ -501,6 +501,18 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
               ? Number(msg.timestampClient ?? msg.timestamp_client)
               : null,
           payloadJson: msg.payloadJson ?? msg.payload_json ?? '{}',
+          schemaVersion: msg.schemaVersion ?? msg.schema_version ?? undefined,
+          viewportW: msg.viewportW ?? msg.viewport_w ?? undefined,
+          viewportH: msg.viewportH ?? msg.viewport_h ?? undefined,
+          census: msg.census != null ? String(msg.census) : undefined,
+          x: msg.x,
+          y: msg.y,
+          key: msg.key,
+          code: msg.code,
+          scrollX: msg.scrollX ?? msg.scroll_x,
+          scrollY: msg.scrollY ?? msg.scroll_y,
+          button: msg.button,
+          nodeId: msg.nodeId ?? msg.node_id,
         });
         const typeLower = kind.trim().toLowerCase();
         const isHfMove = typeLower === 'mousemove' || typeLower === 'pointermove';

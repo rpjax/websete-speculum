@@ -17,6 +17,7 @@ import { DOCUMENT_ID } from '../core/frame';
 import { OpCode } from '../core/opcodes';
 import { digestReplicatedTable } from '../core/tableDigest';
 import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
+import { stampAttrAuth, stampCssTextAuth } from './sessionBindingAuth';
 
 export type NestedProjectedApplyOptions = {
   hostIframe: HTMLIFrameElement;
@@ -32,6 +33,8 @@ export type NestedProjectedApplyOptions = {
     sequence: number;
     reason: string;
   }) => void;
+  getToken?: () => string | undefined;
+  getAssetBaseUrl?: () => string | undefined;
 };
 
 type ApplyTarget = {
@@ -67,6 +70,8 @@ export class NestedProjectedApply {
   private readonly onNestedHostDropCb?: NestedProjectedApplyOptions['onNestedHostDrop'];
   private readonly onTelemetry?: NestedProjectedApplyOptions['onTelemetry'];
   private readonly onRequestResyncCb?: NestedProjectedApplyOptions['onRequestResync'];
+  private readonly getToken?: () => string | undefined;
+  private readonly getAssetBaseUrl?: () => string | undefined;
 
   constructor(opts: NestedProjectedApplyOptions) {
     this.contextId = opts.contextId;
@@ -76,6 +81,8 @@ export class NestedProjectedApply {
     this.onNestedHostDropCb = opts.onNestedHostDrop;
     this.onTelemetry = opts.onTelemetry;
     this.onRequestResyncCb = opts.onRequestResync;
+    this.getToken = opts.getToken;
+    this.getAssetBaseUrl = opts.getAssetBaseUrl;
     this.surface = createNestedResyncSurface(opts.hostIframe);
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, opts.document);
@@ -157,7 +164,20 @@ export class NestedProjectedApply {
 
   private createApplier(doc: Document, registry: PageProjectionRegistry, initiallyLive: boolean): DomFrameApplier {
     const state = { swapped: initiallyLive };
+    const token = () => this.getToken?.() || '';
+    const base = () => this.getAssetBaseUrl?.() || '';
     return new DomFrameApplier(doc, registry, {
+      stampUrl: (name, value) => stampAttrAuth(name, value, token(), base()),
+      stampCssText: (text) => stampCssTextAuth(text, token(), base()),
+      onWarn: (message) => {
+        this.onTelemetry?.({
+          v: TELEMETRY_WIRE_VERSION,
+          contextId: this.contextId,
+          kind: 'clientWarn',
+          t: performance.now(),
+          message,
+        });
+      },
       onDesync: (info) => {
         if (state.swapped) {
           this.reportApplyResult({

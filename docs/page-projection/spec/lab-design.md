@@ -214,7 +214,12 @@ Modes: **Browse** | **Run**. Fixture catalog from `fixtures/manifest.json` + `GE
 ## 9. CLI
 
 ```bash
-npm run lab:projection
+# Canonical for OS input (uinput ABS) — Docker Linux with /dev/uinput:
+# From Refactor/: docker compose -f sidecar/docker-compose.lab.yml up --build
+# Or: npm run lab:docker  (in Refactor/sidecar)
+# See Refactor/sidecar/LAB-DOCKER.md
+
+npm run lab:projection          # bare Node — DOM/CSSOM/assets only; input E2E needs Docker
 npm run lab:run -- --blueprint soak --url fixtures/demo.html --duration 15s --cpu --iso
 npm run lab:run -- --blueprint cssom-foundation
 npm run lab:run -- --blueprint cssom-heavy
@@ -222,6 +227,8 @@ npm run lab:cssom-foundation    # sugar
 npm run lab:cssom-heavy         # sugar
 npm run smoke:projection-lab    # rewritten (L11)
 ```
+
+**Input E2E / OS cutover:** lab must run in Docker (`devices: [/dev/uinput]`). Without uinput the PP session **fail-closes** (no CDP Mode A/B fallback).
 
 Last line = absolute dossier directory.
 

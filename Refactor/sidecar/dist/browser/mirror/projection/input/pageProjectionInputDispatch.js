@@ -1,7 +1,8 @@
 "use strict";
 /**
- * PageProjection input dispatch — A/B/C (input-v2 2026-08-23).
- * A: CDP fire-and-forget. B: Control → Virtual.domNodes. C: setFiles CDP resolve only.
+ * PageProjection input dispatch — A/B/C (input-v2, **superseded** 2026-08-25).
+ * Hot path is {@link EventApplier} + ABS uinput in PageProjectionBrowserSession.
+ * This module remains for historical units / lab helpers that still import classify helpers.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PageProjectionInputDispatch = void 0;

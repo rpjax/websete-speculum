@@ -11,7 +11,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PageProjectionBrowserSession = void 0;
 exports.createPageProjectionBrowserSessionFactory = createPageProjectionBrowserSessionFactory;
-const patchright_1 = require("patchright");
 const buildConfigPreScript_1 = require("../inject/buildConfigPreScript");
 const loadInpageScript_1 = require("../inject/loadInpageScript");
 const snapshotEvaluate_1 = require("./snapshotEvaluate");
@@ -22,26 +21,31 @@ const projectionDataPlaneHost_1 = require("./projectionDataPlaneHost");
 const cdpBindingDataPlaneHost_1 = require("./cdpBindingDataPlaneHost");
 const documentResponseHook_1 = require("./csp/documentResponseHook");
 const scriptInjectMutator_1 = require("./csp/scriptInjectMutator");
-const pageProjectionInputDispatch_1 = require("../input/pageProjectionInputDispatch");
+const projectionProducerDocumentMutator_1 = require("./csp/projectionProducerDocumentMutator");
 const EditableFocus_1 = require("../../../patchright/EditableFocus");
 const Navigation_1 = require("../../../patchright/Navigation");
 const device_emulation_1 = require("../../../patchright/device-emulation");
 const viewport_bounds_1 = require("../../../patchright/viewport-bounds");
-function chromeArgs() {
-    return [
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows',
-        '--no-first-run',
-        '--no-default-browser-check',
-    ];
-}
+const AssetStore_1 = require("../assets/AssetStore");
+const rewritePart_1 = require("../assets/rewritePart");
+const Display_1 = require("../../../patchright/Display");
+const ChromeRuntime_1 = require("../../../patchright/ChromeRuntime");
+const uinput_1 = require("../../../patchright/input/uinput");
+const AbsOsInputStack_1 = require("../../../input/AbsOsInputStack");
+const AbsPointerPeripheral_1 = require("../../../input/peripherals/AbsPointerPeripheral");
+const KeyboardPeripheral_1 = require("../../../input/peripherals/KeyboardPeripheral");
+const SidecarBuffer_1 = require("../../../input/SidecarBuffer");
+const EventApplier_1 = require("../../../input/EventApplier");
+const ingressToUnifiedIntent_1 = require("../../../input/ingressToUnifiedIntent");
+const ppDisplays = new Display_1.DisplayAllocator();
 class PageProjectionBrowserSession {
     sessionId;
     events;
     open = false;
     width = 1280;
     height = 720;
+    displayWidth = 1280;
+    displayHeight = 720;
     viewportPolicy = null;
     device = (0, device_emulation_1.resolveDeviceProfile)(null);
     resizing = false;
@@ -50,35 +54,48 @@ class PageProjectionBrowserSession {
     browser = null;
     context = null;
     page = null;
+    chrome = null;
+    display = null;
+    absInput = null;
+    eventApplier = null;
     cdpSession = null;
     generation = 1;
     cpuAllowed = false;
     cpuRunning = false;
-    inputDispatch = null;
     editableFocus;
     dataPlane = new projectionDataPlaneHost_1.ProjectionDataPlaneHost();
     cdpPlane = new cdpBindingDataPlaneHost_1.CdpBindingDataPlaneHost();
+    assets = new AssetStore_1.AssetStore();
+    rewriteHop = new rewritePart_1.FrameRewriteHop();
     dataPlaneMode = 'cdp';
-    headless;
     probes;
     constructor(sessionId, events, factoryOpts) {
         this.sessionId = sessionId;
         this.events = events;
-        this.headless = factoryOpts.headless;
+        void factoryOpts.headless;
         this.probes = factoryOpts.probes ?? {};
         this.editableFocus = new EditableFocus_1.EditableFocus(events);
         const onPlane = (channel, payload) => {
             if (channel === plane_1.PlaneChannel.Frame) {
-                const header = (0, decode_1.peekFrameHeader)(payload);
-                this.events.onPageProjectionFrame?.({
-                    sequence: header?.sequence ?? 0,
-                    generation: header?.generation ?? 0,
-                    plane: '',
-                    operation: '',
-                    timestampMs: Date.now(),
-                    body: payload,
-                    contextId: 1,
+                const parts = this.rewriteHop.push(payload, {
+                    pageUrl: this.url,
+                    assets: this.assets,
                 });
+                for (const body of parts) {
+                    const header = (0, decode_1.peekFrameHeader)(body);
+                    this.events.onPageProjectionFrame?.({
+                        sequence: header?.sequence ?? 0,
+                        generation: header?.generation ?? 0,
+                        plane: '',
+                        operation: '',
+                        timestampMs: Date.now(),
+                        body,
+                        contextId: header?.contextId ?? 1,
+                        partIndex: header?.partIndex,
+                        partCount: header?.partCount,
+                        flags: header?.flags,
+                    });
+                }
                 return;
             }
             if (channel === plane_1.PlaneChannel.Telemetry) {
@@ -108,30 +125,68 @@ class PageProjectionBrowserSession {
         if (options.mirrorMode !== 'pageProjection') {
             throw new Error('PageProjectionBrowserSession requires mirrorMode pageProjection');
         }
+        if (!(0, uinput_1.uinputAvailable)()) {
+            throw Object.assign(new Error('/dev/uinput unavailable — PageProjection OS input fail-closed'), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: 'uinput_unavailable',
+                phase: 'launch',
+            });
+        }
+        if (!process.env['CHROME_EXECUTABLE']?.trim()) {
+            throw Object.assign(new Error('CHROME_EXECUTABLE required for PageProjection Display launch'), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: 'chrome_executable_missing',
+                phase: 'launch',
+            });
+        }
         (0, loadInpageScript_1.loadInpageScript)();
         if (this.dataPlaneMode === 'loopback') {
             await this.dataPlane.listen();
         }
-        const browser = await patchright_1.chromium.launch({ headless: this.headless, args: chromeArgs() });
-        this.browser = browser;
-        this.context = await browser.newContext({
-            viewport: { width: this.width, height: this.height },
-            locale: options.locale || undefined,
-            timezoneId: options.timeZoneId || undefined,
-            colorScheme: options.colorScheme === 'no-preference' ? undefined : options.colorScheme,
-            geolocation: options.geolocation
-                ? {
-                    latitude: options.geolocation.latitude,
-                    longitude: options.geolocation.longitude,
-                    accuracy: options.geolocation.accuracy,
-                }
-                : undefined,
-            userAgent: options.device?.userAgentProfile || undefined,
+        const maxW = options.viewportPolicy?.maxWidth ?? options.width;
+        const maxH = options.viewportPolicy?.maxHeight ?? options.height;
+        this.displayWidth = maxW;
+        this.displayHeight = maxH;
+        const absInput = AbsOsInputStack_1.AbsOsInputStack.open({
+            sessionId: this.sessionId,
+            displayWidth: maxW,
+            displayHeight: maxH,
         });
+        this.absInput = absInput;
+        const displayNum = ppDisplays.allocate();
+        this.display = await Display_1.Display.start(displayNum, maxW, maxH, absInput.displayInputDevices());
+        this.chrome = await (0, ChromeRuntime_1.launchChrome)({
+            sessionId: this.sessionId,
+            displayEnv: this.display.displayEnv,
+            width: this.width,
+            height: this.height,
+            locale: options.locale || 'en-US',
+            language: options.language || options.locale || 'en-US',
+            timeZoneId: options.timeZoneId || 'UTC',
+            colorScheme: options.colorScheme === 'no-preference' ? 'light' : options.colorScheme || 'light',
+            geolocation: options.geolocation,
+            device: options.device,
+        });
+        this.context = this.chrome.context;
+        this.page = this.chrome.page;
+        this.cdpSession = this.chrome.cdp;
+        this.browser = this.context.browser();
         if (this.dataPlaneMode === 'cdp') {
             await this.cdpPlane.attach(this.context);
         }
-        browser.on('disconnected', () => {
+        this.eventApplier = new EventApplier_1.EventApplier({
+            buffer: new SidecarBuffer_1.SidecarBuffer(),
+            pointer: new AbsPointerPeripheral_1.AbsPointerPeripheral(absInput.pointerWriter),
+            keyboard: new KeyboardPeripheral_1.KeyboardPeripheral(absInput.keyboardWriter),
+            activeViewport: () => ({ w: this.width, h: this.height }),
+            isPageProjection: () => true,
+            applyScrollCensus: (census) => this.applyScrollCensus(census),
+            applyScrollSet: (args) => this.applyScrollSet(args),
+            onReject: (errorCode, phase) => {
+                this.events.onConsole(3, `input_reject ${errorCode} ${phase}`);
+            },
+        });
+        this.context.on('close', () => {
             if (!this.open)
                 return;
             this.open = false;
@@ -150,13 +205,24 @@ class PageProjectionBrowserSession {
         this.editableFocus.stop();
         this.open = false;
         this.cdpSession = null;
-        this.inputDispatch = null;
-        const browser = this.browser;
+        this.eventApplier = null;
+        this.assets.bindPage(null);
+        this.assets.clear();
+        this.rewriteHop.reset();
+        const chrome = this.chrome;
+        this.chrome = null;
         this.browser = null;
         this.context = null;
         this.page = null;
-        if (browser)
-            await browser.close();
+        if (chrome)
+            await (0, ChromeRuntime_1.closeChrome)(chrome);
+        const display = this.display;
+        this.display = null;
+        if (display)
+            await display.dispose();
+        const abs = this.absInput;
+        this.absInput = null;
+        abs?.dispose();
         this.cdpPlane.close();
         await this.dataPlane.close();
     }
@@ -233,14 +299,13 @@ class PageProjectionBrowserSession {
         const dataPlaneUrl = this.dataPlane.listenUrl;
         if (this.page) {
             this.generation += 1;
-            this.inputDispatch = null;
             await this.page.close();
             this.cdpSession = null;
         }
         this.page = await this.freshPage(dataPlaneUrl, opts);
-        this.inputDispatch = new pageProjectionInputDispatch_1.PageProjectionInputDispatch(this.page, {
-            sendControl: (message) => this.sendControl(message),
-        });
+        this.assets.clear();
+        this.assets.bindPage(this.page);
+        this.rewriteHop.reset();
         const allowed = opts.allowedNavigationDomains;
         if (allowed && allowed.length > 0) {
             try {
@@ -439,41 +504,126 @@ class PageProjectionBrowserSession {
                 phase: 'input',
             });
         }
-        if (!this.inputDispatch) {
-            throw Object.assign(new Error('PageProjection input dispatch not ready'), {
+        if (!this.eventApplier) {
+            throw Object.assign(new Error('PageProjection EventApplier not ready'), {
                 code: 'FAILED_PRECONDITION',
-                errorCode: 'input_dispatch_missing',
+                errorCode: 'input_applier_missing',
                 phase: 'input',
             });
         }
-        return this.inputDispatch.dispatchIngress(input);
+        const intent = (0, ingressToUnifiedIntent_1.ingressToUnifiedIntent)(input);
+        if (!intent) {
+            return { status: 'dropped', reason: 'unsupported_intent' };
+        }
+        this.eventApplier.enqueue(intent);
+        return { status: 'dispatched' };
     }
     getInputPipelineMetrics() {
-        return this.inputDispatch?.getPipelineMetrics() ?? null;
+        return null;
     }
     async resolveAndClickDomInput(selector, contextId = 1) {
-        if (!this.inputDispatch) {
-            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        if (!this.eventApplier || !this.page) {
+            return { status: 'dropped', reason: 'input_applier_missing' };
         }
-        return this.inputDispatch.resolveAndClick(selector, contextId);
+        const hit = await this.page.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`);
+        if (!hit)
+            return { status: 'dropped', reason: 'selector_miss' };
+        const census = {
+            contexts: [{ contextId, positions: [{ nodeId: null, scrollX: 0, scrollY: 0 }] }],
+        };
+        const base = {
+            schemaVersion: 1,
+            viewportW: this.width,
+            viewportH: this.height,
+            x: hit.x,
+            y: hit.y,
+            button: 'left',
+            census,
+        };
+        this.eventApplier.enqueue({ ...base, type: 'down' });
+        this.eventApplier.enqueue({ ...base, type: 'up' });
+        return { status: 'dispatched' };
     }
     async resolveAndTypeDomInput(selector, value, contextId = 1) {
-        if (!this.inputDispatch) {
-            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        const click = await this.resolveAndClickDomInput(selector, contextId);
+        if (click.status !== 'dispatched' || !this.eventApplier)
+            return click;
+        for (const ch of value) {
+            this.eventApplier.enqueue({
+                schemaVersion: 1,
+                type: 'keyDown',
+                key: ch,
+                code: ch.length === 1 ? `Key${ch.toUpperCase()}` : ch,
+            });
+            this.eventApplier.enqueue({
+                schemaVersion: 1,
+                type: 'keyUp',
+                key: ch,
+                code: ch.length === 1 ? `Key${ch.toUpperCase()}` : ch,
+            });
         }
-        return this.inputDispatch.resolveAndType(selector, value, contextId);
+        return { status: 'dispatched' };
     }
     async resolveAndScrollElementDomInput(selector, scrollTop, contextId = 1) {
-        if (!this.inputDispatch) {
-            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        if (!this.eventApplier || !this.page) {
+            return { status: 'dropped', reason: 'input_applier_missing' };
         }
-        return this.inputDispatch.resolveAndScrollElement(selector, scrollTop, contextId);
+        const nodeId = await this.page.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const p = globalThis.__speculumProjection;
+      return p && p.domNodes && typeof p.domNodes.keyOf === 'function' ? p.domNodes.keyOf(el) : null;
+    })()`);
+        if (nodeId == null)
+            return { status: 'dropped', reason: 'selector_miss' };
+        this.eventApplier.enqueue({
+            schemaVersion: 1,
+            type: 'scrollSet',
+            contextId,
+            nodeId,
+            scrollX: 0,
+            scrollY: scrollTop,
+        });
+        return { status: 'dispatched' };
     }
     async resolveAndScrollViewportDomInput(scrollY, scrollX = 0, contextId = 1) {
-        if (!this.inputDispatch) {
-            return { status: 'dropped', reason: 'input_dispatch_missing' };
+        if (!this.eventApplier) {
+            return { status: 'dropped', reason: 'input_applier_missing' };
         }
-        return this.inputDispatch.resolveAndScrollViewport(scrollY, scrollX, contextId);
+        this.eventApplier.enqueue({
+            schemaVersion: 1,
+            type: 'scrollSet',
+            contextId,
+            nodeId: null,
+            scrollX,
+            scrollY,
+        });
+        return { status: 'dispatched' };
+    }
+    async applyScrollCensus(census) {
+        const r = await this.callProducer(`(async () => {
+        const p = globalThis.__speculumProjection;
+        if (!p || typeof p.applyScrollCensus !== 'function') return { ok: false, reason: 'producer missing' };
+        return await p.applyScrollCensus(${JSON.stringify(census)});
+      })()`);
+        if (!r.ok)
+            return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
+        return { ok: true };
+    }
+    async applyScrollSet(args) {
+        const r = await this.callProducer(`(async () => {
+        const p = globalThis.__speculumProjection;
+        if (!p || typeof p.applyScrollSet !== 'function') return { ok: false, reason: 'producer missing' };
+        return await p.applyScrollSet(${JSON.stringify(args)});
+      })()`);
+        if (!r.ok)
+            return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
+        return { ok: true };
     }
     async pushCameraFrame(_frame) { }
     async pushMicrophoneAudio(_chunk) { }
@@ -606,10 +756,17 @@ class PageProjectionBrowserSession {
             inputPendingCount: 0,
         };
     }
-    async getAsset(_key, _opts) {
-        return null;
+    async getAsset(key, opts) {
+        return this.assets.getAsset(key, opts);
+    }
+    /** gRPC / BrowserSession alias — same L1 as {@link getAsset}. */
+    async getDomAsset(key, opts) {
+        return this.getAsset(key, opts);
     }
     async putUpload(_id, _body, _contentType, _name) { }
+    async putDomUpload(id, body, contentType, name) {
+        return this.putUpload(id, body, contentType, name);
+    }
     sendControl(message) {
         if (this.dataPlaneMode === 'cdp') {
             const page = this.page;
@@ -664,17 +821,27 @@ class PageProjectionBrowserSession {
             generation: this.generation,
             cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
         });
+        const virtualScript = (0, loadInpageScript_1.loadInpageScript)();
+        // Main frame: init scripts run before parsed document scripts (reliable cold boot).
+        // Document mutator + stored-script fulfill cover same-origin iframes in HTML responses.
         await p.addInitScript({ content: configPre });
-        await p.addInitScript({ content: (0, loadInpageScript_1.loadInpageScript)() });
+        await p.addInitScript({ content: virtualScript });
         // Document Response-stage hook before any navigation — CSP + optional launch scripts.
         // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
         this.cdpSession = await context.newCDPSession(p);
         const launchScripts = options.scripts ?? [];
-        const storedScripts = launchScripts
-            .filter((s) => !s.remoteUrl && s.file && s.content != null)
-            .map((s) => ({ file: s.file, content: s.content }));
+        const storedScripts = [
+            ...launchScripts
+                .filter((s) => !s.remoteUrl && s.file && s.content != null)
+                .map((s) => ({ file: s.file, content: s.content })),
+            { file: projectionProducerDocumentMutator_1.PROJECTION_VIRTUAL_SCRIPT_PATH, content: virtualScript },
+        ];
         await (0, documentResponseHook_1.installDocumentResponseHook)(this.cdpSession, {
-            mutators: [documentResponseHook_1.cspDocumentMutator, (0, scriptInjectMutator_1.createScriptInjectMutator)(launchScripts)],
+            mutators: [
+                documentResponseHook_1.cspDocumentMutator,
+                (0, projectionProducerDocumentMutator_1.createProjectionProducerDocumentMutator)({ configPreScript: configPre }),
+                (0, scriptInjectMutator_1.createScriptInjectMutator)(launchScripts),
+            ],
             storedScripts,
         });
         // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).

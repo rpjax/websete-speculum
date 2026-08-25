@@ -29,10 +29,24 @@ import {
   sanitizeCookieBatch,
 } from './browser/patchright/PageState';
 import { DomAssetCache } from './browser/patchright/mirror/dom/DomAssetCache';
+import {
+  testVirtualAssetUrlForms,
+  testVirtualAssetUrlFormsStress,
+} from './browser/mirror/projection/assets/urlForms.unit';
+import {
+  testAssetStoreDataAndClear,
+  testFrameRewriteHopBuffersMultiPart,
+  testFrameRewriteHopRehashesCheck,
+} from './browser/mirror/projection/assets/rewritePart.unit';
+import { testLabVirtualAssetsServeHelpers } from './browser/mirror/projection/lab/host/labVirtualAssets.unit';
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/relaxCsp.unit';
 import { runInputIntentTypesUnitTests } from './browser/mirror/projection/input/intentTypes.unit';
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
+import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
+import { runScrollableIndexUnitTests } from './browser/mirror/projection/scroll/scrollableIndex.unit';
+import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
+import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
 import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
@@ -4109,6 +4123,12 @@ async function main(): Promise<void> {
   testCookieSanitizeMatrix();
   testDomAssetCache();
   testDomAssetCacheRespectsByteCap();
+  testVirtualAssetUrlForms();
+  testVirtualAssetUrlFormsStress();
+  testFrameRewriteHopRehashesCheck();
+  testFrameRewriteHopBuffersMultiPart();
+  await testAssetStoreDataAndClear();
+  testLabVirtualAssetsServeHelpers();
   await testBrowserPoolWarmUpAndAcquire();
   testBrowserPoolRefillThrottle();
   await testBrowserPoolExhaustionFallsBackToOnDemandLaunch();
@@ -4176,6 +4196,10 @@ async function main(): Promise<void> {
   testCssomPollTelemetrySchema();
   testProjectionTelemetryV2ContextId();
   testLabContextIndex();
+  await runContextBusUnitTests();
+  runScrollableIndexUnitTests();
+  runScriptingOnPaintParityUnitTests();
+  await runEventApplierUnitTests();
   runInputIntentTypesUnitTests();
   await runRelaxCspUnitTests();
   await runPageProjectionSessionUnitTests();

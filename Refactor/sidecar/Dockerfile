@@ -67,6 +67,7 @@ COPY sidecar/host ./host
 COPY sidecar/telemetry ./telemetry
 COPY sidecar/extensions ./extensions
 COPY sidecar/index.ts sidecar/smoke.ts sidecar/smoke-remote.ts sidecar/unit.ts ./
+COPY sidecar/scripts ./scripts
 COPY sidecar/docker-entrypoint.sh /docker-entrypoint.sh
 COPY proto /proto
 
@@ -74,7 +75,7 @@ RUN npm run build \
  && sed -i 's/\r$//' /docker-entrypoint.sh \
  && chmod +x /docker-entrypoint.sh
 
-EXPOSE 50051 3001
+EXPOSE 50051 3001 4103
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3001/health || exit 1

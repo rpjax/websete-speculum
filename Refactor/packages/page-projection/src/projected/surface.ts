@@ -9,24 +9,10 @@
 export type SurfaceHost = {
   /** Currently active (visible) document — the object changes identity across a `commitSwap()`. */
   readonly document: Document;
-  /**
-   * Starts a resync build: attaches a fresh, invisible iframe (same bare-document stripping the
-   * initial host gets) and returns its document. A stale, never-committed standby from a prior
-   * abandoned build (should not normally happen — callers are expected to `discardBuild()` first)
-   * is torn down before starting a new one, rather than leaking iframes.
-   */
   beginResyncBuild(): Document;
-  /**
-   * Promotes the in-flight standby iframe to active and removes the previous active iframe.
-   * Throws if `beginResyncBuild()` was never called (or its build was already committed/discarded)
-   * — a programmer error, not a runtime condition callers should treat as recoverable.
-   */
   commitSwap(): Document;
-  /** Drops the in-flight standby iframe without swapping. No-op if there is no build in progress. */
   discardBuild(): void;
-  /** Tear down iframes and attach a fresh bare document (lab Clear / after Stop). */
   reset(): void;
-  /** Lockstep CSS box for the projected stage (confirmed Virtual size). */
   setCssSize(width: number, height: number): void;
   getCssSize(): { width: number; height: number };
 };
@@ -40,9 +26,6 @@ function attachBareIframe(container: HTMLElement): HTMLIFrameElement {
 
   const doc = iframe.contentDocument;
   if (!doc) throw new Error('surface: no contentDocument');
-  // Strip the default about:blank html/head/body so id `1` (Document, frame-protocol.md §1.2)
-  // starts from a bare document — exactly the state the producer's `document` was in when its
-  // observer attached.
   while (doc.firstChild) doc.removeChild(doc.firstChild);
 
   return iframe;
@@ -58,7 +41,6 @@ export function createSurfaceHost(
   container: HTMLElement,
   opts: { width: number; height: number } = { width: 1280, height: 720 },
 ): SurfaceHost {
-  // Fluid outer — fills the measure host; does not lock the host to fixed px.
   container.style.position = 'relative';
   container.style.width = '100%';
   container.style.height = '100%';

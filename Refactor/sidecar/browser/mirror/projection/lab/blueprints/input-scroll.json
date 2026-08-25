@@ -1,13 +1,13 @@
 {
   "id": "input-scroll",
-  "description": "M1c — scrollElement intent updates Virtual scrollTop",
+  "description": "OS scrollSet — resolveAndScrollElement → Virtual scrollTop (fine contract, not CDP)",
   "sessionPolicy": "cold",
   "queues": [
     {
       "name": "main",
       "actions": [
         { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-scroll.html" } },
-        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2000 } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2800 } },
         {
           "id": "scroll-box",
           "type": "pushInput",
@@ -16,7 +16,7 @@
             "sequence": [{ "type": "resolveAndScrollElement", "selector": "#scroller", "scrollTop": 120 }]
           }
         },
-        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-box"], "params": { "ms": 400 } },
+        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-box"], "params": { "ms": 500 } },
         {
           "id": "assert-scroll",
           "type": "evaluate",

@@ -30,6 +30,11 @@ import { digestReplicatedTable } from '../core/tableDigest';
 import { CONTEXT_ID_ROOT, DOCUMENT_ID } from '../core/frame';
 import { OpCode } from '../core/opcodes';
 import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
+import {
+  stampAttrAuth,
+  stampCssTextAuth,
+} from './sessionBindingAuth';
+import { ScrollableIndex } from './scroll/scrollableIndex';
 
 export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -54,6 +59,12 @@ export type ProjectionClientOptions = {
     reason: string;
     contextId?: number;
   }) => void;
+  /** Live-session binding token for `/w7s/virtual-*` paint stamp (virtual-assets §1.1). */
+  token?: string;
+  getToken?: () => string | undefined;
+  /** API/lab origin for absolutizing `/w7s/virtual-*` URLs. */
+  assetBaseUrl?: string;
+  getAssetBaseUrl?: () => string | undefined;
 };
 
 /** One `DomFrameApplier` + its own registry — either the live surface or an in-flight standby build. */
@@ -83,6 +94,11 @@ export class ProjectionClient {
     reason: string;
     contextId?: number;
   }) => void;
+  private readonly getToken?: () => string | undefined;
+  private readonly getAssetBaseUrl?: () => string | undefined;
+  private readonly token?: string;
+  private readonly assetBaseUrl?: string;
+  private readonly scrollIndex = new ScrollableIndex();
 
   /** The currently-live target — reassigned wholesale on a successful resync swap. */
   private live: ApplyTarget;
@@ -121,6 +137,10 @@ export class ProjectionClient {
     this.onArmedCb = opts.onArmed;
     this.onDesyncCb = opts.onDesync;
     this.onRequestResyncCb = opts.onRequestResync;
+    this.getToken = opts.getToken;
+    this.getAssetBaseUrl = opts.getAssetBaseUrl;
+    this.token = opts.token;
+    this.assetBaseUrl = opts.assetBaseUrl;
 
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
@@ -139,6 +159,8 @@ export class ProjectionClient {
       hostIframe: iframe,
       document: doc,
       contextId,
+      getToken: () => this.resolveToken(),
+      getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
       onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
       onTelemetry: (msg) => this.onTelemetry?.(msg),
@@ -184,6 +206,11 @@ export class ProjectionClient {
 
   getLiveRegistry(): PageProjectionRegistry {
     return this.live.registry;
+  }
+
+  /** Projected scrollable index (D-UI-32) for S6 census. */
+  getScrollableIndex(): ScrollableIndex {
+    return this.scrollIndex;
   }
 
   markPropDirty(id: number): void {
@@ -372,11 +399,31 @@ export class ProjectionClient {
    * that's what creates this target) — every callback after that behaves like an ordinary live
    * frame, whether this *is* the live target from construction or was just promoted to it.
    */
+  private resolveToken(): string {
+    return this.getToken?.() || this.token || '';
+  }
+
+  private resolveAssetBaseUrl(): string {
+    return this.getAssetBaseUrl?.() || this.assetBaseUrl || '';
+  }
+
   private createApplier(doc: Document, registry: PageProjectionRegistry, initiallyLive: boolean): DomFrameApplier {
     const state = { swapped: initiallyLive };
     const applier = new DomFrameApplier(doc, registry, {
+      stampUrl: (name, value) => stampAttrAuth(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
+      stampCssText: (text) => stampCssTextAuth(text, this.resolveToken(), this.resolveAssetBaseUrl()),
+      scrollableIndex: this.scrollIndex,
       onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+      onWarn: (message) => {
+        this.onTelemetry?.({
+          v: TELEMETRY_WIRE_VERSION,
+          contextId: CONTEXT_ID_ROOT,
+          kind: 'clientWarn',
+          t: performance.now(),
+          message,
+        });
+      },
       onDesync: (info) => {
         if (state.swapped) {
           this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });

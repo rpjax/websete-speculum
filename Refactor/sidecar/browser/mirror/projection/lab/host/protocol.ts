@@ -74,7 +74,7 @@ export type LabClientMessage =
   | { type: 'client.validateSnaps' };
 
 export type LabHostMessage =
-  | { type: 'session.hello'; sessionId: string; protocolVersion: typeof LAB_PROTOCOL_VERSION }
+  | { type: 'session.hello'; sessionId: string; sessionToken: string; protocolVersion: typeof LAB_PROTOCOL_VERSION }
   | {
       type: 'session.booted';
       sessionId: string;

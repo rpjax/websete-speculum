@@ -13,6 +13,7 @@ const node_path_1 = __importDefault(require("node:path"));
 const ws_1 = require("ws");
 const assetRoots_1 = require("../assetRoots");
 const wsSession_1 = require("./wsSession");
+const labVirtualAssets_1 = require("./labVirtualAssets");
 const MIME = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
@@ -45,53 +46,61 @@ async function createLabServer(opts) {
     const server = node_http_1.default.createServer((req, res) => {
         const url = req.url ?? '/';
         const pathname = url.split('?')[0] ?? url;
-        if (pathname === '/health' || pathname === '/lab/health') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, sessions: sessions.size, protocolVersion: 1 }));
-            return;
-        }
-        if (pathname === '/lab/fixtures' || pathname === '/lab/fixtures/') {
-            const manifest = node_path_1.default.join(fixturesDir, 'manifest.json');
-            sendFile(res, manifest);
-            return;
-        }
-        if (pathname === '/lab/blueprints' || pathname === '/lab/blueprints/') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ blueprints: (0, wsSession_1.listLabBlueprintSummaries)() }));
-            return;
-        }
-        if (pathname === '/' || pathname.startsWith('/index.html')) {
-            sendFile(res, node_path_1.default.join(staticDir, 'client.html'));
-            return;
-        }
-        if (pathname.startsWith('/lab/client.js') || pathname === '/client.js') {
-            sendFile(res, node_path_1.default.join(staticDir, 'client.js'));
-            return;
-        }
-        if (pathname.startsWith('/virtual.js')) {
-            const candidates = [
-                node_path_1.default.join(process.cwd(), 'dist', 'browser', 'mirror', 'projection', 'virtual.js'),
-                node_path_1.default.join(labRoot, '..', 'virtual.js'),
-                node_path_1.default.join(__dirname, '..', '..', 'virtual.js'),
-            ];
-            const found = candidates.find((p) => node_fs_1.default.existsSync(p));
-            if (!found) {
-                res.writeHead(404).end('virtual.js missing — run npm run build:virtual');
+        void (async () => {
+            if (await (0, labVirtualAssets_1.tryServeLabVirtualAsset)(req, res, pathname, url, sessions))
+                return;
+            if (pathname === '/health' || pathname === '/lab/health') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, sessions: sessions.size, protocolVersion: 1 }));
                 return;
             }
-            sendFile(res, found);
-            return;
-        }
-        if (pathname.startsWith('/fixtures/')) {
-            const file = safeJoin(fixturesDir, pathname.slice('/fixtures/'.length));
-            if (file === null) {
-                res.writeHead(400).end('bad path');
+            if (pathname === '/lab/fixtures' || pathname === '/lab/fixtures/') {
+                const manifest = node_path_1.default.join(fixturesDir, 'manifest.json');
+                sendFile(res, manifest);
                 return;
             }
-            sendFile(res, file);
-            return;
-        }
-        res.writeHead(404).end('not found');
+            if (pathname === '/lab/blueprints' || pathname === '/lab/blueprints/') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ blueprints: (0, wsSession_1.listLabBlueprintSummaries)() }));
+                return;
+            }
+            if (pathname === '/' || pathname.startsWith('/index.html')) {
+                sendFile(res, node_path_1.default.join(staticDir, 'client.html'));
+                return;
+            }
+            if (pathname.startsWith('/lab/client.js') || pathname === '/client.js') {
+                sendFile(res, node_path_1.default.join(staticDir, 'client.js'));
+                return;
+            }
+            if (pathname.startsWith('/virtual.js') || pathname.startsWith('/__speculum/virtual.js')) {
+                const candidates = [
+                    node_path_1.default.join(process.cwd(), 'dist', 'browser', 'mirror', 'projection', 'virtual.js'),
+                    node_path_1.default.join(labRoot, '..', 'virtual.js'),
+                    node_path_1.default.join(__dirname, '..', '..', 'virtual.js'),
+                ];
+                const found = candidates.find((p) => node_fs_1.default.existsSync(p));
+                if (!found) {
+                    res.writeHead(404).end('virtual.js missing — run npm run build:virtual');
+                    return;
+                }
+                sendFile(res, found);
+                return;
+            }
+            if (pathname.startsWith('/fixtures/')) {
+                const file = safeJoin(fixturesDir, pathname.slice('/fixtures/'.length));
+                if (file === null) {
+                    res.writeHead(400).end('bad path');
+                    return;
+                }
+                sendFile(res, file);
+                return;
+            }
+            res.writeHead(404).end('not found');
+        })().catch((err) => {
+            if (!res.headersSent) {
+                res.writeHead(500).end(err instanceof Error ? err.message : String(err));
+            }
+        });
     });
     const wss = new ws_1.WebSocketServer({ noServer: true });
     server.on('upgrade', (req, socket, head) => {

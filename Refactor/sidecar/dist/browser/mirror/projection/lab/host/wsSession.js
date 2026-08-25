@@ -5,6 +5,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reportExitCode = exports.listLabBlueprintSummaries = exports.listLabBlueprints = exports.WsLabConnection = void 0;
 exports.labFixturesManifestPath = labFixturesManifestPath;
+const node_crypto_1 = require("node:crypto");
 const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 const chassis_1 = require("./chassis");
 const protocol_1 = require("./protocol");
@@ -15,6 +16,8 @@ const types_1 = require("../dossier/types");
 Object.defineProperty(exports, "reportExitCode", { enumerable: true, get: function () { return types_1.reportExitCode; } });
 class WsLabConnection {
     id;
+    /** Binding token for `/w7s/virtual-*` (virtual-assets §1.1) — same reserved query name as Live. */
+    sessionToken;
     client;
     opts;
     chassis;
@@ -28,9 +31,21 @@ class WsLabConnection {
         this.opts = opts;
         this.chassis = new chassis_1.LabChassis({ headless: opts.headless });
         this.id = this.chassis.connectionId;
+        this.sessionToken = (0, node_crypto_1.randomUUID)();
         this.client = client;
         this.bindChassisRelays(this.chassis);
-        this.send({ type: 'session.hello', sessionId: this.id, protocolVersion: protocol_1.LAB_PROTOCOL_VERSION });
+        this.send({
+            type: 'session.hello',
+            sessionId: this.id,
+            sessionToken: this.sessionToken,
+            protocolVersion: protocol_1.LAB_PROTOCOL_VERSION,
+        });
+    }
+    async getAsset(key, opts) {
+        const session = this.chassis.browser;
+        if (!session?.getAsset)
+            return null;
+        return session.getAsset(key, opts);
     }
     bindChassisRelays(chassis) {
         chassis.setFrameRelay((buf) => {

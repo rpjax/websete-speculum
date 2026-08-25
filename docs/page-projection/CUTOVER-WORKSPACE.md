@@ -21,7 +21,7 @@ Quando o produto restante fechar: apagar este arquivo.
 | Wire Launch split + Frames stream | `LaunchPageProjection` / `LaunchVideoStreaming` / `WatchPageProjectionFrames` |
 | web Integration | `file:@speculum/page-projection`; `live/page` apply deleted; resync trigger-only |
 | Live data plane | `projectionDataPlane: 'cdp'` default; lab `loopback` |
-| Surface asserts | `LiveSessionTests` frame body+contextId + RequestResync; MATRIX P1 |
+| ContextBus cutover (D-UI-27) | **DONE** 2026-08-23 — `projectionBus` deleted; ContextBus + loopback mux wire |
 
 ---
 

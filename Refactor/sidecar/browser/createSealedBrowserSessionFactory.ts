@@ -126,6 +126,17 @@ class ModeSelectingSession implements BrowserSession {
     timestampClient?: number | null;
     payloadJson?: string;
     payload?: string;
+    schemaVersion?: number;
+    viewportW?: number | null;
+    viewportH?: number | null;
+    census?: string | null;
+    x?: number;
+    y?: number;
+    key?: string;
+    code?: string;
+    scrollX?: number;
+    scrollY?: number;
+    button?: string | number;
   }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
     const s = this.requireInner() as BrowserSession & {
       pushInput?(i: unknown): Promise<unknown>;

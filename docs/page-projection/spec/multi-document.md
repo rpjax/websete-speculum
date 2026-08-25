@@ -24,7 +24,7 @@ The algorithm **observes** the page. It never writes host identity onto live DOM
 | `NODE_NEW` extra arg | Only when nested-context host; omit otherwise. Presence = bit 7 of `ns` byte | **LOCKED** |
 | Classify host | `contentWindow != null` (not `.contentDocument`). Admit connected. | **LOCKED** |
 | Projected host iframe | Same-origin blank; do not navigate live `src`. Parent installs nested algorithm. | **LOCKED** |
-| Bus | Events all layers. Control = RPC. Loose = emit/listen. `emitFrame` implemented by **root runtime**. postMessage is the bus. | **LOCKED** |
+| Bus | Transport = **[context-bus.md](context-bus.md)** (**SEALED** — `emit` / `invoke`). Domain still: events all layers; `emitFrame` via root runtime; postMessage is the carrier. | **LOCKED** domain roles; transport **SEALED** |
 | Resync request | **Control plane only:** `{ type: 'requestResync', contextId, … }` on `PlaneChannel.Control` → root bootstrap `publishResyncRequest` → matching Virtual `emitResyncFrame`. Loose bus `resyncRequest` is **fan-down only** (root → nested producers), never an entry path. | **LOCKED** |
 | RPC pipe | request / response / heartbeat; TCS awaiter; `getScopeId`, `mint`, **`snapshot`** | **LOCKED** shape; TS names OPEN |
 | Name | Header field `contextId` (was `documentId`) | **LOCKED** name |
@@ -106,14 +106,18 @@ This indexer is **not** a session router. Frames still go on the shared bus; eac
 
 ## 4. Bus — events at every layer
 
-The bus **propagates events through all layers**. It is not the algorithm. postMessage is the bus.
+> **Transport contract:** **[context-bus.md](context-bus.md)** (`ContextBus`: envelope, `emit`, `invoke`). This section keeps **domain / runtime** rules. Do not re-specify invoke heartbeats here.
 
-Two shapes:
+The bus **propagates events through all layers**. It is not the algorithm. Carrier today: `postMessage` under ContextBus.
 
-| Kind | What | Examples |
-|------|------|----------|
-| **Control** | Invocation under rigid rules: request / response / heartbeat + TCS awaiter | `getScopeId`, `mint`, **`snapshot`** |
-| **Loose** | Fan-out / telemetry only — **not** resync entry | PP frames (`emitFrame`); **`telemetry`** (nested → root → sidecar); **`resyncRequest` fan-down** after Control-plane entry |
+Two transport layers:
+
+| Layer | Contract | Domain examples |
+|------|----------|-----------------|
+| **ContextBus** (in-page) | `emit` / `invoke` per [context-bus.md](context-bus.md) | `getScopeId`, `mint`, `snapshot`, `emitFrame`, `telemetry`, `resyncRequest` |
+| **Loopback mux** (Virtual root ↔ sidecar) | §10.1c in [input-unified-design-draft.md](input-unified-design-draft.md) | `frame`, `telemetry`, `invoke` (`applyScrollCensus`) |
+
+Legacy Control/Loose `projectionBus` shapes are **deleted** (D-UI-27 cutover).
 
 Algorithm at any nesting level: `interface.emitFrame(frame)`. It does not know hops, `window.top`, or the sidecar socket.
 

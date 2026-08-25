@@ -4,11 +4,11 @@
 > a hop on the production path (D-SPEC-7), not a second DOM algorithm. Do not implement from
 > `diff-pipeline.md` (archived). Index: [README.md](README.md).
 
-**Status:** design (production asset path; not the lab frame engine).
+**Status:** implementing (V1 feature-complete path landed in sidecar + Projected stamp + Lab/Live HTTP).
 
 **Scope:** how Speculum **serves** bytes for URLs the producer rewrote.
 
-**Related:** Sessions `MirrorMode.DomProjection` (→ `PageProjection` at cutover) · PathBase `/w7s`
+**Related:** Sessions `MirrorMode.PageProjection` · PathBase `/w7s`
 
 ---
 
@@ -117,9 +117,25 @@ Reserved future wiring (no V1 behavior):
 
 | Concern | Doc |
 |---------|-----|
-| Map + rewrite to Speculum URL prefixes; dedicated media/boundary attrs | [frame-protocol.md](frame-protocol.md) §5 (Node rewrite hop); pre-V4 [diff-pipeline.md](../archive/pre-v4/diff-pipeline.md) |
+| Map + rewrite to Speculum URL prefixes; dedicated media/boundary attrs | [frame-protocol.md](frame-protocol.md) §5 (Node rewrite hop); D-SPEC-7 |
 | Cache vs pass-through; Range; HLS/DASH body rewrite; bridges | **This doc** |
-| Coalesce admin knobs | frame tick (frame-protocol.md §5.2); pre-V4 [coalesce.md](../archive/pre-v4/coalesce.md) |
+| Coalesce admin knobs | frame tick (frame-protocol.md §5.2) |
+
+### 6.1 Implementation map (V1)
+
+| Hop | Where |
+|-----|--------|
+| Decode → rewrite URL strings → re-encode | Sidecar `rewritePart` on `PageProjectionBrowserSession` frame plane (Lab + Live) |
+| L1 fill / pass-through / blob-data | Sidecar `AssetStore` + `DomAssetCache` |
+| `getAsset` / gRPC `GetDomAsset` | `PageProjectionBrowserSession.getAsset` (+ `getDomAsset` alias) |
+| HTTP serve | API `DomAssetEndpoints` (Live); Lab host `/w7s/virtual-*` (same auth/key contract) |
+| Paint stamp | `@speculum/page-projection` `appendSessionAuth` / `stampAttrAuth` in apply |
+
+**L1 CSS fill:** after rewriting `url()` / `@import` inside a cached stylesheet, kick fill for every nested `/w7s/virtual-assets/…` key (same scheme as the sheet’s source URL). Key→URL fallback uses the bound page’s scheme — never hardcode `https://` (lab fixtures are `http://`).
+
+**`image-set()`:** parse with paren depth (a naive `[^)]+` cuts on `url(…)`).
+
+Consumer-agnostic: the rewrite + L1 algorithm does not branch on Lab vs Live.
 
 ---
 

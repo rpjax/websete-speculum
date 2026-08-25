@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ElementHandle, Page } from 'patchright';
+import type { CDPSession, ElementHandle, Page } from 'patchright';
 
 /**
  * Minimal surface `DomElementInput` needs from a PageProjection host. Both
@@ -98,7 +98,8 @@ type IntentPayload = {
 
 /**
  * Dom Projection CDP-only inject chain. Isolated from OsInputBackend.
- * No wire `click` — gesture is mouseMoved → mousePressed → mouseReleased.
+ * No wire `click` — gesture is mouseMoved → mousePressed → mouseReleased,
+ * or touchMove → touchStart → touchEnd when intent `pointerType` is `touch`.
  */
 export class DomElementInput {
   /** §6.4 defaults — collapse moves under inject-chain pressure. */
@@ -109,10 +110,14 @@ export class DomElementInput {
   private chain: Promise<void> = Promise.resolve();
   private chainDepth = 0;
   private lastMove: { x: number; y: number } | null = null;
-  private pendingMove: { x: number; y: number } | null = null;
+  private pendingMove: { x: number; y: number; touch: boolean; pointerId: number } | null = null;
   private pendingMoveAtMs = 0;
   /** At most one move-flush task on the inject chain (§6.4 coalesce). */
   private moveFlushEnqueued = false;
+  /** Active touch contact (Mode A touch path) — moves are touchMove only while down. */
+  private touchActive = false;
+  private touchPointerId = 1;
+  private cdp: CDPSession | null = null;
 
   /** Keys that used insertText on keydown — skip matching keyup. */
   private insertTextKeys = new Set<string>();
@@ -290,21 +295,15 @@ export class DomElementInput {
     await this.flushMove();
 
     if (type === 'mousedown' || type === 'pointerdown') {
-      const reason = await this.dispatchMouse(
-        'mousePressed',
-        payload,
-        event.targetId,
-        event.contextId,
-      );
+      const reason = isTouchPointer(payload)
+        ? await this.dispatchTouch('touchStart', payload)
+        : await this.dispatchMouse('mousePressed', payload);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'mouseup' || type === 'pointerup') {
-      const reason = await this.dispatchMouse(
-        'mouseReleased',
-        payload,
-        event.targetId,
-        event.contextId,
-      );
+      const reason = isTouchPointer(payload)
+        ? await this.dispatchTouch('touchEnd', payload)
+        : await this.dispatchMouse('mouseReleased', payload);
       return reason ? { status: 'dropped', reason } : { status: 'dispatched' };
     }
     if (type === 'wheel') {
@@ -340,7 +339,12 @@ export class DomElementInput {
     const x = Number(payload.x);
     const y = Number(payload.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    this.pendingMove = { x, y };
+    this.pendingMove = {
+      x,
+      y,
+      touch: isTouchPointer(payload),
+      pointerId: touchPointerId(payload),
+    };
     this.pendingMoveAtMs = Date.now();
     return true;
   }
@@ -351,7 +355,14 @@ export class DomElementInput {
     this.pendingMoveAtMs = 0;
     if (!next) return;
     if (this.lastMove && this.lastMove.x === next.x && this.lastMove.y === next.y) return;
-    this.lastMove = next;
+    if (next.touch) {
+      // Finger move without an active contact is not a hover — drop (sites must not see mouseover).
+      if (!this.touchActive) return;
+      this.lastMove = { x: next.x, y: next.y };
+      await this.sendTouch('touchMove', next.x, next.y, next.pointerId);
+      return;
+    }
+    this.lastMove = { x: next.x, y: next.y };
     await this.page.mouse.move(next.x, next.y);
   }
 
@@ -362,8 +373,6 @@ export class DomElementInput {
   private async dispatchMouse(
     type: 'mousePressed' | 'mouseReleased',
     payload: IntentPayload,
-    _targetId?: number | null,
-    _contextId?: number,
   ): Promise<string | null> {
     const x = Number(payload.x);
     const y = Number(payload.y);
@@ -379,6 +388,52 @@ export class DomElementInput {
     return null;
   }
 
+  /** Mode A touch — CDP `Input.dispatchTouchEvent` (same path as PatchrightInputBackend.touch). */
+  private async dispatchTouch(
+    type: 'touchStart' | 'touchEnd',
+    payload: IntentPayload,
+  ): Promise<string | null> {
+    const x = Number(payload.x);
+    const y = Number(payload.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 'invalid_coords';
+    const id = touchPointerId(payload);
+    if (type === 'touchStart') {
+      this.touchActive = true;
+      this.touchPointerId = id;
+      this.lastMove = { x, y };
+      await this.sendTouch('touchStart', x, y, id);
+      return null;
+    }
+    // Release: empty touchPoints ends the contact (CDP convention).
+    this.touchActive = false;
+    this.lastMove = { x, y };
+    await this.sendTouch('touchEnd', x, y, id);
+    return null;
+  }
+
+  private async sendTouch(
+    type: 'touchStart' | 'touchMove' | 'touchEnd',
+    x: number,
+    y: number,
+    id: number,
+  ): Promise<void> {
+    const cdp = await this.ensureCdp();
+    if (type === 'touchEnd') {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      return;
+    }
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: [{ x, y, id }],
+    });
+  }
+
+  private async ensureCdp(): Promise<CDPSession> {
+    if (this.cdp) return this.cdp;
+    this.cdp = await this.page.context().newCDPSession(this.page);
+    return this.cdp;
+  }
+
   private async dispatchWheel(payload: IntentPayload): Promise<void> {
     const x = Number(payload.x);
     const y = Number(payload.y);
@@ -391,20 +446,34 @@ export class DomElementInput {
     await this.page.mouse.wheel(deltaX, deltaY);
   }
 
-  /** Mode A key — CDP to current focus. No element resolve. */
+  /** Mode A key — CDP to current focus. For non-text keys with nodeId, focus that element first. */
   private async dispatchKey(
     type: 'keydown' | 'keyup',
     _anchor: string | null | undefined,
     payload: IntentPayload,
-    _targetId?: number | null,
-    _contextId?: number,
+    targetId?: number | null,
+    contextId?: number,
   ): Promise<string | null> {
     const key = typeof payload.key === 'string' ? payload.key : '';
     if (!key) return 'empty_key';
     if (type === 'keydown') {
       const mods = payload.modifiers;
       const hasMod = !!(mods?.alt || mods?.ctrl || mods?.meta);
-      if (!hasMod && key.length === 1 && !payload.repeat) {
+      const insertText = !hasMod && key.length === 1 && !payload.repeat;
+      // Enter / Tab / arrows / chords need focus on the target. Plain typing uses insertText.
+      if (!insertText && targetId != null && targetId > 0) {
+        const el = await this.resolveElement(null, targetId, contextId);
+        if (el) {
+          try {
+            await el.focus();
+          } catch {
+            /* ignore */
+          } finally {
+            await el.dispose().catch(() => undefined);
+          }
+        }
+      }
+      if (insertText) {
         await this.page.keyboard.insertText(key);
         this.insertTextKeys.add(key);
         return null;
@@ -579,6 +648,17 @@ function parsePayload(raw: string | undefined): IntentPayload {
   } catch {
     return {};
   }
+}
+
+/** Client `PointerEvent.pointerType === 'touch'` → CDP touch path (not mouse hover). */
+function isTouchPointer(payload: IntentPayload): boolean {
+  return payload.pointerType === 'touch';
+}
+
+function touchPointerId(payload: IntentPayload): number {
+  const id = payload.pointerId;
+  if (typeof id === 'number' && Number.isFinite(id) && id > 0) return Math.floor(id);
+  return 1;
 }
 
 function mouseButtonName(button: number | undefined): 'left' | 'middle' | 'right' {

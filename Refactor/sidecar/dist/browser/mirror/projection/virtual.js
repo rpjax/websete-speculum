@@ -598,6 +598,12 @@
     return [...ops, ...cssom];
   }
 
+  // ../packages/page-projection/src/core/contextBusConstants.ts
+  var CONTEXT_BUS_RUNTIME = 4294967295;
+  var CONTEXT_ID_MAX_DOCUMENT = 4294967294;
+  var CONTEXT_ID_PROVISIONAL = 0;
+  var CONTEXT_BUS_CHANNEL = "speculum.context.bus";
+
   // ../packages/page-projection/src/core/elementNs.ts
   var ELEMENT_NS_NESTED_HOST_BIT = 128;
   function packElementNsWireByte(ns, nestedHost) {
@@ -1275,6 +1281,13 @@
         out.push(this.encodeOpsPart(frame, partsOps[i], i, partCount));
       }
       return out;
+    }
+    /**
+     * D-SPEC-7 rewrite hop: re-encode one already-delimited part, preserving
+     * `partIndex`/`partCount` from the inbound wire part.
+     */
+    encodePart(frame, partIndex, partCount) {
+      return this.encodeOpsPart(frame, frame.ops, partIndex, partCount);
     }
     encodeOpsPart(frame, ops, partIndex, partCount) {
       const w = this.scratch;
@@ -3568,21 +3581,93 @@
     };
   }
 
+  // ../packages/page-projection/src/core/loopback/envelope.ts
+  var VIRTUAL_LOOPBACK_CHANNEL = "speculum.virtual.loopback";
+  function encodeLoopbackFromPlane(channel, payload) {
+    let envelope;
+    if (channel === 1 /* Frame */) {
+      envelope = {
+        channel: VIRTUAL_LOOPBACK_CHANNEL,
+        kind: "frame",
+        bytes: Array.from(payload)
+      };
+    } else if (channel === 3 /* Telemetry */) {
+      envelope = {
+        channel: VIRTUAL_LOOPBACK_CHANNEL,
+        kind: "telemetry",
+        message: JSON.parse(new TextDecoder().decode(payload))
+      };
+    } else {
+      envelope = {
+        channel: VIRTUAL_LOOPBACK_CHANNEL,
+        kind: "invoke",
+        correlationId: 0,
+        name: "__control",
+        args: JSON.parse(new TextDecoder().decode(payload))
+      };
+    }
+    return new TextEncoder().encode(JSON.stringify(envelope));
+  }
+  function decodeLoopbackToPlane(message) {
+    let parsed;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(message));
+    } catch {
+      return null;
+    }
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const env = parsed;
+    if (env.channel !== VIRTUAL_LOOPBACK_CHANNEL || typeof env.kind !== "string") return null;
+    switch (env.kind) {
+      case "frame": {
+        const bytes = env.bytes;
+        if (!Array.isArray(bytes)) return null;
+        return { channel: 1 /* Frame */, payload: Uint8Array.from(bytes) };
+      }
+      case "telemetry": {
+        return {
+          channel: 3 /* Telemetry */,
+          payload: new TextEncoder().encode(JSON.stringify(env.message ?? null))
+        };
+      }
+      case "invoke": {
+        const invoke = env;
+        if (invoke.name === "__control") {
+          return {
+            channel: 2 /* Control */,
+            payload: new TextEncoder().encode(JSON.stringify(invoke.args ?? {}))
+          };
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
+  }
+  function isLoopbackWireMessage(message) {
+    if (message.length < 2 || message[0] !== 123) return false;
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(message));
+      return parsed.channel === VIRTUAL_LOOPBACK_CHANNEL;
+    } catch {
+      return false;
+    }
+  }
+
   // ../packages/page-projection/src/core/plane/envelope.ts
   var PLANE_MAGIC = 20563;
   var PLANE_VERSION = 1;
   var PLANE_HEADER_SIZE = 5;
-  function encodePlaneEnvelope(channel, payload, flags = 0) {
-    const out = new Uint8Array(PLANE_HEADER_SIZE + payload.length);
-    const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    view.setUint16(0, PLANE_MAGIC, true);
-    out[2] = PLANE_VERSION;
-    out[3] = channel & 255;
-    out[4] = flags & 255;
-    out.set(payload, PLANE_HEADER_SIZE);
-    return out;
+  function encodePlaneEnvelope(channel, payload, _flags = 0) {
+    void _flags;
+    return encodeLoopbackFromPlane(channel, payload);
   }
   function decodePlaneEnvelope(message) {
+    if (isLoopbackWireMessage(message)) {
+      const mapped = decodeLoopbackToPlane(message);
+      if (mapped === null) return null;
+      return { channel: mapped.channel, flags: 0, payload: mapped.payload };
+    }
     if (message.length < PLANE_HEADER_SIZE) return null;
     const view = new DataView(message.buffer, message.byteOffset, message.byteLength);
     if (view.getUint16(0, true) !== PLANE_MAGIC) return null;
@@ -3783,45 +3868,415 @@
     }
   };
 
-  // ../packages/page-projection/src/virtual/bus/projectionBus.ts
-  var PROJECTION_BUS_CHANNEL = "speculum.projection.bus";
-  function isEnvelope(data) {
-    if (typeof data !== "object" || data === null) return false;
-    const rec = data;
-    return rec.channel === PROJECTION_BUS_CHANNEL && (rec.kind === "control" || rec.kind === "loose");
+  // ../packages/page-projection/src/virtual/bus/types.ts
+  var DEFAULT_INVOKE_IDLE_TIMEOUT_MS = 2e3;
+  var HEARTBEAT_INTERVAL_MS = 500;
+  var INVOKE_DEDUPE_TTL_MS = 5e3;
+  var TRANSPORT_PROTOCOL_TYPES = /* @__PURE__ */ new Set([
+    "request-invocation",
+    "invocation-started",
+    "invocation-heartbeat",
+    "invocation-response"
+  ]);
+  function isValidContextId(id) {
+    return Number.isInteger(id) && id >= 1 && id <= CONTEXT_ID_MAX_DOCUMENT;
   }
+  function isValidDestination(id) {
+    return id === CONTEXT_ID_PROVISIONAL || isValidContextId(id) || id === CONTEXT_BUS_RUNTIME;
+  }
+  function isMalformedEnvelope(data) {
+    if (typeof data !== "object" || data === null) return true;
+    const env = data;
+    if (env.channel !== CONTEXT_BUS_CHANNEL) return true;
+    if (!Number.isInteger(env.source) || env.source === void 0 || !isValidDestination(env.source)) return true;
+    if (env.destination === "*") {
+    } else if (!Number.isInteger(env.destination) || !isValidDestination(env.destination)) {
+      return true;
+    }
+    if (typeof env.type !== "string" || env.type.length === 0) return true;
+    if (!("event" in env)) return true;
+    return false;
+  }
+  function assertStructuredCloneSafe(value) {
+    if (typeof structuredClone === "function") {
+      structuredClone(value);
+      return;
+    }
+    JSON.parse(JSON.stringify(value));
+  }
+  function serializeBusError(err) {
+    if (err instanceof Error) {
+      return { message: err.message, name: err.name };
+    }
+    return { message: String(err) };
+  }
+
+  // ../packages/page-projection/src/virtual/bus/contextBus.ts
+  var ContextBus = class {
+    contextId;
+    servesRuntime;
+    carrier;
+    disposed = false;
+    nextInvocationId = 1;
+    eventHandlers = /* @__PURE__ */ new Map();
+    invocationHandlers = /* @__PURE__ */ new Map();
+    pending = /* @__PURE__ */ new Map();
+    seenInvocations = /* @__PURE__ */ new Map();
+    activeHeartbeats = /* @__PURE__ */ new Map();
+    constructor(opts) {
+      this.contextId = opts.contextId;
+      this.servesRuntime = opts.servesRuntime;
+      this.carrier = opts.carrier;
+    }
+    emit(type, event, opts) {
+      if (this.disposed) return;
+      if (!opts || opts.destination === void 0) {
+        throw new TypeError("emit requires opts.destination");
+      }
+      if (TRANSPORT_PROTOCOL_TYPES.has(type) || type.length === 0) {
+        throw new TypeError(`invalid emit type: ${type}`);
+      }
+      assertStructuredCloneSafe(event);
+      const envelope = {
+        channel: CONTEXT_BUS_CHANNEL,
+        source: this.contextId,
+        destination: opts.destination,
+        type,
+        event
+      };
+      this.carrier.send(envelope);
+      this.deliverLocal(envelope);
+    }
+    invoke(name, args, opts) {
+      if (this.disposed) {
+        return Promise.resolve({ ok: false, error: { message: "bus_disposed", name: "BusDisposed" } });
+      }
+      if (!name || name.length === 0) throw new TypeError("invoke requires non-empty name");
+      if (opts?.destination === void 0 || !isValidDestination(opts.destination)) {
+        throw new TypeError("invoke requires valid unicast destination");
+      }
+      const meta = {
+        source: this.contextId,
+        destination: opts.destination,
+        type: "request-invocation"
+      };
+      if (opts.destination === this.contextId || opts.destination === CONTEXT_BUS_RUNTIME && this.servesRuntime) {
+        return this.localInvoke(name, args, meta);
+      }
+      assertStructuredCloneSafe(args);
+      const invocationId = this.allocInvocationId();
+      const timeoutMs = opts.timeoutMs ?? DEFAULT_INVOKE_IDLE_TIMEOUT_MS;
+      return new Promise((resolve) => {
+        const resetTimer = () => {
+          const pending = this.pending.get(invocationId);
+          if (!pending) return;
+          clearTimeout(pending.timer);
+          pending.timer = setTimeout(() => {
+            this.pending.delete(invocationId);
+            resolve({ ok: false, error: { message: "timeout", name: "InvokeTimeout" } });
+          }, timeoutMs);
+        };
+        const timer = setTimeout(() => {
+          this.pending.delete(invocationId);
+          resolve({ ok: false, error: { message: "timeout", name: "InvokeTimeout" } });
+        }, timeoutMs);
+        this.pending.set(invocationId, { timeoutMs, timer, resolve });
+        this.carrier.send({
+          channel: CONTEXT_BUS_CHANNEL,
+          source: this.contextId,
+          destination: opts.destination,
+          type: "request-invocation",
+          event: { invocationId, name, args }
+        });
+      });
+    }
+    onEvent(type, handler) {
+      const list = this.eventHandlers.get(type) ?? [];
+      list.push(handler);
+      this.eventHandlers.set(type, list);
+      return () => {
+        const cur = this.eventHandlers.get(type);
+        if (!cur) return;
+        const idx = cur.indexOf(handler);
+        if (idx >= 0) cur.splice(idx, 1);
+      };
+    }
+    onInvocation(name, handler) {
+      this.invocationHandlers.set(name, handler);
+      return () => {
+        if (this.invocationHandlers.get(name) === handler) {
+          this.invocationHandlers.delete(name);
+        }
+      };
+    }
+    dispose() {
+      if (this.disposed) return;
+      this.disposed = true;
+      this.eventHandlers.clear();
+      this.invocationHandlers.clear();
+      for (const hb of this.activeHeartbeats.values()) clearInterval(hb);
+      this.activeHeartbeats.clear();
+      for (const p of this.pending.values()) {
+        clearTimeout(p.timer);
+        p.resolve({ ok: false, error: { message: "bus_disposed", name: "BusDisposed" } });
+      }
+      this.pending.clear();
+      this.seenInvocations.clear();
+    }
+    receive(envelope) {
+      if (this.disposed || isMalformedEnvelope(envelope)) return;
+      if (!this.isAddressedHere(envelope)) return;
+      if (TRANSPORT_PROTOCOL_TYPES.has(envelope.type)) {
+        void this.handleTransport(envelope);
+        return;
+      }
+      this.dispatchEvent(envelope);
+    }
+    isAddressedHere(envelope) {
+      if (envelope.destination === "*") {
+        return envelope.source !== this.contextId;
+      }
+      if (envelope.destination === this.contextId) return true;
+      if (envelope.destination === CONTEXT_BUS_RUNTIME && this.servesRuntime) return true;
+      return false;
+    }
+    deliverLocal(envelope) {
+      if (!this.isAddressedHere(envelope)) return;
+      if (TRANSPORT_PROTOCOL_TYPES.has(envelope.type)) return;
+      this.dispatchEvent(envelope);
+    }
+    dispatchEvent(envelope) {
+      const handlers = this.eventHandlers.get(envelope.type);
+      if (!handlers || handlers.length === 0) return;
+      const meta = {
+        source: envelope.source,
+        destination: envelope.destination,
+        type: envelope.type
+      };
+      for (const handler of handlers) {
+        try {
+          const ret = handler(envelope.event, meta);
+          if (ret && typeof ret.catch === "function") {
+            void ret.catch(() => {
+            });
+          }
+        } catch {
+        }
+      }
+    }
+    async localInvoke(name, args, meta) {
+      const handler = this.invocationHandlers.get(name);
+      if (!handler) {
+        return { ok: false, error: { message: "no_handler", name: "NoInvocationHandler" } };
+      }
+      try {
+        const value = await handler(args, meta);
+        return { ok: true, value };
+      } catch (err) {
+        return { ok: false, error: serializeBusError(err) };
+      }
+    }
+    async handleTransport(envelope) {
+      if (envelope.destination === "*") return;
+      switch (envelope.type) {
+        case "request-invocation":
+          await this.handleRequestInvocation(envelope);
+          break;
+        case "invocation-started":
+          this.handleInvocationStarted(envelope.event);
+          break;
+        case "invocation-heartbeat":
+          this.handleInvocationHeartbeat(envelope.event);
+          break;
+        case "invocation-response":
+          this.handleInvocationResponse(envelope.event);
+          break;
+      }
+    }
+    seenKey(source, invocationId) {
+      return `${source}:${invocationId}`;
+    }
+    markSeen(source, invocationId) {
+      const key = this.seenKey(source, invocationId);
+      const now = Date.now();
+      const existing = this.seenInvocations.get(key);
+      if (existing && existing.expiresAt > now) return false;
+      this.seenInvocations.set(key, { expiresAt: now + INVOKE_DEDUPE_TTL_MS });
+      return true;
+    }
+    async handleRequestInvocation(envelope) {
+      const req = envelope.event;
+      if (!this.markSeen(envelope.source, req.invocationId)) return;
+      const meta = {
+        source: envelope.source,
+        destination: envelope.destination,
+        type: "request-invocation"
+      };
+      const handler = this.invocationHandlers.get(req.name);
+      if (!handler) {
+        this.sendTransport(envelope.source, "invocation-response", {
+          invocationId: req.invocationId,
+          error: { message: "no_handler", name: "NoInvocationHandler" }
+        });
+        return;
+      }
+      this.sendTransport(envelope.source, "invocation-started", { invocationId: req.invocationId });
+      const heartbeat = setInterval(() => {
+        this.sendTransport(envelope.source, "invocation-heartbeat", { invocationId: req.invocationId });
+      }, HEARTBEAT_INTERVAL_MS);
+      this.activeHeartbeats.set(req.invocationId, heartbeat);
+      try {
+        const value = await handler(req.args, meta);
+        clearInterval(heartbeat);
+        this.activeHeartbeats.delete(req.invocationId);
+        this.sendTransport(envelope.source, "invocation-response", {
+          invocationId: req.invocationId,
+          result: value
+        });
+      } catch (err) {
+        clearInterval(heartbeat);
+        this.activeHeartbeats.delete(req.invocationId);
+        this.sendTransport(envelope.source, "invocation-response", {
+          invocationId: req.invocationId,
+          error: serializeBusError(err)
+        });
+      }
+    }
+    handleInvocationStarted(event) {
+      this.resetPendingTimer(event.invocationId);
+    }
+    handleInvocationHeartbeat(event) {
+      this.resetPendingTimer(event.invocationId);
+    }
+    resetPendingTimer(invocationId) {
+      const pending = this.pending.get(invocationId);
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      pending.timer = setTimeout(() => {
+        this.pending.delete(invocationId);
+        pending.resolve({ ok: false, error: { message: "timeout", name: "InvokeTimeout" } });
+      }, pending.timeoutMs);
+    }
+    handleInvocationResponse(event) {
+      const pending = this.pending.get(event.invocationId);
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      this.pending.delete(event.invocationId);
+      if (event.error !== void 0) {
+        pending.resolve({ ok: false, error: event.error });
+        return;
+      }
+      pending.resolve({ ok: true, value: event.result });
+    }
+    sendTransport(destination, type, event) {
+      this.carrier.send({
+        channel: CONTEXT_BUS_CHANNEL,
+        source: this.contextId,
+        destination,
+        type,
+        event
+      });
+    }
+    allocInvocationId() {
+      const id = this.nextInvocationId;
+      this.nextInvocationId = id === 4294967295 ? 1 : id + 1;
+      if (this.nextInvocationId === 0) this.nextInvocationId = 1;
+      return id;
+    }
+  };
+
+  // ../packages/page-projection/src/virtual/bus/virtualDomainBus.ts
   var GET_SCOPE_TIMEOUT_MS = 200;
   var MINT_TIMEOUT_MS = 500;
   var SNAPSHOT_TIMEOUT_MS = 8e3;
   var RESUME_TIMEOUT_MS = 2e3;
-  var ProjectionBus = class {
+  function isBusEnvelope(data) {
+    if (typeof data !== "object" || data === null) return false;
+    return data.channel === CONTEXT_BUS_CHANNEL;
+  }
+  function isTransportType(type) {
+    return type === "request-invocation" || type === "invocation-started" || type === "invocation-heartbeat" || type === "invocation-response";
+  }
+  var VirtualDomainBus = class {
+    bus;
     win;
     parent;
     mintFn;
     emitFrameFn;
-    corr = 1;
-    pending = /* @__PURE__ */ new Map();
-    forward = /* @__PURE__ */ new Map();
+    mine;
     lookupScopeId = null;
-    frameListeners = /* @__PURE__ */ new Set();
-    resyncListeners = /* @__PURE__ */ new Set();
-    controlInputListeners = /* @__PURE__ */ new Set();
-    telemetryListeners = /* @__PURE__ */ new Set();
-    mine = 1;
     snapshotHandler = null;
     resumeHandler = null;
-    onMessage = (event) => {
-      void this.handleMessage(event);
-    };
+    applyScrollHandler = null;
+    onMessage;
+    disposed = false;
     constructor(opts) {
       this.win = opts.window;
       this.parent = opts.parent ?? null;
       this.mintFn = opts.mint ?? null;
       this.emitFrameFn = opts.emitFrame ?? null;
+      this.mine = opts.contextId ?? 1;
+      const carrier = {
+        send: (envelope) => this.routeOutbound(envelope)
+      };
+      this.bus = new ContextBus({
+        contextId: this.mine,
+        servesRuntime: opts.servesRuntime ?? opts.role === "root",
+        carrier
+      });
+      this.wireDomainHandlers();
+      this.onMessage = (event) => {
+        if (!isBusEnvelope(event.data)) return;
+        const envelope = event.data;
+        if (envelope.type === "request-invocation" && this.bus.servesRuntime && envelope.destination === CONTEXT_BUS_RUNTIME && event.source) {
+          const req = envelope.event;
+          if (req.name === "getScopeId") {
+            const scope = this.lookupScopeId?.(event.source);
+            if (scope !== void 0) {
+              this.respondInvocationToSource(event.source, envelope.source, req, scope);
+              return;
+            }
+          }
+        }
+        if (this.isAddressedHere(envelope)) {
+          this.bus.receive(envelope);
+        } else {
+          this.routeOutbound(envelope);
+        }
+        void this.handleDomainSideEffects(envelope, event);
+      };
       this.win.addEventListener("message", this.onMessage);
+    }
+    get contextId() {
+      return this.mine;
+    }
+    get servesRuntime() {
+      return this.bus.servesRuntime;
+    }
+    emit(type, event, opts) {
+      this.bus.emit(type, event, opts);
+    }
+    invoke(name, args, opts) {
+      return this.bus.invoke(name, args, opts);
+    }
+    onEvent(type, handler) {
+      return this.bus.onEvent(type, handler);
+    }
+    onInvocation(name, handler) {
+      return this.bus.onInvocation(name, handler);
+    }
+    dispose() {
+      if (this.disposed) return;
+      this.disposed = true;
+      this.win.removeEventListener("message", this.onMessage);
+      this.bus.dispose();
+    }
+    receive(envelope) {
+      this.bus.receive(envelope);
     }
     setMine(contextId) {
       this.mine = contextId;
+      this.bus.contextId = contextId;
     }
     setSnapshotHandler(handler) {
       this.snapshotHandler = handler;
@@ -3832,628 +4287,247 @@
     setScopeLookup(fn) {
       this.lookupScopeId = fn;
     }
-    dispose() {
-      this.win.removeEventListener("message", this.onMessage);
-      for (const p of this.pending.values()) clearTimeout(p.timer);
-      this.pending.clear();
-    }
     onFrame(cb) {
-      this.frameListeners.add(cb);
-      return () => this.frameListeners.delete(cb);
+      return this.bus.onEvent("frame", (ev) => {
+        cb(new Uint8Array(ev.bytes));
+      });
     }
     onResyncRequest(cb) {
-      this.resyncListeners.add(cb);
-      return () => this.resyncListeners.delete(cb);
+      return this.bus.onEvent("resyncRequest", cb);
     }
     onControlInput(cb) {
-      this.controlInputListeners.add(cb);
-      return () => this.controlInputListeners.delete(cb);
+      return this.bus.onEvent("controlInput", cb);
     }
     onTelemetry(cb) {
-      this.telemetryListeners.add(cb);
-      return () => this.telemetryListeners.delete(cb);
+      return this.bus.onEvent("telemetry", (message) => cb(message));
     }
-    /** After Control plane `input` — local listeners + nested producer fan-out. */
     publishControlInput(req) {
-      this.dispatchControlInput(req);
-      this.fanoutControlInput(req);
+      const dest = req.contextId > 0 ? req.contextId : this.mine;
+      this.bus.emit("controlInput", req, { destination: dest });
     }
     emitFrame(bytes) {
       if (this.emitFrameFn) {
         this.emitFrameFn(bytes);
         return;
       }
-      this.postToParent({
-        channel: PROJECTION_BUS_CHANNEL,
-        kind: "loose",
-        type: "frame",
-        bytes: bytes.slice().buffer
-      });
+      void this.bus.invoke("emitFrame", { bytes: bytes.slice().buffer }, { destination: CONTEXT_BUS_RUNTIME });
     }
     emitTelemetry(message) {
       if (this.emitFrameFn) {
-        this.dispatchTelemetry(message);
-        this.fanoutTelemetry(message);
+        this.bus.emit("telemetry", message, { destination: "*" });
         return;
       }
-      this.postToParent({
-        channel: PROJECTION_BUS_CHANNEL,
-        kind: "loose",
-        type: "telemetry",
-        message
-      });
+      if (this.parent) {
+        void this.bus.invoke("emitTelemetry", { message }, { destination: CONTEXT_BUS_RUNTIME });
+      }
     }
-    /** Nested: retry until parent answers with C ≥ 2. Timeout never means root. */
     async getScopeId() {
+      if (!this.parent) return this.mine;
       for (; ; ) {
-        const value = await this.controlRequestNumber("getScopeId", GET_SCOPE_TIMEOUT_MS);
-        if (typeof value === "number" && value >= 2) return value;
+        const result = await this.bus.invoke(
+          "getScopeId",
+          {},
+          { destination: CONTEXT_BUS_RUNTIME, timeoutMs: GET_SCOPE_TIMEOUT_MS }
+        );
+        if (result.ok && typeof result.value === "number" && result.value >= 2) {
+          return result.value;
+        }
+        await new Promise((r) => setTimeout(r, 16));
       }
     }
     async requestMint() {
       if (this.mintFn) return this.mintFn();
-      return this.controlRequestNumber("mint", MINT_TIMEOUT_MS);
+      const result = await this.bus.invoke(
+        "mint",
+        {},
+        { destination: CONTEXT_BUS_RUNTIME, timeoutMs: MINT_TIMEOUT_MS }
+      );
+      return result.ok ? result.value : void 0;
     }
     async requestSnapshot(contextId, opts) {
-      if (contextId === this.mine && this.snapshotHandler) {
-        const value = this.snapshotHandler(opts);
-        let tree;
-        if (opts?.includeTree) {
-          const snap = globalThis.__speculumSnapshot;
-          tree = snap?.snapshotTree?.() ?? null;
-        }
-        return { ok: true, value: { ...value, contextId, tree } };
-      }
-      const childHit = await this.askChildrenSnapshot(contextId, opts);
-      if (childHit !== null) return childHit;
-      if (this.parent) return this.controlRequestSnapshot(contextId, opts);
-      return { ok: false, reason: "context_not_found" };
+      const result = await this.bus.invoke(
+        "snapshot",
+        { contextId, opts },
+        { destination: contextId, timeoutMs: SNAPSHOT_TIMEOUT_MS }
+      );
+      if (result.ok) return { ok: true, value: result.value };
+      return { ok: false, reason: result.error?.message ?? "snapshot_failed" };
     }
     async requestResumeContext(contextId) {
-      if (contextId === this.mine && this.resumeHandler) {
-        this.resumeHandler();
-        return { ok: true };
-      }
-      const childHit = await this.askChildrenResume(contextId);
-      if (childHit !== null) return childHit;
-      if (this.parent) return this.controlRequestResume(contextId);
-      return { ok: false, reason: "context_not_found" };
+      const result = await this.bus.invoke(
+        "resumeContext",
+        { contextId },
+        { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS }
+      );
+      if (result.ok) return result.value;
+      return { ok: false, reason: result.error?.message ?? "resume_failed" };
     }
-    /** Fan inbound sidecar frames onto the bus (root runtime). */
+    async requestApplyScroll(contextId, positions) {
+      const result = await this.bus.invoke(
+        "applyScrollPositions",
+        { contextId, positions },
+        { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS }
+      );
+      if (result.ok) return result.value;
+      return { ok: false, reason: result.error?.message ?? "apply_scroll_failed" };
+    }
+    setApplyScrollHandler(handler) {
+      this.applyScrollHandler = handler;
+    }
     publishFrame(bytes) {
-      this.dispatchFrame(bytes);
-      this.fanoutFrame(bytes);
+      this.bus.emit("frame", { bytes: bytes.slice().buffer }, { destination: "*" });
     }
-    /** After Control plane `requestResync` — local listeners + nested producer fan-out only. */
     publishResyncRequest(req) {
-      this.dispatchResync(req);
-      this.fanoutResync(req);
+      const dest = req.contextId > 0 ? req.contextId : this.mine;
+      this.bus.emit("resyncRequest", req, { destination: dest });
     }
-    controlRequestNumber(method, timeoutMs) {
-      const parent = this.parent;
-      if (!parent) return Promise.resolve(void 0);
-      const correlationId = this.corr++;
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          this.pending.delete(correlationId);
-          resolve(void 0);
-        }, timeoutMs);
-        this.pending.set(correlationId, { kind: "number", resolve, timer });
-        parent.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "request",
-            method,
-            correlationId
-          },
-          "*"
-        );
+    isAddressedHere(envelope) {
+      if (envelope.destination === "*") {
+        return envelope.source !== this.mine;
+      }
+      if (envelope.destination === this.mine) return true;
+      if (envelope.destination === CONTEXT_BUS_RUNTIME && this.bus.servesRuntime) return true;
+      return false;
+    }
+    wireDomainHandlers() {
+      this.bus.onInvocation("getScopeId", (_args, meta) => {
+        void meta;
+        throw new Error("scope_pending");
       });
-    }
-    controlRequestSnapshot(contextId, opts) {
-      const parent = this.parent;
-      if (!parent) return Promise.resolve({ ok: false, reason: "no_parent" });
-      const correlationId = this.corr++;
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          this.pending.delete(correlationId);
-          resolve({ ok: false, reason: "timeout" });
-        }, SNAPSHOT_TIMEOUT_MS);
-        this.pending.set(correlationId, { kind: "snapshot", resolve, timer });
-        parent.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "request",
-            method: "snapshot",
-            correlationId,
-            contextId,
-            opts
-          },
-          "*"
-        );
+      this.bus.onInvocation("mint", () => {
+        if (!this.mintFn) throw new Error("no_mint");
+        return this.mintFn();
       });
-    }
-    controlRequestResume(contextId) {
-      const parent = this.parent;
-      if (!parent) return Promise.resolve({ ok: false, reason: "no_parent" });
-      const correlationId = this.corr++;
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          this.pending.delete(correlationId);
-          resolve({ ok: false, reason: "timeout" });
-        }, RESUME_TIMEOUT_MS);
-        this.pending.set(correlationId, { kind: "resume", resolve, timer });
-        parent.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "request",
-            method: "resumeContext",
-            correlationId,
-            contextId
-          },
-          "*"
-        );
-      });
-    }
-    askChildrenSnapshot(contextId, opts) {
-      const children = this.collectChildWindows();
-      if (children.length === 0) return Promise.resolve(null);
-      return new Promise((resolve) => {
-        let pending = children.length;
-        let answered = false;
-        const finish = (result) => {
-          if (answered) return;
-          if (result !== null) {
-            answered = true;
-            resolve(result);
-            return;
-          }
-          pending -= 1;
-          if (pending === 0) resolve(null);
-        };
-        for (let i = 0; i < children.length; i++) {
-          void this.askWindowSnapshot(children[i], contextId, opts).then(finish);
-        }
-      });
-    }
-    askWindowSnapshot(w, contextId, opts) {
-      const correlationId = this.corr++;
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          this.pending.delete(correlationId);
-          resolve(null);
-        }, SNAPSHOT_TIMEOUT_MS);
-        this.pending.set(correlationId, {
-          kind: "snapshot",
-          resolve: (result) => {
-            resolve(result.ok ? result : null);
-          },
-          timer
-        });
-        w.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "request",
-            method: "snapshot",
-            correlationId,
-            contextId,
-            opts
-          },
-          "*"
-        );
-      });
-    }
-    askChildrenResume(contextId) {
-      const children = this.collectChildWindows();
-      if (children.length === 0) return Promise.resolve(null);
-      return new Promise((resolve) => {
-        let pending = children.length;
-        let answered = false;
-        const finish = (result) => {
-          if (answered) return;
-          if (result?.ok) {
-            answered = true;
-            resolve(result);
-            return;
-          }
-          pending -= 1;
-          if (pending === 0) resolve(null);
-        };
-        for (let i = 0; i < children.length; i++) {
-          void this.askWindowResume(children[i], contextId).then(finish);
-        }
-      });
-    }
-    askWindowResume(w, contextId) {
-      const correlationId = this.corr++;
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          this.pending.delete(correlationId);
-          resolve(null);
-        }, RESUME_TIMEOUT_MS);
-        this.pending.set(correlationId, {
-          kind: "resume",
-          resolve: (result) => {
-            resolve(result.ok ? result : null);
-          },
-          timer
-        });
-        w.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "request",
-            method: "resumeContext",
-            correlationId,
-            contextId
-          },
-          "*"
-        );
-      });
-    }
-    postToParent(envelope) {
-      if (!this.parent) return;
-      this.parent.postMessage(envelope, "*");
-    }
-    async handleMessage(event) {
-      if (!isEnvelope(event.data)) return;
-      const env = event.data;
-      if (env.kind === "control") {
-        await this.handleControl(env, event);
-        return;
-      }
-      if (env.type === "frame") {
-        const bytes = new Uint8Array(env.bytes);
-        if (event.source === this.parent) {
-          this.dispatchFrame(bytes);
-          this.fanoutFrame(bytes);
-          return;
-        }
-        if (this.emitFrameFn) this.emitFrameFn(bytes);
-        else this.postToParent(env);
-        return;
-      }
-      if (env.type === "telemetry") {
-        if (event.source === this.parent) {
-          this.dispatchTelemetry(env.message);
-          this.fanoutTelemetry(env.message);
-          return;
-        }
-        if (this.emitFrameFn) {
-          this.dispatchTelemetry(env.message);
-          return;
-        }
-        this.postToParent(env);
-        return;
-      }
-      if (env.type === "resyncRequest") {
-        if (event.source !== this.parent) return;
-        const req = {
-          contextId: env.contextId,
-          reason: env.reason,
-          generation: env.generation,
-          sequence: env.sequence
-        };
-        this.dispatchResync(req);
-        this.fanoutResync(req);
-        return;
-      }
-      if (env.type !== "controlInput") return;
-      if (event.source !== this.parent) return;
-      const input = {
-        contextId: env.contextId,
-        intentType: env.intentType,
-        nodeId: env.nodeId,
-        payload: env.payload
-      };
-      this.dispatchControlInput(input);
-      this.fanoutControlInput(input);
-    }
-    async handleControl(env, event) {
-      if (env.type === "response") {
-        const hop = this.forward.get(env.correlationId);
-        if (hop) {
-          this.forward.delete(env.correlationId);
-          hop.postMessage(env, "*");
-          return;
-        }
-        const pending = this.pending.get(env.correlationId);
-        if (!pending) return;
-        clearTimeout(pending.timer);
-        this.pending.delete(env.correlationId);
-        if (pending.kind === "number") {
-          pending.resolve(env.ok === true ? env.value : void 0);
-          return;
-        }
-        if (pending.kind === "snapshot") {
-          if (env.ok === true && env.value && typeof env.value === "object" && "sequence" in env.value) {
-            pending.resolve({ ok: true, value: env.value });
-          } else {
-            pending.resolve({ ok: false, reason: env.reason ?? "snapshot_failed" });
-          }
-          return;
-        }
-        pending.resolve({ ok: env.ok === true, reason: env.reason });
-        return;
-      }
-      if (env.type === "heartbeat") {
-        const pending = this.pending.get(env.correlationId);
-        if (!pending || pending.kind !== "number") return;
-        clearTimeout(pending.timer);
-        pending.timer = setTimeout(() => {
-          this.pending.delete(env.correlationId);
-          pending.resolve(void 0);
-        }, GET_SCOPE_TIMEOUT_MS);
-        return;
-      }
-      if (env.type !== "request") return;
-      const source = event.source;
-      if (source == null) return;
-      if (env.method === "getScopeId") {
-        const c = this.lookupScopeId?.(source);
-        if (c === void 0) {
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "heartbeat",
-              method: "getScopeId",
-              correlationId: env.correlationId
-            },
-            "*"
-          );
-          return;
-        }
-        source.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "response",
-            method: "getScopeId",
-            correlationId: env.correlationId,
-            ok: true,
-            value: c
-          },
-          "*"
-        );
-        return;
-      }
-      if (env.method === "mint") {
-        if (this.mintFn) {
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "response",
-              method: "mint",
-              correlationId: env.correlationId,
-              ok: true,
-              value: this.mintFn()
-            },
-            "*"
-          );
-          return;
-        }
-        if (!this.parent) return;
-        this.forward.set(env.correlationId, source);
-        this.parent.postMessage(env, "*");
-        return;
-      }
-      if (env.method === "snapshot") {
-        const contextId = env.contextId;
-        if (typeof contextId !== "number") {
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "response",
-              method: "snapshot",
-              correlationId: env.correlationId,
-              ok: false,
-              reason: "missing_contextId"
-            },
-            "*"
-          );
-          return;
-        }
-        if (contextId === this.mine && this.snapshotHandler) {
-          const value = this.snapshotHandler(env.opts);
+      this.bus.onInvocation("snapshot", async (args) => {
+        if (args.contextId === this.mine && this.snapshotHandler) {
+          const value = this.snapshotHandler(args.opts);
           let tree;
-          if (env.opts?.includeTree) {
+          if (args.opts?.includeTree) {
             const snap = globalThis.__speculumSnapshot;
             tree = snap?.snapshotTree?.() ?? null;
           }
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "response",
-              method: "snapshot",
-              correlationId: env.correlationId,
-              ok: true,
-              value: { ...value, contextId, tree }
-            },
-            "*"
-          );
-          return;
+          return { ...value, contextId: args.contextId, tree };
         }
-        const childHit = await this.askChildrenSnapshot(contextId, env.opts);
-        if (childHit !== null) {
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "response",
-              method: "snapshot",
-              correlationId: env.correlationId,
-              ok: childHit.ok,
-              value: childHit.ok ? childHit.value : void 0,
-              reason: childHit.ok ? void 0 : childHit.reason
-            },
-            "*"
-          );
-          return;
+        throw new Error("context_not_found");
+      });
+      this.bus.onInvocation("resumeContext", (args) => {
+        if (args.contextId === this.mine && this.resumeHandler) {
+          this.resumeHandler();
+          return { ok: true };
         }
-        if (this.parent) {
-          this.forward.set(env.correlationId, source);
-          this.parent.postMessage(env, "*");
-          return;
+        throw new Error("context_not_found");
+      });
+      this.bus.onInvocation(
+        "applyScrollPositions",
+        (args) => {
+          if (args.contextId === this.mine && this.applyScrollHandler) {
+            return this.applyScrollHandler(args.positions);
+          }
+          throw new Error("context_not_found");
         }
-        source.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "response",
-            method: "snapshot",
-            correlationId: env.correlationId,
-            ok: false,
-            reason: "context_not_found"
-          },
-          "*"
-        );
+      );
+      this.bus.onInvocation("emitFrame", (args) => {
+        const bytes = new Uint8Array(args.bytes);
+        if (this.emitFrameFn) {
+          this.emitFrameFn(bytes);
+          return { ok: true };
+        }
+        throw new Error("no_emit_frame");
+      });
+      this.bus.onInvocation("emitTelemetry", (args) => {
+        this.bus.emit("telemetry", args.message, { destination: "*" });
+        return { ok: true };
+      });
+    }
+    async handleDomainSideEffects(envelope, event) {
+      if (isTransportType(envelope.type)) {
         return;
       }
-      if (env.method === "resumeContext") {
-        const contextId = env.contextId;
-        if (typeof contextId !== "number") {
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "response",
-              method: "resumeContext",
-              correlationId: env.correlationId,
-              ok: false,
-              reason: "missing_contextId"
-            },
-            "*"
-          );
+      if (envelope.type === "frame") {
+        const bytes = new Uint8Array(envelope.event.bytes);
+        if (event.source === this.parent) {
+          this.bus.emit("frame", { bytes: bytes.buffer }, { destination: "*" });
           return;
         }
-        if (contextId === this.mine && this.resumeHandler) {
-          this.resumeHandler();
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "response",
-              method: "resumeContext",
-              correlationId: env.correlationId,
-              ok: true
-            },
-            "*"
-          );
-          return;
-        }
-        const childHit = await this.askChildrenResume(contextId);
-        if (childHit !== null) {
-          source.postMessage(
-            {
-              channel: PROJECTION_BUS_CHANNEL,
-              kind: "control",
-              type: "response",
-              method: "resumeContext",
-              correlationId: env.correlationId,
-              ok: childHit.ok,
-              reason: childHit.reason
-            },
-            "*"
-          );
-          return;
-        }
-        if (this.parent) {
-          this.forward.set(env.correlationId, source);
-          this.parent.postMessage(env, "*");
-          return;
-        }
-        source.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "control",
-            type: "response",
-            method: "resumeContext",
-            correlationId: env.correlationId,
-            ok: false,
-            reason: "context_not_found"
-          },
-          "*"
-        );
+        if (this.emitFrameFn) this.emitFrameFn(bytes);
+        return;
       }
+      if (envelope.type === "telemetry") {
+        if (event.source === this.parent) {
+          this.bus.emit("telemetry", envelope.event, { destination: "*" });
+        }
+        return;
+      }
+      if (envelope.type === "resyncRequest" && event.source !== this.parent) return;
+      if (envelope.type === "controlInput" && event.source !== this.parent) return;
     }
-    dispatchFrame(bytes) {
-      for (const cb of this.frameListeners) cb(bytes);
+    respondInvocationToSource(eventSource, callerContextId, req, result) {
+      const started = {
+        channel: CONTEXT_BUS_CHANNEL,
+        source: this.mine,
+        destination: callerContextId,
+        type: "invocation-started",
+        event: { invocationId: req.invocationId }
+      };
+      const response = {
+        channel: CONTEXT_BUS_CHANNEL,
+        source: this.mine,
+        destination: callerContextId,
+        type: "invocation-response",
+        event: { invocationId: req.invocationId, result }
+      };
+      const target = eventSource;
+      if (target && typeof target.postMessage === "function") {
+        target.postMessage(started, "*");
+        target.postMessage(response, "*");
+        return;
+      }
+      this.sendLocalResponse(callerContextId, req, result);
     }
-    dispatchResync(req) {
-      for (const cb of this.resyncListeners) cb(req);
-    }
-    dispatchControlInput(req) {
-      for (const cb of this.controlInputListeners) cb(req);
-    }
-    dispatchTelemetry(message) {
-      for (const cb of this.telemetryListeners) cb(message);
-    }
-    fanoutFrame(bytes) {
-      const copy = bytes.slice();
-      this.forEachChildWindow((w) => {
-        w.postMessage(
-          { channel: PROJECTION_BUS_CHANNEL, kind: "loose", type: "frame", bytes: copy.buffer },
-          "*"
-        );
+    sendLocalResponse(source, req, result) {
+      this.bus.receive({
+        channel: CONTEXT_BUS_CHANNEL,
+        source: this.mine,
+        destination: source,
+        type: "invocation-started",
+        event: { invocationId: req.invocationId }
+      });
+      this.bus.receive({
+        channel: CONTEXT_BUS_CHANNEL,
+        source: this.mine,
+        destination: source,
+        type: "invocation-response",
+        event: { invocationId: req.invocationId, result }
       });
     }
-    fanoutResync(req) {
-      this.forEachChildWindow((w) => {
-        w.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "loose",
-            type: "resyncRequest",
-            contextId: req.contextId,
-            reason: req.reason,
-            generation: req.generation,
-            sequence: req.sequence
-          },
-          "*"
-        );
-      });
+    routeOutbound(envelope) {
+      if (this.disposed) return;
+      if (envelope.destination === "*") {
+        this.forEachChildWindow((w) => w.postMessage(envelope, "*"));
+        return;
+      }
+      const dest = envelope.destination;
+      if (dest === this.mine || dest === CONTEXT_BUS_RUNTIME && this.bus.servesRuntime) {
+        return;
+      }
+      const child = this.findChildForContext(dest);
+      if (child) {
+        child.postMessage(envelope, "*");
+        return;
+      }
+      if (this.parent) {
+        this.parent.postMessage(envelope, "*");
+        return;
+      }
+      this.forEachChildWindow((w) => w.postMessage(envelope, "*"));
     }
-    fanoutControlInput(req) {
+    findChildForContext(contextId) {
+      let found = null;
       this.forEachChildWindow((w) => {
-        w.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "loose",
-            type: "controlInput",
-            contextId: req.contextId,
-            intentType: req.intentType,
-            nodeId: req.nodeId,
-            payload: req.payload
-          },
-          "*"
-        );
+        if (found) return;
+        if (this.lookupScopeId?.(w) === contextId) found = w;
       });
-    }
-    fanoutTelemetry(message) {
-      this.forEachChildWindow((w) => {
-        w.postMessage(
-          {
-            channel: PROJECTION_BUS_CHANNEL,
-            kind: "loose",
-            type: "telemetry",
-            message
-          },
-          "*"
-        );
-      });
-    }
-    collectChildWindows() {
-      const out = [];
-      this.forEachChildWindow((w) => out.push(w));
-      return out;
+      return found;
     }
     forEachChildWindow(fn) {
       const doc = this.win.document;
@@ -4741,7 +4815,7 @@
     next = 2;
     mint() {
       const id = this.next;
-      if (id > 4294967295) throw new Error("contextId space exhausted");
+      if (id > CONTEXT_ID_MAX_DOCUMENT) throw new Error("contextId space exhausted");
       this.next = id + 1;
       return id >>> 0;
     }
@@ -4783,7 +4857,7 @@
       this.dataPlane = dataPlane;
       this.loopback = loopback;
       this.cdp = cdp;
-      this.bus = new ProjectionBus({
+      this.bus = new VirtualDomainBus({
         window: win,
         role: "root",
         mint: () => this.mint(),
@@ -4814,6 +4888,34 @@
       if (plane === null || !plane.isOpen) return;
       const bytes = this.textEncoder.encode(JSON.stringify(message));
       void plane.send(3 /* Telemetry */, bytes);
+    }
+  };
+
+  // ../packages/page-projection/src/virtual/runtime/contextRegistry.ts
+  var ContextRegistry = class {
+    constructor(bus) {
+      this.bus = bus;
+    }
+    announceRootOnline(rootContextId) {
+      const event = { rootContextId };
+      this.bus.emit("contextRootOnline", event, { destination: CONTEXT_BUS_RUNTIME });
+    }
+    admitHost(contextId, hostNodeId) {
+      const event = { contextId, hostNodeId };
+      this.bus.emit("contextHostAdmitted", event, { destination: CONTEXT_BUS_RUNTIME });
+    }
+    dropHost(contextId, hostNodeId) {
+      const event = { contextId, hostNodeId };
+      this.bus.emit("contextHostDropped", event, { destination: CONTEXT_BUS_RUNTIME });
+    }
+    onRootOnline(handler) {
+      return this.bus.onEvent("contextRootOnline", handler);
+    }
+    onHostAdmitted(handler) {
+      return this.bus.onEvent("contextHostAdmitted", handler);
+    }
+    onHostDropped(handler) {
+      return this.bus.onEvent("contextHostDropped", handler);
     }
   };
 
@@ -4963,260 +5065,373 @@
         }
       }
       if (typeof payload.value === "string") {
-        input.value = payload.value;
-        input.dispatchEvent(new Ev("input", { bubbles: true }));
+        setNativeControlValue(input, payload.value);
+        const InputEv = globalThis.InputEvent;
+        if (typeof InputEv === "function") {
+          input.dispatchEvent(
+            new InputEv("input", { bubbles: true, data: payload.value, inputType: "insertReplacementText" })
+          );
+        } else {
+          input.dispatchEvent(new Ev("input", { bubbles: true }));
+        }
         input.dispatchEvent(new Ev("change", { bubbles: true }));
       }
     }
+  }
+  function setNativeControlValue(input, value) {
+    const tag = input.tagName.toUpperCase();
+    const proto = tag === "TEXTAREA" ? globalThis.HTMLTextAreaElement.prototype : tag === "SELECT" ? globalThis.HTMLSelectElement.prototype : globalThis.HTMLInputElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, "value");
+    if (desc?.set) {
+      desc.set.call(input, value);
+      return;
+    }
+    input.value = value;
+  }
+
+  // ../packages/page-projection/src/virtual/input/applyScrollPositions.ts
+  function scrollEchoApis2() {
+    const g = globalThis;
+    let note = g.__speculumDomNoteScrollEcho;
+    let consume = g.__speculumDomConsumeScrollEchoIfAt;
+    if (!note || !consume) {
+      try {
+        note = note ?? g.top?.__speculumDomNoteScrollEcho;
+        consume = consume ?? g.top?.__speculumDomConsumeScrollEchoIfAt;
+      } catch {
+      }
+    }
+    return { note, consume };
+  }
+  function applyOne(domNodes, doc, entry, missing) {
+    const { note, consume } = scrollEchoApis2();
+    if (entry.nodeId == null) {
+      const se = doc.scrollingElement;
+      const mark2 = { viewport: { top: entry.scrollY, left: entry.scrollX } };
+      note?.(mark2);
+      if (se) {
+        se.scrollTop = entry.scrollY;
+        se.scrollLeft = entry.scrollX;
+      } else {
+        doc.defaultView?.scrollTo(entry.scrollX, entry.scrollY);
+      }
+      consume?.(mark2);
+      return;
+    }
+    const el = domNodes.get(entry.nodeId);
+    if (!el || el.nodeType !== 1) {
+      missing.push(entry.nodeId);
+      return;
+    }
+    const node = el;
+    const mark = { element: { nodeId: entry.nodeId, top: entry.scrollY, left: entry.scrollX } };
+    note?.(mark);
+    node.scrollTop = entry.scrollY;
+    node.scrollLeft = entry.scrollX;
+    consume?.(mark);
+  }
+  function applyScrollPositions(domNodes, doc, positions) {
+    const missingNodeIds = [];
+    for (const entry of positions) {
+      applyOne(domNodes, doc, entry, missingNodeIds);
+    }
+    return { ok: true, missingNodeIds };
   }
 
   // ../packages/page-projection/src/virtual/bootstrap.ts
   document.currentScript?.remove();
   void (async () => {
     if (globalThis.__speculumProjection) return;
-    const config = readProjectionConfig();
-    const isRoot = window.parent === window;
-    let mine = CONTEXT_ID_ROOT;
-    let frameTransport;
-    let dataPlane = null;
-    let loopback = null;
-    let bus;
-    let mintFn;
-    if (isRoot) {
-      const runtime = new RootRuntime(config, window);
-      loopback = runtime.loopback;
-      frameTransport = runtime.frameTransport;
-      dataPlane = runtime.dataPlane;
-      bus = runtime.bus;
-      mintFn = () => runtime.mint();
-      mine = CONTEXT_ID_ROOT;
-      try {
-        await runtime.whenOpen();
-      } catch (err) {
-        console.error("[speculumProjection] data plane open failed", err);
-      }
-    } else {
-      bus = new ProjectionBus({ window, parent: window.parent, role: "nested" });
-      frameTransport = new BusFrameTransport(bus);
-      mintFn = createMintPort({ requestMint: () => bus.requestMint() });
-      mine = await bus.getScopeId();
+    const bootGlobal = globalThis;
+    if (bootGlobal.__speculumProjectionBoot) {
+      await bootGlobal.__speculumProjectionBoot;
+      return;
     }
-    const childScopes = new ChildScopeIndex(mintFn);
-    const domNodes = new DomNodeTable();
-    bus.setScopeLookup(
-      (source) => childScopes.lookupByContentWindow(source, (id) => domNodes.get(id))
-    );
-    domNodes.bind(document, DOCUMENT_ID);
-    domNodes.setGeneration(config.generation);
-    const table = new ReplicatedTable();
-    const formIndex = new FormPropIndex();
-    const mutationBuffer = new MutationBuffer();
-    const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
-    const frameBuilder = new TableFrameBuilder({
-      domNodes,
-      table,
-      formIndex,
-      childScopes,
-      observeShadowRoot: (root) => domMutationObserver.observeRoot(root),
-      unobserveShadowRoot: (root) => domMutationObserver.unobserveRoot(root)
-    });
-    const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
-    const telemetry = new ProjectionTelemetry({
-      config: config.telemetry,
-      dataPlane,
-      contextId: mine,
-      bus
-    });
-    const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint()), (host) => {
-      const id = domNodes.keyOf(host);
-      return id;
-    }) : null;
-    const cssom = cssomPoller !== null ? new CssomIdleScheduler({
-      poller: cssomPoller,
-      minIntervalMs: 1e3 / config.cssomPollHz
-    }) : disabledCssomPlane();
-    const resyncPlanes = {
-      domNodes,
-      table,
-      cssom,
-      formIndex,
-      childScopes,
-      contextId: mine,
-      notePendingNestedHost: (el) => frameBuilder.notePendingNestedHost(el)
-    };
-    const frameClock = new TimerFrameClock({
-      frameRateHz: config.frameRateHz,
-      onStall: (info) => {
-        telemetry.recordClockStalled({
-          sinceLastTickMs: info.sinceLastTickMs,
-          rateHz: frameClock.rateHz
-        });
-      },
-      onRateChanged: (info) => telemetry.recordRateChanged(info)
-    });
-    domMutationObserver.start();
-    const frameEmitter = new FrameEmitter({
-      clock: frameClock,
-      buffer: mutationBuffer,
-      builder: frameBuilder,
-      encoder,
-      transport: frameTransport,
-      census: () => ({
-        generation: domNodes.generation,
-        tableSize: table.size,
-        identitySize: domNodes.size
-      }),
-      telemetry,
-      pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer(),
-      takePendingCssom: () => cssom.takePending(),
-      table,
-      contextId: mine
-    });
-    bus.setMine(mine);
-    const snapshotPlanes = {
-      domNodes,
-      table,
-      cssom,
-      cssomIds: cssomPoller?.ids ?? null,
-      currentSequence: () => frameEmitter.currentSequence,
-      flushDom: () => frameEmitter.flushNow(),
-      recordCssomPoll: (stats) => telemetry.recordCssomPoll(stats)
-    };
-    bus.setSnapshotHandler((opts) => {
-      const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? "none" });
-      frameEmitter.stop();
-      cssom.halt();
-      return snapped;
-    });
-    bus.setResumeHandler(() => {
-      frameEmitter.start();
-      cssom.start();
-      domMutationObserver.syncObservedShadowRoots(domNodes);
-    });
-    bus.onResyncRequest((req) => {
-      if (req.contextId !== mine) return;
-      frameEmitter.requestResync((seq) => {
-        const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
-        telemetry.recordCssomPoll(cssomStats);
-        return frame;
-      });
-    });
-    bus.onControlInput((req) => {
-      if (req.contextId !== mine) return;
-      applyControlInput(domNodes, {
-        type: "input",
-        contextId: req.contextId,
-        intentType: req.intentType,
-        nodeId: req.nodeId,
-        payload: req.payload
-      });
-    });
-    if (dataPlane) {
-      dataPlane.setHandler((channel, payload) => {
-        if (channel !== 2 /* Control */) return;
-        let msg;
-        try {
-          msg = JSON.parse(new TextDecoder().decode(payload));
-        } catch {
-          return;
+    bootGlobal.__speculumProjectionBoot = (async () => {
+      try {
+        const config = readProjectionConfig();
+        const isRoot = window.parent === window;
+        let mine = CONTEXT_ID_ROOT;
+        let frameTransport;
+        let dataPlane = null;
+        let loopback = null;
+        let bus;
+        let mintFn;
+        if (isRoot) {
+          const runtime = new RootRuntime(config, window);
+          loopback = runtime.loopback;
+          frameTransport = runtime.frameTransport;
+          dataPlane = runtime.dataPlane;
+          bus = runtime.bus;
+          mintFn = () => runtime.mint();
+          mine = CONTEXT_ID_ROOT;
+          try {
+            await runtime.whenOpen();
+          } catch (err) {
+            console.error("[speculumProjection] data plane open failed", err);
+          }
+        } else {
+          bus = new VirtualDomainBus({
+            window,
+            parent: window.parent,
+            role: "nested",
+            contextId: CONTEXT_ID_PROVISIONAL
+          });
+          frameTransport = new BusFrameTransport(bus);
+          mintFn = createMintPort({ requestMint: () => bus.requestMint() });
+          while (true) {
+            try {
+              const parentReady = window.parent.__speculumProjection?.contextId === CONTEXT_ID_ROOT;
+              if (parentReady) break;
+            } catch {
+            }
+            await new Promise((r) => setTimeout(r, 16));
+          }
+          mine = await bus.getScopeId();
         }
-        if (typeof msg !== "object" || msg === null) return;
-        const req = msg;
-        const contextId = typeof req.contextId === "number" && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
-        if (req.type === "input") {
-          bus.publishControlInput({
-            contextId,
-            intentType: typeof req.intentType === "string" ? req.intentType : "",
-            nodeId: typeof req.nodeId === "number" ? req.nodeId : null,
+        const childScopes = new ChildScopeIndex(mintFn);
+        const domNodes = new DomNodeTable();
+        bus.setScopeLookup(
+          (source) => childScopes.lookupByContentWindow(source, (id) => domNodes.get(id))
+        );
+        domNodes.bind(document, DOCUMENT_ID);
+        domNodes.setGeneration(config.generation);
+        const table = new ReplicatedTable();
+        const formIndex = new FormPropIndex();
+        const mutationBuffer = new MutationBuffer();
+        const domMutationObserver = new DomMutationObserver({ buffer: mutationBuffer });
+        const frameBuilder = new TableFrameBuilder({
+          domNodes,
+          table,
+          formIndex,
+          childScopes,
+          observeShadowRoot: (root) => domMutationObserver.observeRoot(root),
+          unobserveShadowRoot: (root) => domMutationObserver.unobserveRoot(root)
+        });
+        const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
+        const telemetry = new ProjectionTelemetry({
+          config: config.telemetry,
+          dataPlane,
+          contextId: mine,
+          bus
+        });
+        const cssomPoller = config.cssomPollHz > 0 ? new CssomPoller(new CssomIds(() => domNodes.mint()), (host) => {
+          const id = domNodes.keyOf(host);
+          return id;
+        }) : null;
+        const cssom = cssomPoller !== null ? new CssomIdleScheduler({
+          poller: cssomPoller,
+          minIntervalMs: 1e3 / config.cssomPollHz
+        }) : disabledCssomPlane();
+        const resyncPlanes = {
+          domNodes,
+          table,
+          cssom,
+          formIndex,
+          childScopes,
+          contextId: mine,
+          notePendingNestedHost: (el) => frameBuilder.notePendingNestedHost(el)
+        };
+        const frameClock = new TimerFrameClock({
+          frameRateHz: config.frameRateHz,
+          onStall: (info) => {
+            telemetry.recordClockStalled({
+              sinceLastTickMs: info.sinceLastTickMs,
+              rateHz: frameClock.rateHz
+            });
+          },
+          onRateChanged: (info) => telemetry.recordRateChanged(info)
+        });
+        domMutationObserver.start();
+        const frameEmitter = new FrameEmitter({
+          clock: frameClock,
+          buffer: mutationBuffer,
+          builder: frameBuilder,
+          encoder,
+          transport: frameTransport,
+          census: () => ({
+            generation: domNodes.generation,
+            tableSize: table.size,
+            identitySize: domNodes.size
+          }),
+          telemetry,
+          pullPendingMutations: () => domMutationObserver.takePendingIntoBuffer(),
+          takePendingCssom: () => cssom.takePending(),
+          table,
+          contextId: mine
+        });
+        bus.setMine(mine);
+        const contextRegistry = isRoot ? new ContextRegistry(bus) : null;
+        if (contextRegistry && isRoot) {
+          contextRegistry.announceRootOnline(mine);
+        }
+        const snapshotPlanes = {
+          domNodes,
+          table,
+          cssom,
+          cssomIds: cssomPoller?.ids ?? null,
+          currentSequence: () => frameEmitter.currentSequence,
+          flushDom: () => frameEmitter.flushNow(),
+          recordCssomPoll: (stats) => telemetry.recordCssomPoll(stats)
+        };
+        bus.setSnapshotHandler((opts) => {
+          const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? "none" });
+          frameEmitter.stop();
+          cssom.halt();
+          return snapped;
+        });
+        bus.setResumeHandler(() => {
+          frameEmitter.start();
+          cssom.start();
+          domMutationObserver.syncObservedShadowRoots(domNodes);
+        });
+        bus.setApplyScrollHandler((positions) => applyScrollPositions(domNodes, document, positions));
+        bus.onResyncRequest((req) => {
+          if (req.contextId !== mine) return;
+          frameEmitter.requestResync((seq) => {
+            const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
+            telemetry.recordCssomPoll(cssomStats);
+            return frame;
+          });
+        });
+        bus.onControlInput((req) => {
+          if (req.contextId !== mine) return;
+          applyControlInput(domNodes, {
+            type: "input",
+            contextId: req.contextId,
+            intentType: req.intentType,
+            nodeId: req.nodeId,
             payload: req.payload
           });
-          return;
-        }
-        if (req.type !== "requestResync") return;
-        console.log(
-          "[speculumProjection] resync requested \u2014 reason=%s contextId=%s clientGeneration=%s clientSequence=%s",
-          String(req.reason),
-          String(contextId),
-          String(req.generation),
-          String(req.sequence)
-        );
-        bus.publishResyncRequest({
-          contextId,
-          reason: typeof req.reason === "string" ? req.reason : void 0,
-          generation: typeof req.generation === "number" ? req.generation : void 0,
-          sequence: typeof req.sequence === "number" ? req.sequence : void 0
         });
-      });
-    }
-    const { frame: resyncFrame, cssom: cssomResyncStats } = rebuildAndResync(
-      resyncPlanes,
-      frameEmitter.currentSequence + 1
-    );
-    telemetry.recordCssomPoll(cssomResyncStats);
-    if (config.generation > 1) {
-      resyncFrame.ops.unshift({ op: 2 /* EpochReset */, generation: config.generation });
-    }
-    domMutationObserver.takePendingIntoBuffer();
-    mutationBuffer.drain();
-    await frameEmitter.sendInitial(resyncFrame);
-    domMutationObserver.syncObservedShadowRoots(domNodes);
-    frameEmitter.start();
-    telemetry.start();
-    cssom.start();
-    globalThis.__speculumSnapshot = {
-      snapshotTree
-    };
-    globalThis.__speculumProjection = {
-      version: 1,
-      contextId: mine,
-      domNodes,
-      table,
-      frameClock,
-      mutationBuffer,
-      domMutationObserver,
-      frameBuilder,
-      frameEmitter,
-      frameTransport,
-      telemetry,
-      cssomPoller,
-      compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
-      haltWorld: () => {
-        frameEmitter.stop();
-        cssom.halt();
-        domMutationObserver.unobserveAllRoots();
-      },
-      resumeWorld: () => {
-        frameEmitter.start();
-        cssom.start();
+        if (dataPlane) {
+          dataPlane.setHandler((channel, payload) => {
+            if (channel !== 2 /* Control */) return;
+            let msg;
+            try {
+              msg = JSON.parse(new TextDecoder().decode(payload));
+            } catch {
+              return;
+            }
+            if (typeof msg !== "object" || msg === null) return;
+            const req = msg;
+            const contextId = typeof req.contextId === "number" && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
+            if (req.type === "input") {
+              bus.publishControlInput({
+                contextId,
+                intentType: typeof req.intentType === "string" ? req.intentType : "",
+                nodeId: typeof req.nodeId === "number" ? req.nodeId : null,
+                payload: req.payload
+              });
+              return;
+            }
+            if (req.type !== "requestResync") return;
+            console.log(
+              "[speculumProjection] resync requested \u2014 reason=%s contextId=%s clientGeneration=%s clientSequence=%s",
+              String(req.reason),
+              String(contextId),
+              String(req.generation),
+              String(req.sequence)
+            );
+            bus.publishResyncRequest({
+              contextId,
+              reason: typeof req.reason === "string" ? req.reason : void 0,
+              generation: typeof req.generation === "number" ? req.generation : void 0,
+              sequence: typeof req.sequence === "number" ? req.sequence : void 0
+            });
+          });
+        }
+        const { frame: resyncFrame, cssom: cssomResyncStats } = rebuildAndResync(
+          resyncPlanes,
+          frameEmitter.currentSequence + 1
+        );
+        telemetry.recordCssomPoll(cssomResyncStats);
+        if (config.generation > 1) {
+          resyncFrame.ops.unshift({ op: 2 /* EpochReset */, generation: config.generation });
+        }
+        domMutationObserver.takePendingIntoBuffer();
+        mutationBuffer.drain();
+        await frameEmitter.sendInitial(resyncFrame);
         domMutationObserver.syncObservedShadowRoots(domNodes);
-      },
-      flushFrame: () => {
-        frameEmitter.flushNow();
-        return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
-      },
-      flushAndSnapshot: (opts) => {
-        const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? "none" });
-        frameEmitter.stop();
-        cssom.halt();
-        return snapped;
-      },
-      snapshotContext: (contextId, opts) => bus.requestSnapshot(contextId, opts),
-      snapshotAllKnown: async (contextIds, opts) => {
-        const entries = await Promise.all(
-          contextIds.map(async (id) => {
-            const result = await bus.requestSnapshot(id, opts);
-            return [id, result.ok ? result.value : { ok: false, reason: result.reason }];
-          })
-        );
-        return Object.fromEntries(entries);
-      },
-      resumeContext: (contextId) => bus.requestResumeContext(contextId),
-      resumeAllKnown: async (contextIds) => {
-        const entries = await Promise.all(
-          contextIds.map(async (id) => [id, await bus.requestResumeContext(id)])
-        );
-        return Object.fromEntries(entries);
+        frameEmitter.start();
+        telemetry.start();
+        cssom.start();
+        globalThis.__speculumSnapshot = {
+          snapshotTree
+        };
+        globalThis.__speculumProjection = {
+          version: 1,
+          contextId: mine,
+          domNodes,
+          table,
+          frameClock,
+          mutationBuffer,
+          domMutationObserver,
+          frameBuilder,
+          frameEmitter,
+          frameTransport,
+          telemetry,
+          cssomPoller,
+          compareTableToLiveDom: () => compareTableToLiveDom(table, domNodes, document),
+          haltWorld: () => {
+            frameEmitter.stop();
+            cssom.halt();
+            domMutationObserver.unobserveAllRoots();
+          },
+          resumeWorld: () => {
+            frameEmitter.start();
+            cssom.start();
+            domMutationObserver.syncObservedShadowRoots(domNodes);
+          },
+          flushFrame: () => {
+            frameEmitter.flushNow();
+            return { generation: domNodes.generation, sequence: frameEmitter.currentSequence };
+          },
+          flushAndSnapshot: (opts) => {
+            const snapped = takeSnapshot(snapshotPlanes, { cssom: opts?.cssom ?? "none" });
+            frameEmitter.stop();
+            cssom.halt();
+            return snapped;
+          },
+          snapshotContext: (contextId, opts) => bus.requestSnapshot(contextId, opts),
+          snapshotAllKnown: async (contextIds, opts) => {
+            const entries = await Promise.all(
+              contextIds.map(async (id) => {
+                const result = await bus.requestSnapshot(id, opts);
+                return [id, result.ok ? result.value : { ok: false, reason: result.reason }];
+              })
+            );
+            return Object.fromEntries(entries);
+          },
+          resumeContext: (contextId) => bus.requestResumeContext(contextId),
+          resumeAllKnown: async (contextIds) => {
+            const entries = await Promise.all(
+              contextIds.map(async (id) => [id, await bus.requestResumeContext(id)])
+            );
+            return Object.fromEntries(entries);
+          },
+          applyScrollCensus: async (census) => {
+            const missingNodeIds = [];
+            for (const ctx of census.contexts) {
+              const r = await bus.requestApplyScroll(ctx.contextId, ctx.positions);
+              if (!r.ok) return { ok: false, reason: r.reason ?? "apply_scroll_failed", missingNodeIds };
+              if (r.missingNodeIds) missingNodeIds.push(...r.missingNodeIds);
+            }
+            return { ok: true, missingNodeIds };
+          },
+          applyScrollSet: async (args) => {
+            const r = await bus.requestApplyScroll(args.contextId, [
+              { nodeId: args.nodeId, scrollX: args.scrollX, scrollY: args.scrollY }
+            ]);
+            if (!r.ok) return { ok: false, reason: r.reason ?? "apply_scroll_failed" };
+            return { ok: true };
+          }
+        };
+      } catch (err) {
+        console.error("[speculumProjection] bootstrap failed", err);
+        throw err;
       }
-    };
+    })();
+    await bootGlobal.__speculumProjectionBoot;
   })();
 })();

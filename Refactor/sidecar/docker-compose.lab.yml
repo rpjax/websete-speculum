@@ -1,0 +1,31 @@
+# Projection lab with OS uinput (canonical for input cutover).
+# From Refactor/: docker compose -f sidecar/docker-compose.lab.yml up --build
+services:
+  lab:
+    build:
+      context: ..
+      dockerfile: sidecar/Dockerfile
+    image: speculum-projection-lab
+    init: true
+    cap_add:
+      - SYS_ADMIN
+      - MKNOD
+    shm_size: 2gb
+    devices:
+      - /dev/uinput:/dev/uinput
+    device_cgroup_rules:
+      - "c 10:223 rwm"
+      - "c 13:* rwm"
+    environment:
+      NODE_ENV: production
+      SPECULUM_LAB_HOST: 0.0.0.0
+      SPECULUM_LAB_PORT: "4103"
+      SPECULUM_LAB_HEADED: "1"
+      SPECULUM_INPUT_BACKEND: os
+      CHROME_EXECUTABLE: /usr/bin/google-chrome
+      DISPLAY: ":99"
+    ports:
+      - "4103:4103"
+    healthcheck:
+      disable: true
+    command: ["node", "dist/browser/mirror/projection/lab/host/index.js"]

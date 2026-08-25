@@ -87,6 +87,14 @@ export class BinaryFrameEncoder implements FrameEncoder {
     return out;
   }
 
+  /**
+   * D-SPEC-7 rewrite hop: re-encode one already-delimited part, preserving
+   * `partIndex`/`partCount` from the inbound wire part.
+   */
+  encodePart(frame: Frame, partIndex: number, partCount: number): Uint8Array {
+    return this.encodeOpsPart(frame, frame.ops, partIndex, partCount);
+  }
+
   private encodeOpsPart(frame: Frame, ops: FrameOp[], partIndex: number, partCount: number): Uint8Array {
     const w = this.scratch;
     w.reset();

@@ -95,7 +95,12 @@ async function smokeUiApply() {
   let ok = false;
   while (Date.now() < deadline) {
     const frames = await page.textContent('#streamFrames');
-    if (frames && Number(frames) > 0) {
+    const surfaceText = await page.evaluate(() => {
+      const host = document.getElementById('surfaceHost');
+      const iframe = host?.querySelector('iframe');
+      return iframe?.contentDocument?.body?.innerText?.trim() ?? '';
+    });
+    if (frames && Number(frames) > 0 && surfaceText.length > 20) {
       ok = true;
       break;
     }
@@ -104,7 +109,7 @@ async function smokeUiApply() {
     await wait(200);
   }
   await browser.close();
-  if (!ok) throw new Error('UI did not show frames');
+  if (!ok) throw new Error('UI did not show projected surface content');
   console.log('[smoke] UI browse apply ok');
 }
 

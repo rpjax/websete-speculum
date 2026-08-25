@@ -43,7 +43,7 @@ export type LabIntentJournalEntry = {
   intent: Record<string, unknown>;
   ok: boolean;
   error?: string;
-  mode?: 'A' | 'B' | 'C';
+  mode?: 'A' | 'B' | 'C' | 'OS';
   /** Sidecar dispatch wall ms for this intent. */
   dispatchMs?: number;
   /** Receive − wallClientMs when stamped. */
@@ -738,7 +738,7 @@ export class LabChassis {
     result: {
       ok: boolean;
       error?: string;
-      mode?: 'A' | 'B' | 'C';
+      mode?: 'A' | 'B' | 'C' | 'OS';
       dispatchMs?: number;
       clientLagMs?: number;
     },
@@ -748,17 +748,21 @@ export class LabChassis {
       intent,
       ok: result.ok,
       error: result.error,
-      mode: result.mode,
+      mode: result.mode ?? 'OS',
       dispatchMs: result.dispatchMs,
       clientLagMs: result.clientLagMs,
     };
     this.journal.intents.push(entry);
     this.eventCounts.intent = (this.eventCounts.intent ?? 0) + 1;
     // Motion intents are high-rate; keep them in memory for Stop export, skip live ndjson.
-    // Disk append on the hot path contended with CDP while Virtual was already emitting huge frames.
     const type = typeof intent.type === 'string' ? intent.type.toLowerCase() : '';
     const motion =
-      type === 'mousemove' || type === 'pointermove' || type === 'wheel' || type === 'scrollviewport';
+      type === 'move'
+      || type === 'mousemove'
+      || type === 'pointermove'
+      || type === 'wheel'
+      || type === 'scrollviewport'
+      || type === 'scrollset';
     if (this.dossier && (!motion || !result.ok)) {
       await appendNdjsonArtifact(this.dossier, 'journal/intents.jsonl', entry, 'journal.intents');
     }
@@ -1044,6 +1048,8 @@ export class LabChassis {
       'probes/input-pipeline.json',
       {
         wallMs,
+        backend: 'os',
+        path: 'eventApplier+absUinput',
         capture: this.lastInputCaptureMetrics,
         journal: {
           total: intents.length,

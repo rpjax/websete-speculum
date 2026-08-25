@@ -17,6 +17,16 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
     console.log('[unit] PP input click skipped (SPECULUM_SKIP_PP_SESSION=1)');
     return;
   }
+  let uinputOk = false;
+  try {
+    uinputOk = require('../../../patchright/input/uinput').uinputAvailable() === true;
+  } catch {
+    uinputOk = false;
+  }
+  if (!uinputOk) {
+    console.log('[unit] PP input click skipped (no /dev/uinput)');
+    return;
+  }
 
   const { fixturesDir } = labAssetRoots();
   const fixture = path.join(fixturesDir, 'input-click.html');

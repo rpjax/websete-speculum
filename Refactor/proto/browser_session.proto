@@ -385,7 +385,7 @@ message PageProjectionFrame {
 
 message DomInputEvent {
   string session_id = 1;
-  string type = 2; // mousemove | mousedown | mouseup | input | keydown | … (no wire click)
+  string type = 2; // move|down|up|keyDown|keyUp|scrollSet|setFiles (legacy V2 aliases accepted)
   string anchor = 3; // speculum-anchor; DEPRECATED — kept for the V1 transition only
   string payload_json = 4; // PageProjectionIntentPayload JSON
   int64 generation = 5;
@@ -396,6 +396,11 @@ message DomInputEvent {
   optional uint32 target_id = 8;
   // V4 multi-document browsing context (root = 1).
   optional uint32 context_id = 9;
+  // Unified input (§10.6)
+  optional int32 schema_version = 10;
+  optional int32 viewport_w = 11;
+  optional int32 viewport_h = 12;
+  optional string census = 13; // ScrollCensus JSON (PP down/up)
 }
 
 message GetDomAssetRequest {

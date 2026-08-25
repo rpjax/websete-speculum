@@ -35,6 +35,18 @@ async function runPageProjectionSessionUnitTests() {
         console.log('[unit] PageProjectionBrowserSession skipped (SPECULUM_SKIP_PP_SESSION=1)');
         return;
     }
+    let uinputOk = false;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        uinputOk = require('../../../patchright/input/uinput').uinputAvailable() === true;
+    }
+    catch {
+        uinputOk = false;
+    }
+    if (!uinputOk) {
+        console.log('[unit] PageProjectionBrowserSession skipped (no /dev/uinput — OS input fail-closed)');
+        return;
+    }
     const { fixturesDir } = (0, assetRoots_1.labAssetRoots)();
     const fixture = node_path_1.default.join(fixturesDir, 'insert-before-remove.html');
     assert_1.default.ok(node_fs_1.default.existsSync(fixture), `missing fixture ${fixture}`);

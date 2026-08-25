@@ -34,6 +34,18 @@ export async function runPageProjectionSessionUnitTests(): Promise<void> {
     return;
   }
 
+  let uinputOk = false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    uinputOk = require('../../../patchright/input/uinput').uinputAvailable() === true;
+  } catch {
+    uinputOk = false;
+  }
+  if (!uinputOk) {
+    console.log('[unit] PageProjectionBrowserSession skipped (no /dev/uinput — OS input fail-closed)');
+    return;
+  }
+
   const { fixturesDir } = labAssetRoots();
   const fixture = path.join(fixturesDir, 'insert-before-remove.html');
   assert.ok(fs.existsSync(fixture), `missing fixture ${fixture}`);

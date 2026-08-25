@@ -40,4 +40,18 @@ public sealed class PageProjectionIntent
     /// <summary>PageProjectionIntentPayload JSON.</summary>
     [Key("payload")]
     public string Payload { get; init; } = "{}";
+
+    /// <summary>Unified input schema version (§10.6). 0 = legacy V2 envelope.</summary>
+    [Key("schemaVersion")]
+    public int SchemaVersion { get; init; }
+
+    [Key("viewportW")]
+    public int? ViewportW { get; init; }
+
+    [Key("viewportH")]
+    public int? ViewportH { get; init; }
+
+    /// <summary>Scroll census JSON (PP down/up only).</summary>
+    [Key("census")]
+    public string? Census { get; init; }
 }

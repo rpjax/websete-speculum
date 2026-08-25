@@ -153,6 +153,11 @@ export class DataStreams extends Emitter<SessionEventMap> {
         timestampClient: input.timestampClient ?? null,
         traceId,
         payload: input.payload ?? '{}',
+        contextId: input.contextId ?? 1,
+        schemaVersion: input.schemaVersion ?? 0,
+        viewportW: input.viewportW ?? null,
+        viewportH: input.viewportH ?? null,
+        census: input.census ?? null,
       }),
     )
     this.pageProjectionInputWriteChain = write.then(

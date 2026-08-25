@@ -125,6 +125,38 @@ public static class SessionBindingAuth
         return kept.Length == 0 ? "" : "?" + string.Join('&', kept);
     }
 
+    /// <summary>
+    /// Replace-or-append a reserved query parameter without normalizing encoding/order
+    /// of other params (matches client <c>appendSessionAuth</c>).
+    /// </summary>
+    public static string SetReservedParam(string url, string name, string value)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(value);
+
+        var hashAt = url.IndexOf('#');
+        var fragment = hashAt >= 0 ? url[hashAt..] : "";
+        var withoutFragment = hashAt >= 0 ? url[..hashAt] : url;
+
+        var queryAt = withoutFragment.IndexOf('?');
+        var path = queryAt >= 0 ? withoutFragment[..queryAt] : withoutFragment;
+        var rawQuery = queryAt >= 0 ? withoutFragment[(queryAt + 1)..] : "";
+
+        var kept = rawQuery
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(part =>
+            {
+                var eq = part.IndexOf('=');
+                var key = eq >= 0 ? part[..eq] : part;
+                return !key.Equals(name, StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+
+        kept.Add($"{name}={Uri.EscapeDataString(value)}");
+        return $"{path}?{string.Join('&', kept)}{fragment}";
+    }
+
     private static bool IsReserved(string queryPart)
     {
         var eq = queryPart.IndexOf('=');

@@ -275,5 +275,5 @@ Algorithm (worst-case-first, I1–I11): [cssom-poll-algorithm.md](cssom-poll-alg
 | **CPU Profiler** | CDP `Profiler` stays **one probe per tab** (renderer process). Do **not** claim per-`contextId` Profiler breakdown. Per-scope operational CPU comes from `buildMs` / `encodeMs` / `applyMs` on tagged telemetry events. Optional dossier field: `activeContextCount` at profile stop. |
 | **Stream HUD** | Lab UI **Stream** tab: per-`contextId` table (wire frames, emit/apply ±, desync, resync, overrun, seq, build/apply ms). Investigation only. |
 
-Code: `virtual/bus/projectionBus.ts` (telemetry loose + snapshot RPC + resync fan-down only), `client/nestedResyncSurface.ts`, `client/nestedProjectedApply.ts`, `lab/host/contextIndex.ts`, `lab/probes/isomorphism.ts` (N-way).
+Code: `virtual/bus/contextBus.ts` + `virtual/bus/virtualDomainBus.ts` (telemetry + snapshot RPC + resync fan-down), `client/nestedResyncSurface.ts`, `client/nestedProjectedApply.ts`, `lab/host/contextIndex.ts`, `lab/probes/isomorphism.ts` (N-way).
 

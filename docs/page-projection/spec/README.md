@@ -7,24 +7,22 @@
 
 ---
 
-## Now (2026-08-22) — start a new chat here
+## Now (2026-08-25) — start a new chat here
 
-**Shipped:** contract hygiene + Integration Live surface (gates 6.6 + 8 path + 10 smoke). Lab aliases out. Launch split + Frames stream. `web/live/page` apply deleted.
-
-**Input design (2026-08-23):** [input-v2.md](input-v2.md) **A/B/C** — A CDP fire-and-forget (pointer/key/viewport); B Control→`domNodes` (scrollElement/focus/blur/input); C CDP handle only for `setFiles`. Id-assertive activate superseded. No generation/sequence gates.
+**Shipped (recent):** Virtual assets V1 path (D-SPEC-7 rewrite + `/w7s/virtual-*`). **OS input cutover (PP):** hot path = UnifiedIntent → EventApplier → uinput ABS (no CDP Mode A/B). Lab input E2E = **Docker** with `/dev/uinput` ([LAB-DOCKER.md](../../Refactor/sidecar/LAB-DOCKER.md)).
 
 **Next product work (ordered):**
-1. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
-2. MotorAssert compose seed `MirrorMode.PageProjection` for deep Live surface (Sessions.Tests `PP-LIVE-*` already green).
-3. OPEN-6 **NIT** flavours when blueprints exist.
-4. Antibot / asset store / IDB restore as Live needs them.
-5. Optional: noscript/parity DOM on real sites; Patchright `Frame was detached` session stability.
+1. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`; harden miss/oracle.
+2. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
+3. MotorAssert compose seed `MirrorMode.PageProjection` for deep Live surface.
+4. Input fine-tuning (iOS link suppress, touch polish, IME) — after assets unlock visual parity.
+5. Antibot / IDB restore as Live needs them.
 
-Open named shadow / form PROP / SVG / Input V2 lab blueprints / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+Open named shadow / form PROP / SVG / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 
-Lab UI: `npm run lab:projection` in `Refactor/sidecar` → **http://127.0.0.1:4077/**. Headed: `SPECULUM_LAB_HEADED=1`. Always name the full blueprint id + description + fixture when asking a human to run something.
+**Lab UI (input OS):** `npm run lab:docker` in `Refactor/sidecar` → **http://127.0.0.1:4103/**. Bare `npm run lab:projection` is DOM/CSSOM/assets only (fail-closed without uinput). Always name the full blueprint id + description + fixture when asking a human to run something.
 
 Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Technical density only when debating the detail (`.cursor/rules/speculum-comunicacao.mdc`).
 
@@ -45,8 +43,9 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | CSSOM sensor **journey** (two truths, why not hooks/CDP, foundation vs amortizations) | **[cssom-sensor-journey.md](cssom-sensor-journey.md)** |
 | Off-`childNodes` subtrees (LOCKED) | **[subtrees.md](subtrees.md)** — two kinds only: shadow vs nested browsing context |
 | Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
-| Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus (postMessage) |
-| Input intents | **[input-v2.md](input-v2.md)** (normative V4; **A/B/C** dispatch 2026-08-23) — [input.md](input.md) is V1 provenance only |
+| Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus transport → **[context-bus.md](context-bus.md)** |
+| **ContextBus** (inter-context JS transport) | **[context-bus.md](context-bus.md)** — emit/invoke; domain protocols sit on top |
+| Input intents | **OS unified** ([input-unified-design-draft.md](input-unified-design-draft.md); [input.md](input.md)) — [input-v2.md](input-v2.md) superseded on PP hot path |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Virtual Document **CSP surgery** (cutover session) | **[csp.md](csp.md)** |
 | Session / mirror-mode contracts (sidecar port) | **[browser-session.md](browser-session.md)** — SEALED 2026-08-21 |

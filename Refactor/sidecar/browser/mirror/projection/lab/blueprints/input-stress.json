@@ -1,0 +1,70 @@
+{
+  "id": "input-stress",
+  "description": "OS stress — rapid scrollSet bursts across surfaces + iso (EventApplier path)",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-scroll-matrix.html" } },
+        {
+          "id": "collect",
+          "type": "collect.enable",
+          "dependsOn": ["boot"],
+          "params": { "invariants": true, "metrics": true, "nodeTableApply": true }
+        },
+        { "id": "wait", "type": "sleep", "dependsOn": ["collect"], "params": { "ms": 5500 } },
+        {
+          "id": "burst-1",
+          "type": "pushInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [
+              { "type": "resolveAndScrollElement", "selector": "#panel-list", "scrollTop": 88 },
+              { "type": "resolveAndScrollElement", "selector": "#panel-feed", "scrollTop": 176 },
+              { "type": "resolveAndScrollViewport", "scrollY": 220 },
+              { "type": "resolveAndScrollElement", "selector": "#inner-scroller", "scrollTop": 144, "contextId": 2 }
+            ]
+          }
+        },
+        {
+          "id": "burst-2",
+          "type": "pushInput",
+          "dependsOn": ["burst-1"],
+          "params": {
+            "sequence": [
+              { "type": "resolveAndScrollElement", "selector": "#panel-list", "scrollTop": 352 },
+              { "type": "resolveAndScrollElement", "selector": "#panel-feed", "scrollTop": 440 },
+              { "type": "resolveAndScrollViewport", "scrollY": 660 },
+              { "type": "resolveAndScrollElement", "selector": "#inner-scroller", "scrollTop": 432, "contextId": 2 }
+            ]
+          }
+        },
+        {
+          "id": "burst-3",
+          "type": "pushInput",
+          "dependsOn": ["burst-2"],
+          "params": {
+            "sequence": [
+              { "type": "resolveAndScrollElement", "selector": "#panel-list", "scrollTop": 0 },
+              { "type": "resolveAndScrollElement", "selector": "#panel-feed", "scrollTop": 0 },
+              { "type": "resolveAndScrollViewport", "scrollY": 0 },
+              { "type": "resolveAndScrollElement", "selector": "#inner-scroller", "scrollTop": 0, "contextId": 2 }
+            ]
+          }
+        },
+        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["burst-3"], "params": { "ms": 900 } },
+        {
+          "id": "assert-reset",
+          "type": "evaluate",
+          "dependsOn": ["wait-scroll"],
+          "params": {
+            "expression": "(() => { const list = document.getElementById('panel-list')?.scrollTop ?? -1; const feed = document.getElementById('panel-feed')?.scrollTop ?? -1; const y = window.scrollY || 0; const inner = document.getElementById('child')?.contentDocument?.getElementById('inner-scroller')?.scrollTop ?? -1; if (list > 8) throw new Error('list=' + list); if (feed > 8) throw new Error('feed=' + feed); if (y > 8) throw new Error('y=' + y); if (inner > 8) throw new Error('inner=' + inner); return 'ok'; })()"
+          }
+        },
+        { "id": "iso", "type": "iso", "dependsOn": ["assert-reset"], "params": { "cssom": "none" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["iso"] }
+      ]
+    }
+  ]
+}

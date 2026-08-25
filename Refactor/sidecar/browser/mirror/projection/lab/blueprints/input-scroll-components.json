@@ -1,13 +1,13 @@
 {
   "id": "input-scroll-components",
-  "description": "M1c+ — two overflow components (#panel-list, #panel-feed) + page viewport scroll",
+  "description": "OS scrollSet — multi overflow + viewport (panel-list, panel-feed, page)",
   "sessionPolicy": "cold",
   "queues": [
     {
       "name": "main",
       "actions": [
         { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-scroll-matrix.html" } },
-        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2200 } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 3000 } },
         {
           "id": "scroll-list",
           "type": "pushInput",
@@ -32,7 +32,7 @@
             "sequence": [{ "type": "resolveAndScrollViewport", "scrollY": 420 }]
           }
         },
-        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-page"], "params": { "ms": 500 } },
+        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-page"], "params": { "ms": 600 } },
         {
           "id": "assert-scroll",
           "type": "evaluate",

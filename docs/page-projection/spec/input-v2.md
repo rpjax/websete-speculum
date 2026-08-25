@@ -1,20 +1,55 @@
 # PageProjection Input V2
 
-**Status:** normative for V4 / cutover gate 6 ([roadmap.md](roadmap.md)).  
-**Supersedes** unrevised sections of [input.md](input.md) wherever they conflict — especially dispatch primary and §6.3 surface vs document scroll height.  
+**Status:** **SUPERSEDED on PP hot path (2026-08-25)** by OS unified input ([input-unified-design-draft.md](input-unified-design-draft.md), [input.md](input.md)). Kept as history of A/B/C CDP.  
+**Was:** working design — not sealed. Normative enough to unblock Live/lab before OS cutover.  
 **Boundary:** input is a **separate feature** — it must not change the frame algorithm (`virtual/**`, opcodes, apply/resync).
 
-**Ruling 2026-08-23 (A/B/C dispatch — LOCKED):** input is **fire-and-forget** and as cheap as possible.
+**Ruling 2026-08-25:** PP session = EventApplier + ABS uinput; Mode A/B CDP **removed** from hot path. Lab input E2E = Docker `/dev/uinput`.
+
+**Ruling 2026-08-23 (A/B/C dispatch — historical LOCKED, now superseded for PP):** input is **fire-and-forget** and as cheap as possible.
 
 | Mode | Intents | Mechanics |
 |------|---------|-----------|
-| **A** | `mousemove` / `pointermove`, `mousedown` / `mouseup` (+ pointer*), `wheel`, `keydown` / `keyup`, `scrollViewport` | CDP only. Coords / keys / viewport scroll. **Zero** resolve, frame walk, generation/sequence gate. Miss or wrong target because Virtual moved = **expected**. |
+| **A** | `mousemove` / `pointermove`, `mousedown` / `mouseup` (+ pointer*), `wheel`, `keydown` / `keyup`, `scrollViewport` | CDP only. Coords / keys / viewport scroll. **Zero** resolve, frame walk, generation/sequence gate. Miss or wrong target because Virtual moved = **expected**. Payload `pointerType: 'touch'` → `Input.dispatchTouchEvent` (touch-primary client); otherwise mouse CDP. |
 | **B** | `scrollElement`, `focus`, `blur`, `input` | Sidecar → **Control plane** `{ type: 'input', ... }` → Virtual `domNodes.get(nodeId)` → JS. O(1). Missing node = no-op. |
 | **C** | **`setFiles` only** | CDP handle resolve + `setInputFiles` — rare exception. |
 
 **SUPERSEDED:** 2026-08-22 id-assertive activate (resolve `nodeId` → bounding box → CDP press). That path must not run on A.
 
 **Ruling 2026-08-22 (input = no sync):** the input plane **does not sync** with frame generation, apply, or resync. No `generation_stale`, no sequence gate, no sidecar copy of the identity table for input.
+
+---
+
+## Working status (2026-08-24) — not sealed
+
+Enough to develop against. **Revisit before calling input done.**
+
+### Landed (lab + package path)
+
+| Piece | Notes |
+|-------|--------|
+| A/B/C dispatch | Mode A coords CDP; B Control→`domNodes`; C `setFiles` |
+| Capture on Document + `onArmed` rebind | Survives in-place `<html>` replace / resync iframe swap |
+| Mode A `pointerType` | Client stamps `PointerEvent.pointerType` (+ `pointerId`); sidecar: `touch` → `Input.dispatchTouchEvent`, else mouse |
+| Touch vs sticky `:hover` | Mobile client remoting as mouse caused first-tap hover / second-tap activate; touch CDP is the designed fix |
+| Lab MVP blueprints | click / forms / scroll / iframe variants (see MVP gates) |
+| Paint parity for `<noscript>` | Client infrastructure (`scriptingOnPaintParity`) — not input plane; Constructable sheet with `<style>` fallback after EPOCH_RESET when `defaultView` briefly missing |
+
+### Fine-tuning backlog (come back)
+
+Not blockers for asset/canvas work; do **not** invent ad-hoc site rules.
+
+| Item | Why it is still open |
+|------|----------------------|
+| Touch path polish on real sites | Confirm one-tap activate across menus/cards; multitouch / gesture edge cases |
+| iOS native link activation | Sandboxed Projected may still navigate `<a href>` before remoted intent (lab 404) — needs a coherent suppress that does not break scroll/focus/coords |
+| Coord / layout viewport on iOS | Visual vs layout viewport can desync touch mapping; keep Mode A mapping honest |
+| Hybrid PC (touchscreen, `mobile: false`) | Finger → touch CDP; mouse → mouse; watch hover regressions |
+| Mode B keyboard / IME / focus UX | Soft keyboard on mobile projected inputs |
+| Unified input draft promotion | [input-unified-design-draft.md](input-unified-design-draft.md) still deferred (census, multitouch, ABS) |
+| Live Sessions wire parity | Lab path proven; Hub/`PageProjectionIntent` + web capture must stay aligned with `pointerType` |
+
+**Seal rule:** do not mark input SEALED until the fine-tuning rows above are closed or explicitly deferred with a decision-log row.
 
 ---
 
@@ -109,6 +144,7 @@ Module: [`projectedInputCapture.ts`](../../Refactor/packages/page-projection/src
 - Listeners on Projected **Document** (capture); re-attach after resync iframe swap (`onArmed` again).
 - **Armed** = local gate only. `click`/`submit`/`contextmenu` always `preventDefault` while attached.
 - Move coalesce @ rAF; flush before down/up.
+- Mode A payload includes `pointerType` / `pointerId` from `PointerEvent` (default `mouse`).
 - Local-first scroll: do not `preventDefault` wheel; `scroll` → `scrollElement` / `scrollViewport`.
 - Form edit: `markPropDirty(nodeId)` for Mode B `input`.
 - Mode A may still stamp `nodeId` for journal; dispatch ignores it.
@@ -118,7 +154,7 @@ Module: [`projectedInputCapture.ts`](../../Refactor/packages/page-projection/src
 
 ## Sidecar + Virtual
 
-**A:** [`DomElementInput`](../../Refactor/sidecar/browser/patchright/mirror/dom/DomElementInput.ts) / dispatch — CDP mouse/key/viewport only.  
+**A:** [`DomElementInput`](../../Refactor/sidecar/browser/patchright/mirror/dom/DomElementInput.ts) / dispatch — CDP mouse **or** touch (`pointerType`), key, viewport.  
 **B:** `PageProjectionBrowserSession.sendControl({ type: 'input', contextId, intentType, nodeId, payload })` → Virtual Control handler → `domNodes.get`.  
 **C:** resolve + `setInputFiles` only for `setFiles`.
 
@@ -147,10 +183,11 @@ Unit: `runPageProjectionInputClickUnitTests` — Mode A coords activate. Live Mo
 
 | Item | Why |
 |------|-----|
-| Touch / OS pointer intents | Projected is local on the user device |
+| OS / uinput pointer (VideoStreaming stack) | Projected remotes CDP/Control only |
 | Sidecar identity-table replica for input | Lookup for B lives in Virtual |
 | Sequence / generation gates on intents | Fire-and-forget |
 | Changing frame opcodes for input | Boundary |
+| Site-specific hover / double-tap hacks | Use `pointerType` → touch CDP instead |
 
 ---
 

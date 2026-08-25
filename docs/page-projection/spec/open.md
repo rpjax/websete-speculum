@@ -26,6 +26,14 @@
 
 No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18**. Same-origin nested iframe **lab shipped 2026-08-19** (`iframe-open`). **OPEN-6 observability shipped 2026-08-19**. CSSOM in nested contexts = **same algorithm instance** (not a separate feature). Remaining OPEN-6: XO / srcdoc / sandbox / fenced (NIT). Optional QA: nested `cssomO2` assert — [seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`.
 
+### BUG — virtual assets / third-party framed identity (PINNED 2026-08-25)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-ASSET-XFO** | Lab console: `Refused to display 'https://id.unico.io/'` / `idpay.unico.io` — `X-Frame-Options: sameorigin` + `403` | Projected nested browsing contexts that point at Unico (and similar IDP/pay iframes) cannot load in a frame under Speculum’s origin. Not an asset-byte bug — **XO / third-party frame policy**. Treat with OPEN-6 XO work later; do **not** punch `X-Frame-Options` as a workaround. Observed Superbet lab 2026-08-25. |
+
+Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **working** — stress/harden separately; this row is the Unico/XFO pin only.
+
 **Lab (2026-08-15 / 2026-08-16):** CSSOM poll **algorithm** — [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 **Accept:** DOM numerical 1:1; CSSOM live perceived ([acceptance.md](acceptance.md)).
 Why: [cssom-sensor-journey.md](cssom-sensor-journey.md). `SHEET_*`/`RULE_*` are on the wire (phase 1

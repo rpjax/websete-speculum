@@ -181,7 +181,7 @@ export interface PageProjectionFrame {
   cssomPatch?: { selector: CssomSelector; rule: CssomRule } | null
 }
 
-/** PageProjection intent (CDP path; no wire click). */
+/** PageProjection unified intent (OS path §10.6). */
 export interface PageProjectionIntent {
   generation?: number
   type: string
@@ -195,6 +195,11 @@ export interface PageProjectionIntent {
   /** Opaque E2E correlation id (always stamped on product send). */
   traceId?: string | null
   payload?: string
+  schemaVersion?: number
+  viewportW?: number | null
+  viewportH?: number | null
+  /** Scroll census JSON (PP down/up). */
+  census?: string | null
 }
 
 export interface EditingState {

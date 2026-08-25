@@ -29,10 +29,13 @@ async function frameContextId(frame) {
 async function findFrameForContext(page, contextId) {
     if (contextId === frame_1.CONTEXT_ID_ROOT)
         return page.mainFrame();
-    for (const frame of page.frames()) {
-        const id = await frameContextId(frame);
-        if (id === contextId)
-            return frame;
+    for (let attempt = 0; attempt < 120; attempt++) {
+        for (const frame of page.frames()) {
+            const id = await frameContextId(frame);
+            if (id === contextId)
+                return frame;
+        }
+        await new Promise((r) => setTimeout(r, 100));
     }
     return null;
 }

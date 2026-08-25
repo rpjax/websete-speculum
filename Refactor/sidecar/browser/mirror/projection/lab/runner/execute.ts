@@ -342,22 +342,37 @@ export async function executeBlueprint(
                 return finish(false, 'resolveAndClick parse failed');
               }
               if (!info.id) return finish(false, 'resolveAndClick no id');
-              const basePayload = JSON.stringify({
-                x: info.x,
-                y: info.y,
-                button: 0,
-                buttons: 0,
-                modifiers: {},
-              });
-              const base = {
-                generation: info.generation,
-                targetId: info.id,
-                contextId,
-                timestampClient: Date.now(),
-                payloadJson: basePayload,
-              };
-              for (const type of ['mousemove', 'mousedown', 'mouseup'] as const) {
-                const out = await push({ ...base, type });
+              let vw = 1280;
+              let vh = 720;
+              try {
+                const st = await session.getStatus();
+                if (st.width > 0) vw = st.width;
+                if (st.height > 0) vh = st.height;
+              } catch {
+                /* */
+              }
+              for (const type of ['move', 'down', 'up'] as const) {
+                const out = await push({
+                  type,
+                  schemaVersion: 1,
+                  generation: info.generation,
+                  targetId: info.id,
+                  contextId,
+                  timestampClient: Date.now(),
+                  viewportW: vw,
+                  viewportH: vh,
+                  x: info.x,
+                  y: info.y,
+                  payloadJson: JSON.stringify({ x: info.x, y: info.y, button: 'left' }),
+                  census: {
+                    contexts: [
+                      {
+                        contextId,
+                        positions: [{ nodeId: null, scrollX: 0, scrollY: 0 }],
+                      },
+                    ],
+                  },
+                });
                 if (out.status === 'dropped') return finish(false, `${type}: ${out.reason}`);
               }
               chassis.journal.acts.push({ name: `click:${selector}`, ok: true });

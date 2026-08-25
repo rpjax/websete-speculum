@@ -5,7 +5,7 @@
 
 import { PlaneChannel } from '../../core/plane';
 import type { DataPlane } from '../../core/plane';
-import type { ProjectionBus } from '../bus/projectionBus';
+import type { VirtualDomainBus } from '../bus/virtualDomainBus';
 import {
   TELEMETRY_WIRE_VERSION,
   type ProjectionTelemetryConfig,
@@ -24,14 +24,14 @@ export type ProjectionTelemetryOptions = {
   config: Readonly<ProjectionTelemetryConfig>;
   dataPlane: DataPlane | null;
   contextId: number;
-  bus?: ProjectionBus | null;
+  bus?: VirtualDomainBus | null;
   now?: () => number;
 };
 
 export class ProjectionTelemetry {
   private readonly config: Readonly<ProjectionTelemetryConfig>;
   private readonly dataPlane: DataPlane | null;
-  private readonly bus: ProjectionBus | null;
+  private readonly bus: VirtualDomainBus | null;
   private readonly contextId: number;
   private readonly now: () => number;
   private readonly textEncoder = new TextEncoder();

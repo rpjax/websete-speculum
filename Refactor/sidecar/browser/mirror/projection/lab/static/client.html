@@ -218,6 +218,8 @@
           border-top: 1px solid var(--line);
         }
         .surface-wrap { min-height: 0; }
+        .fullscreen-toggle-label { display: none; }
+        .fullscreen-toggle { padding: 0.4rem; }
       }
       .surface-wrap {
         position: relative;
@@ -314,6 +316,72 @@
         font-size: 12px;
         color: var(--muted);
         line-height: 1.4;
+      }
+
+      .fullscreen-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        min-width: 2.25rem;
+        padding: 0.4rem 0.65rem;
+      }
+      .fullscreen-toggle svg {
+        width: 1rem;
+        height: 1rem;
+        flex-shrink: 0;
+      }
+      .fullscreen-exit {
+        display: none;
+        position: fixed;
+        top: max(0.65rem, env(safe-area-inset-top, 0px));
+        right: max(0.65rem, env(safe-area-inset-right, 0px));
+        z-index: 30;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 999px;
+        background: rgba(20, 20, 20, 0.72);
+        color: #f4f4f0;
+        cursor: pointer;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      }
+      .fullscreen-exit svg {
+        width: 1.15rem;
+        height: 1.15rem;
+      }
+      .fullscreen-exit:hover {
+        background: rgba(30, 30, 30, 0.88);
+        border-color: rgba(255, 255, 255, 0.35);
+      }
+
+      body.lab-fullscreen {
+        min-height: 100dvh;
+        height: 100dvh;
+        overflow: hidden;
+        grid-template-rows: 1fr;
+      }
+      body.lab-fullscreen #labHeader,
+      body.lab-fullscreen aside {
+        display: none;
+      }
+      body.lab-fullscreen main {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+        min-height: 0;
+        height: 100dvh;
+        max-height: 100dvh;
+      }
+      body.lab-fullscreen .surface-wrap {
+        min-height: 0;
+        height: 100%;
+      }
+      body.lab-fullscreen .fullscreen-exit {
+        display: inline-flex;
       }
 
       aside {
@@ -633,6 +701,12 @@
           <button type="button" id="runStart" class="primary" disabled>Start run</button>
         </span>
         <button type="button" id="clearSurface" class="ghost-danger" disabled title="Clear projected surface only (Virtual keeps running)">Clear surface</button>
+        <button type="button" id="enterFullscreen" class="fullscreen-toggle" title="Fullscreen surface — hide lab chrome for mobile testing" aria-label="Enter fullscreen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+          </svg>
+          <span class="fullscreen-toggle-label">Fullscreen</span>
+        </button>
       </div>
     </header>
 
@@ -649,6 +723,11 @@
           </div>
         </div>
         <div id="surfaceHost"></div>
+        <button type="button" id="exitFullscreen" class="fullscreen-exit" aria-label="Exit fullscreen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
         <div class="surface-crash" id="surfaceCrash" hidden aria-live="assertive">
           <div class="surface-crash-card" role="alert">
             <p class="crash-kicker">Session fault</p>

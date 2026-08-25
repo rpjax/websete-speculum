@@ -4,17 +4,14 @@
  * before `virtual.js` runs.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildConfigPayload = buildConfigPayload;
 exports.buildConfigPreScript = buildConfigPreScript;
 const projectionConfig_1 = require("@speculum/page-projection/virtual/config/projectionConfig");
-/**
- * Returns a JS statement string suitable for `addInitScript` / CDP evaluate-on-new-document,
- * injected **before** the main Virtual bundle.
- */
-function buildConfigPreScript(opts) {
+function buildConfigPayload(opts) {
     const transport = opts.transport ?? 'loopback';
     const dataPlaneUrl = (opts.dataPlaneUrl ?? '').trim();
     if (transport === 'loopback' && dataPlaneUrl.length === 0) {
-        throw new Error('buildConfigPreScript: dataPlaneUrl is required when transport is "loopback"');
+        throw new Error('buildConfigPayload: dataPlaneUrl is required when transport is "loopback"');
     }
     const payload = {
         transport,
@@ -34,6 +31,14 @@ function buildConfigPreScript(opts) {
         payload.generation = opts.generation;
     if (opts.cssomPollHz !== undefined)
         payload.cssomPollHz = opts.cssomPollHz;
+    return payload;
+}
+/**
+ * Returns a JS statement string suitable for `addInitScript` / CDP evaluate-on-new-document,
+ * injected **before** the main Virtual bundle.
+ */
+function buildConfigPreScript(opts) {
+    const payload = buildConfigPayload(opts);
     // This runs as its own separate injected `<script>` tag (Patchright leaves it attached to
     // the document — see bootstrap.ts's matching `currentScript.remove()` for why that matters);
     // clean up after itself the same way, or `virtual.js`'s own removal of *its* tag still leaves

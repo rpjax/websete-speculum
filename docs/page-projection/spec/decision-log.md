@@ -20,6 +20,12 @@
 
 | Date | Topic | Where the full text is |
 |------|-------|------------------------|
+| 2026-08-25 | **D-UI-20 ABS uinput PASS gate** — openAbsPointer + Docker spike scripts/spike-abs-pointer.js; PP launch Display+ABS fail-closed; no REL fallback. Run: npm run lab:docker:spike. | spike-abs-pointer.md + LAB-DOCKER.md |
+| 2026-08-25 | **OS input cutover (PP)** — hot path UnifiedIntent → EventApplier → ABS; Mode A/B CDP removed from PP session; lab input = Docker /dev/uinput. | input-unified-design-draft.md + README Now |
+| 2026-08-25 | **Virtual assets V1 path** — D-SPEC-7 rewrite hop (Lab+Live), L1/`getAsset`, paint `appendSessionAuth`, Lab `/w7s/virtual-*` same contract; pass-through + HLS/DASH manifest rewrite; blob/data. MSE/DRM still stubs. | [virtual-assets.md](virtual-assets.md) |
+| 2026-08-24 | **Input V2 working, not sealed** — landed A/B/C + touch CDP; fine-tuning backlog (iOS link, IME, polish) before seal. Next focus: virtual assets. | [input-v2.md](input-v2.md) § Working status |
+| 2026-08-24 | **Mode A touch CDP** — intent `pointerType: 'touch'` → `Input.dispatchTouchEvent`; mouse otherwise. Fixes sticky `:hover` double-tap when mobile client remoted as mouse. | [input-v2.md](input-v2.md) |
+| 2026-08-23 | **ContextBus SEALED** — dumb inter-context JS transport (`emit`/`invoke`, channel, RUNTIME id `0xFFFFFFFF`). Domain protocols sit on top. | [context-bus.md](context-bus.md) |
 | 2026-08-23 | **Input A/B/C LOCKED** — A = CDP fire-and-forget (pointer/key/viewport); B = Control→`domNodes` (`scrollElement`/`focus`/`blur`/`input`); C = CDP handle **only** `setFiles`. Id-assertive activate SUPERSEDED. No sidecar table replica for input. | [input-v2.md](input-v2.md) |
 | 2026-08-22 | **Input plane = no sync** — no `generation_stale` gate; no CDP/frame generation coupling on intent path. Envelope `generation` journal-only. **Amended 2026-08-23** by A/B/C (activate is coords CDP, not resolve). | [input-v2.md](input-v2.md) |
 | 2026-08-22 | **Input capture Document + onArmed re-fire** — listeners on Document (survive in-place `<html>` replace); `onArmed` after every resync iframe swap so lab/Live rebind. Once-only arm = stage navigates to shell origin (lab `not found`). | [input-v2.md](input-v2.md) Client capture |
@@ -122,7 +128,7 @@ Original verbatim table: [`../archive/DECISIONS.md`](../archive/DECISIONS.md). R
 | 2026-08-12 | D-SPEC-4 | establishEnd checksum FNV-1a | | **DEAD** — D-SPEC-13 / §4.7 |
 | 2026-08-12 | D-SPEC-5 | Viewport scroll sentinel id 0 | | Keep intent; opcode names follow frame-protocol |
 | 2026-08-12 | D-SPEC-6 | In-page script packaging | Single injected bundle | **STILL IN FORCE** (`virtual.js`) |
-| 2026-08-12 | D-SPEC-7 | Node rewrite of binary parts | Decode/rewrite URLs/re-encode once | **STILL IN FORCE** for production rewrite hop; lab may skip |
+| 2026-08-12 | D-SPEC-7 | Node rewrite of binary parts | Decode/rewrite URLs/re-encode once | **STILL IN FORCE** for Lab + Live (consumer-agnostic hop; lab no longer skips) |
 | 2026-08-12 | D-SPEC-8 | Cssom disjoint id ranges | Dom `[1..0x7FFFFFFF]`, Cssom `[0x80000001..]` | **SUPERSEDED.** V4 is **one id space** (frame-protocol §1.1). |
 | 2026-08-12 | D-SPEC-9 | Soft vs hard nav | Soft: no generation bump. Hard: bump + re-establish | **V4:** hard = `EPOCH_RESET` + resync frame, not establish |
 | 2026-08-12 | D-SPEC-10 | Resync watermark out of band | | **DEAD** — D-SPEC-14 / in-band `resync` flag |
@@ -276,3 +282,4 @@ Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not ifram
 
 **Impl cutover (2026-08-21):** sidecar `createSealedBrowserSessionFactory` selects PP vs `VideoStreamingBrowserSession` at Launch `mirrorMode`; `LivePageProjection` deleted (stub throw); proto drops `GetPageProjectionResync` / `ReportPageProjectionClientState`, adds `RequestResync` + lab clock/snapshot RPCs. Product leftovers (canvas, antibot, asset store) tracked in [CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md) — do not block contract shape.
 
+| 2026-08-23 | **D-UI-27 ContextBus cutover** — `projectionBus.ts` deleted; `ContextBus` + `VirtualDomainBus` + loopback mux wire (§10.1c). |

@@ -1,0 +1,69 @@
+{
+  "id": "input-e2e-stress",
+  "description": "OS input E2E stress — click grid + type + viewport scrollSet bursts on multi-panel fixture (no resolveAndScrollElement until keyOf invoke)",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        {
+          "id": "boot",
+          "type": "boot",
+          "params": { "url": "fixtures/input-e2e-stress.html?panels=48" }
+        },
+        {
+          "id": "collect",
+          "type": "collect.enable",
+          "dependsOn": ["boot"],
+          "params": { "invariants": true, "metrics": true, "nodeTableApply": true }
+        },
+        { "id": "wait", "type": "sleep", "dependsOn": ["collect"], "params": { "ms": 7000 } },
+        {
+          "id": "click-burst",
+          "type": "pushInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [
+              { "type": "resolveAndClick", "selector": "#cell-0" },
+              { "type": "resolveAndClick", "selector": "#cell-7" },
+              { "type": "resolveAndClick", "selector": "#cell-32" },
+              { "type": "resolveAndClick", "selector": "#cell-63" }
+            ]
+          }
+        },
+        {
+          "id": "type-field",
+          "type": "pushInput",
+          "dependsOn": ["click-burst"],
+          "params": {
+            "sequence": [{ "type": "resolveAndType", "selector": "#field", "value": "stress-ok" }]
+          }
+        },
+        {
+          "id": "scroll-burst",
+          "type": "pushInput",
+          "dependsOn": ["type-field"],
+          "params": {
+            "sequence": [
+              { "type": "resolveAndScrollViewport", "scrollY": 240 },
+              { "type": "resolveAndScrollViewport", "scrollY": 720 },
+              { "type": "resolveAndScrollViewport", "scrollY": 1200 },
+              { "type": "resolveAndScrollViewport", "scrollY": 0 }
+            ]
+          }
+        },
+        { "id": "wait-fx", "type": "sleep", "dependsOn": ["scroll-burst"], "params": { "ms": 900 } },
+        {
+          "id": "assert-fx",
+          "type": "evaluate",
+          "dependsOn": ["wait-fx"],
+          "params": {
+            "expression": "(() => { const clicks = Number(document.getElementById('hud-clicks')?.textContent || '0'); const field = document.getElementById('field')?.value ?? ''; const mirror = document.getElementById('mirror')?.getAttribute('data-value') ?? ''; if (clicks < 4) throw new Error('clicks=' + clicks); if (field !== 'stress-ok') throw new Error('field=' + field); if (mirror !== 'stress-ok') throw new Error('mirror=' + mirror); return 'ok'; })()"
+          }
+        },
+        { "id": "iso", "type": "iso", "dependsOn": ["assert-fx"], "params": { "cssom": "none" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["iso"] }
+      ]
+    }
+  ]
+}

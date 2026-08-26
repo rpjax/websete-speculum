@@ -78,6 +78,10 @@ export class LabProjectedHarness {
     return this.client.getScrollableIndex();
   }
 
+  requestScrollCensus(fromContextId: number) {
+    return this.client.requestScrollCensus(fromContextId);
+  }
+
   markPropDirty(id: number): void {
     this.client.markPropDirty(id);
   }

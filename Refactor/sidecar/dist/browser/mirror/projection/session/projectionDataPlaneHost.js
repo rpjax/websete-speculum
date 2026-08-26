@@ -47,6 +47,10 @@ class ProjectionDataPlaneHost {
     sendControl(message) {
         this.dataPlane.send(plane_1.PlaneChannel.Control, new TextEncoder().encode(JSON.stringify(message)));
     }
+    /** Sidecar → Virtual RPC on the loopback mux (§10.1c). */
+    invoke(name, args, opts) {
+        return this.dataPlane.invoke(name, args, opts);
+    }
     async close() {
         this.dataPlane.close();
         const wss = this.wss;

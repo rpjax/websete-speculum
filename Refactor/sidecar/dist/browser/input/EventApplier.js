@@ -14,6 +14,14 @@ class EventApplier {
         this.opts.buffer.enqueue(intent);
         void this.pump();
     }
+    /** Wait until the serial queue is empty (lab helpers / resolveAnd*). */
+    async flush() {
+        for (;;) {
+            if (!this.running && this.opts.buffer.isEmpty())
+                return;
+            await new Promise((r) => setTimeout(r, 5));
+        }
+    }
     async pump() {
         if (this.running)
             return;
@@ -57,9 +65,11 @@ class EventApplier {
                 return;
             }
             case 'keyDown':
-            case 'keyUp':
-                this.opts.keyboard.key(intent.code, intent.type === 'keyDown', intent.modifiers);
+            case 'keyUp': {
+                const code = intent.code || intent.key;
+                this.opts.keyboard.key(code, intent.type === 'keyDown', intent.modifiers);
                 return;
+            }
             case 'scrollSet': {
                 const apply = this.opts.applyScrollSet;
                 if (!apply) {

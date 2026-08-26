@@ -47,6 +47,7 @@ import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextB
 import { runScrollableIndexUnitTests } from './browser/mirror/projection/scroll/scrollableIndex.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
 import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
+import { runAbsCoordMapUnitTests } from './browser/input/AbsCoordMap.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
 import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
@@ -1705,6 +1706,9 @@ function testKeycodeResolve(): void {
   assert.strictEqual(resolveKeyStroke('Enter')?.code, KEY.ENTER);
   assert.strictEqual(resolveKeyStroke('a')?.code, KEY.A);
   assert.strictEqual(resolveKeyStroke('A')?.shift, true);
+  assert.strictEqual(resolveKeyStroke('KeyE')?.code, KEY.E);
+  assert.strictEqual(resolveKeyStroke('Digit2')?.code, KEY['2']);
+  assert.strictEqual(resolveKeyStroke('Minus')?.code, KEY.MINUS);
   assert.strictEqual(resolveKeyStroke(''), null);
   assert.strictEqual(resolveKeyStroke('Unobtanium'), null);
   console.log('[unit] keycode resolve ok');
@@ -4200,6 +4204,7 @@ async function main(): Promise<void> {
   runScrollableIndexUnitTests();
   runScriptingOnPaintParityUnitTests();
   await runEventApplierUnitTests();
+  runAbsCoordMapUnitTests();
   runInputIntentTypesUnitTests();
   await runRelaxCspUnitTests();
   await runPageProjectionSessionUnitTests();

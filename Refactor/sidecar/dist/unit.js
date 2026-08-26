@@ -63,6 +63,7 @@ const contextBus_unit_1 = require("./browser/mirror/projection/bus/contextBus.un
 const scrollableIndex_unit_1 = require("./browser/mirror/projection/scroll/scrollableIndex.unit");
 const scriptingOnPaintParity_unit_1 = require("./browser/mirror/projection/projected/scriptingOnPaintParity.unit");
 const EventApplier_unit_1 = require("./browser/input/EventApplier.unit");
+const AbsCoordMap_unit_1 = require("./browser/input/AbsCoordMap.unit");
 const srcsetParse_1 = require("./browser/patchright/mirror/dom/srcsetParse");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
 const hostResources_1 = require("./host/hostResources");
@@ -1398,6 +1399,9 @@ function testKeycodeResolve() {
     assert_1.default.strictEqual(resolveKeyStroke('Enter')?.code, KEY.ENTER);
     assert_1.default.strictEqual(resolveKeyStroke('a')?.code, KEY.A);
     assert_1.default.strictEqual(resolveKeyStroke('A')?.shift, true);
+    assert_1.default.strictEqual(resolveKeyStroke('KeyE')?.code, KEY.E);
+    assert_1.default.strictEqual(resolveKeyStroke('Digit2')?.code, KEY['2']);
+    assert_1.default.strictEqual(resolveKeyStroke('Minus')?.code, KEY.MINUS);
     assert_1.default.strictEqual(resolveKeyStroke(''), null);
     assert_1.default.strictEqual(resolveKeyStroke('Unobtanium'), null);
     console.log('[unit] keycode resolve ok');
@@ -3628,6 +3632,7 @@ async function main() {
     (0, scrollableIndex_unit_1.runScrollableIndexUnitTests)();
     (0, scriptingOnPaintParity_unit_1.runScriptingOnPaintParityUnitTests)();
     await (0, EventApplier_unit_1.runEventApplierUnitTests)();
+    (0, AbsCoordMap_unit_1.runAbsCoordMapUnitTests)();
     (0, intentTypes_unit_1.runInputIntentTypesUnitTests)();
     await (0, relaxCsp_unit_1.runRelaxCspUnitTests)();
     await (0, pageProjectionSession_unit_1.runPageProjectionSessionUnitTests)();

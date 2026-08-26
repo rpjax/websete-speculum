@@ -16,4 +16,6 @@ export type {
   DataPlane,
   DataPlaneResult,
   DataPlaneMessageHandler,
+  LoopbackInvokeHandler,
+  LoopbackInvokeResult,
 } from './dataPlane';

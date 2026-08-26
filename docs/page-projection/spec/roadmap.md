@@ -13,7 +13,7 @@ V4 lab (DOM table, single document, no production)
           → M3 Optimize / honest 1:1 accept
 ```
 
-**Production cutover law (2026-08-14, Rodrigo; canvas 2026-08-16; subtrees 2026-08-18):** Live is **not** switched until the **full product** exists in the V4 engine — including **CSSOM**, **shadow**, **nested / multi-document** (OPEN-6), **input redesigned** (current [input.md](input.md) is the V1 contract; it needs a redesign pass, not T11 rename-only), and **`<canvas>` content projection** (last product feature before Integration — not a seal-gap row; see gate below). A DOM-only, single-document, no-input lab is **not** M1. Do not cut over a subset and “finish CSSOM/iframes/input/canvas in M2.”
+**Production cutover law (2026-08-14, Rodrigo; canvas 2026-08-16; subtrees 2026-08-18):** Live is **not** switched until the **full product** exists in the V4 engine — including **CSSOM**, **shadow**, **nested / multi-document** (OPEN-6), **OS unified input** ([input.md](input.md); Mode A/B CDP purged), and **`<canvas>` content projection** (last product feature before Integration — not a seal-gap row; see gate below). A DOM-only, single-document, no-input lab is **not** M1. Do not cut over a subset and “finish CSSOM/iframes/input/canvas in M2.”
 
 **`PageProjectionBrowserSession` (contract SEALED + shape cutover 2026-08-21):** normative port is [browser-session.md](browser-session.md). Live PP launches via `createSealedBrowserSessionFactory` → `PageProjectionBrowserSession`; video → `VideoStreamingBrowserSession`. `LivePageProjection` deleted. Session **must** keep covering the sealed surface in V4 terms — not DomMap. Product gaps (canvas, antibot, asset store) remain; they do **not** re-open the legado page-mirror path.
 
@@ -27,7 +27,7 @@ V4 lab (DOM table, single document, no production)
 |-------|--------|
 | V4 protocol spec | **In force** — [frame-protocol.md](frame-protocol.md) |
 | Session / mirror contracts | **SEALED + shape cutover** — [browser-session.md](browser-session.md); factory + PP class on Live |
-| V4 algorithm `Refactor/packages/page-projection` + sidecar callers | **Lab + Live session path:** DOM table, shadow, CSSOM poll+apply (**same instance loop** in root + nested SO), form `PROP_SET`, nested iframe (OPEN-6), observability, resync, **Input V2** ([input-v2.md](input-v2.md)). **Not** canvas, XO/NIT flavours. **`web/` on `@speculum/page-projection/projected`** (gate 10 surface). |
+| V4 algorithm `Refactor/packages/page-projection` + sidecar callers | **Lab + Live session path:** DOM table, shadow, CSSOM poll+apply (**same instance loop** in root + nested SO), form `PROP_SET`, nested iframe (OPEN-6), observability, resync, **OS unified input** ([input.md](input.md); [input-v2.md](input-v2.md) superseded). **Not** canvas, XO/NIT flavours. **`web/` on `@speculum/page-projection/projected`** (gate 10 surface). |
 | Lab host/UI | **Shipped** 2026-08-16 — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. Stream tab: per-`contextId` metrics. |
 | Production session path | **PP sealed factory** — `mirrorMode=pageProjection` → `PageProjectionBrowserSession`. Video = `VideoStreamingBrowserSession` (Patchright lift). Legado `LivePageProjection` **gone**. |
 | M1 overall | **Blocked** on canvas + `web/` Integration (session **path** flipped; product-complete law still applies) |
@@ -39,7 +39,7 @@ V4 lab (DOM table, single document, no production)
 
 | Lens | ~% | What counts |
 |------|-----|-------------|
-| **V4 core algorithm (lab)** | **~95%** | Shipped ISA complete (§4 lacre). One bootstrap × N contexts: DOM, CSSOM, shadow, PROP_SET, OPEN-6 SO, resync, **Input V2 lab**. Open: canvas, scale (perf), CSS paint iso probe, XO/NIT context types. |
+| **V4 core algorithm (lab)** | **~95%** | Shipped ISA complete (§4 lacre). One bootstrap × N contexts: DOM, CSSOM, shadow, PROP_SET, OPEN-6 SO, resync, **OS unified input lab**. Open: canvas, scale (perf), CSS paint iso probe, XO/NIT context types. |
 | **Lab QA / asserts** | **~75%** | DOM/cssom foundation + nested DOM iso + input blueprints shipped. Open: explicit nested `cssomO2` in blueprint, remaining matrix rows. |
 | **Session contract / Live path** | **~90% shape** | Sealed factory + `PageProjectionBrowserSession`; GetResync/ReportClientState dropped; `RequestResync`. Open: antibot kits, asset store, IDB/localStorage restore, frame-queue backpressure. |
 | **Production cutover (M1 exit)** | **~75%** | Session path is PP; web Integration surface (gate 10) landed. Still needs: canvas content (gate 7), MotorAssert compose MirrorMode for deep Live E2E. CSSOM/shadow/OPEN-6/input already on the PP session algorithm. |
@@ -52,7 +52,7 @@ V4 lab (DOM table, single document, no production)
 | 3 CSSOM on **live path** | 15% | **0%** — lab algorithm done; prod not wired |
 | 4 Shadow on live path | 10% | **0%** prod · **Done** lab |
 | 5 OPEN-6 SO lab + XO NIT | 15% | **~85%** lab SO · XO NIT |
-| 6 Input redesign | 15% | **Done** — [input-v2.md](input-v2.md) A/B/C dispatch; lab M1 + unit |
+| 6 Input redesign | 15% | **SEALED** 2026-08-26 — OS unified ([input.md](input.md)); lab suite 8/8 + spike + accept |
 | 6.5 Shared TS package | hygiene | **Done 2026-08-20** — `@speculum/page-projection` (`core`/`virtual`/`projected`); amends E-11; **before** canvas; ≠ gate 10 |
 | 7 Canvas content | 10% | **0%** — ships into the shared package after 6.5 |
 | 10 Production Integration | 20% | **Done surface 2026-08-22** — web package + Frames; canvas still blocks full M1 |
@@ -70,11 +70,11 @@ Lab DOM-table core is **not** a cutover license. Close the **product** before sw
 | 3 | **CSSOM plane in the V4 engine** | Product | **YES** for accept | Algorithm on PP session path. Gate remaining = **web/** apply + surface accept — not DomMap. |
 | 4 | **Shadow DOM** | Product | **DONE** open/named | Feature 1 of [subtrees.md](subtrees.md). Lab `shadow-open`. Closed/manual NIT. Spec: [shadow.md](shadow.md). **Before** OPEN-6. |
 | 5 | **OPEN-6 nested browsing contexts** | Product | **PARTIAL** | Lab same-origin iframe + observability + resync shipped. **CSSOM = same algorithm per nested instance** — not a separate build. XO / srcdoc / sandbox / fenced NIT. Optional: nested `cssomO2` lab assert ([seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`). |
-| 6 | **Input redesign** | Product | **DONE 2026-08-23** | [input-v2.md](input-v2.md) A/B/C: pointer/key CDP fire-and-forget; scrollElement/focus/blur/input via Control→`domNodes`; `setFiles` CDP handle only. Lab M1a–M1d. MotorAssert on Live remains cutover (gate 10). |
+| 6 | **Input redesign** | Product | **SEALED 2026-08-26** | Hot path: UnifiedIntent → EventApplier → ABS uinput; `scrollSet` + S6 census (ContextBus RPC). Mode A/B CDP **purged**. Loopback Phase A + LB-03. Lab Docker suite 8/8. Live MotorAssert intents = cutover / gate 10. |
 | 6.5 | **Shared `@speculum/page-projection` package** | Hygiene | **DONE 2026-08-20** | Extract `core`/`virtual`/`projected` to `Refactor/packages/page-projection`. Lab/session stay callers. Amends E-11 ([decision-log.md](decision-log.md) §J). **Not** Integration — gate 10 consumes the package. |
 | 6.6 | **Sealed BrowserSession path** | Hygiene / path | **DONE 2026-08-21** | `PageProjectionBrowserSession` + sealed factory; `LivePageProjection` deleted; `RequestResync` only. Scratchpad: [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md). |
 | 7 | **`<canvas>` projection** | Product | **YES** — **last feature before Integration** | Project canvas **bitmap/content** (not element-only / not placeholder-forever). Design + implement + effect asserts before gate 10. Ships **into** the shared package after 6.5. Until then: box + `CANVAS_PLACEHOLDER` only ([support-matrix.md](support-matrix.md)). **Not** a [seal-gaps.md](seal-gaps.md) row. |
-| 8 | Rule E-03 / E-08 | RULING | **DONE path 2026-08-22** | Live PP default `projectionDataPlane: 'cdp'` (exposeBinding). Lab fixtures keep `loopback`. No CSP punch for page WS. |
+| 8 | Rule E-03 / E-08 | RULING | **REVISED 2026-08-26** | Sole PP data plane = page loopback WS (`projectionDataPlane: 'loopback'` only). CDP exposeBinding plane purged. Surgical CSP Document surgery stays ([csp.md](csp.md)). |
 | 9 | Archive pack fate | Hygiene | No | Already under `archive/`. |
 | 10 | **Production Integration** | M1 exit / **cutover** | **DONE surface 2026-08-22** | `web/` → `@speculum/page-projection/projected`; legado `live/page` deleted; resync trigger-only; Sessions.Tests `PP-LIVE-*`. Canvas (gate 7) still required for full M1 accept. |
 | 11 | Test-matrix / MotorAssert vs opcodes | Tests | With 10 | [test-matrix.md](test-matrix.md) |
@@ -94,7 +94,7 @@ Exit:
 - Live path: in-page encode → opaque relay → client two-phase apply for **DOM and CSSOM**
 - Shadow walk (same instance) on that path
 - Nested/multi-document protocol (OPEN-6) on that path
-- Redesigned input implemented ([input-v2.md](input-v2.md) — A/B/C dispatch; lab + unit; Live MotorAssert is cutover / gate 10)
+- Redesigned input implemented ([input.md](input.md) OS unified; [input-v2.md](input-v2.md) superseded; lab + unit; Live MotorAssert is cutover / gate 10)
 - Canvas bitmap/content projection implemented (gate 7) — not placeholder-only forever
 - No JSON tree ferry on the frame path
 - Sidecar composition: one factory per [browser-session.md](browser-session.md) — `createPageProjection` / `createVideoStreaming` binding sink + permission host; PP class covers the **full** sealed surface (not a projection-only subset)

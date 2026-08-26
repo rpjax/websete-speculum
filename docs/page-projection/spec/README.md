@@ -3,13 +3,15 @@
 **Status:** official spec for `MirrorMode.PageProjection`.  
 **Accept bar:** [acceptance.md](acceptance.md) — 1:1 with the original site. **DOM** numerical; **CSSOM live** perceived/eventual (not 60 Hz lockstep).  
 **Protocol:** [frame-protocol.md](frame-protocol.md) — the V4 engine (replicated table, binary frames, two-phase apply, resync).  
-**Where you are:** V4 **algorithm** = one bootstrap per `window`. Session path + **web Integration (gate 10 surface)** landed: `PageProjectionBrowserSession`, sealed factory, `web/` → `@speculum/page-projection/projected`, Live CDP data plane, lab loopback-only. Remaining before full M1 accept: **canvas** (gate 7), antibot/asset store, compose MirrorMode for MotorAssert deep Live.
+**Where you are:** V4 **algorithm** = one bootstrap per `window`. Session path + **web Integration (gate 10 surface)** landed: `PageProjectionBrowserSession`, sealed factory, `web/` → `@speculum/page-projection/projected`, **sole data plane = loopback WS**. Remaining before full M1 accept: **canvas** (gate 7), antibot/asset store, compose MirrorMode for MotorAssert deep Live.
 
 ---
 
-## Now (2026-08-25) — start a new chat here
+## Now (2026-08-26) — start a new chat here
 
-**Shipped (recent):** Virtual assets V1 path (D-SPEC-7 rewrite + `/w7s/virtual-*`). **OS input cutover (PP):** hot path = UnifiedIntent → EventApplier → uinput ABS (no CDP Mode A/B). Lab input E2E = **Docker** with `/dev/uinput` ([LAB-DOCKER.md](../../Refactor/sidecar/LAB-DOCKER.md)).
+**Shipped (recent):** Virtual assets V1 path (D-SPEC-7 rewrite + `/w7s/virtual-*`). **OS unified input (PP):** **SEALED** 2026-08-26 — [input.md](input.md); UnifiedIntent → EventApplier → uinput ABS; Mode A/B CDP purged; Phase A + lab resolve = loopback invoke (D-UI-28). Sole data plane = loopback WS + Chrome LNA policy.
+
+**Input:** sealed. Fine-tuning (iOS link, touch, IME) stays backlog. Do **not** reopen CDP Mode A/B or CDP MAIN producer RPC.
 
 **Next product work (ordered):**
 1. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`; harden miss/oracle.
@@ -45,7 +47,7 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
 | Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus transport → **[context-bus.md](context-bus.md)** |
 | **ContextBus** (inter-context JS transport) | **[context-bus.md](context-bus.md)** — emit/invoke; domain protocols sit on top |
-| Input intents | **OS unified** ([input-unified-design-draft.md](input-unified-design-draft.md); [input.md](input.md)) — [input-v2.md](input-v2.md) superseded on PP hot path |
+| Input intents | **OS unified SEALED** ([input.md](input.md) 2026-08-26) — [input-v2.md](input-v2.md) superseded / purged; draft [input-unified-design-draft.md](input-unified-design-draft.md) = long-form register |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Virtual Document **CSP surgery** (cutover session) | **[csp.md](csp.md)** |
 | Session / mirror-mode contracts (sidecar port) | **[browser-session.md](browser-session.md)** — SEALED 2026-08-21 |

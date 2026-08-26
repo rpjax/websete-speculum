@@ -38,9 +38,9 @@ import type { CssomTableLiveOracleResult } from '../core/cssomTableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import { PlaneChannel, type DataPlane } from '../core/plane';
 import type { CssomPollStats } from './cssom/cssomPoller';
-import { applyControlInput, type ControlInputMessage } from './input/applyControlInput';
 import { applyScrollPositions } from './input/applyScrollPositions';
 import type { ScrollCensus } from '../core/input/unifiedIntentTypes';
+import { NONE_DOM_NODE_KEY } from '../core/domNodeKey';
 
 declare global {
   var __speculumProjection:
@@ -108,6 +108,22 @@ declare global {
           scrollX: number;
           scrollY: number;
         }) => Promise<{ ok: boolean; reason?: string }>;
+        keyOfSelector: (args: {
+          selector: string;
+          contextId?: number;
+        }) => Promise<{ ok: boolean; nodeId?: number; reason?: string }>;
+        resolveElementHit: (args: {
+          selector: string;
+          contextId?: number;
+        }) => Promise<{
+          ok: boolean;
+          x?: number;
+          y?: number;
+          scrollX?: number;
+          scrollY?: number;
+          nodeId?: number | null;
+          reason?: string;
+        }>;
       }
     | undefined;
 }
@@ -287,23 +303,60 @@ void (async () => {
 
   bus.setApplyScrollHandler((positions) => applyScrollPositions(domNodes, document, positions));
 
+  function clientPointInRootViewport(el: Element): { x: number; y: number } {
+    const rect = el.getBoundingClientRect();
+    let x = rect.left + rect.width / 2;
+    let y = rect.top + rect.height / 2;
+    let walk: Window | null = document.defaultView;
+    while (walk && walk !== walk.top) {
+      let frameEl: Element | null = null;
+      try {
+        frameEl = walk.frameElement;
+      } catch {
+        break;
+      }
+      if (!frameEl) break;
+      const fr = frameEl.getBoundingClientRect();
+      x += fr.left;
+      y += fr.top;
+      try {
+        walk = walk.parent;
+      } catch {
+        break;
+      }
+    }
+    return { x, y };
+  }
+
+  bus.onInvocation('keyOfSelector', (args: { selector: string }) => {
+    // Drain this context's MO → identity before lookup (nested flush ≠ root flushFrame).
+    frameEmitter.flushNow();
+    const el = document.querySelector(args.selector);
+    if (!el) return { ok: false as const, reason: 'selector_miss' };
+    const nodeId = domNodes.keyOf(el);
+    if (nodeId === NONE_DOM_NODE_KEY) return { ok: false as const, reason: 'node_unmapped' };
+    return { ok: true as const, nodeId };
+  });
+
+  bus.onInvocation('resolveElementHit', (args: { selector: string }) => {
+    frameEmitter.flushNow();
+    const el = document.querySelector(args.selector);
+    if (!el) return { ok: false as const, reason: 'selector_miss' };
+    const { x, y } = clientPointInRootViewport(el);
+    const win = document.defaultView;
+    const scrollX = win?.scrollX || document.scrollingElement?.scrollLeft || 0;
+    const scrollY = win?.scrollY || document.scrollingElement?.scrollTop || 0;
+    const nodeIdRaw = domNodes.keyOf(el);
+    const nodeId = nodeIdRaw === NONE_DOM_NODE_KEY ? null : nodeIdRaw;
+    return { ok: true as const, x, y, scrollX, scrollY, nodeId };
+  });
+
   bus.onResyncRequest((req) => {
     if (req.contextId !== mine) return;
     frameEmitter.requestResync((seq) => {
       const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
       telemetry.recordCssomPoll(cssomStats);
       return frame;
-    });
-  });
-
-  bus.onControlInput((req) => {
-    if (req.contextId !== mine) return;
-    applyControlInput(domNodes, {
-      type: 'input',
-      contextId: req.contextId,
-      intentType: req.intentType,
-      nodeId: req.nodeId,
-      payload: req.payload as ControlInputMessage['payload'],
     });
   });
 
@@ -323,22 +376,9 @@ void (async () => {
         generation?: unknown;
         sequence?: unknown;
         contextId?: unknown;
-        intentType?: unknown;
-        nodeId?: unknown;
-        payload?: unknown;
       };
       const contextId =
         typeof req.contextId === 'number' && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
-
-      if (req.type === 'input') {
-        bus.publishControlInput({
-          contextId,
-          intentType: typeof req.intentType === 'string' ? req.intentType : '',
-          nodeId: typeof req.nodeId === 'number' ? req.nodeId : null,
-          payload: req.payload,
-        });
-        return;
-      }
 
       if (req.type !== 'requestResync') return;
       console.log(
@@ -432,10 +472,15 @@ void (async () => {
       return Object.fromEntries(entries);
     },
     applyScrollCensus: async (census) => {
+      // Spec §10.2 / draft: fan-out parallel; any invoke !ok ⇒ whole apply fail-closed.
+      const results = await Promise.all(
+        census.contexts.map((ctx) => bus.requestApplyScroll(ctx.contextId, ctx.positions)),
+      );
       const missingNodeIds: number[] = [];
-      for (const ctx of census.contexts) {
-        const r = await bus.requestApplyScroll(ctx.contextId, ctx.positions);
-        if (!r.ok) return { ok: false, reason: r.reason ?? 'apply_scroll_failed', missingNodeIds };
+      for (const r of results) {
+        if (!r.ok) {
+          return { ok: false, reason: r.reason ?? 'apply_scroll_failed', missingNodeIds };
+        }
         if (r.missingNodeIds) missingNodeIds.push(...r.missingNodeIds);
       }
       return { ok: true, missingNodeIds };
@@ -447,7 +492,79 @@ void (async () => {
       if (!r.ok) return { ok: false, reason: r.reason ?? 'apply_scroll_failed' };
       return { ok: true };
     },
+    keyOfSelector: async (args) => {
+      const contextId =
+        typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+      return bus.requestKeyOfSelector(contextId, args.selector);
+    },
+    resolveElementHit: async (args) => {
+      const contextId =
+        typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+      return bus.requestResolveElementHit(contextId, args.selector);
+    },
   };
+
+  if (dataPlane) {
+    dataPlane.setInvokeHandler(async (name, args) => {
+      const p = globalThis.__speculumProjection;
+      if (!p) throw new Error('producer missing');
+      switch (name) {
+        case 'applyScrollCensus': {
+          const census = (args as { census?: ScrollCensus } | null)?.census;
+          if (!census) throw new Error('applyScrollCensus: missing census');
+          return p.applyScrollCensus(census);
+        }
+        case 'applyScrollSet': {
+          const a = args as {
+            contextId: number;
+            nodeId: number | null;
+            scrollX: number;
+            scrollY: number;
+          };
+          return p.applyScrollSet(a);
+        }
+        case 'keyOfSelector': {
+          const a = (args ?? {}) as { selector?: string; contextId?: number };
+          if (typeof a.selector !== 'string' || !a.selector) {
+            throw new Error('keyOfSelector: missing selector');
+          }
+          return p.keyOfSelector({ selector: a.selector, contextId: a.contextId });
+        }
+        case 'resolveElementHit': {
+          const a = (args ?? {}) as { selector?: string; contextId?: number };
+          if (typeof a.selector !== 'string' || !a.selector) {
+            throw new Error('resolveElementHit: missing selector');
+          }
+          return p.resolveElementHit({ selector: a.selector, contextId: a.contextId });
+        }
+        case 'haltWorld':
+          p.haltWorld();
+          return { ok: true };
+        case 'resumeWorld':
+          p.resumeWorld();
+          return { ok: true };
+        case 'flushFrame': {
+          const r = p.flushFrame();
+          return { ok: true, generation: r.generation, sequence: r.sequence };
+        }
+        case 'snapshotContext': {
+          const a = (args ?? {}) as {
+            contextId?: number;
+            includeTree?: boolean;
+            cssom?: 'none' | 'committed' | 'scan';
+          };
+          const contextId =
+            typeof a.contextId === 'number' && a.contextId > 0 ? a.contextId : CONTEXT_ID_ROOT;
+          return p.snapshotContext(contextId, {
+            includeTree: a.includeTree,
+            cssom: a.cssom,
+          });
+        }
+        default:
+          throw new Error(`unknown loopback invoke: ${name}`);
+      }
+    });
+  }
   } catch (err) {
     console.error('[speculumProjection] bootstrap failed', err);
     throw err;

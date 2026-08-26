@@ -11,6 +11,8 @@
 **Naming (LOCKED):** .NET-style — interfaces `I…`, classes without `I`.  
 **PP class name (LOCKED):** `PageProjectionBrowserSession`.
 
+**Data plane (LOCKED 2026-08-26):** Virtual↔sidecar carrier = **page loopback WebSocket only** (`projectionDataPlane: 'loopback'`). CDP `exposeBinding` plane purged.
+
 ---
 
 ## 1. Problem

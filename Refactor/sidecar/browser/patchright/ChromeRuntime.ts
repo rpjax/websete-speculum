@@ -170,7 +170,7 @@ export async function launchChrome(args: {
 }
 
 /** Best-effort: raise Chrome so OS CorePointer/CoreKeyboard events hit the window. */
-async function ensureChromeXFocus(displayEnv: string): Promise<void> {
+export async function ensureChromeXFocus(displayEnv: string): Promise<void> {
   const env = { ...process.env as Record<string, string>, DISPLAY: displayEnv };
   const classes = ['Google-chrome', 'google-chrome', 'Chromium', 'chromium'];
   for (const cls of classes) {

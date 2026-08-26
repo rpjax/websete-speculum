@@ -1,11 +1,10 @@
-# Unified input — design draft (TEMPORARY)
+# Unified input — design draft (**PROMOTED 2026-08-26**)
 
-> **Status:** WORK IN PROGRESS — not normative. Code must not implement from this file until promoted.
-> **Goal:** 100% defined spec → code is a direct reflection of spec.
-> **When done:** replace [input-v2.md](input-v2.md) + OS-input sections elsewhere; archive superseded docs; append [decision-log.md](decision-log.md).
-> **Owner decides:** Rodrigo. Agents propose; nothing here is `LOCKED` until he marks it.
+> **Status:** **PROMOTED** → normative [input.md](input.md) (**SEALED** 2026-08-26 — loopback Phase A; false CDP MAIN SEAL reverted same day).  
+> This file remains the long-form decision register + §10 detail. **Implement from [input.md](input.md)**; use this file for D-UI IDs and deep algorithm text.  
+> **Owner:** Rodrigo.
 
-**Started:** 2026-08-23 (debate with Opus + codebase review on `feat/mirror-mode`).
+**Started:** 2026-08-23. **Promoted:** 2026-08-26 (lab suite PASS + accept same-origin).
 
 ---
 
@@ -66,7 +65,7 @@ Mark cells: `OPEN` | `PROPOSED` | `LOCKED` | `REJECTED`.
 | D-UI-17 | **Buffer pressure** | LOCKED | **drop oldest** + natural backpressure. Never drop/coalesce **down/up**. Scroll coalesce **100ms**/target (D-UI-33). Move coalesce **50ms** (D-UI-35). No move flush before click. |
 | D-UI-18 | **Isolation** | LOCKED | No shared pointer/keyboard devices across sessions; no input-state leak between sessions. |
 | D-UI-19 | **Projected + Video same intent types** | LOCKED | Same wire intent types; sidecar routes by intent type, not mirror-mode letter. Video: no S6 census (PageProjection-only). |
-| D-UI-20 | **Spike ABS → Chrome click** | OPEN | **Engineering only** — proves stack. Contract D-UI-02 already LOCKED. |
+| D-UI-20 | **Spike ABS → Chrome click** | **DONE** | PASS 2026-08-25 (decision-log). Contract D-UI-02 already LOCKED. |
 | D-UI-21 | **Ordering across contracts** | LOCKED | One sidecar consumer. |
 | D-UI-22 | **Wheel dead; scroll SET owns** | LOCKED | Accept Virtual has `scroll` from SET, **no** `wheel` events. |
 | D-UI-23 | **Wire codec = MessagePack; lean envelope; telemetry knobs** | LOCKED | Hot path cheap. **§10.6:** `schemaVersion=1`; enum v0 `move|down|up|keyDown|keyUp|scrollSet|setFiles`; `ScrollCensus` **required inline** on PP `down`/`up`; absent on Video; `timestampClient` optional. |
@@ -817,7 +816,7 @@ Intents that **must** attach `ScrollCensus` before dispatch (enforce-before-appl
 
 **Status:** **LOCKED** (2026-08-23).  
 **ID:** D-UI-28.  
-**Law:** exclusive link **Virtual root RUNTIME ↔ sidecar**. Not ContextBus. Not hub↔client. Carrier-agnostic (lab WS today; prod may use CDP binding / other — same envelope).
+**Law:** exclusive link **Virtual root RUNTIME ↔ sidecar**. Not ContextBus. Not hub↔client. **Carrier = page loopback WebSocket only** (CDP binding purged 2026-08-26). Envelope stays §10.1c.
 
 #### 10.1c.0 One-liner
 
@@ -832,7 +831,7 @@ Virtual RUNTIME  ←—— loopback mux ——→  sidecar
 ```ts
 export const VIRTUAL_LOOPBACK_CHANNEL = 'speculum.virtual.loopback' as const;
 
-export type LoopbackKind = 'frame' | 'telemetry' | 'invoke' | 'invoke-result';
+export type LoopbackKind = 'frame' | 'telemetry' | 'invoke' | 'invoke-started' | 'invoke-heartbeat' | 'invoke-result';
 
 export type LoopbackEnvelope =
   | {
@@ -855,6 +854,16 @@ export type LoopbackEnvelope =
     }
   | {
       channel: typeof VIRTUAL_LOOPBACK_CHANNEL;
+      kind: 'invoke-started';
+      correlationId: number;
+    }
+  | {
+      channel: typeof VIRTUAL_LOOPBACK_CHANNEL;
+      kind: 'invoke-heartbeat';
+      correlationId: number;
+    }
+  | {
+      channel: typeof VIRTUAL_LOOPBACK_CHANNEL;
       kind: 'invoke-result';
       correlationId: number;
       ok: boolean;
@@ -865,6 +874,8 @@ export type LoopbackEnvelope =
 
 **Malformed** (wrong/missing `channel`, bad kind, …) → drop silently on receive.
 
+Idle TCS (LB-04, default 2000ms) is **reset** by `invoke-started` and each `invoke-heartbeat` (same rule as ContextBus CB-04) while Virtual still runs the handler.
+
 #### 10.1c.2 Directions
 
 | kind | Direction | Meaning |
@@ -872,17 +883,27 @@ export type LoopbackEnvelope =
 | `frame` | Virtual → sidecar | Runtime forwards domain `emitFrame` success path to session DataPlane / encode |
 | `telemetry` | Virtual → sidecar | Best-effort tele |
 | `invoke` | sidecar → Virtual | Sidecar needs a result from Virtual RUNTIME |
+| `invoke-started` | Virtual → sidecar | Handler accepted; reset sidecar idle TCS |
+| `invoke-heartbeat` | Virtual → sidecar | Handler still running (every 500ms); reset sidecar idle TCS |
 | `invoke-result` | Virtual → sidecar | Completes sidecar TCS |
 
 No `invoke` Virtual→sidecar in v0 (frames/tele are FF). If later needed, add symmetrically.
 
-#### 10.1c.3 Invoke names v0 (closed list — expand by decision)
+#### 10.1c.3 Invoke names (closed list — expand by decision)
 
 | `name` | Args | Result | Used by |
 |--------|------|--------|---------|
-| `applyScrollCensus` | `{ census: ScrollCensus }` | `{ ok: true }` or error | Applier Phase A before OS click |
+| `applyScrollCensus` | `{ census: ScrollCensus }` | `{ ok }` or error | Applier Phase A before OS click |
+| `applyScrollSet` | `{ contextId, nodeId, scrollX, scrollY }` | `{ ok }` or error | Applier fine scroll |
+| `keyOfSelector` | `{ selector, contextId? }` | `{ ok, nodeId? }` or error | lab resolveAndScrollElement |
+| `resolveElementHit` | `{ selector, contextId? }` | `{ ok, x, y, scrollX, scrollY, nodeId? }` or error | lab resolveAndClick / type |
+| `haltWorld` | `{}` | `{ ok }` or error | lab / session |
+| `resumeWorld` | `{}` | `{ ok }` or error | lab / session |
+| `flushFrame` | `{}` | `{ ok, generation?, sequence? }` | lab / session |
+| `snapshotContext` | `{ contextId, includeTree?, cssom? }` | snapshot payload | lab / `getStateSnapshot` |
 
-**PROPOSED later (not v0):** `publishResyncRequest`, lab `snapshot`/`resume` entry — keep Control-plane/session rulings until explicitly moved.
+**Still Control (not invoke) until moved:** `requestResync` fire-and-forget.  
+**Normative status:** [input.md](input.md) **SEALED** 2026-08-26 (loopback Phase A + Docker gates).
 
 #### 10.1c.4 `applyScrollCensus` sequence
 
@@ -914,7 +935,7 @@ Virtual RUNTIME on applyScrollCensus:
 - Projected ↔ hub MessagePack
 - ContextBus iframe fabric
 - User-facing resync entry (session Control plane — existing ruling)
-- Replacing CDP vs loopback **carrier** choice for Live PP frames (session still picks carrier; **envelope** is shared)
+- Replacing the loopback **envelope** shape (carrier is fixed: page loopback WS)
 
 #### 10.1c.7 Decisions (**LOCKED**)
 
@@ -922,7 +943,7 @@ Virtual RUNTIME on applyScrollCensus:
 |----|----------|
 | **LB-01** | Channel = `speculum.virtual.loopback` |
 | **LB-02** | Frame payload = `bytes` only (contextId in PP header) |
-| **LB-03** | v0 invoke names = only `applyScrollCensus` |
+| **LB-03** | invoke names = closed catalog in §10.1c.3 (expanded 2026-08-26; CDP MAIN RPC forbidden) |
 | **LB-04** | Invoke idle timeout default = **2000ms** |
 | **LB-05** | `correlationId` = **u32** monotonic per sidecar writer |
 | **LB-06** | Codec = **MessagePack** (`LoopbackEnvelope`; frame bytes as bin) |
@@ -1321,7 +1342,7 @@ Track until promoted/SEALED. Status: `OPEN` | `PROPOSED` | `LOCKED` | `DONE` | `
 | D-UI-21/22 | Serial consumer; wheel dead | LOCKED |
 | D-UI-08/09/10/18/19 | Batch B session/input scope | **LOCKED** |
 | D-UI-02 | ABS pointer contract | **LOCKED** |
-| D-UI-20 | Spike ABS→Chrome | OPEN (eng only) |
+| D-UI-20 | Spike ABS→Chrome | **DONE** 2026-08-25 (decision-log PASS) |
 | D-UI-03/05/05a/16 | Peripheral decisions | **LOCKED** |
 | D-UI-15 | Peripheral writer in-process | **LOCKED** |
 | 10.3 | Peripherals (§10.3) | **DONE** |
@@ -1350,11 +1371,12 @@ Track until promoted/SEALED. Status: `OPEN` | `PROPOSED` | `LOCKED` | `DONE` | `
 
 | ID | Item | Status |
 |----|------|--------|
-| | Promote input draft → normative input.md | DEFERRED until D-UI-20 spike + review |
+| | Promote input draft → normative input.md | **DONE** 2026-08-26 SEAL v0 |
 | | Amend multi-doc §4 → ContextBus | OPEN |
-| | decision-log on input unify SEAL | DEFERRED |
-| | Delete list: OsInputBackend REL, PatchrightInputBackend, input-v2 paths | OPEN |
-| | MotorAssert / lab blueprints for new input | OPEN |
+| | decision-log on input unify SEAL | **DONE** 2026-08-26 |
+| | Delete list: Mode A/B PP paths (`DomElementInput` / `PageProjectionInputDispatch` / `applyControlInput`) | **DONE** source 2026-08-26 |
+| | Delete list: OsInputBackend REL, PatchrightInputBackend (Video dual) | OPEN — Video out of this PP cut |
+| | MotorAssert / lab blueprints for new input | Lab suite PASS; MotorAssert Live OPEN |
 
 ### F. Explicitly out / later product
 

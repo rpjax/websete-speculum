@@ -286,9 +286,9 @@ function greasyNotABrand(major) {
     return { brand: 'Not A(Brand', version: '99', fullVersion: '99.0.0.0' };
 }
 /**
- * Size the native Chrome window to the logical viewport (no fullscreen).
- * Soft resize reuses this so layout does not depend on metrics alone.
- * Verifies bounds stuck (bare Xorg — no maximizing WM).
+ * Size the native Chrome window so the **content** box is W×H at display (0,0).
+ * Outer chrome (title bar) is pushed off-screen via negative top — identity ABS↔client (D-UI-04).
+ * Uses window metrics once at launch/resize — not click calibration.
  */
 async function applyNativeWindowBounds(cdp, width, height) {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -297,23 +297,44 @@ async function applyNativeWindowBounds(cdp, width, height) {
     const targetW = Math.round(width);
     const targetH = Math.round(height);
     const { windowId } = (await cdp.send('Browser.getWindowForTarget', {}));
+    // First place a normal window so we can read outer vs inner chrome deltas.
+    await cdp.send('Browser.setWindowBounds', {
+        windowId,
+        bounds: {
+            windowState: 'normal',
+            left: 0,
+            top: 0,
+            width: targetW,
+            height: targetH,
+        },
+    });
+    const geom = (await cdp.send('Runtime.evaluate', {
+        expression: `(() => ({
+      outerW: window.outerWidth|0,
+      outerH: window.outerHeight|0,
+      innerW: window.innerWidth|0,
+      innerH: window.innerHeight|0,
+    }))()`,
+        returnByValue: true,
+    }));
+    const g = geom.result?.value;
+    const chromeX = g ? Math.max(0, g.outerW - g.innerW) : 0;
+    const chromeY = g ? Math.max(0, g.outerH - g.innerH) : 0;
+    // Content (0,0) on the display: shift chrome above/left off-screen; outer = content + chrome.
     const bounds = {
         windowState: 'normal',
-        left: 0,
-        top: 0,
-        width: targetW,
-        height: targetH,
+        left: -Math.floor(chromeX / 2),
+        top: -chromeY,
+        width: targetW + chromeX,
+        height: targetH + chromeY,
     };
     await cdp.send('Browser.setWindowBounds', { windowId, bounds });
     const after = (await cdp.send('Browser.getWindowBounds', { windowId }));
     const got = after.bounds;
-    const w = got?.width ?? 0;
-    const h = got?.height ?? 0;
-    // Outer window may include browser chrome; reject only fullscreen / capacity-sized.
     const stuckWrong = !got
         || got.windowState === 'fullscreen'
-        || w >= targetW * 3
-        || h >= targetH * 3;
+        || (got.width ?? 0) >= targetW * 3
+        || (got.height ?? 0) >= targetH * 3;
     if (stuckWrong) {
         await cdp.send('Browser.setWindowBounds', { windowId, bounds });
     }

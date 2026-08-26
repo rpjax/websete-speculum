@@ -13,7 +13,7 @@
           "dependsOn": ["boot"],
           "params": { "invariants": true, "metrics": true, "nodeTableApply": true }
         },
-        { "id": "wait", "type": "sleep", "dependsOn": ["collect"], "params": { "ms": 5500 } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["collect"], "params": { "ms": 6500 } },
         {
           "id": "burst-1",
           "type": "pushInput",

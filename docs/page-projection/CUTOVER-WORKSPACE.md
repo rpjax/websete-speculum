@@ -5,7 +5,7 @@
 **Normativo:** [spec/browser-session.md](spec/browser-session.md).
 
 **Alvo:** `PageProjectionBrowserSession` + sealed factory + `web/` → `@speculum/page-projection/projected`  
-**LivePageProjection:** deleted. Lab aliases (`flushProjection*`) deleted. Live data plane = CDP binding (lab = loopback).  
+**LivePageProjection:** deleted. Lab aliases (`flushProjection*`) deleted. Data plane = **loopback WS only** (CDP binding purged 2026-08-26).  
 **Cleanup wave (W3):** `labLaunch` / `PageProjectionInputDispatch` / `PageProjectionFactoryOptions` renames; `FirstFrameEmitted` journal fact; dead `IPageProjectionDiffTelemetry` / `PageProjectionClientStateReport` removed.
 
 Quando o produto restante fechar: apagar este arquivo.
@@ -20,7 +20,7 @@ Quando o produto restante fechar: apagar este arquivo.
 | Fat port / Patchright video-only | `BrowserSession` shrunk; stub `liveAttach` deleted |
 | Wire Launch split + Frames stream | `LaunchPageProjection` / `LaunchVideoStreaming` / `WatchPageProjectionFrames` |
 | web Integration | `file:@speculum/page-projection`; `live/page` apply deleted; resync trigger-only |
-| Live data plane | `projectionDataPlane: 'cdp'` default; lab `loopback` |
+| Live / lab data plane | `projectionDataPlane: 'loopback'` only (CDP binding purged) |
 | ContextBus cutover (D-UI-27) | **DONE** 2026-08-23 — `projectionBus` deleted; ContextBus + loopback mux wire |
 
 ---

@@ -2,6 +2,9 @@
  * ABS uinput stack for unified PP input (D-UI-02 / D-UI-20).
  * Opens ABS pointer + keyboard (+ multitouch stub for Xorg InputDevice list),
  * mknods event nodes, exposes writers for AbsPointerPeripheral / KeyboardPeripheral.
+ *
+ * Coordinate law (D-UI-04): client CSS (x,y) maps 1:1 into ABS via
+ * {@link mapLogicalToAbs} — no chrome-inset calibration.
  */
 
 import { createHash } from 'node:crypto';
@@ -19,9 +22,14 @@ import {
   UinputDevice,
   uinputAvailable,
 } from '../patchright/input/uinput';
+import {
+  createLogicalWindowTransform,
+  mapLogicalToAbs,
+  type CoordTransform,
+} from '../patchright/input/logical-to-device';
 import type { AbsPointerWriter, PointerButton } from './peripherals/AbsPointerPeripheral';
 import type { KeyboardWriter } from './peripherals/KeyboardPeripheral';
-import { resolveKeyStroke, allKeyboardKeyCodes } from '../patchright/input/keycodes';
+import { resolveKeyStroke, allKeyboardKeyCodes, KEY } from '../patchright/input/keycodes';
 
 export type AbsOsInputOpenOptions = {
   sessionId: string;
@@ -36,24 +44,26 @@ export class AbsOsInputStack {
   readonly pointerWriter: AbsPointerWriter;
   readonly keyboardWriter: KeyboardWriter;
   private disposed = false;
+  private readonly transform: CoordTransform;
 
   private constructor(
     pointer: UinputDevice,
     keyboard: UinputDevice,
     touch: UinputDevice,
-    private readonly absMaxX: number,
-    private readonly absMaxY: number,
+    transform: CoordTransform,
   ) {
     this.pointer = pointer;
     this.keyboard = keyboard;
     this.touch = touch;
+    this.transform = transform;
     this.pointerWriter = {
       writeAbs: (x: number, y: number) => this.writeAbs(x, y),
       writeBtn: (btn: PointerButton, down: boolean) => this.writeBtn(btn, down),
       releaseAll: () => this.releasePointer(),
     };
     this.keyboardWriter = {
-      writeKey: (code: string, down: boolean, _modifiers?: unknown) => this.writeKey(code, down),
+      writeKey: (code: string, down: boolean, modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean }) =>
+        this.writeKey(code, down, modifiers),
       releaseAll: () => {
         /* keys are edge-triggered */
       },
@@ -68,10 +78,13 @@ export class AbsOsInputStack {
         phase: 'launch',
       });
     }
-    const absMaxX = Math.max(0, opts.displayWidth - 1);
-    const absMaxY = Math.max(0, opts.displayHeight - 1);
+    const transform = createLogicalWindowTransform(opts.displayWidth, opts.displayHeight);
     const shortId = createHash('sha1').update(opts.sessionId).digest('hex').slice(0, 12);
-    const pointer = UinputDevice.openAbsPointer(`speculum-abs-${shortId}`, absMaxX, absMaxY);
+    const pointer = UinputDevice.openAbsPointer(
+      `speculum-abs-${shortId}`,
+      transform.absMaxX,
+      transform.absMaxY,
+    );
     let keyboard: UinputDevice;
     try {
       keyboard = UinputDevice.openKeyboard(`speculum-kbd-${shortId}`, allKeyboardKeyCodes());
@@ -81,14 +94,24 @@ export class AbsOsInputStack {
     }
     let touch: UinputDevice;
     try {
-      touch = UinputDevice.openMultitouch(`speculum-mt-${shortId}`, absMaxX, absMaxY, 10);
+      touch = UinputDevice.openMultitouch(
+        `speculum-mt-${shortId}`,
+        transform.absMaxX,
+        transform.absMaxY,
+        10,
+      );
     } catch (err) {
       pointer.destroy();
       keyboard.destroy();
       throw err;
     }
     ensureInputEventNodes(pointer.name, keyboard.name, touch.name);
-    return new AbsOsInputStack(pointer, keyboard, touch, absMaxX, absMaxY);
+    return new AbsOsInputStack(pointer, keyboard, touch, transform);
+  }
+
+  /** Identity transform used by the pointer writer (tests / diagnostics). */
+  getCoordTransform(): CoordTransform {
+    return this.transform;
   }
 
   displayInputDevices(): DisplayInputDevices {
@@ -115,11 +138,10 @@ export class AbsOsInputStack {
   }
 
   private writeAbs(x: number, y: number): void {
-    const xi = clamp(Math.round(x), 0, this.absMaxX);
-    const yi = clamp(Math.round(y), 0, this.absMaxY);
+    const m = mapLogicalToAbs(this.transform, x, y);
     this.pointer.emit([
-      { type: EV_ABS, code: ABS_X, value: xi },
-      { type: EV_ABS, code: ABS_Y, value: yi },
+      { type: EV_ABS, code: ABS_X, value: m.x },
+      { type: EV_ABS, code: ABS_Y, value: m.y },
     ]);
   }
 
@@ -136,10 +158,21 @@ export class AbsOsInputStack {
     ]);
   }
 
-  private writeKey(code: string, down: boolean): void {
+  private writeKey(
+    code: string,
+    down: boolean,
+    modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean },
+  ): void {
     const stroke = resolveKeyStroke(code);
     if (!stroke) return;
+    const needShift = !!(stroke.shift || modifiers?.shift);
+    if (needShift && down) {
+      this.keyboard.emit([{ type: EV_KEY, code: KEY.LEFTSHIFT, value: 1 }]);
+    }
     this.keyboard.emit([{ type: EV_KEY, code: stroke.code, value: down ? 1 : 0 }]);
+    if (needShift && !down) {
+      this.keyboard.emit([{ type: EV_KEY, code: KEY.LEFTSHIFT, value: 0 }]);
+    }
   }
 
   dispose(): void {
@@ -154,10 +187,6 @@ export class AbsOsInputStack {
     this.keyboard.destroy();
     this.touch.destroy();
   }
-}
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
 }
 
 type InputHandlerRef = { name: string; event: string };
@@ -212,4 +241,3 @@ function ensureInputEventNodes(...deviceNames: string[]): void {
     }
   }
 }
-

@@ -1,0 +1,23 @@
+{
+  "id": "forms-rect",
+  "description": "Dump Virtual #field rect for coord debug",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-forms.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2500 } },
+        {
+          "id": "rect",
+          "type": "evaluate",
+          "dependsOn": ["wait"],
+          "params": {
+            "expression": "(() => { const el = document.getElementById('field'); const r = el.getBoundingClientRect(); return JSON.stringify({ x: r.x, y: r.y, w: r.width, h: r.height, cx: r.x + r.width / 2, cy: r.y + r.height / 2, vw: window.innerWidth, vh: window.innerHeight }); })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["rect"] }
+      ]
+    }
+  ]
+}

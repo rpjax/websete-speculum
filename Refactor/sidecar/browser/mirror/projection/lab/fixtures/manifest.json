@@ -8,6 +8,7 @@
   { "id": "input-forms", "path": "input-forms.html", "tags": ["dom", "input", "m1b"] },
   { "id": "input-scroll", "path": "input-scroll.html", "tags": ["dom", "input", "m1c"], "notes": "Single overflow #scroller — visual band scroll" },
   { "id": "input-scroll-matrix", "path": "input-scroll-matrix.html", "tags": ["dom", "input", "m1c", "iframe"], "notes": "Page + two component scrollers + nested iframe scroller" },
+  { "id": "input-e2e-stress", "path": "input-e2e-stress.html?panels=48", "tags": ["dom", "input", "stress", "census"], "notes": "Click grid + forms + N overflow panels + iframe — input stress + census cost" },
   { "id": "scroll", "path": "scroll.html", "tags": ["dom", "scroll"] },
   { "id": "mutation-churn", "path": "mutation-churn.html", "tags": ["dom", "stress"] },
   { "id": "stress-churn", "path": "stress-churn.html", "tags": ["dom", "stress", "pp-fr-1"] },

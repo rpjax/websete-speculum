@@ -402,7 +402,9 @@ export async function executeBlueprint(
                 return finish(false, 'resolveAndScrollElement missing');
               }
               const out = await v4.resolveAndScrollElementDomInput(selector, scrollTop, contextId);
-              if (out.status === 'dropped') return finish(false, out.reason ?? 'scroll failed');
+              if (out.status === 'dropped') {
+                return finish(false, `${selector}@${contextId}: ${out.reason ?? 'scroll failed'}`);
+              }
               chassis.journal.acts.push({ name: `scroll:${selector}`, ok: true });
               continue;
             }

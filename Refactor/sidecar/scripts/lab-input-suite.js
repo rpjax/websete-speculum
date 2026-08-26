@@ -26,6 +26,7 @@ const BLUEPRINTS = [
   'input-iframe-scroll',
   'input-iframe-click',
   'input-stress',
+  'input-e2e-stress',
 ];
 
 const outArgIdx = process.argv.indexOf('--out');
@@ -72,31 +73,74 @@ run(npm, ['exec', '--', 'tsc'], 'tsc');
 const summary = [];
 let failed = 0;
 
-for (const id of BLUEPRINTS) {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outDir = path.join(outBase, `${stamp}-${id}`);
-  process.stdout.write(`\n=== lab:run --blueprint ${id} (OS) ===\n`);
-  const r = spawnSync(process.execPath, [cli, '--blueprint', id, '--out', outDir, '--headed'], {
+function sleepSync(ms) {
+  const sab = new SharedArrayBuffer(4);
+  const ia = new Int32Array(sab);
+  Atomics.wait(ia, 0, 0, ms);
+}
+
+function runBlueprint(id, outDir) {
+  return spawnSync(process.execPath, [cli, '--blueprint', id, '--out', outDir, '--headed'], {
     cwd: root,
-    stdio: 'inherit',
+    encoding: 'utf8',
     env: {
       ...process.env,
       SPECULUM_LAB_HEADED: '1',
       SPECULUM_INPUT_BACKEND: 'os',
+      CHROME_EXECUTABLE: process.env.CHROME_EXECUTABLE || '/usr/bin/google-chrome',
     },
   });
+}
+
+function killOrphanChrome() {
+  spawnSync('pkill', ['-9', '-f', 'google-chrome'], { stdio: 'ignore' });
+  spawnSync('pkill', ['-9', '-f', 'chromedriver'], { stdio: 'ignore' });
+  sleepSync(800);
+}
+
+for (const id of BLUEPRINTS) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const outDir = path.join(outBase, `${stamp}-${id}`);
+  process.stdout.write(`\n=== lab:run --blueprint ${id} (OS) ===\n`);
+  killOrphanChrome();
+  let r = runBlueprint(id, outDir);
+  let combined = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  let attempt = 1;
+  while (
+    (r.status ?? 1) !== 0 &&
+    attempt < 3 &&
+    /Failed to open a new tab|Target\.createTarget/i.test(combined)
+  ) {
+    attempt += 1;
+    process.stdout.write(`RETRY ${id} after createTarget flake (attempt ${attempt})\n`);
+    killOrphanChrome();
+    sleepSync(2500);
+    r = runBlueprint(id, outDir);
+    combined = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  }
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
   const ok = (r.status ?? 1) === 0;
   if (!ok) failed += 1;
 
   let verdicts = [];
   let inputPipeline = null;
+  const dossierDir = (() => {
+    try {
+      const kids = fs.readdirSync(outDir).map((n) => path.join(outDir, n)).filter((p) => fs.statSync(p).isDirectory());
+      // cli nests a stamp dossier under --out
+      return kids.sort().at(-1) ?? outDir;
+    } catch {
+      return outDir;
+    }
+  })();
   try {
-    verdicts = JSON.parse(fs.readFileSync(path.join(outDir, 'verdicts.json'), 'utf8'));
+    verdicts = JSON.parse(fs.readFileSync(path.join(dossierDir, 'verdicts.json'), 'utf8'));
   } catch {
     /* */
   }
   try {
-    inputPipeline = JSON.parse(fs.readFileSync(path.join(outDir, 'probes', 'input-pipeline.json'), 'utf8'));
+    inputPipeline = JSON.parse(fs.readFileSync(path.join(dossierDir, 'probes', 'input-pipeline.json'), 'utf8'));
   } catch {
     /* */
   }

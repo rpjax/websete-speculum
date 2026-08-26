@@ -275,14 +275,17 @@ async function qaIframeClick(page) {
     'e2e-os-iframe-click',
     'fixtures/iframe-open.html',
     async (p, frame) => {
-      await wait(5500);
+      await wait(8000);
       let target = null;
-      for (const f of frame.page().frames()) {
-        const has = await f.evaluate(() => !!document.getElementById('inner-click')).catch(() => false);
-        if (has) {
-          target = f;
-          break;
+      for (let attempt = 0; attempt < 40 && !target; attempt++) {
+        for (const f of frame.page().frames()) {
+          const has = await f.evaluate(() => !!document.getElementById('inner-click')).catch(() => false);
+          if (has) {
+            target = f;
+            break;
+          }
         }
+        if (!target) await wait(250);
       }
       if (!target) throw new Error('nested projected frame missing');
       const btn = await target.waitForSelector('#inner-click', { timeout: 10_000 });
@@ -355,6 +358,71 @@ async function qaStressBurst(page) {
   );
 }
 
+/** Multi-panel farm — Projected capture → OS; censusSnapshotMs lands in input-pipeline. */
+async function qaE2eStressFarm(page) {
+  return runScenario(
+    page,
+    'e2e-os-stress-farm',
+    'fixtures/input-e2e-stress.html?panels=48',
+    async (p, frame) => {
+      await wait(4000);
+      for (const id of ['#cell-0', '#cell-15', '#cell-31', '#cell-63']) {
+        const el = await frame.waitForSelector(id, { timeout: 15_000 });
+        const box = await el.boundingBox();
+        if (!box) throw new Error(`no bbox ${id}`);
+        await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await wait(40);
+      }
+      const field = await frame.waitForSelector('#field', { timeout: 10_000 });
+      const fb = await field.boundingBox();
+      if (!fb) throw new Error('no bbox #field');
+      await p.mouse.click(fb.x + fb.width / 2, fb.y + fb.height / 2);
+      await wait(80);
+      await p.keyboard.type('stress-ok', { delay: 25 });
+      const panel = await frame.waitForSelector('#panel-0', { timeout: 10_000 });
+      const pb = await panel.boundingBox();
+      if (!pb) throw new Error('no bbox #panel-0');
+      await p.mouse.move(pb.x + 40, pb.y + 40);
+      for (let i = 0; i < 40; i++) {
+        await p.mouse.wheel(0, 70);
+        await wait(15);
+      }
+      for (let i = 0; i < 30; i++) {
+        await p.mouse.move(pb.x + 20 + (i % 20) * 5, pb.y + 20 + (i % 10) * 4);
+        if (i % 5 === 0) {
+          await p.mouse.down();
+          await wait(20);
+          await p.mouse.up();
+        }
+        await wait(10);
+      }
+    },
+    async (_p, frame) => {
+      const deadline = Date.now() + 12_000;
+      while (Date.now() < deadline) {
+        const snap = await frame.evaluate(() => ({
+          clicks: Number(document.getElementById('hud-clicks')?.textContent || '0'),
+          field: document.getElementById('field')?.value ?? '',
+          mirror: document.getElementById('mirror')?.getAttribute('data-value') ?? '',
+          panel0: document.getElementById('panel-0')?.scrollTop ?? 0,
+          panelSum: Number(document.getElementById('hud-panel-sum')?.textContent || '0'),
+        }));
+        if (snap.clicks >= 4 && snap.field === 'stress-ok' && snap.mirror === 'stress-ok' && (snap.panel0 > 40 || snap.panelSum > 40)) {
+          return;
+        }
+        await wait(150);
+      }
+      const snap = await frame.evaluate(() => ({
+        clicks: document.getElementById('hud-clicks')?.textContent,
+        field: document.getElementById('field')?.value,
+        mirror: document.getElementById('mirror')?.getAttribute('data-value'),
+        panel0: document.getElementById('panel-0')?.scrollTop,
+      }));
+      throw new Error(`stress-farm assert: ${JSON.stringify(snap)}`);
+    },
+  );
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const root = path.join(__dirname, '..');
@@ -415,7 +483,11 @@ async function main() {
 
   try {
     await waitHealth(EXTERNAL ? 30_000 : 90_000);
-    const browser = await chromium.launch({ headless: true });
+    const chromePath = process.env.CHROME_EXECUTABLE || '';
+    const browser = await chromium.launch({
+      headless: true,
+      ...(chromePath ? { executablePath: chromePath } : {}),
+    });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
     await page.click('#connect');
@@ -429,7 +501,7 @@ async function main() {
       { timeout: 20_000 },
     );
 
-    const scenarios = [qaClick, qaForms, qaScroll, qaIframeClick, qaStressBurst];
+    const scenarios = [qaClick, qaForms, qaScroll, qaIframeClick, qaStressBurst, qaE2eStressFarm];
     for (const fn of scenarios) {
       process.stdout.write(`\n=== ${fn.name} ===\n`);
       const r = await fn(page);

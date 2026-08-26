@@ -45,9 +45,11 @@ export function mapLogicalToAbs(
   x: number,
   y: number,
 ): { x: number; y: number } {
+  const xr = Number.isFinite(x) ? Math.round(x) : 0;
+  const yr = Number.isFinite(y) ? Math.round(y) : 0;
   return {
-    x: clamp(Math.round(x), 0, t.absMaxX),
-    y: clamp(Math.round(y), 0, t.absMaxY),
+    x: clamp(xr, 0, t.absMaxX),
+    y: clamp(yr, 0, t.absMaxY),
   };
 }
 

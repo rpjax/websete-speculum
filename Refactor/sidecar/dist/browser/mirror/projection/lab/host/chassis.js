@@ -577,16 +577,20 @@ class LabChassis {
             intent,
             ok: result.ok,
             error: result.error,
-            mode: result.mode,
+            mode: result.mode ?? 'OS',
             dispatchMs: result.dispatchMs,
             clientLagMs: result.clientLagMs,
         };
         this.journal.intents.push(entry);
         this.eventCounts.intent = (this.eventCounts.intent ?? 0) + 1;
         // Motion intents are high-rate; keep them in memory for Stop export, skip live ndjson.
-        // Disk append on the hot path contended with CDP while Virtual was already emitting huge frames.
         const type = typeof intent.type === 'string' ? intent.type.toLowerCase() : '';
-        const motion = type === 'mousemove' || type === 'pointermove' || type === 'wheel' || type === 'scrollviewport';
+        const motion = type === 'move'
+            || type === 'mousemove'
+            || type === 'pointermove'
+            || type === 'wheel'
+            || type === 'scrollviewport'
+            || type === 'scrollset';
         if (this.dossier && (!motion || !result.ok)) {
             await (0, write_1.appendNdjsonArtifact)(this.dossier, 'journal/intents.jsonl', entry, 'journal.intents');
         }
@@ -841,6 +845,8 @@ class LabChassis {
         };
         await (0, write_1.writeJson)(this.dossier, 'probes/input-pipeline.json', {
             wallMs,
+            backend: 'os',
+            path: 'eventApplier+absUinput',
             capture: this.lastInputCaptureMetrics,
             journal: {
                 total: intents.length,

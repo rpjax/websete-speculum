@@ -18,6 +18,7 @@ import { OpCode } from '../core/opcodes';
 import { digestReplicatedTable } from '../core/tableDigest';
 import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
 import { stampAttrAuth, stampCssTextAuth } from './sessionBindingAuth';
+import { ScrollableIndex } from './scroll/scrollableIndex';
 
 export type NestedProjectedApplyOptions = {
   hostIframe: HTMLIFrameElement;
@@ -65,6 +66,7 @@ export class NestedProjectedApply {
   private armed = false;
   private everArmed = false;
   private lastDesyncReason: string | null = null;
+  private readonly scrollIndex = new ScrollableIndex();
   private readonly onArmedCb?: () => void;
   private readonly onNestedHostCb?: NestedProjectedApplyOptions['onNestedHost'];
   private readonly onNestedHostDropCb?: NestedProjectedApplyOptions['onNestedHostDrop'];
@@ -91,6 +93,11 @@ export class NestedProjectedApply {
 
   get isArmed(): boolean {
     return this.armed;
+  }
+
+  /** Per-context scrollable index (D-UI-32). */
+  getScrollableIndex(): ScrollableIndex {
+    return this.scrollIndex;
   }
 
   get desynced(): boolean {
@@ -169,6 +176,7 @@ export class NestedProjectedApply {
     return new DomFrameApplier(doc, registry, {
       stampUrl: (name, value) => stampAttrAuth(name, value, token(), base()),
       stampCssText: (text) => stampCssTextAuth(text, token(), base()),
+      scrollableIndex: this.scrollIndex,
       onWarn: (message) => {
         this.onTelemetry?.({
           v: TELEMETRY_WIRE_VERSION,

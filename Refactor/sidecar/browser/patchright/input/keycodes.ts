@@ -119,6 +119,26 @@ const PLAYWRIGHT_TO_EV: Record<string, number> = {
   F10: KEY.F10,
   F11: KEY.F11,
   F12: KEY.F12,
+  // UIEvent.code (Projected capture / KeyboardEvent.code)
+  Minus: KEY.MINUS,
+  Equal: KEY.EQUAL,
+  BracketLeft: KEY.LEFTBRACE,
+  BracketRight: KEY.RIGHTBRACE,
+  Backslash: KEY.BACKSLASH,
+  Semicolon: KEY.SEMICOLON,
+  Quote: KEY.APOSTROPHE,
+  Backquote: KEY.GRAVE,
+  Comma: KEY.COMMA,
+  Period: KEY.DOT,
+  Slash: KEY.SLASH,
+  ShiftLeft: KEY.LEFTSHIFT,
+  ShiftRight: KEY.RIGHTSHIFT,
+  ControlLeft: KEY.LEFTCTRL,
+  ControlRight: KEY.RIGHTCTRL,
+  AltLeft: KEY.LEFTALT,
+  AltRight: KEY.RIGHTALT,
+  MetaLeft: KEY.META,
+  MetaRight: KEY.META,
 };
 
 const CHAR_TO_EV: Record<string, { code: number; shift?: boolean }> = {
@@ -221,11 +241,16 @@ const CHAR_TO_EV: Record<string, { code: number; shift?: boolean }> = {
 
 export type KeyStroke = { code: number; shift?: boolean };
 
-/** Resolve a Playwright-style key name or single printable char to EV_KEY stroke(s). */
+/** Resolve a Playwright-style key name, UIEvent.code, or single printable char to EV_KEY. */
 export function resolveKeyStroke(key: string): KeyStroke | null {
   if (!key) return null;
   const named = PLAYWRIGHT_TO_EV[key];
   if (named !== undefined) return { code: named };
+  // KeyboardEvent.code: KeyA…KeyZ, Digit0…Digit9
+  const keyLetter = /^Key([A-Z])$/.exec(key);
+  if (keyLetter) return { code: CHAR_TO_EV[keyLetter[1]!.toLowerCase()]!.code };
+  const digit = /^Digit([0-9])$/.exec(key);
+  if (digit) return { code: CHAR_TO_EV[digit[1]!]!.code };
   if (key.length === 1) {
     return CHAR_TO_EV[key] ?? null;
   }

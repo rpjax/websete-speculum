@@ -247,10 +247,10 @@ export interface BrowserLaunchOptions {
   cpuProfiling?: boolean;
   /**
    * PageProjection Virtual→sidecar data plane.
-   * `cdp` = exposeBinding (Live / E-03). `loopback` = page WS (lab fixtures only).
-   * Default `cdp`.
+   * Canonical and sole carrier: page WebSocket loopback (`ws://127.0.0.1`).
+   * Only `'loopback'` is accepted; omit or set `'loopback'`.
    */
-  projectionDataPlane?: 'cdp' | 'loopback';
+  projectionDataPlane?: 'loopback';
   /** Sessions.PageProjection.MaxFrameBytes (§5.3.5.5) — one wire message cap before splitting. */
   maxFrameBytes?: number;
   /** Sessions.PageProjection.BrowserPoolSize (§5.13, WP13) — 0 disables the pre-warm pool. */

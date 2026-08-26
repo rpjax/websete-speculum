@@ -27,6 +27,9 @@ class SidecarBuffer {
     get pending() {
         return this.queue.length;
     }
+    isEmpty() {
+        return this.queue.length === 0;
+    }
 }
 exports.SidecarBuffer = SidecarBuffer;
 //# sourceMappingURL=SidecarBuffer.js.map

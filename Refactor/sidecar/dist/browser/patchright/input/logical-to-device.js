@@ -22,9 +22,11 @@ function createLogicalWindowTransform(logicalWidth, logicalHeight) {
     return createCoordTransform(w, h, Math.max(0, w - 1), Math.max(0, h - 1));
 }
 function mapLogicalToAbs(t, x, y) {
+    const xr = Number.isFinite(x) ? Math.round(x) : 0;
+    const yr = Number.isFinite(y) ? Math.round(y) : 0;
     return {
-        x: clamp(Math.round(x), 0, t.absMaxX),
-        y: clamp(Math.round(y), 0, t.absMaxY),
+        x: clamp(xr, 0, t.absMaxX),
+        y: clamp(yr, 0, t.absMaxY),
     };
 }
 function clamp(v, min, max) {

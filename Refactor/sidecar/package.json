@@ -25,6 +25,8 @@
     "lab:input-suite:docker": "docker compose -f docker-compose.lab.yml run --rm lab node scripts/lab-input-suite.js",
     "lab:input-e2e-qa": "node scripts/lab-input-e2e-qa.js",
     "lab:input-e2e:docker": "node scripts/lab-input-e2e-docker.js",
+    "lab:input-e2e-stress": "node scripts/lab-input-e2e-stress.js",
+    "lab:input-e2e-stress:docker": "docker compose -f docker-compose.lab.yml run --rm --build lab node scripts/lab-input-e2e-stress.js",
     "smoke:input-os": "node scripts/smoke-input-os.js",
     "lab:assets-stress": "node scripts/lab-assets-stress.js",
     "lab:perf-measure": "node scripts/lab-perf-measure.js",
@@ -44,7 +46,7 @@
     "@napi-rs/canvas": "^1.0.2",
     "@speculum/page-projection": "file:../packages/page-projection",
     "koffi": "^3.1.2",
-    "patchright": "1.49.1",
+    "patchright": "1.62.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {

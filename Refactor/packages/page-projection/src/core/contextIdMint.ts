@@ -11,4 +11,10 @@ export class ContextIdMint {
     this.next = id + 1;
     return id >>> 0;
   }
+
+  /** True for root (1) or any id already returned by {@link mint}. */
+  hasMinted(id: number): boolean {
+    if (id === 1) return true;
+    return Number.isInteger(id) && id >= 2 && id < this.next;
+  }
 }

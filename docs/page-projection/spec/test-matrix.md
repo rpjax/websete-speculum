@@ -126,7 +126,7 @@ A package (`WP`) is complete when **all** its `PP-*` rows pass and **all** its r
 | **WP12** | Asset plane and two-tier cache (§5.12) | `PP-ASSET-1..8`, `PP-ISO-1..3`; P1 |
 | **WP13** | Browser pool + admission (§5.13, §5.14) | `PP-SESS-1..2`; E10 |
 | **WP14** | Density calibration | `PP-DEN-1` at 100 sessions; §5.16 knobs set from measurement; E6, E7, E7b, E11 |
-| **WP15** | CDP spike | Closed with page-mirror tree deletion; Live PP uses package + CDP binding data plane |
+| **WP15** | CDP spike | Closed with page-mirror tree deletion; Live PP uses package + **loopback WS** data plane (CDP binding purged 2026-08-26) |
 | **WP16** | Doc closure | Supersession banners, T11/T12 closed, amended contracts updated, §11 published in the support matrix |
 
 ## Gate 10 — Integration Live (surface smoke)

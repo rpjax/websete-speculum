@@ -376,7 +376,7 @@ class WsLabConnection {
                 const timingOf = () => {
                     const last = push?.getInputPipelineMetrics?.()?.lastOutcome;
                     return {
-                        mode: last?.mode,
+                        mode: (last?.mode ?? push?.getInputBackend?.() ?? 'OS'),
                         dispatchMs: last?.dispatchMs,
                         clientLagMs: last?.clientLagMs,
                     };

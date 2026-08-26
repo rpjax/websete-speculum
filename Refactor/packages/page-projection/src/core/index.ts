@@ -78,7 +78,26 @@ export {
   type DataPlane,
   type DataPlaneResult,
   type DataPlaneMessageHandler,
+  type LoopbackInvokeHandler,
+  type LoopbackInvokeResult,
 } from './plane';
+export {
+  VIRTUAL_LOOPBACK_CHANNEL,
+  LOOPBACK_CONTROL_INVOKE_NAME,
+  LOOPBACK_INVOKE_IDLE_MS,
+  LOOPBACK_INVOKE_HEARTBEAT_MS,
+  encodeLoopbackEnvelope,
+  decodeLoopbackEnvelope,
+  encodeLoopbackInvoke,
+  encodeLoopbackInvokeResult,
+  encodeLoopbackInvokeStarted,
+  encodeLoopbackInvokeHeartbeat,
+  encodeLoopbackFromPlane,
+  decodeLoopbackToPlane,
+  isLoopbackWireMessage,
+  type LoopbackEnvelope,
+  type LoopbackKind,
+} from './loopback/envelope';
 export {
   INTENT_SCHEMA_VERSION,
   normalizeDomInput,

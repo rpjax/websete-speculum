@@ -4,6 +4,10 @@
  * Host model (viewport lockstep): the **outer** `container` stays fluid (100% of the measure
  * host). An inner **stage** holds fixed CSS px matching the confirmed Virtual viewport.
  * ResizeObserver must observe the fluid outer host, never this stage.
+ *
+ * Blank iframes stay `about:blank` (BackCompat). Full CSS1Compat via srcdoc is async and is
+ * tracked separately (K4); until then {@link installStandardsMarginParity} bridges common
+ * UA margin-collapse drift so OS ABS coords hit the same paint boxes as Virtual.
  */
 
 export type SurfaceHost = {

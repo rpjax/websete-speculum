@@ -27,7 +27,7 @@ Aceite de paridade DOM/CSSOM continua em [acceptance.md](acceptance.md). CSP aqu
 - Trusted Types / `require-trusted-types-for` (fora de escopo até bloquear inject de verdade — aí abre ruling).
 - `Page.setBypassCSP` como caminho V4.
 - Substituir a policy inteira por um `PERMISSIVE_*`.
-- Usar mutação de CSP como desculpa para data plane de **produção** via `WebSocket` de página → loopback (ver §8).
+- Usar mutação de CSP como desculpa para **demolir** a policy (bypass / PERMISSIVE replace) — ver §9.
 - Streaming de vídeo / screencast (fora do cutover workspace).
 
 ---
@@ -137,12 +137,11 @@ Aplicar como **merge** nas diretivas de script afetadas (e na `script-src` criad
 
 ## 8. Relação com E-03 / E-08 (data plane)
 
-[open.md](open.md) E-03/E-08 (2026-08-14): rejeitou punch de CSP / `connect-src *` como forma de **habilitar data plane de produção** via `WebSocket` de página → loopback (antibot vê).
+[open.md](open.md) E-03/E-08:
 
-**Amend 2026-08-20 (este doc):**
-
-- Cirurgia CSP **Response-stage** (§§3–7) é **permitida e normativa** para Virtual (script + `connect-src` + compensação de nonce).
-- **Não** altera a lei de produção: bytes Virtual→sidecar em Live **não** devem depender de page `WebSocket(127.0.0.1)` “porque afrouxamos CSP”. Lab loopback continua fixtures/lab; produção = CDP binding / hub ([roadmap.md](roadmap.md) gate 8 / residuals).
+- **2026-08-14:** rejeitou punch bruto de CSP / `connect-src *` / disable-PNA como enablement antibot-visível.
+- **2026-08-20:** cirurgia CSP Response-stage §§3–7 é normativa para Virtual (script + `connect-src` + nonce).
+- **2026-08-26:** o **carrier** Virtual↔sidecar é **só** page loopback WebSocket (`ws://127.0.0.1` no sidecar). Plano CDP `exposeBinding` foi removido. Cirurgia CSP e carrier loopback coexistem: CSP afrouxa o mínimo para o runtime; o plano de dados é loopback.
 
 ---
 
@@ -193,5 +192,6 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 | 2026-08-20 | Nonce: remover da policy (não carimbar tag); compensar com `'unsafe-inline'` + `*` + `blob:` + `data:`. |
 | 2026-08-20 | Compensação = só delta da nossa edição; não “fazer tudo funcionar”. |
 | 2026-08-20 | `'unsafe-eval'` não é compensação de nonce — só preservar se já existia. |
-| 2026-08-20 | E-03/E-08 amended: cirurgia CSP ok; data plane prod ainda não é page WS loopback. |
+| 2026-08-20 | E-03/E-08 amended: cirurgia CSP ok (carrier plane ruled separately). |
 | 2026-08-20 | **SEALED** — §§3–7 + impl `session/csp/*` + units/e2e. Não reabrir sem decision-log. |
+| 2026-08-26 | E-03 revised: loopback WS = sole Virtual↔sidecar carrier; CDP binding plane purged. |

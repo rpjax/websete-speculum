@@ -318,11 +318,16 @@ export function bootLabClient(): void {
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
         scrollIndex: client.getScrollableIndex(),
+        requestScrollCensus: async () => {
+          const r = await client.requestScrollCensus(CONTEXT_ID_ROOT);
+          return r.ok ? r.census : r;
+        },
         metrics: inputCaptureMetrics,
       });
       inputDetachers.set(CONTEXT_ID_ROOT, detach);
     }
 
+    const rootWin = client.document.defaultView;
     client.forEachNestedInputSurface((info) => {
       const nestedDoc = info.surface.contentDocument;
       const nestedSurface = nestedDoc?.documentElement;
@@ -332,10 +337,16 @@ export function bootLabClient(): void {
         getGeneration: info.getGeneration,
         // Mode A coords are root Virtual viewport — same canonical size as root capture.
         getViewportSize: () => canonicalViewport,
+        // Walk nested frame offsets up to the projected root (not lab chrome).
+        getRootWindow: () => rootWin,
         isArmed: info.isArmed,
         onMarkPropDirty: info.markPropDirty,
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
-        scrollIndex: client.getScrollableIndex(),
+        scrollIndex: info.getScrollableIndex(),
+        requestScrollCensus: async () => {
+          const r = await client.requestScrollCensus(info.contextId);
+          return r.ok ? r.census : r;
+        },
         metrics: inputCaptureMetrics,
       });
       inputDetachers.set(info.contextId, detach);

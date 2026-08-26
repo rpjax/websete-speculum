@@ -29,10 +29,6 @@ import {
 import { buildConfigPreScript } from '../inject/buildConfigPreScript';
 import { loadInpageScript } from '../inject/loadInpageScript';
 import {
-  loadSnapshotScriptForEvaluate,
-  snapshotContextEvaluateExpression,
-} from './snapshotEvaluate';
-import {
   isProjectionTelemetryMessage,
   LAB_TELEMETRY_DEFAULTS,
   type ProjectionTelemetryConfig,
@@ -44,7 +40,6 @@ import type { FormControlSnap } from '@speculum/page-projection/core/formControl
 import { PlaneChannel } from '@speculum/page-projection/core/plane';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
-import { CdpBindingDataPlaneHost } from './cdpBindingDataPlaneHost';
 import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
 import { createScriptInjectMutator } from './csp/scriptInjectMutator';
 import { createProjectionProducerDocumentMutator, PROJECTION_VIRTUAL_SCRIPT_PATH } from './csp/projectionProducerDocumentMutator';
@@ -76,8 +71,6 @@ import { SidecarBuffer } from '../../../input/SidecarBuffer';
 import { EventApplier } from '../../../input/EventApplier';
 import { ingressToUnifiedIntent } from '../../../input/ingressToUnifiedIntent';
 import type { ScrollCensus } from '@speculum/page-projection/core/input/unifiedIntentTypes';
-import type { PageProjectionInputPipelineMetrics } from '../input/pageProjectionInputDispatch';
-import { findFrameForContext } from '../input/resolveVirtualNode';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 
 const ppDisplays = new DisplayAllocator();
@@ -129,10 +122,8 @@ export class PageProjectionBrowserSession {
   private cpuRunning = false;
   private readonly editableFocus: EditableFocus;
   private readonly dataPlane = new ProjectionDataPlaneHost();
-  private readonly cdpPlane = new CdpBindingDataPlaneHost();
   private readonly assets = new AssetStore();
   private readonly rewriteHop = new FrameRewriteHop();
-  private dataPlaneMode: 'cdp' | 'loopback' = 'cdp';
   private readonly probes: PageProjectionProbes;
 
   constructor(
@@ -178,7 +169,6 @@ export class PageProjectionBrowserSession {
       }
     };
     this.dataPlane.dataPlane.setHandler(onPlane);
-    this.cdpPlane.setHandler(onPlane);
   }
 
   async launch(options: BrowserLaunchOptions): Promise<BrowserReadyInfo> {
@@ -188,9 +178,14 @@ export class PageProjectionBrowserSession {
     this.viewportPolicy = options.viewportPolicy;
     this.device = resolveDeviceProfile(options.device);
     this.cpuAllowed = options.cpuProfiling === true;
-    this.dataPlaneMode = options.projectionDataPlane === 'loopback' ? 'loopback' : 'cdp';
     if (options.mirrorMode !== 'pageProjection') {
       throw new Error('PageProjectionBrowserSession requires mirrorMode pageProjection');
+    }
+    if (options.projectionDataPlane != null && options.projectionDataPlane !== 'loopback') {
+      throw Object.assign(
+        new Error('PageProjection data plane is loopback-only (projectionDataPlane must be "loopback")'),
+        { code: 'FAILED_PRECONDITION', errorCode: 'data_plane_not_loopback', phase: 'launch' },
+      );
     }
     if (!uinputAvailable()) {
       throw Object.assign(new Error('/dev/uinput unavailable — PageProjection OS input fail-closed'), {
@@ -208,12 +203,11 @@ export class PageProjectionBrowserSession {
     }
 
     loadInpageScript();
-    if (this.dataPlaneMode === 'loopback') {
-      await this.dataPlane.listen();
-    }
+    await this.dataPlane.listen();
 
-    const maxW = options.viewportPolicy?.maxWidth ?? options.width;
-    const maxH = options.viewportPolicy?.maxHeight ?? options.height;
+    // Display+ABS = logical viewport (identity 1:1). Soft-resize over-alloc R = D-UI-05/11 later.
+    const maxW = options.width;
+    const maxH = options.height;
     this.displayWidth = maxW;
     this.displayHeight = maxH;
 
@@ -243,10 +237,6 @@ export class PageProjectionBrowserSession {
     this.page = this.chrome.page;
     this.cdpSession = this.chrome.cdp;
     this.browser = this.context.browser();
-
-    if (this.dataPlaneMode === 'cdp') {
-      await this.cdpPlane.attach(this.context);
-    }
 
     this.eventApplier = new EventApplier({
       buffer: new SidecarBuffer(),
@@ -296,7 +286,6 @@ export class PageProjectionBrowserSession {
     const abs = this.absInput;
     this.absInput = null;
     abs?.dispose();
-    this.cdpPlane.close();
     await this.dataPlane.close();
   }
 
@@ -575,7 +564,10 @@ export class PageProjectionBrowserSession {
 
   async evaluate(code: string): Promise<BrowserEvalResult> {
     try {
-      const value = await this.requirePage().evaluate(code);
+      // Patchright isolated world — DOM OK; Virtual producer globals are NOT visible here.
+      // Producer RPC = loopback invoke (§10.1c), not CDP Runtime.evaluate.
+      const page = this.requirePage();
+      const value = await page.evaluate(code);
       return { ok: true, value: typeof value === 'string' ? value : JSON.stringify(value) };
     } catch (err) {
       return { ok: false, value: '', errorMessage: err instanceof Error ? err.message : String(err) };
@@ -607,7 +599,7 @@ export class PageProjectionBrowserSession {
     return { status: 'dispatched' };
   }
 
-  getInputPipelineMetrics(): PageProjectionInputPipelineMetrics | null {
+  getInputPipelineMetrics(): null {
     return null;
   }
 
@@ -623,58 +615,44 @@ export class PageProjectionBrowserSession {
     if (!this.eventApplier || !this.page) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
-    const frame = await findFrameForContext(this.page, contextId);
-    if (!frame) return { status: 'dropped', reason: 'context_frame_miss' };
-    const el = await frame.$(selector);
-    if (!el) return { status: 'dropped', reason: 'selector_miss' };
-    const box = await el.boundingBox();
-    await el.dispose().catch(() => undefined);
-    if (!box) return { status: 'dropped', reason: 'no_bbox' };
-    // ABS stamp = root logical viewport; boundingBox is already in page/main-frame CSS pixels.
-    const x = box.x + box.width / 2;
-    const y = box.y + box.height / 2;
-    const scrollSnap = await frame.evaluate(`(() => {
-      const doc = document;
-      const win = doc.defaultView;
-      return {
-        scrollX: win?.scrollX || doc.scrollingElement?.scrollLeft || 0,
-        scrollY: win?.scrollY || doc.scrollingElement?.scrollTop || 0,
-      };
-    })()`) as { scrollX: number; scrollY: number };
+    const hit = await this.loopbackInvoke<{
+      ok?: boolean;
+      reason?: string;
+      x?: number;
+      y?: number;
+      scrollX?: number;
+      scrollY?: number;
+    }>('resolveElementHit', { selector, contextId });
+    if (!hit.ok || typeof hit.x !== 'number' || typeof hit.y !== 'number') {
+      return { status: 'dropped', reason: hit.reason ?? 'selector_miss' };
+    }
     const census: ScrollCensus = {
       contexts: [
         {
           contextId,
-          positions: [{ nodeId: null, scrollX: scrollSnap.scrollX, scrollY: scrollSnap.scrollY }],
+          positions: [
+            {
+              nodeId: null,
+              scrollX: hit.scrollX ?? 0,
+              scrollY: hit.scrollY ?? 0,
+            },
+          ],
         },
       ],
     };
-    if (contextId !== CONTEXT_ID_ROOT) {
-      const rootSnap = await this.page.evaluate(`(() => {
-        const doc = document;
-        const win = doc.defaultView;
-        return {
-          scrollX: win?.scrollX || doc.scrollingElement?.scrollLeft || 0,
-          scrollY: win?.scrollY || doc.scrollingElement?.scrollTop || 0,
-        };
-      })()`) as { scrollX: number; scrollY: number };
-      census.contexts.unshift({
-        contextId: CONTEXT_ID_ROOT,
-        positions: [{ nodeId: null, scrollX: rootSnap.scrollX, scrollY: rootSnap.scrollY }],
-      });
-    }
     const base = {
       schemaVersion: 1 as const,
       viewportW: this.width,
       viewportH: this.height,
-      x,
-      y,
+      x: hit.x,
+      y: hit.y,
       button: 'left' as const,
       census,
     };
     this.eventApplier.enqueue({ ...base, type: 'move' });
     this.eventApplier.enqueue({ ...base, type: 'down' });
     this.eventApplier.enqueue({ ...base, type: 'up' });
+    await this.eventApplier.flush();
     return { status: 'dispatched' };
   }
 
@@ -701,6 +679,7 @@ export class PageProjectionBrowserSession {
         code: ch,
       });
     }
+    await this.eventApplier.flush();
     return { status: 'dispatched' };
   }
 
@@ -709,27 +688,25 @@ export class PageProjectionBrowserSession {
     scrollTop: number,
     contextId: number = 1,
   ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
-    if (!this.eventApplier || !this.page) {
+    if (!this.eventApplier) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
-    const frame = await findFrameForContext(this.page, contextId);
-    if (!frame) return { status: 'dropped', reason: 'context_frame_miss' };
-    const nodeId = await frame.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const p = globalThis.__speculumProjection;
-      const id = p && p.domNodes && typeof p.domNodes.keyOf === 'function' ? p.domNodes.keyOf(el) : 0;
-      return typeof id === 'number' && id > 0 ? id : null;
-    })()`) as number | null;
-    if (nodeId == null) return { status: 'dropped', reason: 'selector_miss' };
+    const keyed = await this.loopbackInvoke<{ ok?: boolean; reason?: string; nodeId?: number }>(
+      'keyOfSelector',
+      { selector, contextId },
+    );
+    if (!keyed.ok || typeof keyed.nodeId !== 'number' || keyed.nodeId <= 0) {
+      return { status: 'dropped', reason: keyed.reason ?? 'selector_miss' };
+    }
     this.eventApplier.enqueue({
       schemaVersion: 1,
       type: 'scrollSet',
       contextId,
-      nodeId,
+      nodeId: keyed.nodeId,
       scrollX: 0,
       scrollY: scrollTop,
     });
+    await this.eventApplier.flush();
     return { status: 'dispatched' };
   }
 
@@ -749,19 +726,26 @@ export class PageProjectionBrowserSession {
       scrollX,
       scrollY,
     });
+    await this.eventApplier.flush();
     return { status: 'dispatched' };
   }
 
   private async applyScrollCensus(census: ScrollCensus): Promise<{ ok: boolean; error?: string }> {
-    const r = await this.callProducer<{ ok: boolean; reason?: string }>(
-      `(async () => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.applyScrollCensus !== 'function') return { ok: false, reason: 'producer missing' };
-        return await p.applyScrollCensus(${JSON.stringify(census)});
-      })()`,
-    );
+    const r = await this.loopbackInvoke<{ ok?: boolean; reason?: string }>('applyScrollCensus', { census });
     if (!r.ok) return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
     return { ok: true };
+  }
+
+  /**
+   * Lab stress — Phase A wall time only (loopback `applyScrollCensus`).
+   * Does not inject pointer/keyboard.
+   */
+  async measureApplyScrollCensus(
+    census: ScrollCensus,
+  ): Promise<{ ok: boolean; ms: number; error?: string }> {
+    const t0 = performance.now();
+    const r = await this.applyScrollCensus(census);
+    return { ok: r.ok, ms: performance.now() - t0, error: r.error };
   }
 
   private async applyScrollSet(args: {
@@ -770,13 +754,7 @@ export class PageProjectionBrowserSession {
     scrollX: number;
     scrollY: number;
   }): Promise<{ ok: boolean; error?: string }> {
-    const r = await this.callProducer<{ ok: boolean; reason?: string }>(
-      `(async () => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.applyScrollSet !== 'function') return { ok: false, reason: 'producer missing' };
-        return await p.applyScrollSet(${JSON.stringify(args)});
-      })()`,
-    );
+    const r = await this.loopbackInvoke<{ ok?: boolean; reason?: string }>('applyScrollSet', args);
     if (!r.ok) return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
     return { ok: true };
   }
@@ -785,25 +763,11 @@ export class PageProjectionBrowserSession {
   async pushMicrophoneAudio(_chunk: Uint8Array): Promise<void> {}
 
   async haltClocks(): Promise<{ ok: boolean; reason?: string }> {
-    return this.callProducer<{ ok: boolean; reason?: string }>(
-      `(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.haltWorld !== 'function') return { ok: false, reason: 'producer missing' };
-        p.haltWorld();
-        return { ok: true };
-      })()`,
-    );
+    return this.loopbackInvoke('haltWorld', {});
   }
 
   async resumeClocks(): Promise<{ ok: boolean; reason?: string }> {
-    return this.callProducer<{ ok: boolean; reason?: string }>(
-      `(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.resumeWorld !== 'function') return { ok: false, reason: 'producer missing' };
-        p.resumeWorld();
-        return { ok: true };
-      })()`,
-    );
+    return this.loopbackInvoke('resumeWorld', {});
   }
 
   async emitFrame(_contextId?: number): Promise<{
@@ -812,14 +776,7 @@ export class PageProjectionBrowserSession {
     sequence?: number;
     reason?: string;
   }> {
-    return this.callProducer(
-      `(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.flushFrame !== 'function') return { ok: false, reason: 'producer missing' };
-        const r = p.flushFrame();
-        return { ok: true, generation: r.generation, sequence: r.sequence };
-      })()`,
-    );
+    return this.loopbackInvoke('flushFrame', {});
   }
 
   async getStateSnapshot(contextId: number = 1, opts?: StateSnapshotOpts): Promise<StateSnapshotResult> {
@@ -908,11 +865,34 @@ export class PageProjectionBrowserSession {
     try {
       const includeTree = opts?.includeTree !== false;
       const cssom = opts?.cssom ?? 'none';
-      const treeScript = includeTree && contextId === 1 ? loadSnapshotScriptForEvaluate() : '';
-      const fn = snapshotContextEvaluateExpression();
-      return (await this.requirePage().evaluate(
-        `(${fn})(${contextId}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`,
-      )) as Awaited<ReturnType<PageProjectionBrowserSession['snapshotContext']>>;
+      const r = await this.dataPlane.invoke('snapshotContext', {
+        contextId,
+        includeTree,
+        cssom,
+      });
+      if (!r.ok) {
+        return { ok: false, reason: r.error?.message ?? 'snapshot_invoke_failed' };
+      }
+      const payload = r.value as
+        | { ok: true; value: unknown }
+        | { ok: false; reason?: string }
+        | null;
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, reason: 'snapshot_empty' };
+      }
+      if (payload.ok === false) {
+        return { ok: false, reason: payload.reason ?? 'snapshot_failed' };
+      }
+      if (payload.ok === true && 'value' in payload) {
+        return {
+          ok: true,
+          value: payload.value as Extract<
+            Awaited<ReturnType<PageProjectionBrowserSession['snapshotContext']>>,
+            { ok: true }
+          >['value'],
+        };
+      }
+      return { ok: false, reason: 'snapshot_shape' };
     } catch (err) {
       return { ok: false, reason: err instanceof Error ? err.message : String(err) };
     }
@@ -1019,12 +999,6 @@ export class PageProjectionBrowserSession {
   }
 
   private sendControl(message: Record<string, unknown>): void {
-    if (this.dataPlaneMode === 'cdp') {
-      const page = this.page;
-      if (!page) return;
-      void this.cdpPlane.sendControl(page, message);
-      return;
-    }
     this.dataPlane.sendControl(message);
   }
 
@@ -1058,10 +1032,9 @@ export class PageProjectionBrowserSession {
       this.editableFocus.stop();
     });
     const telemetry = (options.projectionTelemetry ?? LAB_TELEMETRY_DEFAULTS) as Partial<ProjectionTelemetryConfig>;
-    const useLoopback = this.dataPlaneMode === 'loopback';
     const configPre = buildConfigPreScript({
-      transport: useLoopback ? 'loopback' : 'cdp',
-      dataPlaneUrl: useLoopback ? dataPlaneUrl : '',
+      transport: 'loopback',
+      dataPlaneUrl,
       frameRateHz: options.frameRateHz ?? 60,
       telemetry,
       generation: this.generation,
@@ -1127,12 +1100,23 @@ export class PageProjectionBrowserSession {
     return this.cdpSession;
   }
 
-  private async callProducer<T extends { ok: boolean; reason?: string }>(expression: string): Promise<T> {
-    try {
-      return (await this.requirePage().evaluate(expression)) as T;
-    } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : String(err) } as T;
+  /** Sidecar → Virtual domain RPC via loopback mux (not CDP). */
+  private async loopbackInvoke<T extends { ok?: boolean; reason?: string }>(
+    name: string,
+    args: unknown,
+  ): Promise<T> {
+    const r = await this.dataPlane.invoke(name, args);
+    if (!r.ok) {
+      return { ok: false, reason: r.error?.message ?? 'invoke_failed' } as T;
     }
+    const value = r.value as T | undefined;
+    if (value && typeof value === 'object' && 'ok' in value && value.ok === false) {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      return { ok: true, ...value } as T;
+    }
+    return { ok: true } as T;
   }
 }
 

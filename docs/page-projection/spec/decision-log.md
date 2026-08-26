@@ -20,6 +20,13 @@
 
 | Date | Topic | Where the full text is |
 |------|-------|------------------------|
+| 2026-08-26 | **OS unified input SEALED (Rodrigo)** — [input.md](input.md) lacre after loopback Phase A, LB-03 resolve, S6 ContextBus RPC, Docker spike + suite 8/8 + accept same-origin PASS. False SEAL (CDP MAIN) reverted earlier same day. | [input.md](input.md) §6 |
+| 2026-08-26 | **Virtual resolve drain (Rodrigo)** — per-context `frameEmitter.flushNow()` before `keyOfSelector` / `resolveElementHit`; sync identity drain; wire emit only if pending work. | [input.md](input.md) §5 |
+| 2026-08-26 | **S6 census Projected — ContextBus RPC** — `ProjectedInputRuntime` in-process fabric; capture invokes `snapshotScrollPositionsFromAllContexts` → RUNTIME fan-out `snapshotScrollPosition` per context (draft §10.1b). **Walk `snapshotAllContextsCensus` reverted** (lab≠prod ad-hoc). | [input-unified-design-draft.md](input-unified-design-draft.md) §10.1b · `projectedInputRuntime.ts` |
+| 2026-08-26 | **LB-03 expand lab resolve (Rodrigo)** — loopback `keyOfSelector` + `resolveElementHit` (Virtual ContextBus fan-out). Lab `resolveAndScrollElement` / `resolveAndClick` (incl. nested) use these only — no CDP MAIN. | [input.md](input.md) §5 |
+| 2026-08-26 | **Lab input suite harness flake** — `pkill chrome` + retry on `Target.createTarget` between blueprints (Docker infra only; lab=prod path unchanged). | `lab-input-suite.js` |
+| 2026-08-26 | **CDP MAIN producer RPC = ad-hoc reverted** — Phase A / callProducer must use loopback `invoke`/`invoke-result` (D-UI-28). Isolate `page.evaluate` is not a reason for CDP and does not offload MAIN. [input.md](input.md) demoted to CUTOVER (not sealed). Expand LB-03 catalog: applyScrollCensus, applyScrollSet, haltWorld, resumeWorld, flushFrame, snapshotContext. | [input.md](input.md) |
+| 2026-08-26 | **OS unified input (false SEAL)** — agent claimed SEAL v0 + lab PASS via MAIN-world CDP evaluate + ABS chrome-inset. **SUPERSEDED same day** by loopback-invoke ruling above. Mode A/B stay purged. | [input.md](input.md) + LAB-DOCKER.md |
 | 2026-08-25 | **D-UI-20 ABS uinput PASS gate** — openAbsPointer + Docker spike scripts/spike-abs-pointer.js; PP launch Display+ABS fail-closed; no REL fallback. Run: npm run lab:docker:spike. | spike-abs-pointer.md + LAB-DOCKER.md |
 | 2026-08-25 | **OS input cutover (PP)** — hot path UnifiedIntent → EventApplier → ABS; Mode A/B CDP removed from PP session; lab input = Docker /dev/uinput. | input-unified-design-draft.md + README Now |
 | 2026-08-25 | **Virtual assets V1 path** — D-SPEC-7 rewrite hop (Lab+Live), L1/`getAsset`, paint `appendSessionAuth`, Lab `/w7s/virtual-*` same contract; pass-through + HLS/DASH manifest rewrite; blob/data. MSE/DRM still stubs. | [virtual-assets.md](virtual-assets.md) |
@@ -41,7 +48,8 @@
 | 2026-08-14 | Production cutover requires full product (CSSOM + OPEN-6 + input redesign) | roadmap.md + open.md CUTOVER-FULL |
 | 2026-08-16 | Canvas **content** projection = **last product feature** before Integration / cutover (interim placeholder until then; not a seal-gap) | roadmap.md gate 6 + support-matrix.md + seal-gaps.md Related |
 | 2026-08-14 | V4ProjectionBrowserSession temporary; must be a complete BrowserSession at cutover (not legado, not a lab stub) | roadmap.md + open.md CUTOVER-SESSION — **amended 2026-08-21** by sealed [browser-session.md](browser-session.md) (`PageProjectionBrowserSession`) |
-| 2026-08-14 | E-03/E-08: reject CSP strip / `connect-src *` as antibot-unsafe; no page WebSocket for production data plane | open.md E-03/E-08 |
+| 2026-08-14 | E-03/E-08: reject blunt CSP/`connect-src *`/PNA punch as antibot-unsafe enablement | open.md E-03/E-08 |
+| 2026-08-26 | E-03 revised: loopback WS = sole Virtual↔sidecar carrier; CDP exposeBinding plane purged | open.md · roadmap gate 8 |
 | 2026-08-14 | PP-FR-1 prune at drain (`!isConnected`); client REMOVE parent mismatch → desync. Stress-churn stacked digits closed; prepend O2 still open. Narrative: observability.md §8 | observability.md §8 + frame-protocol.md §5.4/§5.6/§6 |
 | 2026-08-13 | Micro-opts: Set reuse, `element.attributes`, conditional opCounts | frame-protocol.md log |
 | 2026-08-13 | 48 KB first-frame = injected script; `currentScript.remove()` | frame-protocol.md log |
@@ -147,7 +155,7 @@ Original: [`../archive/engine-redesign-extension.md`](../archive/engine-redesign
 |------|----|-------|----------|--------------|
 | 2026-08-12 | E-01 | Frame clock | No rAF; `FrameClock` contract; TimerFrameClock | **IN FORCE** (lab `frameClock`) |
 | 2026-08-12 | E-02 | Producer threading | Main thread only; defer emit; no historical frame queue | **IN FORCE** |
-| 2026-08-12 | E-03 | Data plane loopback WS + channels | `PlaneChannel` Frame/Telemetry/Control | **Lab fixtures only.** Production: no page `connect()`. **2026-08-14** |
+| 2026-08-12 | E-03 | Data plane loopback WS + channels | `PlaneChannel` Frame/Telemetry/Control | **Canonical sole carrier (lab + Live).** Revised 2026-08-26 (CDP binding purged). |
 | 2026-08-12 | E-04 | Op vocabulary | Affirm then-parent §5.4 | **SUPERSEDED** by frame-protocol opcode space |
 | 2026-08-12 | E-05 | Identity reverse map | WeakMap + WeakRef + FinalizationRegistry; no DOM identity writes | **IN FORCE** (`DomNodeTable`) |
 | 2026-08-12 | E-06 | ISR + double-buffer pointers | MO marks only; swap on clock | Producer: mutation buffer + tick. Client double-buffer is Stage 4 surface, not Frozen pointer |

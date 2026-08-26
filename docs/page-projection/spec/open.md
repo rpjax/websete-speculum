@@ -64,9 +64,9 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 
 | Id | Topic | Why it blocks | Notes |
 |----|-------|---------------|-------|
-| **CUTOVER-FULL** | Production cutover completeness | Live switch when V4 is the **only** path with **CSSOM + shadow + OPEN-6 + input-v2 (id-assertive) + canvas** on Live — then Integration. Nested CSSOM is not a second algorithm. DOM-only lab is not M1. Input id-assertive **implemented** 2026-08-22 (`DomElementInput` + lab M1/unit). | [roadmap.md](roadmap.md) |
+| **CUTOVER-FULL** | Production cutover completeness | Live switch when V4 is the **only** path with **CSSOM + shadow + OPEN-6 + OS unified input + canvas** on Live — then Integration. Nested CSSOM is not a second algorithm. DOM-only lab is not M1. Input hot path = EventApplier + ABS ([input.md](input.md)); Mode A/B CDP purged 2026-08-26. | [roadmap.md](roadmap.md) |
 | **CUTOVER-SESSION** | Session sealed mirror contracts on Live | **DONE (shape 2026-08-21)** — `PageProjectionBrowserSession` + sealed factory; product gaps remain (antibot/assets/…). | [browser-session.md](browser-session.md); [roadmap.md](roadmap.md) gate 6.6 |
-| **E-03 / E-08** | Loopback WS + CSP strip / PNA | **DECIDED 2026-08-14 — reject header punch as prod data-plane enablement.** Enabling production data plane by page-JS `WebSocket(127.0.0.1)` via blunt CSP/`connect-src *` / disable PNA **is not antibot-safe**. Inject = CDP `addInitScript` (already). Bytes Virtual→sidecar in **production** = **not** a page `connect()` (CDP binding / hub). Lab loopback WS stays fixtures-only. **Amended 2026-08-20:** surgical Document CSP Response-stage surgery **is** normative for Virtual script/`connect-src`/nonce compensation — see [csp.md](csp.md). That amend does **not** license page WS as the Live data plane. | [csp.md](csp.md) · [roadmap.md](roadmap.md) gate 8 |
+| **E-03 / E-08** | Loopback WS data plane (canonical) | **REVISED 2026-08-26 — loopback WS is the sole Virtual↔sidecar carrier** (lab and Live). CDP `exposeBinding` data plane **purged**. Surgical Document CSP Response-stage surgery remains normative for Virtual script/`connect-src`/nonce — see [csp.md](csp.md). **Still rejected:** blunt CSP/`connect-src *` / disable-PNA *punch* as an antibot-visible enablement hack — surgery is surgical, carrier is still page loopback WS. Inject = Playwright `addInitScript` + Document producer mutator. | [csp.md](csp.md) · [roadmap.md](roadmap.md) gate 8 · [browser-session.md](browser-session.md) |
 | **Contracts pack fate** | Archive vs delete historical `contracts/` + `implementation/` | Already moved to `archive/`. Confirm deletion vs keep-for-provenance. | Default this pass: **keep in archive**, never implement from. |
 
 ---
@@ -75,7 +75,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 
 | # | Item | Blocker? |
 |---|------|----------|
-| 1 | Pre-V4 prose in adjacent layer files. **[input.md](input.md) reconciled 2026-08-14** — addressing is `uint32` node id (was stale `speculum-anchor`), recovery/armed vocab now §5.8, §7 bindings noted as `PROP_SET`. **[cssom.md](cssom.md) still pending** — "establish/install" CSSOM vocabulary needs a careful separate pass (sheet-snapshot semantics). | No — agents follow banners |
+| 1 | Pre-V4 prose in adjacent layer files. **[input.md](input.md)** — OS unified hot path banner; historical CDP body not for implement. **[cssom.md](cssom.md) still pending** — "establish/install" CSSOM vocabulary needs a careful separate pass (sheet-snapshot semantics). | No — agents follow banners |
 | 2 | [test-matrix.md](test-matrix.md) `PP-EST-*` / `PP-REC-2/3` / some `PP-FR-*` still named for childList/establish — **re-authored in place as V4 intent** this pass; WP exit table still historical | Prefer before MotorAssert live-path coverage |
 | 3 | Synchronous-walk latency budget at `MAX_ROWS` for `resyncVirtual` (not `emitResyncFrame`) | Before relying on walk-based rebuild in production at huge tables |
 | 4 | `contracts/07-recovery.md` full rewrite | **Dropped** — file archived; §5.8 is the spec |

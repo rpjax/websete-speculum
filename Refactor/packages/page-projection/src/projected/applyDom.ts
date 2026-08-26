@@ -49,6 +49,8 @@ import {
   paritySheetForDocument,
   withScriptingOnPaintParity,
 } from './scriptingOnPaintParity';
+import { installStandardsMarginParity } from './standardsMarginParity';
+import { ensureStandardsBlankDocument } from './standardsBlankDocument';
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -270,6 +272,8 @@ export class DomFrameApplier {
     this.childScopes.clear();
     this.nestedHostIds.clear();
     this.doc.replaceChildren();
+    // replaceChildren drops the doctype; about:blank-origin docs stay BackCompat unless re-seeded.
+    ensureStandardsBlankDocument(this.doc);
     this.registry.clear();
     this.registry.register(DOCUMENT_ID, this.doc);
     this.propDirty.reset();
@@ -284,6 +288,7 @@ export class DomFrameApplier {
     this.paritySheet = null;
     try {
       installScriptingOnPaintParity(this.doc);
+      installStandardsMarginParity(this.doc);
       const sheet = paritySheetForDocument(this.doc);
       this.paritySheet = sheet ?? null;
       this.doc.adoptedStyleSheets = sheet != null ? [sheet] : [];
@@ -299,6 +304,7 @@ export class DomFrameApplier {
    */
   private ensurePaintParity(): void {
     installScriptingOnPaintParity(this.doc);
+    installStandardsMarginParity(this.doc);
     const sheet = paritySheetForDocument(this.doc);
     if (sheet != null) this.paritySheet = sheet;
     if (!paintParityInstalled(this.doc) && this.doc.documentElement != null) {
@@ -628,7 +634,15 @@ export class DomFrameApplier {
     } else if (op.kind === NodeKind.Comment) {
       node = this.doc.createComment(op.value);
     } else if (op.kind === NodeKind.Doctype) {
-      node = this.doc.implementation.createDocumentType(op.name || 'html', '', '');
+      const want = op.name || 'html';
+      const existing = this.doc.doctype;
+      if (existing && existing.name === want) {
+        // Keep the CSS1Compat doctype from ensureStandardsBlankDocument (K4).
+        node = existing;
+      } else {
+        if (existing) existing.remove();
+        node = this.doc.implementation.createDocumentType(want, '', '');
+      }
     } else if (op.kind === NodeKind.ShadowRoot) {
       const host = this.registry.get(op.host);
       if (!host || host.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'nodeNew', op.host);
@@ -666,6 +680,14 @@ export class DomFrameApplier {
       const id = op.ids[i]!;
       const node = this.registry.get(id);
       if (!node) return this.fail('address_miss', 'insert', id);
+      // Standards seed may already own this DocumentType — re-insert throws HierarchyRequestError.
+      if (
+        node.nodeType === Node.DOCUMENT_TYPE_NODE
+        && parent === this.doc
+        && this.doc.doctype === node
+      ) {
+        continue;
+      }
       parent.insertBefore(node, before);
       this.maybeInstallNestedHost(id, node);
     }
@@ -750,8 +772,8 @@ export class DomFrameApplier {
     const childScopeId = this.childScopes.get(id);
     if (childScopeId === undefined) return;
     const el = node as HTMLIFrameElement;
-    // Projected host stays about:blank — do not reinstall on the initial load (that
-    // would dispose the applier that already consumed buffered nested frames).
+    // Projected host stays about:blank. ProjectionClient waits for the initial `load`
+    // before binding NestedProjectedApply (pre-load contentDocument is discarded).
     if (el.contentWindow) this.options.onNestedHost?.(el, childScopeId);
   }
 

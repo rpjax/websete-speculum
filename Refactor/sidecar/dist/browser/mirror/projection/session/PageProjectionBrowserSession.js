@@ -13,12 +13,10 @@ exports.PageProjectionBrowserSession = void 0;
 exports.createPageProjectionBrowserSessionFactory = createPageProjectionBrowserSessionFactory;
 const buildConfigPreScript_1 = require("../inject/buildConfigPreScript");
 const loadInpageScript_1 = require("../inject/loadInpageScript");
-const snapshotEvaluate_1 = require("./snapshotEvaluate");
 const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 const plane_1 = require("@speculum/page-projection/core/plane");
 const decode_1 = require("@speculum/page-projection/core/decode");
 const projectionDataPlaneHost_1 = require("./projectionDataPlaneHost");
-const cdpBindingDataPlaneHost_1 = require("./cdpBindingDataPlaneHost");
 const documentResponseHook_1 = require("./csp/documentResponseHook");
 const scriptInjectMutator_1 = require("./csp/scriptInjectMutator");
 const projectionProducerDocumentMutator_1 = require("./csp/projectionProducerDocumentMutator");
@@ -64,10 +62,8 @@ class PageProjectionBrowserSession {
     cpuRunning = false;
     editableFocus;
     dataPlane = new projectionDataPlaneHost_1.ProjectionDataPlaneHost();
-    cdpPlane = new cdpBindingDataPlaneHost_1.CdpBindingDataPlaneHost();
     assets = new AssetStore_1.AssetStore();
     rewriteHop = new rewritePart_1.FrameRewriteHop();
-    dataPlaneMode = 'cdp';
     probes;
     constructor(sessionId, events, factoryOpts) {
         this.sessionId = sessionId;
@@ -112,7 +108,6 @@ class PageProjectionBrowserSession {
             }
         };
         this.dataPlane.dataPlane.setHandler(onPlane);
-        this.cdpPlane.setHandler(onPlane);
     }
     async launch(options) {
         this.launchOpts = options;
@@ -121,9 +116,11 @@ class PageProjectionBrowserSession {
         this.viewportPolicy = options.viewportPolicy;
         this.device = (0, device_emulation_1.resolveDeviceProfile)(options.device);
         this.cpuAllowed = options.cpuProfiling === true;
-        this.dataPlaneMode = options.projectionDataPlane === 'loopback' ? 'loopback' : 'cdp';
         if (options.mirrorMode !== 'pageProjection') {
             throw new Error('PageProjectionBrowserSession requires mirrorMode pageProjection');
+        }
+        if (options.projectionDataPlane != null && options.projectionDataPlane !== 'loopback') {
+            throw Object.assign(new Error('PageProjection data plane is loopback-only (projectionDataPlane must be "loopback")'), { code: 'FAILED_PRECONDITION', errorCode: 'data_plane_not_loopback', phase: 'launch' });
         }
         if (!(0, uinput_1.uinputAvailable)()) {
             throw Object.assign(new Error('/dev/uinput unavailable — PageProjection OS input fail-closed'), {
@@ -140,11 +137,10 @@ class PageProjectionBrowserSession {
             });
         }
         (0, loadInpageScript_1.loadInpageScript)();
-        if (this.dataPlaneMode === 'loopback') {
-            await this.dataPlane.listen();
-        }
-        const maxW = options.viewportPolicy?.maxWidth ?? options.width;
-        const maxH = options.viewportPolicy?.maxHeight ?? options.height;
+        await this.dataPlane.listen();
+        // Display+ABS = logical viewport (identity 1:1). Soft-resize over-alloc R = D-UI-05/11 later.
+        const maxW = options.width;
+        const maxH = options.height;
         this.displayWidth = maxW;
         this.displayHeight = maxH;
         const absInput = AbsOsInputStack_1.AbsOsInputStack.open({
@@ -171,9 +167,6 @@ class PageProjectionBrowserSession {
         this.page = this.chrome.page;
         this.cdpSession = this.chrome.cdp;
         this.browser = this.context.browser();
-        if (this.dataPlaneMode === 'cdp') {
-            await this.cdpPlane.attach(this.context);
-        }
         this.eventApplier = new EventApplier_1.EventApplier({
             buffer: new SidecarBuffer_1.SidecarBuffer(),
             pointer: new AbsPointerPeripheral_1.AbsPointerPeripheral(absInput.pointerWriter),
@@ -223,7 +216,6 @@ class PageProjectionBrowserSession {
         const abs = this.absInput;
         this.absInput = null;
         abs?.dispose();
-        this.cdpPlane.close();
         await this.dataPlane.close();
     }
     async dispose() {
@@ -489,7 +481,10 @@ class PageProjectionBrowserSession {
     }
     async evaluate(code) {
         try {
-            const value = await this.requirePage().evaluate(code);
+            // Patchright isolated world — DOM OK; Virtual producer globals are NOT visible here.
+            // Producer RPC = loopback invoke (§10.1c), not CDP Runtime.evaluate.
+            const page = this.requirePage();
+            const value = await page.evaluate(code);
             return { ok: true, value: typeof value === 'string' ? value : JSON.stringify(value) };
         }
         catch (err) {
@@ -521,20 +516,31 @@ class PageProjectionBrowserSession {
     getInputPipelineMetrics() {
         return null;
     }
+    /** Lab/dossier — OS cutover path only. */
+    getInputBackend() {
+        return 'os';
+    }
     async resolveAndClickDomInput(selector, contextId = 1) {
         if (!this.eventApplier || !this.page) {
             return { status: 'dropped', reason: 'input_applier_missing' };
         }
-        const hit = await this.page.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`);
-        if (!hit)
-            return { status: 'dropped', reason: 'selector_miss' };
+        const hit = await this.loopbackInvoke('resolveElementHit', { selector, contextId });
+        if (!hit.ok || typeof hit.x !== 'number' || typeof hit.y !== 'number') {
+            return { status: 'dropped', reason: hit.reason ?? 'selector_miss' };
+        }
         const census = {
-            contexts: [{ contextId, positions: [{ nodeId: null, scrollX: 0, scrollY: 0 }] }],
+            contexts: [
+                {
+                    contextId,
+                    positions: [
+                        {
+                            nodeId: null,
+                            scrollX: hit.scrollX ?? 0,
+                            scrollY: hit.scrollY ?? 0,
+                        },
+                    ],
+                },
+            ],
         };
         const base = {
             schemaVersion: 1,
@@ -545,50 +551,52 @@ class PageProjectionBrowserSession {
             button: 'left',
             census,
         };
+        this.eventApplier.enqueue({ ...base, type: 'move' });
         this.eventApplier.enqueue({ ...base, type: 'down' });
         this.eventApplier.enqueue({ ...base, type: 'up' });
+        await this.eventApplier.flush();
         return { status: 'dispatched' };
     }
     async resolveAndTypeDomInput(selector, value, contextId = 1) {
         const click = await this.resolveAndClickDomInput(selector, contextId);
         if (click.status !== 'dispatched' || !this.eventApplier)
             return click;
+        // Brief settle so OS focus lands before keys.
+        await new Promise((r) => setTimeout(r, 80));
         for (const ch of value) {
             this.eventApplier.enqueue({
                 schemaVersion: 1,
                 type: 'keyDown',
                 key: ch,
-                code: ch.length === 1 ? `Key${ch.toUpperCase()}` : ch,
+                code: ch,
             });
             this.eventApplier.enqueue({
                 schemaVersion: 1,
                 type: 'keyUp',
                 key: ch,
-                code: ch.length === 1 ? `Key${ch.toUpperCase()}` : ch,
+                code: ch,
             });
         }
+        await this.eventApplier.flush();
         return { status: 'dispatched' };
     }
     async resolveAndScrollElementDomInput(selector, scrollTop, contextId = 1) {
-        if (!this.eventApplier || !this.page) {
+        if (!this.eventApplier) {
             return { status: 'dropped', reason: 'input_applier_missing' };
         }
-        const nodeId = await this.page.evaluate(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const p = globalThis.__speculumProjection;
-      return p && p.domNodes && typeof p.domNodes.keyOf === 'function' ? p.domNodes.keyOf(el) : null;
-    })()`);
-        if (nodeId == null)
-            return { status: 'dropped', reason: 'selector_miss' };
+        const keyed = await this.loopbackInvoke('keyOfSelector', { selector, contextId });
+        if (!keyed.ok || typeof keyed.nodeId !== 'number' || keyed.nodeId <= 0) {
+            return { status: 'dropped', reason: keyed.reason ?? 'selector_miss' };
+        }
         this.eventApplier.enqueue({
             schemaVersion: 1,
             type: 'scrollSet',
             contextId,
-            nodeId,
+            nodeId: keyed.nodeId,
             scrollX: 0,
             scrollY: scrollTop,
         });
+        await this.eventApplier.flush();
         return { status: 'dispatched' };
     }
     async resolveAndScrollViewportDomInput(scrollY, scrollX = 0, contextId = 1) {
@@ -603,24 +611,26 @@ class PageProjectionBrowserSession {
             scrollX,
             scrollY,
         });
+        await this.eventApplier.flush();
         return { status: 'dispatched' };
     }
     async applyScrollCensus(census) {
-        const r = await this.callProducer(`(async () => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.applyScrollCensus !== 'function') return { ok: false, reason: 'producer missing' };
-        return await p.applyScrollCensus(${JSON.stringify(census)});
-      })()`);
+        const r = await this.loopbackInvoke('applyScrollCensus', { census });
         if (!r.ok)
             return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
         return { ok: true };
     }
+    /**
+     * Lab stress — Phase A wall time only (loopback `applyScrollCensus`).
+     * Does not inject pointer/keyboard.
+     */
+    async measureApplyScrollCensus(census) {
+        const t0 = performance.now();
+        const r = await this.applyScrollCensus(census);
+        return { ok: r.ok, ms: performance.now() - t0, error: r.error };
+    }
     async applyScrollSet(args) {
-        const r = await this.callProducer(`(async () => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.applyScrollSet !== 'function') return { ok: false, reason: 'producer missing' };
-        return await p.applyScrollSet(${JSON.stringify(args)});
-      })()`);
+        const r = await this.loopbackInvoke('applyScrollSet', args);
         if (!r.ok)
             return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
         return { ok: true };
@@ -628,28 +638,13 @@ class PageProjectionBrowserSession {
     async pushCameraFrame(_frame) { }
     async pushMicrophoneAudio(_chunk) { }
     async haltClocks() {
-        return this.callProducer(`(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.haltWorld !== 'function') return { ok: false, reason: 'producer missing' };
-        p.haltWorld();
-        return { ok: true };
-      })()`);
+        return this.loopbackInvoke('haltWorld', {});
     }
     async resumeClocks() {
-        return this.callProducer(`(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.resumeWorld !== 'function') return { ok: false, reason: 'producer missing' };
-        p.resumeWorld();
-        return { ok: true };
-      })()`);
+        return this.loopbackInvoke('resumeWorld', {});
     }
     async emitFrame(_contextId) {
-        return this.callProducer(`(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p || typeof p.flushFrame !== 'function') return { ok: false, reason: 'producer missing' };
-        const r = p.flushFrame();
-        return { ok: true, generation: r.generation, sequence: r.sequence };
-      })()`);
+        return this.loopbackInvoke('flushFrame', {});
     }
     async getStateSnapshot(contextId = 1, opts) {
         const single = await this.snapshotContext(contextId, {
@@ -693,9 +688,28 @@ class PageProjectionBrowserSession {
         try {
             const includeTree = opts?.includeTree !== false;
             const cssom = opts?.cssom ?? 'none';
-            const treeScript = includeTree && contextId === 1 ? (0, snapshotEvaluate_1.loadSnapshotScriptForEvaluate)() : '';
-            const fn = (0, snapshotEvaluate_1.snapshotContextEvaluateExpression)();
-            return (await this.requirePage().evaluate(`(${fn})(${contextId}, ${JSON.stringify({ cssom, includeTree })}, ${JSON.stringify(treeScript)})`));
+            const r = await this.dataPlane.invoke('snapshotContext', {
+                contextId,
+                includeTree,
+                cssom,
+            });
+            if (!r.ok) {
+                return { ok: false, reason: r.error?.message ?? 'snapshot_invoke_failed' };
+            }
+            const payload = r.value;
+            if (!payload || typeof payload !== 'object') {
+                return { ok: false, reason: 'snapshot_empty' };
+            }
+            if (payload.ok === false) {
+                return { ok: false, reason: payload.reason ?? 'snapshot_failed' };
+            }
+            if (payload.ok === true && 'value' in payload) {
+                return {
+                    ok: true,
+                    value: payload.value,
+                };
+            }
+            return { ok: false, reason: 'snapshot_shape' };
         }
         catch (err) {
             return { ok: false, reason: err instanceof Error ? err.message : String(err) };
@@ -768,13 +782,6 @@ class PageProjectionBrowserSession {
         return this.putUpload(id, body, contentType, name);
     }
     sendControl(message) {
-        if (this.dataPlaneMode === 'cdp') {
-            const page = this.page;
-            if (!page)
-                return;
-            void this.cdpPlane.sendControl(page, message);
-            return;
-        }
         this.dataPlane.sendControl(message);
     }
     async freshPage(dataPlaneUrl, options) {
@@ -812,10 +819,9 @@ class PageProjectionBrowserSession {
             this.editableFocus.stop();
         });
         const telemetry = (options.projectionTelemetry ?? telemetry_1.LAB_TELEMETRY_DEFAULTS);
-        const useLoopback = this.dataPlaneMode === 'loopback';
         const configPre = (0, buildConfigPreScript_1.buildConfigPreScript)({
-            transport: useLoopback ? 'loopback' : 'cdp',
-            dataPlaneUrl: useLoopback ? dataPlaneUrl : '',
+            transport: 'loopback',
+            dataPlaneUrl,
             frameRateHz: options.frameRateHz ?? 60,
             telemetry,
             generation: this.generation,
@@ -883,13 +889,20 @@ class PageProjectionBrowserSession {
         this.cdpSession = await context.newCDPSession(page);
         return this.cdpSession;
     }
-    async callProducer(expression) {
-        try {
-            return (await this.requirePage().evaluate(expression));
+    /** Sidecar → Virtual domain RPC via loopback mux (not CDP). */
+    async loopbackInvoke(name, args) {
+        const r = await this.dataPlane.invoke(name, args);
+        if (!r.ok) {
+            return { ok: false, reason: r.error?.message ?? 'invoke_failed' };
         }
-        catch (err) {
-            return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+        const value = r.value;
+        if (value && typeof value === 'object' && 'ok' in value && value.ok === false) {
+            return value;
         }
+        if (value && typeof value === 'object') {
+            return { ok: true, ...value };
+        }
+        return { ok: true };
     }
 }
 exports.PageProjectionBrowserSession = PageProjectionBrowserSession;

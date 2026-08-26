@@ -193,6 +193,7 @@ export class Display {
     }
   }
 
+
   private static async waitForLock(
     lockFile: string,
     xorg: ChildProcess,

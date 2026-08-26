@@ -68,12 +68,16 @@ COPY sidecar/telemetry ./telemetry
 COPY sidecar/extensions ./extensions
 COPY sidecar/index.ts sidecar/smoke.ts sidecar/smoke-remote.ts sidecar/unit.ts ./
 COPY sidecar/scripts ./scripts
+COPY sidecar/chrome-policies ./chrome-policies
 COPY sidecar/docker-entrypoint.sh /docker-entrypoint.sh
 COPY proto /proto
 
 RUN npm run build \
  && sed -i 's/\r$//' /docker-entrypoint.sh \
- && chmod +x /docker-entrypoint.sh
+ && chmod +x /docker-entrypoint.sh \
+ && mkdir -p /etc/opt/chrome/policies/managed \
+ && cp -f /app/chrome-policies/managed/*.json /etc/opt/chrome/policies/managed/ \
+ && ls -la /etc/opt/chrome/policies/managed/
 
 EXPOSE 50051 3001 4103
 

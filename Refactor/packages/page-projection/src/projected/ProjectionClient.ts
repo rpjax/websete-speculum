@@ -35,6 +35,8 @@ import {
   stampCssTextAuth,
 } from './sessionBindingAuth';
 import { ScrollableIndex } from './scroll/scrollableIndex';
+import { ProjectedInputRuntime } from './input/projectedInputRuntime';
+import type { ScrollCensus } from '../core/input/unifiedIntentTypes';
 
 export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -99,6 +101,7 @@ export class ProjectionClient {
   private readonly token?: string;
   private readonly assetBaseUrl?: string;
   private readonly scrollIndex = new ScrollableIndex();
+  private inputRuntime = new ProjectedInputRuntime();
 
   /** The currently-live target — reassigned wholesale on a successful resync swap. */
   private live: ApplyTarget;
@@ -127,6 +130,8 @@ export class ProjectionClient {
   private lastDesyncReason: string | null = null;
   private readonly nested = new Map<number, NestedProjectedApply>();
   private readonly pendingNestedFrames = new Map<number, Uint8Array[]>();
+  /** contextId → host waiting for initial about:blank `load` before apply binds. */
+  private readonly nestedHostAwaitingLoad = new Map<number, HTMLIFrameElement>();
 
   constructor(opts: ProjectionClientOptions) {
     this.surface = createSurfaceHost(opts.surfaceHost, {
@@ -145,52 +150,79 @@ export class ProjectionClient {
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+    this.inputRuntime.bootstrapRoot({
+      contextId: CONTEXT_ID_ROOT,
+      getDocument: () => this.surface.document,
+      getRegistry: () => this.live.registry,
+      getScrollIndex: () => this.scrollIndex,
+    });
   }
 
   private installNestedHost(iframe: HTMLIFrameElement, contextId: number): void {
-    const doc = iframe.contentDocument;
-    const win = iframe.contentWindow;
-    if (!doc || !win) return;
     if (this.nested.has(contextId)) return;
-    // Same bare-document strip as the lab surface: about:blank's default html/head/body
-    // must not sit under id 1 when the nested resync INSERTs its own document element.
-    while (doc.firstChild) doc.removeChild(doc.firstChild);
-    const session = new NestedProjectedApply({
-      hostIframe: iframe,
-      document: doc,
-      contextId,
-      getToken: () => this.resolveToken(),
-      getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
-      onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
-      onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
-      onTelemetry: (msg) => this.onTelemetry?.(msg),
-      onArmed: () => {
-        try {
-          (win as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed = true;
-        } catch {
-          /* ignore */
-        }
-      },
-      onRequestResync: (info) =>
-        this.onRequestResyncCb?.({
-          generation: info.generation,
-          sequence: info.sequence,
-          reason: info.reason,
-          contextId: info.contextId,
-        }),
-    });
-    this.nested.set(contextId, session);
-    const pending = this.pendingNestedFrames.get(contextId);
-    if (pending) {
-      this.pendingNestedFrames.delete(contextId);
-      for (let i = 0; i < pending.length; i++) session.ingest(pending[i]!);
-    }
-    session.flush();
+    if (this.nestedHostAwaitingLoad.has(contextId)) return;
+    // about:blank host: the document identity is unstable until the initial `load`.
+    // Binding NestedProjectedApply before that paints an orphaned Document; load then
+    // replaces contentDocument and the nested surface looks empty (armed flag can still
+    // stick on the Window). Keep frames in pendingNestedFrames until load, then bind once.
+    this.nestedHostAwaitingLoad.set(contextId, iframe);
+    const bind = () => {
+      this.nestedHostAwaitingLoad.delete(contextId);
+      if (this.nested.has(contextId)) return;
+      const doc = iframe.contentDocument;
+      const win = iframe.contentWindow;
+      if (!doc || !win) return;
+      // Same bare-document strip as the lab surface: about:blank's default html/head/body
+      // must not sit under id 1 when the nested resync INSERTs its own document element.
+      while (doc.firstChild) doc.removeChild(doc.firstChild);
+      const session = new NestedProjectedApply({
+        hostIframe: iframe,
+        document: doc,
+        contextId,
+        getToken: () => this.resolveToken(),
+        getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
+        onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
+        onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+        onTelemetry: (msg) => this.onTelemetry?.(msg),
+        onArmed: () => {
+          try {
+            (win as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed = true;
+          } catch {
+            /* ignore */
+          }
+        },
+        onRequestResync: (info) =>
+          this.onRequestResyncCb?.({
+            generation: info.generation,
+            sequence: info.sequence,
+            reason: info.reason,
+            contextId: info.contextId,
+          }),
+      });
+      this.nested.set(contextId, session);
+      this.inputRuntime.registerContext({
+        contextId,
+        getDocument: () => iframe.contentDocument!,
+        getRegistry: () => session.registry,
+        getScrollIndex: () => session.getScrollableIndex(),
+      });
+      this.inputRuntime.announceHostAdmitted(CONTEXT_ID_ROOT, contextId, contextId);
+      const pending = this.pendingNestedFrames.get(contextId);
+      if (pending) {
+        this.pendingNestedFrames.delete(contextId);
+        for (let i = 0; i < pending.length; i++) session.ingest(pending[i]!);
+      }
+      session.flush();
+    };
+    iframe.addEventListener('load', bind, { once: true });
   }
 
   private dropNestedHost(contextId: number): void {
+    this.nestedHostAwaitingLoad.delete(contextId);
     const existing = this.nested.get(contextId);
     if (!existing) return;
+    this.inputRuntime.announceHostDropped(CONTEXT_ID_ROOT, contextId, contextId);
+    this.inputRuntime.unregisterContext(contextId);
     existing.dispose();
     this.nested.delete(contextId);
     this.pendingNestedFrames.delete(contextId);
@@ -225,6 +257,7 @@ export class ProjectionClient {
       isArmed: () => boolean;
       getGeneration: () => number;
       markPropDirty: (id: number) => void;
+      getScrollableIndex: () => ScrollableIndex;
     }) => void,
   ): void {
     for (const [contextId, nested] of this.nested) {
@@ -235,8 +268,19 @@ export class ProjectionClient {
         isArmed: () => nested.isArmed,
         getGeneration: () => nested.getGeneration(),
         markPropDirty: (id) => nested.markPropDirty(id),
+        getScrollableIndex: () => nested.getScrollableIndex(),
       });
     }
+  }
+
+  /**
+   * S6 — multi-context census via ContextBus RPC (draft §10.1b).
+   * Invoked from the emitting Projected context; RUNTIME fans out per context.
+   */
+  async requestScrollCensus(
+    fromContextId: number,
+  ): Promise<{ ok: true; census: ScrollCensus } | { ok: false; reason: string }> {
+    return this.inputRuntime.requestScrollCensus(fromContextId);
   }
 
   /**
@@ -314,10 +358,19 @@ export class ProjectionClient {
     for (const n of this.nested.values()) n.dispose();
     this.nested.clear();
     this.pendingNestedFrames.clear();
+    this.nestedHostAwaitingLoad.clear();
+    this.inputRuntime.dispose();
+    this.inputRuntime = new ProjectedInputRuntime();
     this.surface.reset();
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+    this.inputRuntime.bootstrapRoot({
+      contextId: CONTEXT_ID_ROOT,
+      getDocument: () => this.surface.document,
+      getRegistry: () => this.live.registry,
+      getScrollIndex: () => this.scrollIndex,
+    });
   }
 
   ingest(bytes: Uint8Array): void {

@@ -287,9 +287,9 @@
   }
   function asTransport(value) {
     if (value === void 0 || value === null) return DEFAULTS2.transport;
-    if (value === "console" || value === "loopback" || value === "cdp" || value === "discard") return value;
+    if (value === "console" || value === "loopback" || value === "discard") return value;
     throw new Error(
-      `ProjectionConfig.transport must be "console" | "loopback" | "cdp" | "discard" (got ${String(value)})`
+      `ProjectionConfig.transport must be "console" | "loopback" | "discard" (got ${String(value)})`
     );
   }
   function asBool(value, fallback) {
@@ -3583,32 +3583,12 @@
 
   // ../packages/page-projection/src/core/loopback/envelope.ts
   var VIRTUAL_LOOPBACK_CHANNEL = "speculum.virtual.loopback";
-  function encodeLoopbackFromPlane(channel, payload) {
-    let envelope;
-    if (channel === 1 /* Frame */) {
-      envelope = {
-        channel: VIRTUAL_LOOPBACK_CHANNEL,
-        kind: "frame",
-        bytes: Array.from(payload)
-      };
-    } else if (channel === 3 /* Telemetry */) {
-      envelope = {
-        channel: VIRTUAL_LOOPBACK_CHANNEL,
-        kind: "telemetry",
-        message: JSON.parse(new TextDecoder().decode(payload))
-      };
-    } else {
-      envelope = {
-        channel: VIRTUAL_LOOPBACK_CHANNEL,
-        kind: "invoke",
-        correlationId: 0,
-        name: "__control",
-        args: JSON.parse(new TextDecoder().decode(payload))
-      };
-    }
-    return new TextEncoder().encode(JSON.stringify(envelope));
+  var LOOPBACK_CONTROL_INVOKE_NAME = "__control";
+  var LOOPBACK_INVOKE_HEARTBEAT_MS = 500;
+  function encodeLoopbackEnvelope(env) {
+    return new TextEncoder().encode(JSON.stringify(env));
   }
-  function decodeLoopbackToPlane(message) {
+  function decodeLoopbackEnvelope(message) {
     let parsed;
     try {
       parsed = JSON.parse(new TextDecoder().decode(message));
@@ -3622,24 +3602,124 @@
       case "frame": {
         const bytes = env.bytes;
         if (!Array.isArray(bytes)) return null;
-        return { channel: 1 /* Frame */, payload: Uint8Array.from(bytes) };
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "frame",
+          bytes
+        };
       }
-      case "telemetry": {
+      case "telemetry":
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "telemetry",
+          message: env.message
+        };
+      case "invoke": {
+        const inv = env;
+        if (typeof inv.correlationId !== "number" || typeof inv.name !== "string") return null;
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke",
+          correlationId: inv.correlationId >>> 0,
+          name: inv.name,
+          args: inv.args
+        };
+      }
+      case "invoke-started":
+      case "invoke-heartbeat": {
+        const hb = env;
+        if (typeof hb.correlationId !== "number") return null;
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: env.kind,
+          correlationId: hb.correlationId >>> 0
+        };
+      }
+      case "invoke-result": {
+        const res = env;
+        if (typeof res.correlationId !== "number" || typeof res.ok !== "boolean") return null;
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke-result",
+          correlationId: res.correlationId >>> 0,
+          ok: res.ok,
+          value: res.value,
+          error: res.error && typeof res.error.message === "string" ? { message: res.error.message, name: res.error.name } : void 0
+        };
+      }
+      default:
+        return null;
+    }
+  }
+  function encodeLoopbackInvoke(correlationId, name, args) {
+    return encodeLoopbackEnvelope({
+      channel: VIRTUAL_LOOPBACK_CHANNEL,
+      kind: "invoke",
+      correlationId: correlationId >>> 0,
+      name,
+      args
+    });
+  }
+  function encodeLoopbackInvokeResult(correlationId, result) {
+    return encodeLoopbackEnvelope({
+      channel: VIRTUAL_LOOPBACK_CHANNEL,
+      kind: "invoke-result",
+      correlationId: correlationId >>> 0,
+      ok: result.ok,
+      value: result.value,
+      error: result.error
+    });
+  }
+  function encodeLoopbackInvokeStarted(correlationId) {
+    return encodeLoopbackEnvelope({
+      channel: VIRTUAL_LOOPBACK_CHANNEL,
+      kind: "invoke-started",
+      correlationId: correlationId >>> 0
+    });
+  }
+  function encodeLoopbackInvokeHeartbeat(correlationId) {
+    return encodeLoopbackEnvelope({
+      channel: VIRTUAL_LOOPBACK_CHANNEL,
+      kind: "invoke-heartbeat",
+      correlationId: correlationId >>> 0
+    });
+  }
+  function encodeLoopbackFromPlane(channel, payload) {
+    if (channel === 1 /* Frame */) {
+      return encodeLoopbackEnvelope({
+        channel: VIRTUAL_LOOPBACK_CHANNEL,
+        kind: "frame",
+        bytes: Array.from(payload)
+      });
+    }
+    if (channel === 3 /* Telemetry */) {
+      return encodeLoopbackEnvelope({
+        channel: VIRTUAL_LOOPBACK_CHANNEL,
+        kind: "telemetry",
+        message: JSON.parse(new TextDecoder().decode(payload))
+      });
+    }
+    return encodeLoopbackInvoke(0, LOOPBACK_CONTROL_INVOKE_NAME, JSON.parse(new TextDecoder().decode(payload)));
+  }
+  function decodeLoopbackToPlane(message) {
+    const env = decodeLoopbackEnvelope(message);
+    if (env === null) return null;
+    switch (env.kind) {
+      case "frame":
+        return { channel: 1 /* Frame */, payload: Uint8Array.from(env.bytes) };
+      case "telemetry":
         return {
           channel: 3 /* Telemetry */,
           payload: new TextEncoder().encode(JSON.stringify(env.message ?? null))
         };
-      }
-      case "invoke": {
-        const invoke = env;
-        if (invoke.name === "__control") {
+      case "invoke":
+        if (env.name === LOOPBACK_CONTROL_INVOKE_NAME) {
           return {
             channel: 2 /* Control */,
-            payload: new TextEncoder().encode(JSON.stringify(invoke.args ?? {}))
+            payload: new TextEncoder().encode(JSON.stringify(env.args ?? {}))
           };
         }
         return null;
-      }
       default:
         return null;
     }
@@ -3868,7 +3948,7 @@
     }
   };
 
-  // ../packages/page-projection/src/virtual/bus/types.ts
+  // ../packages/page-projection/src/core/contextBus/types.ts
   var DEFAULT_INVOKE_IDLE_TIMEOUT_MS = 2e3;
   var HEARTBEAT_INTERVAL_MS = 500;
   var INVOKE_DEDUPE_TTL_MS = 5e3;
@@ -3911,7 +3991,7 @@
     return { message: String(err) };
   }
 
-  // ../packages/page-projection/src/virtual/bus/contextBus.ts
+  // ../packages/page-projection/src/core/contextBus/contextBus.ts
   var ContextBus = class {
     contextId;
     servesRuntime;
@@ -4203,6 +4283,7 @@
     parent;
     mintFn;
     emitFrameFn;
+    isDeliverableDestination;
     mine;
     lookupScopeId = null;
     snapshotHandler = null;
@@ -4215,6 +4296,7 @@
       this.parent = opts.parent ?? null;
       this.mintFn = opts.mint ?? null;
       this.emitFrameFn = opts.emitFrame ?? null;
+      this.isDeliverableDestination = opts.isDeliverableDestination ?? null;
       this.mine = opts.contextId ?? 1;
       const carrier = {
         send: (envelope) => this.routeOutbound(envelope)
@@ -4363,6 +4445,9 @@
       return { ok: false, reason: result.error?.message ?? "resume_failed" };
     }
     async requestApplyScroll(contextId, positions) {
+      if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+        return { ok: false, reason: "context_not_found" };
+      }
       const result = await this.bus.invoke(
         "applyScrollPositions",
         { contextId, positions },
@@ -4370,6 +4455,31 @@
       );
       if (result.ok) return result.value;
       return { ok: false, reason: result.error?.message ?? "apply_scroll_failed" };
+    }
+    /** Lab resolve — DomNodeTable.keyOf for scrollSet element targets. */
+    async requestKeyOfSelector(contextId, selector) {
+      if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+        return { ok: false, reason: "context_not_found" };
+      }
+      const result = await this.bus.invoke(
+        "keyOfSelector",
+        { selector },
+        { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS }
+      );
+      if (result.ok) return result.value;
+      return { ok: false, reason: result.error?.message ?? "key_of_failed" };
+    }
+    /**
+     * Lab resolve — element hit in root Virtual viewport CSS (Mode A) + local viewport scroll.
+     * Nested contexts walk frameElement offsets to top.
+     */
+    async requestResolveElementHit(contextId, selector) {
+      if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+        return { ok: false, reason: "context_not_found" };
+      }
+      const result = await this.bus.invoke("resolveElementHit", { selector }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+      if (result.ok) return result.value;
+      return { ok: false, reason: result.error?.message ?? "resolve_hit_failed" };
     }
     setApplyScrollHandler(handler) {
       this.applyScrollHandler = handler;
@@ -4519,7 +4629,24 @@
         this.parent.postMessage(envelope, "*");
         return;
       }
+      if (envelope.type === "request-invocation" && typeof dest === "number" && this.isDeliverableDestination && !this.isDeliverableDestination(dest)) {
+        const req = envelope.event;
+        this.sendLocalErrorResponse(envelope.source, req, {
+          message: "context_not_found",
+          name: "UndeliverableDestination"
+        });
+        return;
+      }
       this.forEachChildWindow((w) => w.postMessage(envelope, "*"));
+    }
+    sendLocalErrorResponse(callerContextId, req, error) {
+      this.bus.receive({
+        channel: CONTEXT_BUS_CHANNEL,
+        source: this.mine,
+        destination: callerContextId,
+        type: "invocation-response",
+        event: { invocationId: req.invocationId, error }
+      });
     }
     findChildForContext(contextId) {
       let found = null;
@@ -4590,6 +4717,7 @@
     url = null;
     watermark;
     handler = null;
+    invokeHandler = null;
     constructor(opts = {}) {
       this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
     }
@@ -4648,6 +4776,15 @@
     setHandler(handler) {
       this.handler = handler;
     }
+    setInvokeHandler(handler) {
+      this.invokeHandler = handler;
+    }
+    async invoke(_name, _args, _opts) {
+      return {
+        ok: false,
+        error: { message: "Virtual does not invoke sidecar in v0", name: "not_supported" }
+      };
+    }
     send(channel, payload) {
       const socket = this.socket;
       if (socket === null || socket.readyState !== WebSocket.OPEN) {
@@ -4660,7 +4797,6 @@
       return "accepted";
     }
     onSocketMessage(ev) {
-      if (this.handler === null) return;
       const data = ev.data;
       let bytes;
       if (data instanceof ArrayBuffer) {
@@ -4670,9 +4806,75 @@
       } else {
         return;
       }
-      const env = decodePlaneEnvelope(bytes);
-      if (env === null) return;
-      this.handler(env.channel, env.payload);
+      const env = decodeLoopbackEnvelope(bytes);
+      if (env?.kind === "invoke" && env.name !== LOOPBACK_CONTROL_INVOKE_NAME) {
+        void this.dispatchInvoke(env.correlationId, env.name, env.args);
+        return;
+      }
+      if (this.handler === null) return;
+      const mapped = decodePlaneEnvelope(bytes);
+      if (mapped === null) return;
+      this.handler(mapped.channel, mapped.payload);
+    }
+    async dispatchInvoke(correlationId, name, args) {
+      const sendProgress = (encode) => {
+        const socket2 = this.socket;
+        if (socket2 === null || socket2.readyState !== WebSocket.OPEN) return;
+        try {
+          socket2.send(encode(correlationId));
+        } catch {
+        }
+      };
+      sendProgress(encodeLoopbackInvokeStarted);
+      const heartbeat = setInterval(() => {
+        sendProgress(encodeLoopbackInvokeHeartbeat);
+      }, LOOPBACK_INVOKE_HEARTBEAT_MS);
+      const handler = this.invokeHandler;
+      let result = {
+        ok: false,
+        error: { message: "invoke dispatch incomplete", name: "internal" }
+      };
+      try {
+        if (!handler) {
+          result = {
+            ok: false,
+            error: { message: `no invoke handler for ${name}`, name: "no_handler" }
+          };
+        } else {
+          try {
+            const value = await handler(name, args);
+            if (value && typeof value === "object" && "ok" in value && value.ok === false) {
+              const reason = value.reason;
+              result = {
+                ok: false,
+                value,
+                error: {
+                  message: typeof reason === "string" ? reason : `${name} failed`,
+                  name: "domain_ok_false"
+                }
+              };
+            } else {
+              result = { ok: true, value };
+            }
+          } catch (err) {
+            result = {
+              ok: false,
+              error: {
+                message: err instanceof Error ? err.message : String(err),
+                name: "handler_throw"
+              }
+            };
+          }
+        }
+      } finally {
+        clearInterval(heartbeat);
+      }
+      const socket = this.socket;
+      if (socket === null || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        socket.send(encodeLoopbackInvokeResult(correlationId, result));
+      } catch {
+      }
     }
   };
 
@@ -4718,91 +4920,6 @@
     }
   };
 
-  // ../packages/page-projection/src/virtual/transport/cdpBindingDataPlane.ts
-  function bytesToB64(bytes) {
-    let s = "";
-    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-    return btoa(s);
-  }
-  function b64ToBytes(b64) {
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-  var CdpBindingDataPlane = class {
-    handler = null;
-    openFlag = false;
-    get isOpen() {
-      return this.openFlag && typeof globalThis.__speculumCdpPlane === "function";
-    }
-    open(_url) {
-      this.openFlag = true;
-      globalThis.__speculumCdpControlDeliver = (bytesB64) => {
-        if (this.handler === null) return;
-        const env = decodePlaneEnvelope(b64ToBytes(bytesB64));
-        if (env === null) return;
-        this.handler(env.channel, env.payload);
-      };
-    }
-    whenOpen(timeoutMs = 15e3) {
-      if (this.isOpen) return Promise.resolve();
-      const start = Date.now();
-      return new Promise((resolve, reject) => {
-        const tick = () => {
-          if (this.isOpen) {
-            resolve();
-            return;
-          }
-          if (Date.now() - start > timeoutMs) {
-            reject(new Error("CdpBindingDataPlane.whenOpen: timeout"));
-            return;
-          }
-          setTimeout(tick, 20);
-        };
-        tick();
-      });
-    }
-    close() {
-      this.openFlag = false;
-      globalThis.__speculumCdpControlDeliver = void 0;
-    }
-    setHandler(handler) {
-      this.handler = handler;
-    }
-    send(channel, payload) {
-      const fn = globalThis.__speculumCdpPlane;
-      if (!this.openFlag || typeof fn !== "function") return "deferred";
-      const envelope = encodePlaneEnvelope(channel, payload);
-      void Promise.resolve(fn(channel, bytesToB64(envelope))).catch(() => void 0);
-      return "accepted";
-    }
-  };
-
-  // ../packages/page-projection/src/virtual/transport/cdpBindingFrameTransport.ts
-  var CdpBindingFrameTransport = class {
-    plane = new CdpBindingDataPlane();
-    frames = new PlaneFrameTransport(this.plane);
-    get dataPlane() {
-      return this.plane;
-    }
-    get isOpen() {
-      return this.plane.isOpen;
-    }
-    open() {
-      this.plane.open();
-    }
-    whenOpen(timeoutMs) {
-      return this.plane.whenOpen(timeoutMs);
-    }
-    close() {
-      this.plane.close();
-    }
-    send(bytes) {
-      return this.frames.send(bytes);
-    }
-  };
-
   // ../packages/page-projection/src/virtual/transport/nullFrameTransport.ts
   var NullFrameTransport = class {
     send(_bytes) {
@@ -4819,6 +4936,11 @@
       this.next = id + 1;
       return id >>> 0;
     }
+    /** True for root (1) or any id already returned by {@link mint}. */
+    hasMinted(id) {
+      if (id === 1) return true;
+      return Number.isInteger(id) && id >= 2 && id < this.next;
+    }
   };
 
   // ../packages/page-projection/src/virtual/runtime/rootRuntime.ts
@@ -4828,23 +4950,16 @@
     frameTransport;
     dataPlane;
     loopback;
-    cdp;
     textEncoder = new TextEncoder();
     telemetryUnsub = null;
     constructor(config, win) {
       let frameTransport;
       let dataPlane = null;
       let loopback = null;
-      let cdp = null;
       if (config.transport === "console") {
         frameTransport = new ConsoleFrameTransport();
       } else if (config.transport === "discard") {
         frameTransport = new NullFrameTransport();
-      } else if (config.transport === "cdp") {
-        cdp = new CdpBindingFrameTransport();
-        cdp.open();
-        frameTransport = cdp;
-        dataPlane = cdp.dataPlane;
       } else {
         loopback = new LoopbackFrameTransport({
           bufferedAmountWatermark: config.bufferedAmountWatermark
@@ -4856,11 +4971,11 @@
       this.frameTransport = frameTransport;
       this.dataPlane = dataPlane;
       this.loopback = loopback;
-      this.cdp = cdp;
       this.bus = new VirtualDomainBus({
         window: win,
         role: "root",
         mint: () => this.mint(),
+        isDeliverableDestination: (contextId) => this.mintAllocator.hasMinted(contextId),
         emitFrame: (bytes) => {
           this.frameTransport.send(bytes);
         }
@@ -4873,10 +4988,6 @@
     async whenOpen() {
       if (this.loopback) {
         await this.loopback.whenOpen();
-        return;
-      }
-      if (this.cdp) {
-        await this.cdp.whenOpen();
       }
     }
     dispose() {
@@ -4980,20 +5091,7 @@
     };
   }
 
-  // ../packages/page-projection/src/virtual/input/applyControlInput.ts
-  function parsePayload(raw) {
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      return raw;
-    }
-    if (typeof raw === "string") {
-      try {
-        const v = JSON.parse(raw);
-        if (v && typeof v === "object" && !Array.isArray(v)) return v;
-      } catch {
-      }
-    }
-    return {};
-  }
+  // ../packages/page-projection/src/virtual/input/applyScrollPositions.ts
   function scrollEchoApis() {
     const g = globalThis;
     let note = g.__speculumDomNoteScrollEcho;
@@ -5007,104 +5105,8 @@
     }
     return { note, consume };
   }
-  function applyControlInput(domNodes, msg) {
-    const intentType = typeof msg.intentType === "string" ? msg.intentType.trim().toLowerCase() : "";
-    const nodeId = typeof msg.nodeId === "number" ? msg.nodeId : 0;
-    if (nodeId <= 0) return;
-    const el = domNodes.get(nodeId);
-    if (!el || el.nodeType !== 1) return;
-    const payload = parsePayload(msg.payload);
-    if (intentType === "scrollelement") {
-      const top = Number(payload.scrollTop ?? 0);
-      const left = Number(payload.scrollLeft ?? 0);
-      const node = el;
-      const { note, consume } = scrollEchoApis();
-      const mark = { element: { nodeId, top, left } };
-      note?.(mark);
-      const beforeTop = node.scrollTop || 0;
-      const beforeLeft = node.scrollLeft || 0;
-      node.scrollTop = top;
-      node.scrollLeft = left;
-      const afterTop = node.scrollTop || 0;
-      const afterLeft = node.scrollLeft || 0;
-      if (beforeTop === afterTop && beforeLeft === afterLeft && afterTop === top && afterLeft === left) {
-        consume?.(mark);
-      }
-      return;
-    }
-    if (intentType === "focus") {
-      try {
-        el.focus?.({ preventScroll: true });
-      } catch {
-        try {
-          el.focus?.();
-        } catch {
-        }
-      }
-      return;
-    }
-    if (intentType === "blur") {
-      try {
-        el.blur?.();
-      } catch {
-      }
-      return;
-    }
-    if (intentType === "input") {
-      const tag = el.tagName?.toUpperCase?.() ?? "";
-      if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
-      const input = el;
-      const Ev = globalThis.Event;
-      if (typeof payload.checked === "boolean" && tag === "INPUT") {
-        const htmlInput = input;
-        if (htmlInput.type === "checkbox" || htmlInput.type === "radio") {
-          htmlInput.checked = payload.checked;
-          htmlInput.dispatchEvent(new Ev("input", { bubbles: true }));
-          htmlInput.dispatchEvent(new Ev("change", { bubbles: true }));
-          return;
-        }
-      }
-      if (typeof payload.value === "string") {
-        setNativeControlValue(input, payload.value);
-        const InputEv = globalThis.InputEvent;
-        if (typeof InputEv === "function") {
-          input.dispatchEvent(
-            new InputEv("input", { bubbles: true, data: payload.value, inputType: "insertReplacementText" })
-          );
-        } else {
-          input.dispatchEvent(new Ev("input", { bubbles: true }));
-        }
-        input.dispatchEvent(new Ev("change", { bubbles: true }));
-      }
-    }
-  }
-  function setNativeControlValue(input, value) {
-    const tag = input.tagName.toUpperCase();
-    const proto = tag === "TEXTAREA" ? globalThis.HTMLTextAreaElement.prototype : tag === "SELECT" ? globalThis.HTMLSelectElement.prototype : globalThis.HTMLInputElement.prototype;
-    const desc = Object.getOwnPropertyDescriptor(proto, "value");
-    if (desc?.set) {
-      desc.set.call(input, value);
-      return;
-    }
-    input.value = value;
-  }
-
-  // ../packages/page-projection/src/virtual/input/applyScrollPositions.ts
-  function scrollEchoApis2() {
-    const g = globalThis;
-    let note = g.__speculumDomNoteScrollEcho;
-    let consume = g.__speculumDomConsumeScrollEchoIfAt;
-    if (!note || !consume) {
-      try {
-        note = note ?? g.top?.__speculumDomNoteScrollEcho;
-        consume = consume ?? g.top?.__speculumDomConsumeScrollEchoIfAt;
-      } catch {
-      }
-    }
-    return { note, consume };
-  }
   function applyOne(domNodes, doc, entry, missing) {
-    const { note, consume } = scrollEchoApis2();
+    const { note, consume } = scrollEchoApis();
     if (entry.nodeId == null) {
       const se = doc.scrollingElement;
       const mark2 = { viewport: { top: entry.scrollY, left: entry.scrollX } };
@@ -5149,6 +5151,31 @@
     }
     bootGlobal.__speculumProjectionBoot = (async () => {
       try {
+        let clientPointInRootViewport2 = function(el) {
+          const rect = el.getBoundingClientRect();
+          let x = rect.left + rect.width / 2;
+          let y = rect.top + rect.height / 2;
+          let walk = document.defaultView;
+          while (walk && walk !== walk.top) {
+            let frameEl = null;
+            try {
+              frameEl = walk.frameElement;
+            } catch {
+              break;
+            }
+            if (!frameEl) break;
+            const fr = frameEl.getBoundingClientRect();
+            x += fr.left;
+            y += fr.top;
+            try {
+              walk = walk.parent;
+            } catch {
+              break;
+            }
+          }
+          return { x, y };
+        };
+        var clientPointInRootViewport = clientPointInRootViewport2;
         const config = readProjectionConfig();
         const isRoot = window.parent === window;
         let mine = CONTEXT_ID_ROOT;
@@ -5286,22 +5313,32 @@
           domMutationObserver.syncObservedShadowRoots(domNodes);
         });
         bus.setApplyScrollHandler((positions) => applyScrollPositions(domNodes, document, positions));
+        bus.onInvocation("keyOfSelector", (args) => {
+          frameEmitter.flushNow();
+          const el = document.querySelector(args.selector);
+          if (!el) return { ok: false, reason: "selector_miss" };
+          const nodeId = domNodes.keyOf(el);
+          if (nodeId === NONE_DOM_NODE_KEY) return { ok: false, reason: "node_unmapped" };
+          return { ok: true, nodeId };
+        });
+        bus.onInvocation("resolveElementHit", (args) => {
+          frameEmitter.flushNow();
+          const el = document.querySelector(args.selector);
+          if (!el) return { ok: false, reason: "selector_miss" };
+          const { x, y } = clientPointInRootViewport2(el);
+          const win = document.defaultView;
+          const scrollX = win?.scrollX || document.scrollingElement?.scrollLeft || 0;
+          const scrollY = win?.scrollY || document.scrollingElement?.scrollTop || 0;
+          const nodeIdRaw = domNodes.keyOf(el);
+          const nodeId = nodeIdRaw === NONE_DOM_NODE_KEY ? null : nodeIdRaw;
+          return { ok: true, x, y, scrollX, scrollY, nodeId };
+        });
         bus.onResyncRequest((req) => {
           if (req.contextId !== mine) return;
           frameEmitter.requestResync((seq) => {
             const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
             telemetry.recordCssomPoll(cssomStats);
             return frame;
-          });
-        });
-        bus.onControlInput((req) => {
-          if (req.contextId !== mine) return;
-          applyControlInput(domNodes, {
-            type: "input",
-            contextId: req.contextId,
-            intentType: req.intentType,
-            nodeId: req.nodeId,
-            payload: req.payload
           });
         });
         if (dataPlane) {
@@ -5316,15 +5353,6 @@
             if (typeof msg !== "object" || msg === null) return;
             const req = msg;
             const contextId = typeof req.contextId === "number" && req.contextId > 0 ? req.contextId : CONTEXT_ID_ROOT;
-            if (req.type === "input") {
-              bus.publishControlInput({
-                contextId,
-                intentType: typeof req.intentType === "string" ? req.intentType : "",
-                nodeId: typeof req.nodeId === "number" ? req.nodeId : null,
-                payload: req.payload
-              });
-              return;
-            }
             if (req.type !== "requestResync") return;
             console.log(
               "[speculumProjection] resync requested \u2014 reason=%s contextId=%s clientGeneration=%s clientSequence=%s",
@@ -5411,10 +5439,14 @@
             return Object.fromEntries(entries);
           },
           applyScrollCensus: async (census) => {
+            const results = await Promise.all(
+              census.contexts.map((ctx) => bus.requestApplyScroll(ctx.contextId, ctx.positions))
+            );
             const missingNodeIds = [];
-            for (const ctx of census.contexts) {
-              const r = await bus.requestApplyScroll(ctx.contextId, ctx.positions);
-              if (!r.ok) return { ok: false, reason: r.reason ?? "apply_scroll_failed", missingNodeIds };
+            for (const r of results) {
+              if (!r.ok) {
+                return { ok: false, reason: r.reason ?? "apply_scroll_failed", missingNodeIds };
+              }
               if (r.missingNodeIds) missingNodeIds.push(...r.missingNodeIds);
             }
             return { ok: true, missingNodeIds };
@@ -5425,8 +5457,67 @@
             ]);
             if (!r.ok) return { ok: false, reason: r.reason ?? "apply_scroll_failed" };
             return { ok: true };
+          },
+          keyOfSelector: async (args) => {
+            const contextId = typeof args.contextId === "number" && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+            return bus.requestKeyOfSelector(contextId, args.selector);
+          },
+          resolveElementHit: async (args) => {
+            const contextId = typeof args.contextId === "number" && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+            return bus.requestResolveElementHit(contextId, args.selector);
           }
         };
+        if (dataPlane) {
+          dataPlane.setInvokeHandler(async (name, args) => {
+            const p = globalThis.__speculumProjection;
+            if (!p) throw new Error("producer missing");
+            switch (name) {
+              case "applyScrollCensus": {
+                const census = args?.census;
+                if (!census) throw new Error("applyScrollCensus: missing census");
+                return p.applyScrollCensus(census);
+              }
+              case "applyScrollSet": {
+                const a = args;
+                return p.applyScrollSet(a);
+              }
+              case "keyOfSelector": {
+                const a = args ?? {};
+                if (typeof a.selector !== "string" || !a.selector) {
+                  throw new Error("keyOfSelector: missing selector");
+                }
+                return p.keyOfSelector({ selector: a.selector, contextId: a.contextId });
+              }
+              case "resolveElementHit": {
+                const a = args ?? {};
+                if (typeof a.selector !== "string" || !a.selector) {
+                  throw new Error("resolveElementHit: missing selector");
+                }
+                return p.resolveElementHit({ selector: a.selector, contextId: a.contextId });
+              }
+              case "haltWorld":
+                p.haltWorld();
+                return { ok: true };
+              case "resumeWorld":
+                p.resumeWorld();
+                return { ok: true };
+              case "flushFrame": {
+                const r = p.flushFrame();
+                return { ok: true, generation: r.generation, sequence: r.sequence };
+              }
+              case "snapshotContext": {
+                const a = args ?? {};
+                const contextId = typeof a.contextId === "number" && a.contextId > 0 ? a.contextId : CONTEXT_ID_ROOT;
+                return p.snapshotContext(contextId, {
+                  includeTree: a.includeTree,
+                  cssom: a.cssom
+                });
+              }
+              default:
+                throw new Error(`unknown loopback invoke: ${name}`);
+            }
+          });
+        }
       } catch (err) {
         console.error("[speculumProjection] bootstrap failed", err);
         throw err;

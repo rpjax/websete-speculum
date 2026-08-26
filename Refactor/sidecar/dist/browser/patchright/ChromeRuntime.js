@@ -37,6 +37,7 @@ exports.profileDirForSession = profileDirForSession;
 exports.webglSpoofExtensionPath = webglSpoofExtensionPath;
 exports.buildChromeArgs = buildChromeArgs;
 exports.launchChrome = launchChrome;
+exports.ensureChromeXFocus = ensureChromeXFocus;
 exports.closeChrome = closeChrome;
 exports.injectScriptTags = injectScriptTags;
 const fs = __importStar(require("fs"));

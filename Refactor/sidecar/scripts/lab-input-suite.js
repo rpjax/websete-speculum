@@ -1,6 +1,9 @@
 /**
- * OS input lab suite — blueprints against EventApplier + ABS uinput.
- * Fail-closed without /dev/uinput (use Docker).
+ * `os-abs` input lab suite — regression suite for the FROZEN LEGACY adapter (2026-08-27,
+ * decision-log.md — `sparse-cdp` is the canonical default, this suite intentionally still
+ * proves `os-abs` was not broken by the default flip). Blueprints against EventApplier + ABS
+ * uinput. Fail-closed without /dev/uinput (use Docker). Explicitly requests `--input-adapter
+ * os-abs` on every run — does NOT rely on the CLI's default kind, which is `sparse-cdp` now.
  *
  * Usage:
  *   npm run lab:input-suite          # requires uinput (Linux / Docker)
@@ -38,7 +41,7 @@ const outBase =
 function requireOsInput() {
   let ok = false;
   try {
-    ok = require('../dist/browser/patchright/input/uinput').uinputAvailable() === true;
+    ok = require('../dist/browser/input/os/uinput').uinputAvailable() === true;
   } catch {
     ok = false;
   }
@@ -80,16 +83,19 @@ function sleepSync(ms) {
 }
 
 function runBlueprint(id, outDir) {
-  return spawnSync(process.execPath, [cli, '--blueprint', id, '--out', outDir, '--headed'], {
-    cwd: root,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      SPECULUM_LAB_HEADED: '1',
-      SPECULUM_INPUT_BACKEND: 'os',
-      CHROME_EXECUTABLE: process.env.CHROME_EXECUTABLE || '/usr/bin/google-chrome',
+  return spawnSync(
+    process.execPath,
+    [cli, '--blueprint', id, '--out', outDir, '--headed', '--input-adapter', 'os-abs'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        SPECULUM_LAB_HEADED: '1',
+        CHROME_EXECUTABLE: process.env.CHROME_EXECUTABLE || '/usr/bin/google-chrome',
+      },
     },
-  });
+  );
 }
 
 function killOrphanChrome() {

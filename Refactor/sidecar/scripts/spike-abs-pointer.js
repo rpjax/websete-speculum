@@ -10,12 +10,12 @@
  */
 
 async function main() {
-  const { uinputAvailable } = require('../dist/browser/patchright/input/uinput');
+  const { uinputAvailable } = require('../dist/browser/input/os/uinput');
   const { AbsOsInputStack } = require('../dist/browser/input/AbsOsInputStack');
   const { AbsPointerPeripheral } = require('../dist/browser/input/peripherals/AbsPointerPeripheral');
   const { Display, DisplayAllocator } = require('../dist/browser/patchright/Display');
   const { launchChrome, closeChrome, ensureChromeXFocus } = require('../dist/browser/patchright/ChromeRuntime');
-  const { mapLogicalToAbs, createLogicalWindowTransform } = require('../dist/browser/patchright/input/logical-to-device');
+  const { mapLogicalToAbs, createLogicalWindowTransform } = require('../dist/browser/input/os/logical-to-device');
 
   if (!uinputAvailable()) {
     console.error('FAIL D-UI-20: /dev/uinput unavailable (run in Docker lab compose)');

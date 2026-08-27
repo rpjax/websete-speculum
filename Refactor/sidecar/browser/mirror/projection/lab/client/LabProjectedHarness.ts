@@ -111,8 +111,54 @@ export class LabProjectedHarness {
     return { registry, buses, nested, awaiting, ghosts };
   }
 
-  forceLoadAfterDropRaceForDiag(contextId: number) {
-    return this.client.forceLoadAfterDropRaceForDiag(contextId);
+  /**
+   * Lab diag — load-after-drop: drop must cancel the pending `load` bind so a later
+   * navigation cannot register a ProjectedInputRuntime ghost. Relocated out of
+   * {@link ProjectionClient} (product/web bundle) — same logic, driven through its private
+   * nested-host bookkeeping via the same lab-only cast as {@link peekProjectedInputRuntime}.
+   */
+  forceLoadAfterDropRaceForDiag(contextId: number): {
+    ok: boolean;
+    reason?: string;
+    afterInstallAwaiting: number[];
+    afterDropAwaiting: number[];
+  } {
+    const c = this.client as unknown as {
+      nested: Map<number, unknown>;
+      nestedHostAwaitingLoad: Map<number, unknown>;
+      installNestedHost(iframe: HTMLIFrameElement, contextId: number): void;
+      dropNestedHost(contextId: number): void;
+    };
+    if (contextId === CONTEXT_ID_ROOT) {
+      return {
+        ok: false,
+        reason: 'contextId_must_not_be_root',
+        afterInstallAwaiting: [],
+        afterDropAwaiting: [],
+      };
+    }
+    if (c.nested.has(contextId) || c.nestedHostAwaitingLoad.has(contextId)) {
+      return {
+        ok: false,
+        reason: 'contextId_in_use',
+        afterInstallAwaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b),
+        afterDropAwaiting: [],
+      };
+    }
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('data-lab-load-after-drop', String(contextId));
+    iframe.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden';
+    document.documentElement.appendChild(iframe);
+    c.installNestedHost(iframe, contextId);
+    const afterInstallAwaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+    c.dropNestedHost(contextId);
+    const afterDropAwaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+    iframe.src = 'about:blank';
+    return {
+      ok: true,
+      afterInstallAwaiting,
+      afterDropAwaiting,
+    };
   }
 
   markPropDirty(id: number): void {

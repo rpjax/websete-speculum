@@ -100,9 +100,6 @@ export {
 } from './loopback/envelope';
 export {
   INTENT_SCHEMA_VERSION,
-  normalizeDomInput,
-  intentV2ToLegacy,
-  type PageProjectionIntentV2,
   type DomInputIngress,
 } from './input/intentTypes';
 export { snapshotTree } from './snapshot/domTreeSnapshot';

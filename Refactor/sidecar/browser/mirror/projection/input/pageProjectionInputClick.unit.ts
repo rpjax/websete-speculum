@@ -42,6 +42,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
   const url = `http://127.0.0.1:${addr.port}/`;
 
   let frames = 0;
+  const consoleLines: string[] = [];
   const events: BrowserSessionEvents = {
     onVideoFrame: () => undefined,
     onAudioFrame: () => undefined,
@@ -49,7 +50,11 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
       frames += 1;
     },
     onPageProjectionTelemetry: () => undefined,
-    onConsole: () => undefined,
+    // EventApplier rejects land here as `input_reject <errorCode> <phase>` (PageProjectionBrowserSession
+    // launch() wiring) — pushInput itself no longer returns a synchronous drop for these.
+    onConsole: (_level, text) => {
+      consoleLines.push(text);
+    },
     onLocationChanged: () => undefined,
     onMainFrameNavigationBlocked: () => undefined,
     onEditableFocusChanged: () => undefined,
@@ -101,9 +106,17 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
     };
     assert.ok(info.id > 0, 'button node id');
 
+    // EventApplier.validatePointer (browser/input/EventApplier.ts) drops on any viewport stamp
+    // mismatch before it even looks at coords — stamp every ingress with the session's live size.
+    const status0 = await session.getStatus();
+    const viewportW = status0.width;
+    const viewportH = status0.height;
+
     const payloadJson = JSON.stringify({
       x: info.x,
       y: info.y,
+      viewportW,
+      viewportH,
       button: 0,
       buttons: 0,
       modifiers: {},
@@ -132,33 +145,33 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
     });
     assert.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
 
-    // Mode A: missing nodeId is fine (journal-only); invalid coords still drop.
+    // Mode A: missing nodeId is fine (journal-only).
     const noIdOk = await pushDom.pushInput({
       ...base,
       type: 'mousedown',
       targetId: 0,
-      payloadJson: JSON.stringify({ x: info.x, y: info.y, button: 0, buttons: 0, modifiers: {} }),
+      payloadJson: JSON.stringify({ x: info.x, y: info.y, viewportW, viewportH, button: 0, buttons: 0, modifiers: {} }),
     });
     assert.strictEqual(noIdOk.status, 'dispatched', 'Mode A ignores nodeId');
 
+    // Coord validation is downstream in EventApplier now — ingressToUnifiedIntent/pushInput
+    // always report 'dispatched'; an out-of-viewport point rejects asynchronously via onReject
+    // (PageProjectionBrowserSession launch() logs it as `input_reject <errorCode> <phase>`).
+    consoleLines.length = 0;
     const badCoords = await pushDom.pushInput({
       ...base,
       type: 'mousedown',
-      payloadJson: JSON.stringify({ y: 0, button: 0, buttons: 0, modifiers: {} }),
+      payloadJson: JSON.stringify({ x: viewportW + 100, y: 0, viewportW, viewportH, button: 0, buttons: 0, modifiers: {} }),
     });
-    assert.strictEqual(badCoords.status, 'dropped');
-    assert.strictEqual(badCoords.reason, 'invalid_coords');
-
-    // Mode B still requires nodeId.
-    const scrollNoId = await pushDom.pushInput({
-      type: 'scrollElement',
-      generation: info.generation,
-      targetId: 0,
-      contextId: 1,
-      payloadJson: JSON.stringify({ scrollTop: 10, scrollLeft: 0 }),
-    });
-    assert.strictEqual(scrollNoId.status, 'dropped');
-    assert.strictEqual(scrollNoId.reason, 'node_id_required');
+    assert.strictEqual(badCoords.status, 'dispatched');
+    const badCoordsDeadline = Date.now() + 2_000;
+    while (!consoleLines.some((l) => l.includes('invalid_coords')) && Date.now() < badCoordsDeadline) {
+      await wait(20);
+    }
+    assert.ok(
+      consoleLines.some((l) => l.includes('input_reject invalid_coords validate')),
+      `expected async invalid_coords reject, got: ${consoleLines.join(' | ')}`,
+    );
 
     // Activate at button center via Mode A coords (no resolve).
     for (const type of ['mousemove', 'mousedown', 'mouseup'] as const) {

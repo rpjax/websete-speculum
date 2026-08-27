@@ -28,10 +28,9 @@ const AssetStore_1 = require("../assets/AssetStore");
 const rewritePart_1 = require("../assets/rewritePart");
 const Display_1 = require("../../../patchright/Display");
 const ChromeRuntime_1 = require("../../../patchright/ChromeRuntime");
-const uinput_1 = require("../../../patchright/input/uinput");
-const AbsOsInputStack_1 = require("../../../input/AbsOsInputStack");
-const AbsPointerPeripheral_1 = require("../../../input/peripherals/AbsPointerPeripheral");
-const KeyboardPeripheral_1 = require("../../../input/peripherals/KeyboardPeripheral");
+const createInputAdapter_1 = require("../../../input/createInputAdapter");
+const ports_1 = require("../../../input/ports");
+const clickDelivery_1 = require("../../../input/clickDelivery");
 const SidecarBuffer_1 = require("../../../input/SidecarBuffer");
 const EventApplier_1 = require("../../../input/EventApplier");
 const ingressToUnifiedIntent_1 = require("../../../input/ingressToUnifiedIntent");
@@ -54,7 +53,7 @@ class PageProjectionBrowserSession {
     page = null;
     chrome = null;
     display = null;
-    absInput = null;
+    inputAdapter = null;
     eventApplier = null;
     cdpSession = null;
     generation = 1;
@@ -122,13 +121,6 @@ class PageProjectionBrowserSession {
         if (options.projectionDataPlane != null && options.projectionDataPlane !== 'loopback') {
             throw Object.assign(new Error('PageProjection data plane is loopback-only (projectionDataPlane must be "loopback")'), { code: 'FAILED_PRECONDITION', errorCode: 'data_plane_not_loopback', phase: 'launch' });
         }
-        if (!(0, uinput_1.uinputAvailable)()) {
-            throw Object.assign(new Error('/dev/uinput unavailable — PageProjection OS input fail-closed'), {
-                code: 'FAILED_PRECONDITION',
-                errorCode: 'uinput_unavailable',
-                phase: 'launch',
-            });
-        }
         if (!process.env['CHROME_EXECUTABLE']?.trim()) {
             throw Object.assign(new Error('CHROME_EXECUTABLE required for PageProjection Display launch'), {
                 code: 'FAILED_PRECONDITION',
@@ -143,16 +135,32 @@ class PageProjectionBrowserSession {
         const maxH = options.viewportPolicy.maxHeight;
         this.displayWidth = maxW;
         this.displayHeight = maxH;
-        const absInput = AbsOsInputStack_1.AbsOsInputStack.open({
-            sessionId: this.sessionId,
-            displayWidth: maxW,
-            displayHeight: maxH,
-            logicalWidth: options.width,
-            logicalHeight: options.height,
-        });
-        this.absInput = absInput;
+        // Single construction point for both adapter kinds — no "before/after Chrome" phase to
+        // reason about. `os-abs` genuinely must exist before `Display.start()` (it creates the
+        // uinput device nodes Xorg's config binds); `sparse-cdp`'s `cdp.send` is a lazy accessor
+        // through `currentCdpSession()` that is only ever *invoked* on an actual pointer/keyboard
+        // dispatch — which never happens before `launchChrome()` resolves below — so building the
+        // wrapper here, before Chrome even exists, is safe. Building `os-abs` here also means its
+        // `uinput_unavailable` precondition (checked inside `AbsOsInputStack.open()`) still fails
+        // fast, before the (expensive) Display/Chrome startup below — no separate top-level gate
+        // needed, and it now only runs for the kind that actually needs uinput.
+        const inputAdapterKind = options.pageProjectionInputAdapterKind ?? 'sparse-cdp';
+        const inputAdapter = inputAdapterKind === 'os-abs'
+            ? (0, createInputAdapter_1.createInputAdapter)('os-abs', {
+                sessionId: this.sessionId,
+                displayWidth: maxW,
+                displayHeight: maxH,
+                logicalWidth: options.width,
+                logicalHeight: options.height,
+            })
+            : (0, createInputAdapter_1.createInputAdapter)('sparse-cdp', {
+                cdp: { send: (method, params) => this.currentCdpSession().send(method, params) },
+                logicalWidth: options.width,
+                logicalHeight: options.height,
+            });
+        this.inputAdapter = inputAdapter;
         const displayNum = ppDisplays.allocate();
-        this.display = await Display_1.Display.start(displayNum, maxW, maxH, absInput.displayInputDevices());
+        this.display = await Display_1.Display.start(displayNum, maxW, maxH, (0, ports_1.hasDisplayInputDevices)(inputAdapter) ? inputAdapter.displayInputDevices() : undefined);
         this.chrome = await (0, ChromeRuntime_1.launchChrome)({
             sessionId: this.sessionId,
             displayEnv: this.display.displayEnv,
@@ -169,13 +177,20 @@ class PageProjectionBrowserSession {
         this.page = this.chrome.page;
         this.cdpSession = this.chrome.cdp;
         this.browser = this.context.browser();
+        // Click *addressing* strategy — orthogonal to the adapter above (see clickDelivery.ts).
+        // Sealed `os-abs` keeps the census-coordinated path exactly as before; `sparse-cdp`
+        // (alternate pipeline, decision-log.md 2026-08-27) resolves clicks by nodeId and never
+        // runs S6 census/sync at all.
+        const clickDelivery = inputAdapterKind === 'sparse-cdp'
+            ? (0, clickDelivery_1.liveNodeResolveClickDelivery)((contextId, nodeId) => this.resolveClickTarget(contextId, nodeId))
+            : (0, clickDelivery_1.censusCoordinatedClickDelivery)((census) => this.applyScrollCensus(census));
         this.eventApplier = new EventApplier_1.EventApplier({
             buffer: new SidecarBuffer_1.SidecarBuffer(),
-            pointer: new AbsPointerPeripheral_1.AbsPointerPeripheral(absInput.pointerWriter),
-            keyboard: new KeyboardPeripheral_1.KeyboardPeripheral(absInput.keyboardWriter),
+            pointer: inputAdapter.pointer,
+            keyboard: inputAdapter.keyboard,
             activeViewport: () => ({ w: this.width, h: this.height }),
             isPageProjection: () => true,
-            applyScrollCensus: (census) => this.applyScrollCensus(census),
+            clickDelivery,
             applyScrollSet: (args) => this.applyScrollSet(args),
             onReject: (errorCode, phase) => {
                 this.events.onConsole(3, `input_reject ${errorCode} ${phase}`);
@@ -215,9 +230,9 @@ class PageProjectionBrowserSession {
         this.display = null;
         if (display)
             await display.dispose();
-        const abs = this.absInput;
-        this.absInput = null;
-        abs?.dispose();
+        const inputAdapter = this.inputAdapter;
+        this.inputAdapter = null;
+        inputAdapter?.dispose();
         await this.dataPlane.close();
     }
     async dispose() {
@@ -402,7 +417,7 @@ class PageProjectionBrowserSession {
                 this.width = nextW;
                 this.height = nextH;
                 this.device = nextDevice;
-                this.absInput?.setLogicalSize(nextW, nextH);
+                this.inputAdapter?.setLogicalSize(nextW, nextH);
                 return {
                     ok: true,
                     width: nextW,
@@ -422,7 +437,7 @@ class PageProjectionBrowserSession {
                 this.width = proven.width;
                 this.height = proven.height;
                 this.device = proven.device;
-                this.absInput?.setLogicalSize(this.width, this.height);
+                this.inputAdapter?.setLogicalSize(this.width, this.height);
             }
             catch (err) {
                 // Soft accept when prove fails on live pages without viewport-meta (same as launch).
@@ -432,7 +447,7 @@ class PageProjectionBrowserSession {
                 this.width = nextW;
                 this.height = nextH;
                 this.device = nextDevice;
-                this.absInput?.setLogicalSize(this.width, this.height);
+                this.inputAdapter?.setLogicalSize(this.width, this.height);
             }
             return {
                 ok: true,
@@ -448,7 +463,7 @@ class PageProjectionBrowserSession {
             this.width = previous.width;
             this.height = previous.height;
             this.device = previous.device;
-            this.absInput?.setLogicalSize(previous.width, previous.height);
+            this.inputAdapter?.setLogicalSize(previous.width, previous.height);
             try {
                 await this.page?.setViewportSize({ width: previous.width, height: previous.height });
             }
@@ -526,10 +541,18 @@ class PageProjectionBrowserSession {
     getInputPipelineMetrics() {
         return null;
     }
-    /** Lab/dossier — OS cutover path only. */
+    /**
+     * Lab/dossier label, sourced from `this.inputAdapter.kind` — `'os'` for the frozen
+     * `os-abs` legacy path, `'cdp'` for the canonical `sparse-cdp` default.
+     */
     getInputBackend() {
-        return 'os';
+        return this.inputAdapter?.kind === 'os-abs' ? 'os' : 'cdp';
     }
+    /**
+     * Lab/CLI blueprint helper only — bypasses the wire (gRPC/hub), never used by the
+     * product web client. Still enqueues onto the same `EventApplier` as `pushInput`, so
+     * it is not a second dispatch path.
+     */
     async resolveAndClickDomInput(selector, contextId = 1) {
         if (!this.eventApplier || !this.page) {
             return { status: 'dropped', reason: 'input_applier_missing' };
@@ -562,6 +585,40 @@ class PageProjectionBrowserSession {
             census,
         };
         this.eventApplier.enqueue({ ...base, type: 'move' });
+        this.eventApplier.enqueue({ ...base, type: 'down' });
+        this.eventApplier.enqueue({ ...base, type: 'up' });
+        await this.eventApplier.flush();
+        return { status: 'dispatched' };
+    }
+    /**
+     * `sparse-cdp` alternate pipeline only (decision-log.md 2026-08-27) — lab/CLI proof for the
+     * id-addressed click (Virtual `resolveNodeHit`), sibling to `resolveAndClickDomInput` above
+     * but addressing by nodeId end-to-end instead of a selector+census-verified coordinate: this
+     * enqueues with `nodeId` set and no `census` at all, so it actually exercises
+     * `EventApplier`'s `resolveClickTarget` branch, not the coordinate fallback. Bypasses the
+     * wire, never used by the product web client (the Projected client's own local hit-test is
+     * the product equivalent — `projectedInputCapture.ts`).
+     */
+    async resolveAndClickDomInputByNodeId(selector, contextId = 1) {
+        if (!this.eventApplier) {
+            return { status: 'dropped', reason: 'input_applier_missing' };
+        }
+        const keyed = await this.loopbackInvoke('keyOfSelector', { selector, contextId });
+        if (!keyed.ok || typeof keyed.nodeId !== 'number' || keyed.nodeId <= 0) {
+            return { status: 'dropped', reason: keyed.reason ?? 'selector_miss' };
+        }
+        const base = {
+            schemaVersion: 1,
+            viewportW: this.width,
+            viewportH: this.height,
+            // Placeholder — `resolveClickTarget` resolves the live point from `nodeId`, this
+            // coordinate is never dispatched to (only the no-nodeId fallback uses it).
+            x: 0,
+            y: 0,
+            button: 'left',
+            contextId,
+            nodeId: keyed.nodeId,
+        };
         this.eventApplier.enqueue({ ...base, type: 'down' });
         this.eventApplier.enqueue({ ...base, type: 'up' });
         await this.eventApplier.flush();
@@ -629,6 +686,18 @@ class PageProjectionBrowserSession {
         if (!r.ok)
             return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
         return { ok: true };
+    }
+    /**
+     * `sparse-cdp` alternate pipeline only (decision-log.md 2026-08-27) — resolves a
+     * client-hit-tested nodeId to its live root-viewport point via Virtual, in place of the
+     * sealed `os-abs` path's `applyScrollCensus`. Never called for `os-abs` (see `launch()`).
+     */
+    async resolveClickTarget(contextId, nodeId) {
+        const r = await this.loopbackInvoke('resolveNodeHit', { contextId, nodeId });
+        if (!r.ok || typeof r.x !== 'number' || typeof r.y !== 'number') {
+            return { ok: false, reason: r.reason ?? 'node_not_found' };
+        }
+        return { ok: true, x: r.x, y: r.y };
     }
     /**
      * Lab stress — Phase A wall time only (loopback `applyScrollCensus`).
@@ -793,6 +862,17 @@ class PageProjectionBrowserSession {
     }
     sendControl(message) {
         this.dataPlane.sendControl(message);
+    }
+    /** Live lookup for `sparse-cdp` — `this.cdpSession` is reassigned on every `freshPage()`. */
+    currentCdpSession() {
+        if (!this.cdpSession) {
+            throw Object.assign(new Error('no active CDP session for sparse-cdp input adapter'), {
+                code: 'FAILED_PRECONDITION',
+                errorCode: 'cdp_session_unavailable',
+                phase: 'input',
+            });
+        }
+        return this.cdpSession;
     }
     async freshPage(dataPlaneUrl, options) {
         const context = this.context;

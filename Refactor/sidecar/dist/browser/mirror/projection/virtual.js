@@ -4481,6 +4481,22 @@
       if (result.ok) return result.value;
       return { ok: false, reason: result.error?.message ?? "resolve_hit_failed" };
     }
+    /**
+     * `sparse-cdp` alternate pipeline only (decision-log.md 2026-08-27) — id-addressed click
+     * resolve, not selector-based (that's `requestResolveElementHit`, lab/CLI only). Targets
+     * exactly one context (the one the Projected hit-test already named), not a census fan-out
+     * over every known context — the `PP-INPUT-VIRTUAL-MINT-GHOST` ghost-context hang
+     * (open.md) needs an *unrelated* dead context on the same fan-out to trigger; a single
+     * targeted resolve is naturally far less exposed to it, though not a fix for `os-abs`.
+     */
+    async requestResolveNodeHit(contextId, nodeId) {
+      if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+        return { ok: false, reason: "context_not_found" };
+      }
+      const result = await this.bus.invoke("resolveNodeHit", { nodeId }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+      if (result.ok) return result.value;
+      return { ok: false, reason: result.error?.message ?? "resolve_hit_failed" };
+    }
     setApplyScrollHandler(handler) {
       this.applyScrollHandler = handler;
     }
@@ -5333,6 +5349,15 @@
           const nodeId = nodeIdRaw === NONE_DOM_NODE_KEY ? null : nodeIdRaw;
           return { ok: true, x, y, scrollX, scrollY, nodeId };
         });
+        bus.onInvocation("resolveNodeHit", (args) => {
+          frameEmitter.flushNow();
+          const node = domNodes.get(args.nodeId);
+          if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+            return { ok: false, reason: "node_not_found" };
+          }
+          const { x, y } = clientPointInRootViewport2(node);
+          return { ok: true, x, y };
+        });
         bus.onResyncRequest((req) => {
           if (req.contextId !== mine) return;
           frameEmitter.requestResync((seq) => {
@@ -5465,6 +5490,10 @@
           resolveElementHit: async (args) => {
             const contextId = typeof args.contextId === "number" && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
             return bus.requestResolveElementHit(contextId, args.selector);
+          },
+          resolveNodeHit: async (args) => {
+            const contextId = typeof args.contextId === "number" && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+            return bus.requestResolveNodeHit(contextId, args.nodeId);
           }
         };
         if (dataPlane) {
@@ -5494,6 +5523,13 @@
                   throw new Error("resolveElementHit: missing selector");
                 }
                 return p.resolveElementHit({ selector: a.selector, contextId: a.contextId });
+              }
+              case "resolveNodeHit": {
+                const a = args ?? {};
+                if (typeof a.nodeId !== "number") {
+                  throw new Error("resolveNodeHit: missing nodeId");
+                }
+                return p.resolveNodeHit({ nodeId: a.nodeId, contextId: a.contextId });
               }
               case "haltWorld":
                 p.haltWorld();

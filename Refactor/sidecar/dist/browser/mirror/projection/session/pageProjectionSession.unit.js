@@ -38,7 +38,7 @@ async function runPageProjectionSessionUnitTests() {
     let uinputOk = false;
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        uinputOk = require('../../../patchright/input/uinput').uinputAvailable() === true;
+        uinputOk = require('../../../input/os/uinput').uinputAvailable() === true;
     }
     catch {
         uinputOk = false;

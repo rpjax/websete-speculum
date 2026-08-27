@@ -10,7 +10,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.runAbsCoordMapUnitTests = runAbsCoordMapUnitTests;
 exports.testAbsOsInputOverallocTransform = testAbsOsInputOverallocTransform;
 const assert_1 = __importDefault(require("assert"));
-const logical_to_device_1 = require("../patchright/input/logical-to-device");
+const logical_to_device_1 = require("./os/logical-to-device");
 function runAbsCoordMapUnitTests() {
     const t = (0, logical_to_device_1.createLogicalWindowTransform)(800, 600);
     assert_1.default.strictEqual(t.logicalWidth, 800);

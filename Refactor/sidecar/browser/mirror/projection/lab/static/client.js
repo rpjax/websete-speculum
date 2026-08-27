@@ -4477,8 +4477,10 @@
             return;
           if (this.nestedHostAwaitingLoad.has(contextId))
             return;
-          this.nestedHostAwaitingLoad.set(contextId, iframe);
+          const pending = { iframe, bind: () => void 0, cancelled: false };
           const bind = () => {
+            if (pending.cancelled)
+              return;
             this.nestedHostAwaitingLoad.delete(contextId);
             if (this.nested.has(contextId))
               return;
@@ -4518,18 +4520,29 @@
               getScrollIndex: () => session.getScrollableIndex()
             });
             this.inputRuntime.announceHostAdmitted(frame_1.CONTEXT_ID_ROOT, contextId, contextId);
-            const pending = this.pendingNestedFrames.get(contextId);
-            if (pending) {
+            const queued = this.pendingNestedFrames.get(contextId);
+            if (queued) {
               this.pendingNestedFrames.delete(contextId);
-              for (let i = 0; i < pending.length; i++)
-                session.ingest(pending[i]);
+              for (let i = 0; i < queued.length; i++)
+                session.ingest(queued[i]);
             }
             session.flush();
           };
+          pending.bind = bind;
+          this.nestedHostAwaitingLoad.set(contextId, pending);
           iframe.addEventListener("load", bind, { once: true });
         }
-        dropNestedHost(contextId) {
+        cancelPendingNestedHost(contextId) {
+          const pending = this.nestedHostAwaitingLoad.get(contextId);
+          if (!pending)
+            return;
+          pending.cancelled = true;
+          pending.iframe.removeEventListener("load", pending.bind);
           this.nestedHostAwaitingLoad.delete(contextId);
+        }
+        dropNestedHost(contextId) {
+          this.cancelPendingNestedHost(contextId);
+          this.pendingNestedFrames.delete(contextId);
           const existing = this.nested.get(contextId);
           if (!existing)
             return;
@@ -4537,7 +4550,6 @@
           this.inputRuntime.unregisterContext(contextId);
           existing.dispose();
           this.nested.delete(contextId);
-          this.pendingNestedFrames.delete(contextId);
         }
         get isArmed() {
           return this.armed;
@@ -4638,7 +4650,9 @@
             n.dispose();
           this.nested.clear();
           this.pendingNestedFrames.clear();
-          this.nestedHostAwaitingLoad.clear();
+          for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
+            this.cancelPendingNestedHost(contextId);
+          }
           this.inputRuntime.dispose();
           this.inputRuntime = new projectedInputRuntime_1.ProjectedInputRuntime();
           this.surface.reset();
@@ -5065,6 +5079,7 @@
         const doc = surface.ownerDocument;
         const win = doc.defaultView;
         const buffer = new ClientBuffer_1.ClientBuffer();
+        const sparse = opts.capturePolicy === "sparse";
         const fire = (intent) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
@@ -5150,6 +5165,22 @@
             return;
           }
           const stamp = viewportStamp();
+          if (sparse) {
+            const hit = doc.elementFromPoint(event.clientX, event.clientY);
+            const nodeId = hit ? registry.idOfNearest(hit) ?? null : null;
+            enqueue({
+              schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+              type,
+              timestampClient: performance.now(),
+              ...stamp,
+              x: coords.x,
+              y: coords.y,
+              button: buttonFromEvent(event.button),
+              contextId: opts.contextId,
+              nodeId
+            });
+            return;
+          }
           const censusT0 = performance.now();
           let census;
           if (opts.requestScrollCensus) {
@@ -5285,7 +5316,9 @@
         };
         const onPointerDown = (event) => onPointerEdge(event, "down");
         const onPointerUp = (event) => onPointerEdge(event, "up");
-        doc.addEventListener("pointermove", onPointerMove, true);
+        if (!sparse) {
+          doc.addEventListener("pointermove", onPointerMove, true);
+        }
         doc.addEventListener("pointerdown", onPointerDown, true);
         doc.addEventListener("pointerup", onPointerUp, true);
         doc.addEventListener("click", onClick, true);
@@ -5300,7 +5333,9 @@
         win?.addEventListener("scroll", onScroll, true);
         return () => {
           buffer.dispose();
-          doc.removeEventListener("pointermove", onPointerMove, true);
+          if (!sparse) {
+            doc.removeEventListener("pointermove", onPointerMove, true);
+          }
           doc.removeEventListener("pointerdown", onPointerDown, true);
           doc.removeEventListener("pointerup", onPointerUp, true);
           doc.removeEventListener("click", onClick, true);
@@ -6100,6 +6135,60 @@
     requestScrollCensus(fromContextId) {
       return this.client.requestScrollCensus(fromContextId);
     }
+    /**
+     * Lab diag — peek Projected input fabric (registry vs live buses vs nested hosts).
+     * Ghost signature: id in `registry` but missing from `buses` (or nested already dropped).
+     */
+    peekProjectedInputRuntime() {
+      const c = this.client;
+      const registry = [...c.inputRuntime.registry].sort((a, b) => a - b);
+      const buses = [...c.inputRuntime.contextBuses.keys()].sort((a, b) => a - b);
+      const nested = [...c.nested.keys()].sort((a, b) => a - b);
+      const awaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+      const busSet = new Set(buses);
+      const nestedSet = new Set(nested);
+      const ghosts = registry.filter((id) => id !== 1 && (!busSet.has(id) || !nestedSet.has(id)));
+      return { registry, buses, nested, awaiting, ghosts };
+    }
+    /**
+     * Lab diag — load-after-drop: drop must cancel the pending `load` bind so a later
+     * navigation cannot register a ProjectedInputRuntime ghost. Relocated out of
+     * {@link ProjectionClient} (product/web bundle) — same logic, driven through its private
+     * nested-host bookkeeping via the same lab-only cast as {@link peekProjectedInputRuntime}.
+     */
+    forceLoadAfterDropRaceForDiag(contextId) {
+      const c = this.client;
+      if (contextId === import_frame.CONTEXT_ID_ROOT) {
+        return {
+          ok: false,
+          reason: "contextId_must_not_be_root",
+          afterInstallAwaiting: [],
+          afterDropAwaiting: []
+        };
+      }
+      if (c.nested.has(contextId) || c.nestedHostAwaitingLoad.has(contextId)) {
+        return {
+          ok: false,
+          reason: "contextId_in_use",
+          afterInstallAwaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b),
+          afterDropAwaiting: []
+        };
+      }
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("data-lab-load-after-drop", String(contextId));
+      iframe.style.cssText = "position:absolute;width:0;height:0;border:0;visibility:hidden";
+      document.documentElement.appendChild(iframe);
+      c.installNestedHost(iframe, contextId);
+      const afterInstallAwaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+      c.dropNestedHost(contextId);
+      const afterDropAwaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+      iframe.src = "about:blank";
+      return {
+        ok: true,
+        afterInstallAwaiting,
+        afterDropAwaiting
+      };
+    }
     markPropDirty(id) {
       this.client.markPropDirty(id);
     }
@@ -6294,10 +6383,35 @@
     let inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
     let sessionToken = "";
     let assetBaseUrl = window.location.origin;
+    let activeInputAdapter = "sparse-cdp";
     let canonicalViewport = { width: 1280, height: 720 };
     let viewportSync = null;
     let pendingResize = null;
     let bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
+    window.__labDiagProjectedPeek = () => projection ? projection.peekProjectedInputRuntime() : null;
+    window.__labDiagForceLoadAfterDrop = (contextId = 99) => projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
+    window.__labDiagProjectedInput = async () => {
+      if (!projection) return null;
+      const peek = projection.peekProjectedInputRuntime();
+      const t0 = performance.now();
+      const census = await projection.requestScrollCensus(import_frame2.CONTEXT_ID_ROOT);
+      const censusMs = performance.now() - t0;
+      if (census.ok) {
+        return {
+          ...peek,
+          censusOk: true,
+          censusIds: census.census.contexts.map((c) => c.contextId),
+          censusMs
+        };
+      }
+      return {
+        ...peek,
+        censusOk: false,
+        censusReason: census.reason,
+        censusIds: [],
+        censusMs
+      };
+    };
     function disposeViewportSync() {
       viewportSync?.dispose();
       viewportSync = null;
@@ -6364,6 +6478,10 @@
           payload.viewportH = intent.viewportH;
           payload.button = intent.button;
           if (intent.census) payload.census = intent.census;
+          if (intent.type !== "move") {
+            if (intent.contextId != null) payload.contextId = intent.contextId;
+            if (intent.nodeId !== void 0) payload.nodeId = intent.nodeId;
+          }
           payload.payload = JSON.stringify({ x: intent.x, y: intent.y, button: intent.button });
         } else if (intent.type === "keyDown" || intent.type === "keyUp") {
           payload.key = intent.key;
@@ -6386,6 +6504,7 @@
       inputDetachers.clear();
       inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
       const scrollEcho = new import_projected.ScrollEchoGate();
+      const capturePolicy = activeInputAdapter === "sparse-cdp" ? "sparse" : "peripheral";
       const rootSurface = client.document.documentElement;
       if (rootSurface && rootSurface.nodeType === 1) {
         const detach = (0, import_projected.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
@@ -6396,6 +6515,7 @@
           onMarkPropDirty: (id) => client.markPropDirty(id),
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
           scrollIndex: client.getScrollableIndex(),
+          capturePolicy,
           requestScrollCensus: async () => {
             const r = await client.requestScrollCensus(import_frame2.CONTEXT_ID_ROOT);
             return r.ok ? r.census : r;
@@ -6420,6 +6540,7 @@
           onMarkPropDirty: info.markPropDirty,
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
           scrollIndex: info.getScrollableIndex(),
+          capturePolicy,
           requestScrollCensus: async () => {
             const r = await client.requestScrollCensus(info.contextId);
             return r.ok ? r.census : r;
@@ -7055,7 +7176,8 @@
           phase = "live";
           browseSnapCount = 0;
           $("streamSnaps").textContent = "0";
-          logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+          activeInputAdapter = msg.inputAdapter === "os-abs" ? "os-abs" : "sparse-cdp";
+          logActivity(`booted mode=${msg.mode} inputAdapter=${activeInputAdapter} dossier=${msg.dossierDir}`);
           startViewportSync();
           if (msg.mode === "browse") startAutoSnap();
           syncButtons();
@@ -7232,7 +7354,8 @@
           device: bootDeviceProfile,
           frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
           telemetry: readTelemetryFromUi(),
-          cpuProfiling: document.getElementById("browseCpu")?.checked === true
+          cpuProfiling: document.getElementById("browseCpu")?.checked === true,
+          inputAdapter: document.getElementById("inputAdapter")?.value ?? "sparse-cdp"
         })
       );
     });
@@ -7328,6 +7451,7 @@
     showTab("Stream");
     refreshStatus();
     syncButtons();
+    window.__labBootOk = Date.now();
   }
   bootLabClient();
 })();

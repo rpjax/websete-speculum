@@ -26,6 +26,8 @@ services:
       DISPLAY: ":99"
     ports:
       - "4103:4103"
+    volumes:
+      - ./lab-runs:/app/lab-runs
     healthcheck:
       disable: true
     command: ["node", "dist/browser/mirror/projection/lab/host/index.js"]

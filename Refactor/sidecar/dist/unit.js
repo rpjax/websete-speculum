@@ -58,13 +58,14 @@ const labVirtualAssets_unit_1 = require("./browser/mirror/projection/lab/host/la
 const pageProjectionSession_unit_1 = require("./browser/mirror/projection/session/pageProjectionSession.unit");
 const relaxCsp_unit_1 = require("./browser/mirror/projection/session/csp/relaxCsp.unit");
 const documentResponseHook_unit_1 = require("./browser/mirror/projection/session/csp/documentResponseHook.unit");
-const intentTypes_unit_1 = require("./browser/mirror/projection/input/intentTypes.unit");
 const pageProjectionInputClick_unit_1 = require("./browser/mirror/projection/input/pageProjectionInputClick.unit");
 const projectedInputRuntimeGhost_unit_1 = require("./browser/mirror/projection/input/projectedInputRuntimeGhost.unit");
+const projectedInputCapture_unit_1 = require("./browser/mirror/projection/input/projectedInputCapture.unit");
 const contextBus_unit_1 = require("./browser/mirror/projection/bus/contextBus.unit");
 const scrollableIndex_unit_1 = require("./browser/mirror/projection/scroll/scrollableIndex.unit");
 const scriptingOnPaintParity_unit_1 = require("./browser/mirror/projection/projected/scriptingOnPaintParity.unit");
 const EventApplier_unit_1 = require("./browser/input/EventApplier.unit");
+const sparseCdpInputAdapter_unit_1 = require("./browser/input/adapters/sparseCdpInputAdapter.unit");
 const AbsCoordMap_unit_1 = require("./browser/input/AbsCoordMap.unit");
 const srcsetParse_1 = require("./browser/patchright/mirror/dom/srcsetParse");
 const collectTelemetry_1 = require("./telemetry/collectTelemetry");
@@ -1380,7 +1381,7 @@ async function testTelemetryAllocationsSummaryAndSessions() {
     console.log('[unit] telemetry allocations summary and sessions ok');
 }
 function testLogicalToDeviceTransform() {
-    const { createLogicalWindowTransform, mapLogicalToAbs } = require('./browser/patchright/input/logical-to-device');
+    const { createLogicalWindowTransform, mapLogicalToAbs } = require('./browser/input/os/logical-to-device');
     // 1:1 into logical window region (absMax = logical-1), not stretch-to-display.
     const t = createLogicalWindowTransform(414, 711);
     assert_1.default.strictEqual(t.logicalWidth, 414);
@@ -1397,7 +1398,7 @@ function testLogicalToDeviceTransform() {
     console.log('[unit] logical-to-device transform ok');
 }
 function testKeycodeResolve() {
-    const { resolveKeyStroke, KEY } = require('./browser/patchright/input/keycodes');
+    const { resolveKeyStroke, KEY } = require('./browser/input/os/keycodes');
     assert_1.default.strictEqual(resolveKeyStroke('Enter')?.code, KEY.ENTER);
     assert_1.default.strictEqual(resolveKeyStroke('a')?.code, KEY.A);
     assert_1.default.strictEqual(resolveKeyStroke('A')?.shift, true);
@@ -3635,9 +3636,10 @@ async function main() {
     (0, scrollableIndex_unit_1.runScrollableIndexUnitTests)();
     (0, scriptingOnPaintParity_unit_1.runScriptingOnPaintParityUnitTests)();
     await (0, EventApplier_unit_1.runEventApplierUnitTests)();
+    await (0, sparseCdpInputAdapter_unit_1.runSparseCdpInputAdapterUnitTests)();
+    await (0, projectedInputCapture_unit_1.runProjectedInputCaptureUnitTests)();
     (0, AbsCoordMap_unit_1.runAbsCoordMapUnitTests)();
     (0, AbsCoordMap_unit_1.testAbsOsInputOverallocTransform)();
-    (0, intentTypes_unit_1.runInputIntentTypesUnitTests)();
     await (0, relaxCsp_unit_1.runRelaxCspUnitTests)();
     await (0, documentResponseHook_unit_1.runDocumentResponseHookUnitTests)();
     await (0, projectedInputRuntimeGhost_unit_1.runProjectedInputRuntimeGhostUnitTests)();

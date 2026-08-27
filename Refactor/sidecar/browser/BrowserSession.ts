@@ -276,6 +276,12 @@ export interface BrowserLaunchOptions {
   scripts?: readonly BrowserScriptInjection[];
   /** Main-frame allowlist; matching and block notify are internal to the session. */
   allowedNavigationDomains?: readonly string[];
+  /**
+   * PageProjection input adapter kind. Defaults to `'sparse-cdp'` (canonical, 2026-08-27
+   * Rodrigo explicit ruling) when unset. `'os-abs'` is frozen legacy — opt-in only, never
+   * an env var — kept for reference/rollback. See docs/page-projection/spec/decision-log.md.
+   */
+  pageProjectionInputAdapterKind?: 'os-abs' | 'sparse-cdp';
 }
 
 export interface BrowserGeolocation {

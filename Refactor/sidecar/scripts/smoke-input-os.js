@@ -29,7 +29,7 @@ function main() {
   // Prefer in-container path when already inside the lab image.
   let uinput = false;
   try {
-    uinput = require('../dist/browser/patchright/input/uinput').uinputAvailable() === true;
+    uinput = require('../dist/browser/input/os/uinput').uinputAvailable() === true;
   } catch {
     uinput = false;
   }

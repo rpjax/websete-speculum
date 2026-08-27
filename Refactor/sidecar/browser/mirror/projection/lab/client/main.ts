@@ -9,7 +9,6 @@ import {
   ProjectedInputCaptureMetrics,
   ScrollEchoGate,
 } from '@speculum/page-projection/projected';
-import type { PageProjectionIntentV2 } from '@speculum/page-projection/core/input/intentTypes';
 import {
   ViewportSync,
   measureHostElement,
@@ -157,7 +156,7 @@ function logConsole(level: number, text: string): void {
   while (box.childElementCount > 400) box.lastChild?.remove();
 }
 
-function formatIntentShort(intent: PageProjectionIntentV2 | Record<string, unknown>): string {
+function formatIntentShort(intent: Record<string, unknown>): string {
   const rec = intent as Record<string, unknown>;
   const kind =
     typeof rec.type === 'string'
@@ -198,6 +197,9 @@ export function bootLabClient(): void {
   let inputCaptureMetrics = new ProjectedInputCaptureMetrics();
   let sessionToken = '';
   let assetBaseUrl = window.location.origin;
+  /** `sparse-cdp` is canonical; `os-abs` is frozen legacy, opt-in only — never an env var.
+   *  See docs/page-projection/spec/decision-log.md 2026-08-27. */
+  let activeInputAdapter: 'os-abs' | 'sparse-cdp' = 'sparse-cdp';
   let canonicalViewport: ViewportSize = { width: 1280, height: 720 };
   let viewportSync: ViewportSync | null = null;
   let pendingResize: {
@@ -344,6 +346,13 @@ export function bootLabClient(): void {
         payload.viewportH = intent.viewportH;
         payload.button = intent.button;
         if (intent.census) payload.census = intent.census;
+        // `sparse-cdp` alternate pipeline id-addressed click (decision-log.md 2026-08-27) —
+        // `os-abs` never sets these (attachProjectedInputCapture only fills them in `sparse`
+        // capture policy), harmless no-op pass-through otherwise.
+        if (intent.type !== 'move') {
+          if (intent.contextId != null) payload.contextId = intent.contextId;
+          if (intent.nodeId !== undefined) payload.nodeId = intent.nodeId;
+        }
         payload.payload = JSON.stringify({ x: intent.x, y: intent.y, button: intent.button });
       } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
         payload.key = intent.key;
@@ -358,7 +367,7 @@ export function bootLabClient(): void {
       }
       payload.timestampClient = intent.timestampClient;
       ws.send(JSON.stringify({ type: 'client.intent', intent: payload }));
-      logActivity(`intent ${formatIntentShort(intent as unknown as PageProjectionIntentV2)}`);
+      logActivity(`intent ${formatIntentShort(intent as unknown as Record<string, unknown>)}`);
     }
   }
 
@@ -373,6 +382,9 @@ export function bootLabClient(): void {
     // ScrollEchoGate: call expect() before any programmatic Projected scroll apply;
     // until apply sets scroll, consume is a no-op (local-first user scroll still intents).
     const scrollEcho = new ScrollEchoGate();
+    // `sparse-cdp` (decision-log.md 2026-08-27): no continuous pointermove, no S6 scroll
+    // census — Projected hit-tests locally and addresses clicks by nodeId instead.
+    const capturePolicy = activeInputAdapter === 'sparse-cdp' ? 'sparse' : 'peripheral';
     const rootSurface = client.document.documentElement;
     if (rootSurface && rootSurface.nodeType === 1) {
       const detach = attachProjectedInputCapture(rootSurface, client.getLiveRegistry(), sendInputIntent, {
@@ -383,6 +395,7 @@ export function bootLabClient(): void {
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
         scrollIndex: client.getScrollableIndex(),
+        capturePolicy,
         requestScrollCensus: async () => {
           const r = await client.requestScrollCensus(CONTEXT_ID_ROOT);
           return r.ok ? r.census : r;
@@ -408,6 +421,7 @@ export function bootLabClient(): void {
         onMarkPropDirty: info.markPropDirty,
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
         scrollIndex: info.getScrollableIndex(),
+        capturePolicy,
         requestScrollCensus: async () => {
           const r = await client.requestScrollCensus(info.contextId);
           return r.ok ? r.census : r;
@@ -1126,7 +1140,8 @@ export function bootLabClient(): void {
         phase = 'live';
         browseSnapCount = 0;
         $('streamSnaps').textContent = '0';
-        logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+        activeInputAdapter = msg.inputAdapter === 'os-abs' ? 'os-abs' : 'sparse-cdp';
+        logActivity(`booted mode=${msg.mode} inputAdapter=${activeInputAdapter} dossier=${msg.dossierDir}`);
         startViewportSync();
         if (msg.mode === 'browse') startAutoSnap();
         syncButtons();
@@ -1314,6 +1329,11 @@ export function bootLabClient(): void {
         frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
         telemetry: readTelemetryFromUi(),
         cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
+        inputAdapter:
+          ((document.getElementById('inputAdapter') as HTMLSelectElement | null)?.value as
+            | 'os-abs'
+            | 'sparse-cdp'
+            | undefined) ?? 'sparse-cdp',
       }),
     );
   });

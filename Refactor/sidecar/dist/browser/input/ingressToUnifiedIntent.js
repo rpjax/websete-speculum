@@ -63,6 +63,9 @@ function ingressToUnifiedIntent(raw) {
     };
     const unifiedType = mapLegacy(type);
     if (unifiedType === 'move' || unifiedType === 'down' || unifiedType === 'up') {
+        // nodeId/targetId + contextId — `sparse-cdp` alternate pipeline's id-addressed click
+        // (decision-log.md 2026-08-27). `os-abs` never sends these; harmless no-op pass-through.
+        const nodeId = raw.nodeId ?? raw.targetId ?? null;
         return {
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type: unifiedType,
@@ -73,6 +76,8 @@ function ingressToUnifiedIntent(raw) {
             y,
             button: buttonName(raw.button ?? payload.button),
             census: unifiedType === 'move' ? undefined : census,
+            contextId: unifiedType === 'move' ? undefined : raw.contextId && raw.contextId > 0 ? raw.contextId : 1,
+            nodeId: unifiedType === 'move' ? undefined : nodeId != null && nodeId > 0 ? nodeId : null,
         };
     }
     if (unifiedType === 'keyDown' || unifiedType === 'keyUp') {

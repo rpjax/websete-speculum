@@ -2,12 +2,10 @@
  * Serial EventApplier — routes unified intents (§10.5).
  */
 
-import type { UnifiedIntent, ScrollCensus } from '@speculum/page-projection/core/input/unifiedIntentTypes';
-import type { IAbsPointerPeripheral, PointerButton } from './peripherals/AbsPointerPeripheral';
-import type { IKeyboardPeripheral } from './peripherals/KeyboardPeripheral';
+import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes';
+import type { IPointerPeripheral, IKeyboardPeripheral, PointerButton } from './ports';
+import type { ClickDeliveryStrategy } from './clickDelivery';
 import { SidecarBuffer } from './SidecarBuffer';
-
-export type ApplyScrollCensusFn = (census: ScrollCensus) => Promise<{ ok: boolean; error?: string }>;
 
 export type ApplyScrollSetFn = (args: {
   contextId: number;
@@ -18,9 +16,10 @@ export type ApplyScrollSetFn = (args: {
 
 export type EventApplierOptions = {
   buffer: SidecarBuffer;
-  pointer: IAbsPointerPeripheral;
+  pointer: IPointerPeripheral;
   keyboard: IKeyboardPeripheral;
-  applyScrollCensus?: ApplyScrollCensusFn;
+  /** How to decide where a `down`/`up` lands — see clickDelivery.ts. Exactly one strategy per instance. */
+  clickDelivery: ClickDeliveryStrategy;
   applyScrollSet?: ApplyScrollSetFn;
   activeViewport: () => { w: number; h: number };
   isPageProjection: () => boolean;
@@ -68,22 +67,52 @@ export class EventApplier {
       case 'down':
       case 'up': {
         if (!this.validatePointer(intent)) return;
-        if (this.opts.isPageProjection()) {
-          if (!intent.census) {
-            this.reject('missing_census', 'validate');
+
+        const delivery = this.opts.clickDelivery;
+        switch (delivery.mode) {
+          case 'live-node-resolve': {
+            // `sparse-cdp` pipeline (decision-log.md 2026-08-27) — id-addressed, no S6
+            // census/sync at all. `nodeId == null` (empty space / unmapped hit-test miss) is
+            // the documented fallback: dispatch straight at the client's raw coordinate,
+            // unresolved, no Virtual round trip.
+            if (intent.nodeId == null) {
+              this.opts.pointer.moveTo(intent.x, intent.y);
+              this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
+              return;
+            }
+            const resolved = await delivery.resolveClickTarget(intent.contextId ?? 1, intent.nodeId);
+            if (!resolved.ok || resolved.x == null || resolved.y == null) {
+              this.reject(
+                resolved.reason ? `resolve_click_failed:${resolved.reason}` : 'resolve_click_failed',
+                'virtual_resolve',
+              );
+              return;
+            }
+            this.opts.pointer.moveTo(resolved.x, resolved.y);
+            this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
             return;
           }
-          const phaseA = await this.opts.applyScrollCensus?.(intent.census);
-          if (!phaseA?.ok) {
-            this.reject(
-              phaseA?.error ? `apply_scroll_failed:${phaseA.error}` : 'apply_scroll_failed',
-              'virtual_apply',
-            );
+          case 'census-coordinated': {
+            // Sealed `os-abs` path (S6, LOCKED D-UI-26) — unchanged.
+            if (this.opts.isPageProjection()) {
+              if (!intent.census) {
+                this.reject('missing_census', 'validate');
+                return;
+              }
+              const phaseA = await delivery.applyScrollCensus(intent.census);
+              if (!phaseA.ok) {
+                this.reject(
+                  phaseA.error ? `apply_scroll_failed:${phaseA.error}` : 'apply_scroll_failed',
+                  'virtual_apply',
+                );
+                return;
+              }
+            }
+            this.opts.pointer.moveTo(intent.x, intent.y);
+            this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
             return;
           }
         }
-        this.opts.pointer.moveTo(intent.x, intent.y);
-        this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
         return;
       }
       case 'keyDown':

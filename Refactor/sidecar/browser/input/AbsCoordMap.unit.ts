@@ -8,7 +8,7 @@ import {
   createCoordTransform,
   createLogicalWindowTransform,
   mapLogicalToAbs,
-} from '../patchright/input/logical-to-device';
+} from './os/logical-to-device';
 
 export function runAbsCoordMapUnitTests(): void {
   const t = createLogicalWindowTransform(800, 600);

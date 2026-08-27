@@ -33,7 +33,7 @@ function wait(ms) {
 
 function uinputOk() {
   try {
-    return require('../dist/browser/patchright/input/uinput').uinputAvailable() === true;
+    return require('../dist/browser/input/os/uinput').uinputAvailable() === true;
   } catch {
     return false;
   }

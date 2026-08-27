@@ -11,7 +11,7 @@
 
 **Shipped (recent):** Virtual assets V1 path. **OS unified input SEALED** 2026-08-26 — [input.md](input.md). **2026-08-27:** Projected nested-host **load-after-drop** — `dropNestedHost` must cancel the pending `load` bind (flag + `removeEventListener`); otherwise late bind registers a ghost in `ProjectedInputRuntime` → S6 census includes orphan `contextId` → Phase A / click dies. Law: [multi-document.md](multi-document.md) §4.1 · [input.md](input.md) §4 · [decision-log.md](decision-log.md). Code: `ProjectionClient.cancelPendingNestedHost`. Lab repro: `scripts/diag-click-ghost-context.js` + fixtures `input-ghost-context` / `input-ghost-registry`.
 
-**Input:** sealed. Nested-drop census ghost **fixed**. Do **not** reopen CDP Mode A/B. Journal `intent ok:true` ≠ Phase A succeeded (enqueue can succeed while Applier skips ABS).
+**Input:** sealed. Nested-drop census ghost **fixed**. Do **not** reopen CDP Mode A/B — that ban is specifically the purged input-v2 Mode A/B/C letters, not a ban on registering a new adapter behind the sealed port contract (`createInputAdapter`, [input.md](input.md) §2.1; `os-abs` sealed v0, `sparse-cdp` accepted opt-in second adapter). Journal `intent ok:true` ≠ Phase A succeeded (enqueue can succeed while Applier skips ABS).
 
 **Next product work (ordered):**
 1. Re-prove Eneba / heavy CF after the nested-drop fix — if click still dies with census **`[1]` only**, that is a **different** defect (not Projected registry ghost). Wire-mint ghosts without dropHost still poison Phase A when census includes them (`census[1,2]` ~2s timeout) — Virtual mint lifetime / dropHost wiring is separate.

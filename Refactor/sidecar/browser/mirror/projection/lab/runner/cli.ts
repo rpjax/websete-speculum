@@ -22,6 +22,8 @@ type Args = {
   headed: boolean;
   outDir?: string;
   telemetryOff: boolean;
+  /** Opt-in only (never an env var) — see docs/page-projection/spec/decision-log.md 2026-08-27. */
+  inputAdapter?: 'os-abs' | 'sparse-cdp';
 };
 
 function parseDuration(raw: string): number {
@@ -61,6 +63,9 @@ function parseArgs(argv: string[]): Args {
     else if (t === '--telemetry' && argv[i + 1] === 'off') {
       args.telemetryOff = true;
       i++;
+    } else if (t === '--input-adapter') {
+      const kind = argv[++i];
+      if (kind === 'os-abs' || kind === 'sparse-cdp') args.inputAdapter = kind;
     } else if (!t.startsWith('-')) rest.push(t);
   }
   // positional: [blueprint?] [url?] [duration?] — keep soak default
@@ -145,6 +150,7 @@ async function main(): Promise<void> {
         invariants: args.invariants,
         telemetry: args.telemetryOff ? { enabled: false } : { ...LAB_TELEMETRY_DEFAULTS },
         outDir: args.outDir,
+        inputAdapterKind: args.inputAdapter,
       },
     });
     for (const v of result.verdicts) {

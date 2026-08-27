@@ -124,6 +124,16 @@ declare global {
           nodeId?: number | null;
           reason?: string;
         }>;
+        /**
+         * `sparse-cdp` alternate pipeline only (decision-log.md 2026-08-27) — resolves a
+         * client-hit-tested `nodeId` (not a CSS selector) to its live root-viewport point.
+         * No S6 census involved: the caller (sidecar `EventApplier`) dispatches straight off
+         * this instead of a scroll-census/coordinate pair. `os-abs` never calls this.
+         */
+        resolveNodeHit: (args: {
+          nodeId: number;
+          contextId?: number;
+        }) => Promise<{ ok: boolean; x?: number; y?: number; reason?: string }>;
       }
     | undefined;
 }
@@ -351,6 +361,17 @@ void (async () => {
     return { ok: true as const, x, y, scrollX, scrollY, nodeId };
   });
 
+  // `sparse-cdp` alternate pipeline only — see `resolveNodeHit` doc comment above.
+  bus.onInvocation('resolveNodeHit', (args: { nodeId: number }) => {
+    frameEmitter.flushNow();
+    const node = domNodes.get(args.nodeId);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+      return { ok: false as const, reason: 'node_not_found' };
+    }
+    const { x, y } = clientPointInRootViewport(node as Element);
+    return { ok: true as const, x, y };
+  });
+
   bus.onResyncRequest((req) => {
     if (req.contextId !== mine) return;
     frameEmitter.requestResync((seq) => {
@@ -502,6 +523,11 @@ void (async () => {
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
       return bus.requestResolveElementHit(contextId, args.selector);
     },
+    resolveNodeHit: async (args) => {
+      const contextId =
+        typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+      return bus.requestResolveNodeHit(contextId, args.nodeId);
+    },
   };
 
   if (dataPlane) {
@@ -536,6 +562,13 @@ void (async () => {
             throw new Error('resolveElementHit: missing selector');
           }
           return p.resolveElementHit({ selector: a.selector, contextId: a.contextId });
+        }
+        case 'resolveNodeHit': {
+          const a = (args ?? {}) as { nodeId?: number; contextId?: number };
+          if (typeof a.nodeId !== 'number') {
+            throw new Error('resolveNodeHit: missing nodeId');
+          }
+          return p.resolveNodeHit({ nodeId: a.nodeId, contextId: a.contextId });
         }
         case 'haltWorld':
           p.haltWorld();

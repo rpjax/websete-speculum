@@ -87,14 +87,21 @@ function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
   } else if (intent.type === 'setFiles') {
     payload.files = intent.files
   }
+  // `nodeId`/`contextId` on `down`/`up` — `sparse-cdp` alternate pipeline's id-addressed click
+  // (decision-log.md 2026-08-27); `null`/`1` for `os-abs` or an unresolved (empty-space) hit.
+  const pointerNodeId =
+    (intent.type === 'down' || intent.type === 'up') && intent.nodeId != null ? intent.nodeId : null
+  const pointerContextId = intent.type === 'down' || intent.type === 'up' ? (intent.contextId ?? 1) : 1
   return {
     generation: 0,
     type: intent.type,
     anchor: null,
-    targetId: intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.nodeId : null,
+    targetId:
+      intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.nodeId : pointerNodeId,
     timestampClient: intent.timestampClient ?? null,
     payload: JSON.stringify(payload),
-    contextId: intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.contextId : 1,
+    contextId:
+      intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.contextId : pointerContextId,
     schemaVersion: intent.schemaVersion,
     viewportW: 'viewportW' in intent ? intent.viewportW : null,
     viewportH: 'viewportH' in intent ? intent.viewportH : null,

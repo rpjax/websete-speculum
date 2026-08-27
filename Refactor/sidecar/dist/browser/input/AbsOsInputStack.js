@@ -7,47 +7,13 @@
  * Coordinate law (D-UI-04): client CSS (x,y) maps 1:1 into ABS via
  * {@link mapLogicalToAbs} — no chrome-inset calibration.
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AbsOsInputStack = void 0;
 const node_crypto_1 = require("node:crypto");
-const node_child_process_1 = require("node:child_process");
-const fs = __importStar(require("node:fs"));
-const uinput_1 = require("../patchright/input/uinput");
-const logical_to_device_1 = require("../patchright/input/logical-to-device");
-const keycodes_1 = require("../patchright/input/keycodes");
+const uinput_1 = require("./os/uinput");
+const logical_to_device_1 = require("./os/logical-to-device");
+const keycodes_1 = require("./os/keycodes");
+const eventNodes_1 = require("./os/eventNodes");
 class AbsOsInputStack {
     pointer;
     keyboard;
@@ -107,7 +73,7 @@ class AbsOsInputStack {
             keyboard.destroy();
             throw err;
         }
-        ensureInputEventNodes(pointer.name, keyboard.name, touch.name);
+        (0, eventNodes_1.ensureInputEventNodes)(pointer.name, keyboard.name, touch.name);
         return new AbsOsInputStack(pointer, keyboard, touch, transform);
     }
     /** Refresh logical viewport after soft-resize — ABS capacity stays at R. */
@@ -119,7 +85,7 @@ class AbsOsInputStack {
         return this.transform;
     }
     displayInputDevices() {
-        const handlers = listInputHandlers(this.pointer.name, this.keyboard.name, this.touch.name);
+        const handlers = (0, eventNodes_1.listInputHandlers)(this.pointer.name, this.keyboard.name, this.touch.name);
         const ptr = handlers.find((h) => h.name === this.pointer.name);
         const kbd = handlers.find((h) => h.name === this.keyboard.name);
         const mt = handlers.find((h) => h.name === this.touch.name);
@@ -182,63 +148,4 @@ class AbsOsInputStack {
     }
 }
 exports.AbsOsInputStack = AbsOsInputStack;
-function listInputHandlers(...deviceNames) {
-    const wanted = new Set(deviceNames.filter((n) => n.length > 0));
-    if (wanted.size === 0)
-        return [];
-    let text;
-    try {
-        text = fs.readFileSync('/proc/bus/input/devices', 'utf8');
-    }
-    catch {
-        return [];
-    }
-    const out = [];
-    for (const block of text.split('\n\n')) {
-        const nameMatch = block.match(/^N: Name="([^"]+)"/m);
-        const handlersMatch = block.match(/^H: Handlers=([^\n]+)/m);
-        if (!nameMatch || !handlersMatch)
-            continue;
-        if (!wanted.has(nameMatch[1]))
-            continue;
-        for (const token of handlersMatch[1].trim().split(/\s+/)) {
-            if (!/^event\d+$/.test(token))
-                continue;
-            out.push({ name: nameMatch[1], event: token });
-        }
-    }
-    return out;
-}
-function ensureInputEventNodes(...deviceNames) {
-    try {
-        fs.mkdirSync('/dev/input', { recursive: true });
-    }
-    catch {
-        /* */
-    }
-    for (const { event } of listInputHandlers(...deviceNames)) {
-        const node = `/dev/input/${event}`;
-        if (fs.existsSync(node))
-            continue;
-        let majMin;
-        try {
-            majMin = fs.readFileSync(`/sys/class/input/${event}/dev`, 'utf8').trim();
-        }
-        catch {
-            continue;
-        }
-        const [majS, minS] = majMin.split(':');
-        const major = Number(majS);
-        const minor = Number(minS);
-        if (!Number.isInteger(major) || !Number.isInteger(minor))
-            continue;
-        try {
-            (0, node_child_process_1.execFileSync)('mknod', [node, 'c', String(major), String(minor)]);
-            fs.chmodSync(node, 0o666);
-        }
-        catch {
-            /* */
-        }
-    }
-}
 //# sourceMappingURL=AbsOsInputStack.js.map

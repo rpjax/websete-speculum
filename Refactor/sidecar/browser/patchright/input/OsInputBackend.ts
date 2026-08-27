@@ -1,15 +1,14 @@
 import { createHash } from 'crypto';
-import { execFile, execFileSync } from 'child_process';
-import * as fs from 'fs';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { BrowserTouchPoint } from '../../BrowserSession';
 import type { InputBackend } from './InputBackend';
-import { allKeyboardKeyCodes, KEY, resolveKeyStroke } from './keycodes';
+import { allKeyboardKeyCodes, KEY, resolveKeyStroke } from '../../input/os/keycodes';
 import {
   createLogicalWindowTransform,
   mapLogicalToAbs,
   type CoordTransform,
-} from './logical-to-device';
+} from '../../input/os/logical-to-device';
 import {
   ABS_MT_POSITION_X,
   ABS_MT_POSITION_Y,
@@ -32,7 +31,8 @@ import {
   REL_Y,
   UinputDevice,
   uinputAvailable,
-} from './uinput';
+} from '../../input/os/uinput';
+import { listInputHandlers, ensureInputEventNodes } from '../../input/os/eventNodes';
 
 const execFileAsync = promisify(execFile);
 
@@ -508,61 +508,4 @@ function wheelSteps(delta: number): number {
   const steps = Math.round(-delta / 100);
   if (steps !== 0) return steps;
   return delta < 0 ? 1 : -1;
-}
-
-type InputHandlerRef = { name: string; event: string };
-
-function listInputHandlers(...deviceNames: string[]): InputHandlerRef[] {
-  const wanted = new Set(deviceNames.filter((n) => n.length > 0));
-  if (wanted.size === 0) return [];
-  let text: string;
-  try {
-    text = fs.readFileSync('/proc/bus/input/devices', 'utf8');
-  } catch {
-    return [];
-  }
-  const out: InputHandlerRef[] = [];
-  for (const block of text.split('\n\n')) {
-    const nameMatch = block.match(/^N: Name="([^"]+)"/m);
-    const handlersMatch = block.match(/^H: Handlers=([^\n]+)/m);
-    if (!nameMatch || !handlersMatch) continue;
-    if (!wanted.has(nameMatch[1]!)) continue;
-    for (const token of handlersMatch[1]!.trim().split(/\s+/)) {
-      if (!/^event\d+$/.test(token)) continue;
-      out.push({ name: nameMatch[1]!, event: token });
-    }
-  }
-  return out;
-}
-
-/**
- * Docker does not auto-create /dev/input/eventN for container-born uinput.
- * With device_cgroup_rules c 13:* we mknod from sysfs so Xorg Option "Device" works.
- */
-function ensureInputEventNodes(...deviceNames: string[]): void {
-  try {
-    fs.mkdirSync('/dev/input', { recursive: true });
-  } catch {
-    /* */
-  }
-  for (const { event } of listInputHandlers(...deviceNames)) {
-    const node = `/dev/input/${event}`;
-    if (fs.existsSync(node)) continue;
-    let majMin: string;
-    try {
-      majMin = fs.readFileSync(`/sys/class/input/${event}/dev`, 'utf8').trim();
-    } catch {
-      continue;
-    }
-    const [majS, minS] = majMin.split(':');
-    const major = Number(majS);
-    const minor = Number(minS);
-    if (!Number.isInteger(major) || !Number.isInteger(minor)) continue;
-    try {
-      execFileSync('mknod', [node, 'c', String(major), String(minor)]);
-      fs.chmodSync(node, 0o666);
-    } catch {
-      /* host may already own the node */
-    }
-  }
 }

@@ -617,7 +617,7 @@ function buildVerdict(report) {
 async function main() {
   let uok = false;
   try {
-    uok = require('../dist/browser/patchright/input/uinput').uinputAvailable() === true;
+    uok = require('../dist/browser/input/os/uinput').uinputAvailable() === true;
   } catch {
     uok = false;
   }

@@ -60,6 +60,8 @@ export type ExecuteHooks = {
     invariants?: boolean;
     headed?: boolean;
     outDir?: string;
+    /** Opt-in only (never an env var) — see docs/page-projection/spec/decision-log.md 2026-08-27. */
+    inputAdapterKind?: 'os-abs' | 'sparse-cdp';
   };
 };
 
@@ -253,6 +255,7 @@ export async function executeBlueprint(
           cpuProfiling: overrides.cpu === true || params.cpuProfiling === true,
           blueprintId: bp.id,
           slug: bp.id,
+          inputAdapterKind: overrides.inputAdapterKind,
         });
         return finish(true);
       }

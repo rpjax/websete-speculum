@@ -43,13 +43,14 @@ import { testLabVirtualAssetsServeHelpers } from './browser/mirror/projection/la
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/relaxCsp.unit';
 import { runDocumentResponseHookUnitTests } from './browser/mirror/projection/session/csp/documentResponseHook.unit';
-import { runInputIntentTypesUnitTests } from './browser/mirror/projection/input/intentTypes.unit';
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { runProjectedInputRuntimeGhostUnitTests } from './browser/mirror/projection/input/projectedInputRuntimeGhost.unit';
+import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
 import { runScrollableIndexUnitTests } from './browser/mirror/projection/scroll/scrollableIndex.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
 import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
+import { runSparseCdpInputAdapterUnitTests } from './browser/input/adapters/sparseCdpInputAdapter.unit';
 import { runAbsCoordMapUnitTests, testAbsOsInputOverallocTransform } from './browser/input/AbsCoordMap.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
 import type { BrowserCookieState } from './browser/BrowserSession';
@@ -1687,7 +1688,7 @@ async function testTelemetryAllocationsSummaryAndSessions(): Promise<void> {
 }
 
 function testLogicalToDeviceTransform(): void {
-  const { createLogicalWindowTransform, mapLogicalToAbs } = require('./browser/patchright/input/logical-to-device') as typeof import('./browser/patchright/input/logical-to-device');
+  const { createLogicalWindowTransform, mapLogicalToAbs } = require('./browser/input/os/logical-to-device') as typeof import('./browser/input/os/logical-to-device');
   // 1:1 into logical window region (absMax = logical-1), not stretch-to-display.
   const t = createLogicalWindowTransform(414, 711);
   assert.strictEqual(t.logicalWidth, 414);
@@ -1705,7 +1706,7 @@ function testLogicalToDeviceTransform(): void {
 }
 
 function testKeycodeResolve(): void {
-  const { resolveKeyStroke, KEY } = require('./browser/patchright/input/keycodes') as typeof import('./browser/patchright/input/keycodes');
+  const { resolveKeyStroke, KEY } = require('./browser/input/os/keycodes') as typeof import('./browser/input/os/keycodes');
   assert.strictEqual(resolveKeyStroke('Enter')?.code, KEY.ENTER);
   assert.strictEqual(resolveKeyStroke('a')?.code, KEY.A);
   assert.strictEqual(resolveKeyStroke('A')?.shift, true);
@@ -4208,9 +4209,10 @@ async function main(): Promise<void> {
   runScrollableIndexUnitTests();
   runScriptingOnPaintParityUnitTests();
   await runEventApplierUnitTests();
+  await runSparseCdpInputAdapterUnitTests();
+  await runProjectedInputCaptureUnitTests();
   runAbsCoordMapUnitTests();
   testAbsOsInputOverallocTransform();
-  runInputIntentTypesUnitTests();
   await runRelaxCspUnitTests();
   await runDocumentResponseHookUnitTests();
   await runProjectedInputRuntimeGhostUnitTests();

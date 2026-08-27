@@ -21,5 +21,6 @@ export function labLaunchOptions(
     language: overrides.language ?? 'en-US',
     timeZoneId: overrides.timeZoneId ?? 'UTC',
     colorScheme: overrides.colorScheme ?? 'light',
+    pageProjectionInputAdapterKind: overrides.pageProjectionInputAdapterKind,
   };
 }

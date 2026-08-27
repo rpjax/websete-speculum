@@ -246,48 +246,6 @@ export class ProjectionClient {
     this.nested.delete(contextId);
   }
 
-  /**
-   * Lab diag — load-after-drop: drop must cancel the pending `load` bind so a later
-   * navigation cannot register a ProjectedInputRuntime ghost.
-   */
-  forceLoadAfterDropRaceForDiag(contextId: number): {
-    ok: boolean;
-    reason?: string;
-    afterInstallAwaiting: number[];
-    afterDropAwaiting: number[];
-  } {
-    if (contextId === CONTEXT_ID_ROOT) {
-      return {
-        ok: false,
-        reason: 'contextId_must_not_be_root',
-        afterInstallAwaiting: [],
-        afterDropAwaiting: [],
-      };
-    }
-    if (this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId)) {
-      return {
-        ok: false,
-        reason: 'contextId_in_use',
-        afterInstallAwaiting: [...this.nestedHostAwaitingLoad.keys()],
-        afterDropAwaiting: [],
-      };
-    }
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('data-lab-load-after-drop', String(contextId));
-    iframe.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden';
-    document.documentElement.appendChild(iframe);
-    this.installNestedHost(iframe, contextId);
-    const afterInstallAwaiting = [...this.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
-    this.dropNestedHost(contextId);
-    const afterDropAwaiting = [...this.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
-    iframe.src = 'about:blank';
-    return {
-      ok: true,
-      afterInstallAwaiting,
-      afterDropAwaiting,
-    };
-  }
-
   get isArmed(): boolean {
     return this.armed;
   }

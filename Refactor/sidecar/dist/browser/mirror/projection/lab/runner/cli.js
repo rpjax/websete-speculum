@@ -63,6 +63,11 @@ function parseArgs(argv) {
             args.telemetryOff = true;
             i++;
         }
+        else if (t === '--input-adapter') {
+            const kind = argv[++i];
+            if (kind === 'os-abs' || kind === 'sparse-cdp')
+                args.inputAdapter = kind;
+        }
         else if (!t.startsWith('-'))
             rest.push(t);
     }
@@ -150,6 +155,7 @@ async function main() {
                 invariants: args.invariants,
                 telemetry: args.telemetryOff ? { enabled: false } : { ...telemetry_1.LAB_TELEMETRY_DEFAULTS },
                 outDir: args.outDir,
+                inputAdapterKind: args.inputAdapter,
             },
         });
         for (const v of result.verdicts) {

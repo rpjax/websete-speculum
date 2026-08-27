@@ -55,7 +55,7 @@ function summarize(samples) {
 function requireOsInput() {
   let ok = false;
   try {
-    ok = require('../dist/browser/patchright/input/uinput').uinputAvailable() === true;
+    ok = require('../dist/browser/input/os/uinput').uinputAvailable() === true;
   } catch {
     ok = false;
   }

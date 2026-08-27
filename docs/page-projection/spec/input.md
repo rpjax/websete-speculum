@@ -38,6 +38,97 @@ Fail-closed without `/dev/uinput`. No CDP Mode A/B. Input does **not** gate on f
 | Scroll | Fine contract `scrollSet` only. Wheel dead on Virtual. |
 | Upload | `setFiles` stub v0 (accept, no real apply) until v1.1. |
 
+### 2.1 Adapter port (2026-08-27, canonical default flipped 2026-08-27)
+
+`PageProjectionBrowserSession.launch()` composes input through a set of small, single-purpose
+ports, not a hardcoded stack and not one fat "everything an adapter might need" interface —
+[decision-log.md](decision-log.md) 2026-08-27 ("contracts decomposed") corrected an earlier,
+rejected `InputAdapterLaunchProfile` draft that bundled precondition-check + display-device +
+construction-timing + click-wiring into a single interface.
+
+- **`kind`:** `'sparse-cdp'` (`Refactor/sidecar/browser/input/adapters/sparseCdpInputAdapter.ts`)
+  is the **canonical default** (2026-08-27 Rodrigo explicit ruling — `PP-INPUT-VIRTUAL-MINT-GHOST`
+  plus severe main-thread stalls on real sites made the census-coordinated `os-abs` path
+  untenable as the default). `'os-abs'`
+  (`Refactor/sidecar/browser/input/adapters/osAbsInputAdapter.ts`) is **frozen legacy** — opt-in
+  only via `BrowserLaunchOptions.pageProjectionInputAdapterKind: 'os-abs'` / lab CLI
+  `--input-adapter os-abs`, kept for reference/rollback, not extended or perf-fixed. Never an
+  env var, either direction.
+- `Refactor/sidecar/browser/input/ports.ts`:
+  - `IInputAdapter` — universal, both kinds implement it: `{ kind, pointer, keyboard,
+    setLogicalSize(), dispose() }`. Nothing about scroll, click addressing, or display binding —
+    those are separate contracts below (a dead `IScrollApplier`/`IFileUploadApplier`/`scroll?`
+    surface that nothing ever implemented was deleted in the same pass).
+  - `IDisplayInputDeviceProvider` — narrow, optional capability, `{ displayInputDevices() }`.
+    Only `os-abs` implements it (real kernel uinput devices Xorg must bind before it starts).
+    `sparse-cdp` has no kernel device at all and does not implement a stub for it — a capability
+    you don't have is absent, not faked (a fake stub returning empty device paths used to live
+    on `sparse-cdp` purely to satisfy the old fat `IInputAdapter`; deleted). Type guard:
+    `hasDisplayInputDevices(adapter)`.
+- `Refactor/sidecar/browser/input/clickDelivery.ts` — `ClickDeliveryStrategy` (discriminated
+  union: `'census-coordinated'` | `'live-node-resolve'`, see §2.1a/§4). Orthogonal to
+  `IInputAdapter`: "how to move the pointer" and "how to decide where to click" are independent
+  choices that happen to pair 1:1 with adapter kind today, composed by
+  `PageProjectionBrowserSession.launch()`, not baked into either adapter.
+- `Refactor/sidecar/browser/input/createInputAdapter.ts` — `createInputAdapter(kind, opts): IInputAdapter`.
+  Both kinds are built at the **same single call site** in `launch()`, before `Display.start()` —
+  there is no adapter-specific "construct before/after Chrome" lifecycle hook. `sparse-cdp`'s
+  `cdp.send` is a lazy closure through `currentCdpSession()`, invoked only on an actual
+  dispatch (never before `launchChrome()` resolves), so building the wrapper before Chrome even
+  exists is safe; `os-abs` has a real ordering need (its uinput device paths must exist before
+  Xorg's config is written), which this single call site already satisfies for free. There is no
+  separate "environment precondition" contract either: `AbsOsInputStack.open()` (called only for
+  `os-abs`) throws `errorCode: 'uinput_unavailable'` if `/dev/uinput` is missing, at construction
+  time — fail-fast is a property of that one constructor, not a cross-cutting check the session
+  runs for every kind. Lab Docker effect-oracle proof (click/type/scroll, real DOM state
+  assertion) green — [decision-log.md](decision-log.md) 2026-08-27 (proof entry). Full blueprint
+  catalog (click/forms/scroll/scroll-components/iframe-click/iframe-scroll/stress/e2e-stress)
+  reverified green after a distinct-target click-coordinate race fix —
+  [decision-log.md](decision-log.md) 2026-08-27 (e2e-stress finding). **Not yet measured:**
+  latency/throughput percentiles, sustained-load or multi-session concurrency, resource
+  (CPU/memory) behaviour — the lab blueprints above assert functional DOM correctness only,
+  not performance; do not read "stress blueprint green" as a performance/capacity claim.
+- `Refactor/sidecar/browser/input/os/eventNodes.ts` — shared `listInputHandlers` /
+  `ensureInputEventNodes` (dedupe of the identical helpers PP/ABS and Video/REL each carried).
+
+### 2.1a `sparse-cdp` id-addressed click — canonical default's click delivery (2026-08-27)
+
+**Scope:** `sparse-cdp` only (now the default, §2.1). `os-abs` is unchanged and keeps §3/§4
+(coordinate + S6 census) exactly as sealed, frozen, opt-in only. Two `ClickDeliveryStrategy`
+variants now coexist behind `EventApplier` (§2.1, `clickDelivery.ts`); this section documents
+`'live-node-resolve'`, it does not amend `'census-coordinated'` (§4) —
+[decision-log.md](decision-log.md) 2026-08-27 (Rodrigo explicit ruling: discard census/sync for
+`sparse-cdp`, keep `os-abs` sealed).
+
+- Projected `attachProjectedInputCapture`'s `sparse` capture policy (§2.1, previously
+  pointermove-only) also skips scroll census on `down`/`up`: it hit-tests locally with
+  `document.elementFromPoint(clientX, clientY)` + `registry.idOfNearest(el)` and sends the
+  result as `PointerIntent.nodeId`/`contextId` (new optional wire fields — `unifiedIntentTypes.ts`;
+  `os-abs` never sets them, `ingressToUnifiedIntent.ts` pass-through is a harmless no-op for it).
+- `EventApplier.applyOne`'s `down`/`up` case switches exhaustively on `clickDelivery.mode`
+  (`clickDelivery.ts`; `PageProjectionBrowserSession.launch()` wires exactly one strategy per
+  `inputAdapterKind`): `'live-node-resolve'` + `nodeId != null` → resolve via Virtual RPC
+  `resolveNodeHit` (§5) to a live root-viewport point, dispatch there; `nodeId == null`
+  (hit-test miss / empty space) → dispatch at the client's raw coordinate, unresolved, no
+  Virtual round trip — accepted trade-off (documented, not silent).
+- Lab/CLI proof helper: `PageProjectionBrowserSession.resolveAndClickDomInputByNodeId(selector,
+  contextId)`, sibling to `resolveAndClickDomInput` but addressing by nodeId. Root-context proof
+  green in Docker (`scripts/scratch/diag/diag-nodeid-click.js`) via real DOM state read, not a
+  protocol signal. **Nested context (`contextId>1`) not independently re-proven this pass** —
+  `requestResolveNodeHit` mirrors `requestResolveElementHit`'s addressing exactly (same
+  `isDeliverableDestination` guard, same `bus.invoke` shape), and the official
+  `input-iframe-click` blueprint (coordinate path, same addressing machinery) is green under
+  `sparse-cdp`, but that is inference by shared code, not a direct proof of `resolveNodeHit`
+  itself at `contextId>1`.
+- Interactive lab UI (`http://127.0.0.1:4103/`) can pick the adapter per Browse session now, not
+  only via the CLI blueprint runner: `client.html`'s `inputAdapter` `<select>` →
+  `browse.start.inputAdapter` → `chassis.boot({ inputAdapterKind })`; `session.booted` echoes it
+  back so `main.ts` sets `capturePolicy: 'sparse'` on the client capture to match.
+- Not a fix for `PP-INPUT-VIRTUAL-MINT-GHOST` (open.md): `resolveNodeHit` targets exactly the one
+  context the hit-test named, not a `Promise.all` fan-out over every known context, so an
+  unrelated dead ad iframe elsewhere on the page can no longer hang an unrelated `sparse-cdp`
+  click — but the bug is still fully live for the frozen `os-abs` legacy path.
+
 ---
 
 ## 3. Coordinates
@@ -45,12 +136,16 @@ Fail-closed without `/dev/uinput`. No CDP Mode A/B. Input does **not** gate on f
 - Intents carry **client CSS** coords stamped with `viewportW`/`viewportH`.
 - **F(x) (LOCKED):** `mapLogicalToAbs` — client `(x,y)` maps **1:1** into ABS (`createLogicalWindowTransform(W,H)` ⇒ absMax = W−1,H−1). No chrome-inset calibration. No CDP probe.
 - Launch/resize geometry: `applyNativeWindowBounds` places the **content** box at display (0,0) size W×H (chrome pushed off-screen). That is window setup, not input-path calibration.
-- Display+ABS for cutover = session logical W×H (identity). Soft-resize over-alloc R = D-UI-05/11 later.
+- Display+ABS capacity is over-alloc **R** (`viewportPolicy.maxWidth`/`maxHeight`, D-UI-04/11) — session logical W×H is a **soft-resizing subset** of that R, not an identity display size (`PageProjectionBrowserSession.launch()`). **Corrected 2026-08-27** — this line previously said cutover capacity was identity W×H with over-alloc R as D-UI-05/11 future work; R-as-launch-capacity already shipped, this was stale prose only (no behavior change).
 - Nested iframe pointers: client maps to **root viewport** before enqueue.
 
 ---
 
 ## 4. S6 scroll↔click
+
+**Scope: `os-abs` only (sealed, frozen legacy — not the default).** `'census-coordinated'`
+`ClickDeliveryStrategy` (§2.1). `sparse-cdp` (canonical default) uses `'live-node-resolve'`
+instead and discards this section entirely — see §2.1a.
 
 - Projected maintains scrollable index; census on **down and up**.
 - **Projected census path:** ContextBus **`invoke` `snapshotScrollPositionsFromAllContexts`** on RUNTIME from the emitting context; RUNTIME fans out **`snapshotScrollPosition`** per registered context (draft §10.1b). Same path lab and product — no same-origin DOM walk.
@@ -72,6 +167,7 @@ Carrier: draft §10.1c. Expand only by decision. Closed list for this cutover:
 | `applyScrollSet` | `{ contextId, nodeId, scrollX, scrollY }` | `{ ok, reason? }` | Applier `scrollSet` |
 | `keyOfSelector` | `{ selector, contextId? }` | `{ ok, nodeId?, reason? }` | lab `resolveAndScrollElement` |
 | `resolveElementHit` | `{ selector, contextId? }` | `{ ok, x?, y?, scrollX?, scrollY?, nodeId?, reason? }` | lab `resolveAndClick` / type |
+| `resolveNodeHit` | `{ nodeId, contextId? }` | `{ ok, x?, y?, reason? }` | `sparse-cdp`'s `'live-node-resolve'` `ClickDeliveryStrategy` (§2.1a) — id-addressed, not selector-based |
 | `haltWorld` | `{}` | `{ ok, reason? }` | lab / session |
 | `resumeWorld` | `{}` | `{ ok, reason? }` | lab / session |
 | `flushFrame` | `{}` | `{ ok, generation?, sequence?, reason? }` | lab / session |
@@ -106,6 +202,7 @@ Sealed on effect oracles above — producer RPC path is loopback only (no CDP MA
 | Fine-tuning (iOS link suppress, touch polish) | after assets |
 | MotorAssert Live PP intents | gate 10 compose |
 | Chrome inset calibration / ABS screen offset | TEMP #3–4 — not input law |
+| Continuous pointer move / hover / drag on the `sparse-cdp` adapter | Accepted gap **specific to `sparse-cdp`** (2026-08-27) — click/keys/scroll/upload catalog only. Does **not** regress the frozen `os-abs` legacy path, which still streams every `move` intent unchanged. |
 
 ---
 

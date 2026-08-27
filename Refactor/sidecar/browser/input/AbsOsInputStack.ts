@@ -8,8 +8,6 @@
  */
 
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import * as fs from 'node:fs';
 import type { DisplayInputDevices } from '../patchright/Display';
 import {
   ABS_X,
@@ -21,16 +19,17 @@ import {
   EV_KEY,
   UinputDevice,
   uinputAvailable,
-} from '../patchright/input/uinput';
+} from './os/uinput';
 import {
   createCoordTransform,
   createLogicalWindowTransform,
   mapLogicalToAbs,
   type CoordTransform,
-} from '../patchright/input/logical-to-device';
+} from './os/logical-to-device';
 import type { AbsPointerWriter, PointerButton } from './peripherals/AbsPointerPeripheral';
 import type { KeyboardWriter } from './peripherals/KeyboardPeripheral';
-import { resolveKeyStroke, allKeyboardKeyCodes, KEY } from '../patchright/input/keycodes';
+import { resolveKeyStroke, allKeyboardKeyCodes, KEY } from './os/keycodes';
+import { listInputHandlers, ensureInputEventNodes } from './os/eventNodes';
 
 export type AbsOsInputOpenOptions = {
   sessionId: string;
@@ -208,58 +207,5 @@ export class AbsOsInputStack {
     this.pointer.destroy();
     this.keyboard.destroy();
     this.touch.destroy();
-  }
-}
-
-type InputHandlerRef = { name: string; event: string };
-
-function listInputHandlers(...deviceNames: string[]): InputHandlerRef[] {
-  const wanted = new Set(deviceNames.filter((n) => n.length > 0));
-  if (wanted.size === 0) return [];
-  let text: string;
-  try {
-    text = fs.readFileSync('/proc/bus/input/devices', 'utf8');
-  } catch {
-    return [];
-  }
-  const out: InputHandlerRef[] = [];
-  for (const block of text.split('\n\n')) {
-    const nameMatch = block.match(/^N: Name="([^"]+)"/m);
-    const handlersMatch = block.match(/^H: Handlers=([^\n]+)/m);
-    if (!nameMatch || !handlersMatch) continue;
-    if (!wanted.has(nameMatch[1]!)) continue;
-    for (const token of handlersMatch[1]!.trim().split(/\s+/)) {
-      if (!/^event\d+$/.test(token)) continue;
-      out.push({ name: nameMatch[1]!, event: token });
-    }
-  }
-  return out;
-}
-
-function ensureInputEventNodes(...deviceNames: string[]): void {
-  try {
-    fs.mkdirSync('/dev/input', { recursive: true });
-  } catch {
-    /* */
-  }
-  for (const { event } of listInputHandlers(...deviceNames)) {
-    const node = `/dev/input/${event}`;
-    if (fs.existsSync(node)) continue;
-    let majMin: string;
-    try {
-      majMin = fs.readFileSync(`/sys/class/input/${event}/dev`, 'utf8').trim();
-    } catch {
-      continue;
-    }
-    const [majS, minS] = majMin.split(':');
-    const major = Number(majS);
-    const minor = Number(minS);
-    if (!Number.isInteger(major) || !Number.isInteger(minor)) continue;
-    try {
-      execFileSync('mknod', [node, 'c', String(major), String(minor)]);
-      fs.chmodSync(node, 0o666);
-    } catch {
-      /* */
-    }
   }
 }

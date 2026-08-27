@@ -228,6 +228,7 @@ export class WsLabConnection {
             width: typeof msg.width === 'number' ? msg.width : undefined,
             height: typeof msg.height === 'number' ? msg.height : undefined,
             device: msg.device,
+            inputAdapterKind: msg.inputAdapter,
           });
           this.startDebugProbe();
           this.send({
@@ -236,6 +237,7 @@ export class WsLabConnection {
             mode: 'browse',
             url: record.url ?? msg.url,
             dossierDir: record.dossierDir,
+            inputAdapter: this.chassis.getInputAdapterKind(),
           });
         } catch (err) {
           this.stopDebugProbe();
@@ -402,12 +404,12 @@ export class WsLabConnection {
           pushInput?: (i: unknown) => Promise<{ status: string; reason?: string } | unknown>;
           getInputPipelineMetrics?: () => {
             lastOutcome?: {
-              mode?: 'A' | 'B' | 'C' | 'OS';
+              mode?: 'A' | 'B' | 'C' | 'OS' | 'CDP';
               dispatchMs?: number;
               clientLagMs?: number;
             } | null;
           };
-          getInputBackend?: () => 'os';
+          getInputBackend?: () => 'os' | 'cdp';
         } | null);
         const pushFn = push?.pushInput?.bind(session);
         if (!pushFn) {
@@ -422,8 +424,9 @@ export class WsLabConnection {
         const intent = intentRaw as Record<string, unknown>;
         const timingOf = () => {
           const last = push?.getInputPipelineMetrics?.()?.lastOutcome;
+          const backend = push?.getInputBackend?.();
           return {
-            mode: (last?.mode ?? push?.getInputBackend?.() ?? 'OS') as 'OS',
+            mode: last?.mode ?? (backend === 'cdp' ? 'CDP' : 'OS'),
             dispatchMs: last?.dispatchMs,
             clientLagMs: last?.clientLagMs,
           };

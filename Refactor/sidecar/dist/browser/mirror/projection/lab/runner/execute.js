@@ -222,6 +222,7 @@ async function executeBlueprint(bp, hooks) {
                     cpuProfiling: overrides.cpu === true || params.cpuProfiling === true,
                     blueprintId: bp.id,
                     slug: bp.id,
+                    inputAdapterKind: overrides.inputAdapterKind,
                 });
                 return finish(true);
             }

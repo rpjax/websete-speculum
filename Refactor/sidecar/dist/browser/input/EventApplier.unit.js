@@ -7,6 +7,7 @@ exports.runEventApplierUnitTests = runEventApplierUnitTests;
 const assert_1 = __importDefault(require("assert"));
 const EventApplier_1 = require("./EventApplier");
 const SidecarBuffer_1 = require("./SidecarBuffer");
+const clickDelivery_1 = require("./clickDelivery");
 async function runEventApplierUnitTests() {
     const moves = [];
     const buttons = [];
@@ -21,7 +22,7 @@ async function runEventApplierUnitTests() {
         keyboard: { key: () => { }, sanitize: () => { } },
         activeViewport: () => ({ w: 800, h: 600 }),
         isPageProjection: () => true,
-        applyScrollCensus: async () => ({ ok: false, error: 'fail' }),
+        clickDelivery: (0, clickDelivery_1.censusCoordinatedClickDelivery)(async () => ({ ok: false, error: 'fail' })),
         onReject: () => { },
     });
     const down = {
@@ -50,7 +51,7 @@ async function runEventApplierUnitTests() {
         keyboard: { key: () => { }, sanitize: () => { } },
         activeViewport: () => ({ w: 800, h: 600 }),
         isPageProjection: () => true,
-        applyScrollCensus: async () => ({ ok: true }),
+        clickDelivery: (0, clickDelivery_1.censusCoordinatedClickDelivery)(async () => ({ ok: true })),
     });
     applierOk.enqueue({ ...down, type: 'move' });
     applierOk.enqueue({ ...down, type: 'down' });
@@ -70,6 +71,7 @@ async function runEventApplierUnitTests() {
         keyboard: { key: () => { }, sanitize: () => { } },
         activeViewport: () => ({ w: 800, h: 600 }),
         isPageProjection: () => false,
+        clickDelivery: (0, clickDelivery_1.censusCoordinatedClickDelivery)(async () => assert_1.default.fail('move must not reach click delivery')),
         onReject: (code) => rejects.push(code),
     });
     applierStale.enqueue({
@@ -82,6 +84,97 @@ async function runEventApplierUnitTests() {
     });
     await applierStale.flush();
     assert_1.default.ok(rejects.includes('stale_viewport'));
-    console.log('[unit] EventApplier Phase A/B ok');
+    // `sparse-cdp` alternate pipeline (decision-log.md 2026-08-27) — resolveClickTarget wired
+    // instead of applyScrollCensus: nodeId resolves to a live point, no census involved at all.
+    const moves3 = [];
+    const buttons3 = [];
+    const resolveCalls = [];
+    const applierResolve = new EventApplier_1.EventApplier({
+        buffer: new SidecarBuffer_1.SidecarBuffer(),
+        pointer: {
+            moveTo: (x, y) => moves3.push({ x, y }),
+            button: (btn, down) => buttons3.push({ btn, down }),
+            sanitize: () => { },
+        },
+        keyboard: { key: () => { }, sanitize: () => { } },
+        activeViewport: () => ({ w: 800, h: 600 }),
+        isPageProjection: () => true,
+        clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async (contextId, nodeId) => {
+            resolveCalls.push({ contextId, nodeId });
+            return { ok: true, x: 111, y: 222 };
+        }),
+    });
+    applierResolve.enqueue({
+        schemaVersion: 1,
+        type: 'down',
+        viewportW: 800,
+        viewportH: 600,
+        x: 10,
+        y: 20,
+        button: 'left',
+        contextId: 3,
+        nodeId: 42,
+    });
+    await applierResolve.flush();
+    assert_1.default.deepStrictEqual(resolveCalls, [{ contextId: 3, nodeId: 42 }]);
+    assert_1.default.deepStrictEqual(moves3[0], { x: 111, y: 222 }, 'must dispatch at the resolved point, not the raw hit-test coord');
+    assert_1.default.ok(buttons3.some((b) => b.btn === 'left' && b.down === true));
+    // resolveClickTarget failure (dead/removed node) → reject, no dispatch, no census fallback.
+    const rejects2 = [];
+    const applierResolveFail = new EventApplier_1.EventApplier({
+        buffer: new SidecarBuffer_1.SidecarBuffer(),
+        pointer: {
+            moveTo: () => assert_1.default.fail('unresolved nodeId must not move'),
+            button: () => assert_1.default.fail('unresolved nodeId must not click'),
+            sanitize: () => { },
+        },
+        keyboard: { key: () => { }, sanitize: () => { } },
+        activeViewport: () => ({ w: 800, h: 600 }),
+        isPageProjection: () => true,
+        clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async () => ({ ok: false, reason: 'node_not_found' })),
+        onReject: (code) => rejects2.push(code),
+    });
+    applierResolveFail.enqueue({
+        schemaVersion: 1,
+        type: 'down',
+        viewportW: 800,
+        viewportH: 600,
+        x: 10,
+        y: 20,
+        button: 'left',
+        contextId: 1,
+        nodeId: 99,
+    });
+    await applierResolveFail.flush();
+    assert_1.default.ok(rejects2.includes('resolve_click_failed:node_not_found'));
+    // No nodeId (empty-space hit-test miss) → dispatch at the raw client coordinate, unresolved,
+    // no Virtual round trip at all — the documented fallback trade-off for `sparse-cdp`.
+    const moves4 = [];
+    const applierNoTarget = new EventApplier_1.EventApplier({
+        buffer: new SidecarBuffer_1.SidecarBuffer(),
+        pointer: {
+            moveTo: (x, y) => moves4.push({ x, y }),
+            button: () => { },
+            sanitize: () => { },
+        },
+        keyboard: { key: () => { }, sanitize: () => { } },
+        activeViewport: () => ({ w: 800, h: 600 }),
+        isPageProjection: () => true,
+        clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async () => assert_1.default.fail('must not call resolve when nodeId is null')),
+    });
+    applierNoTarget.enqueue({
+        schemaVersion: 1,
+        type: 'down',
+        viewportW: 800,
+        viewportH: 600,
+        x: 50,
+        y: 60,
+        button: 'left',
+        contextId: 1,
+        nodeId: null,
+    });
+    await applierNoTarget.flush();
+    assert_1.default.deepStrictEqual(moves4[0], { x: 50, y: 60 });
+    console.log('[unit] EventApplier Phase A/B + sparse-cdp resolveClickTarget ok');
 }
 //# sourceMappingURL=EventApplier.unit.js.map

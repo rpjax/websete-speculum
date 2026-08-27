@@ -4,6 +4,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventApplier = void 0;
+const keyboardDispatch_1 = require("./keyboardDispatch");
 class EventApplier {
     opts;
     running = false;
@@ -50,13 +51,12 @@ class EventApplier {
             case 'up': {
                 if (!this.validatePointer(intent))
                     return;
-                const delivery = this.opts.clickDelivery;
                 if (intent.nodeId == null) {
-                    this.opts.pointer.moveTo(intent.x, intent.y);
-                    this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
+                    this.reject('missing_node_id', 'validate');
                     return;
                 }
-                const resolved = await delivery.resolveClickTarget(intent.contextId ?? 1, intent.nodeId);
+                const delivery = this.opts.clickDelivery;
+                const resolved = await delivery.resolveClickTarget(intent.contextId ?? 1, intent.nodeId, intent.x, intent.y);
                 if (!resolved.ok || resolved.x == null || resolved.y == null) {
                     this.reject(resolved.reason ? `resolve_click_failed:${resolved.reason}` : 'resolve_click_failed', 'virtual_resolve');
                     return;
@@ -67,8 +67,12 @@ class EventApplier {
             }
             case 'keyDown':
             case 'keyUp': {
-                const code = intent.code || intent.key;
-                this.opts.keyboard.key(code, intent.type === 'keyDown', intent.modifiers);
+                const key = (0, keyboardDispatch_1.resolveKeyboardDispatchKey)(intent.key, intent.code);
+                if (!key) {
+                    this.reject('missing_key', 'validate');
+                    return;
+                }
+                this.opts.keyboard.key(key, intent.type === 'keyDown', intent.modifiers);
                 return;
             }
             case 'scrollSet': {
@@ -91,6 +95,18 @@ class EventApplier {
             case 'setFiles':
                 // D-UI-01b deferred — fine contract stub
                 return;
+            case 'historyNav': {
+                const nav = this.opts.applyHistoryNav;
+                if (!nav) {
+                    this.reject('history_nav_unavailable', 'virtual_apply');
+                    return;
+                }
+                const r = await nav(intent.direction);
+                if (!r.ok) {
+                    this.reject(r.error ? `apply_history_nav_failed:${r.error}` : 'apply_history_nav_failed', 'virtual_apply');
+                }
+                return;
+            }
         }
     }
     validatePointer(intent) {

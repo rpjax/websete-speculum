@@ -3,6 +3,7 @@ import {
   SparseCdpKeyboardPeripheral,
   SparseCdpPointerPeripheral,
   openSparseCdpInputAdapter,
+  type SparseCdpKeyboardActions,
 } from './sparseCdpInputAdapter';
 
 type Call = { method: string; params?: object };
@@ -18,13 +19,28 @@ function fakeCdp() {
   };
 }
 
+function fakeKeyboard() {
+  const downs: string[] = [];
+  const ups: string[] = [];
+  const actions: SparseCdpKeyboardActions = {
+    down: async (key) => {
+      downs.push(key);
+    },
+    up: async (key) => {
+      ups.push(key);
+    },
+  };
+  return { actions, downs, ups };
+}
+
 export async function runSparseCdpInputAdapterUnitTests(): Promise<void> {
   await testClickDispatchesMoveDownUp();
   await testContinuousMoveRejectedAsNoOp();
   await testBackToBackClicksAtDistinctTargetsKeepOwnCoords();
-  await testNamedKeysDispatchKeyEvent();
-  await testPrintableCharUsesInsertText();
-  await testUnsupportedKeyRejectedAsNoOp();
+  await testEditingKeysUsePlaywrightKeyboard();
+  await testNonAsciiCharUsesInsertText();
+  await testAsciiPrintableUsesPlaywrightKeyboard();
+  await testArrowKeyUsesPlaywrightKeyboard();
   testFactoryShapeAndDisplayInputDevicesStub();
   console.log('[unit] sparseCdpInputAdapter catalog ok');
 }
@@ -33,7 +49,6 @@ async function testClickDispatchesMoveDownUp(): Promise<void> {
   const cdp = fakeCdp();
   const pointer = new SparseCdpPointerPeripheral(cdp.send);
 
-  // Mirrors EventApplier's `down` case: moveTo immediately followed by button().
   pointer.moveTo(10, 20);
   pointer.button('left', true);
   pointer.moveTo(10, 20);
@@ -58,11 +73,6 @@ async function testClickDispatchesMoveDownUp(): Promise<void> {
 
 async function testBackToBackClicksAtDistinctTargetsKeepOwnCoords(): Promise<void> {
   const calls: Call[] = [];
-  // Deferred send — a real CDP round trip outlives the synchronous burst of moveTo/button
-  // calls `EventApplier.applyOne` fires per queued intent (its pointer API is
-  // void/fire-and-forget, never awaited between intents). Regression for a bug found via
-  // `input-e2e-stress` under load: reading `this.lastX/lastY` lazily inside the enqueued
-  // closure raced against a later `moveTo` for a different target already overwriting them.
   const send = (method: string, params?: object): Promise<unknown> =>
     new Promise((resolve) =>
       setTimeout(() => {
@@ -94,8 +104,6 @@ async function testContinuousMoveRejectedAsNoOp(): Promise<void> {
   const cdp = fakeCdp();
   const pointer = new SparseCdpPointerPeripheral(cdp.send);
 
-  // A raw `move` intent stream (no button() between calls) — hover/drag — is out of
-  // catalog for this adapter (task 3.1 / input.md §7).
   pointer.moveTo(1, 1);
   pointer.moveTo(2, 2);
   pointer.moveTo(3, 3);
@@ -104,65 +112,83 @@ async function testContinuousMoveRejectedAsNoOp(): Promise<void> {
   assert.strictEqual(cdp.calls.length, 1, 'only the first bare move is dispatched');
   assert.strictEqual(pointer.rejectedContinuousMoveCount, 2, 'the 2nd/3rd bare moves are no-op rejected');
 
-  // button() re-arms the gesture for the next click's moveTo.
   pointer.button('left', true);
   pointer.moveTo(4, 4);
   await pointer.flush();
   assert.strictEqual(cdp.calls.length, 3, 'move after button() is a fresh gesture, not rejected');
 }
 
-async function testNamedKeysDispatchKeyEvent(): Promise<void> {
+async function testEditingKeysUsePlaywrightKeyboard(): Promise<void> {
   const cdp = fakeCdp();
-  const keyboard = new SparseCdpKeyboardPeripheral(cdp.send);
+  const kb = fakeKeyboard();
+  const keyboard = new SparseCdpKeyboardPeripheral(cdp.send, kb.actions);
 
-  for (const code of ['Enter', 'Escape', 'Tab']) {
-    keyboard.key(code, true);
-    keyboard.key(code, false);
+  for (const key of ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete']) {
+    keyboard.key(key, true);
+    keyboard.key(key, false);
   }
   await keyboard.flush();
 
-  assert.strictEqual(cdp.calls.length, 6, 'Enter/Escape/Tab each dispatch keyDown+keyUp');
-  assert.deepStrictEqual(cdp.calls[0], {
-    method: 'Input.dispatchKeyEvent',
-    params: {
-      type: 'keyDown',
-      key: 'Enter',
-      code: 'Enter',
-      windowsVirtualKeyCode: 13,
-      nativeVirtualKeyCode: 13,
-      modifiers: 0,
-    },
-  });
+  assert.strictEqual(cdp.calls.length, 0, 'named keys must not use insertText/dispatchKeyEvent directly');
+  assert.deepStrictEqual(kb.downs, ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete']);
+  assert.deepStrictEqual(kb.ups, ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete']);
   assert.strictEqual(keyboard.rejectedKeyCount, 0);
 }
 
-async function testPrintableCharUsesInsertText(): Promise<void> {
+async function testNonAsciiCharUsesInsertText(): Promise<void> {
   const cdp = fakeCdp();
-  const keyboard = new SparseCdpKeyboardPeripheral(cdp.send);
+  const kb = fakeKeyboard();
+  const keyboard = new SparseCdpKeyboardPeripheral(cdp.send, kb.actions);
 
-  keyboard.key('a', true);
-  keyboard.key('a', false);
+  keyboard.key('é', true);
+  keyboard.key('é', false);
   await keyboard.flush();
 
-  assert.strictEqual(cdp.calls.length, 1, 'type = one insertText on the down edge, no call on up');
-  assert.deepStrictEqual(cdp.calls[0], { method: 'Input.insertText', params: { text: 'a' } });
+  assert.strictEqual(cdp.calls.length, 1, 'non-ASCII = one insertText on the down edge, no call on up');
+  assert.deepStrictEqual(cdp.calls[0], { method: 'Input.insertText', params: { text: 'é' } });
+  assert.strictEqual(kb.downs.length, 0);
 }
 
-async function testUnsupportedKeyRejectedAsNoOp(): Promise<void> {
+async function testAsciiPrintableUsesPlaywrightKeyboard(): Promise<void> {
   const cdp = fakeCdp();
-  const keyboard = new SparseCdpKeyboardPeripheral(cdp.send);
+  const kb = fakeKeyboard();
+  const keyboard = new SparseCdpKeyboardPeripheral(cdp.send, kb.actions);
 
-  // Multi-char code outside the catalog (e.g. ArrowLeft) — rejected, not misbehaved.
-  keyboard.key('ArrowLeft', true);
+  for (const key of ['a', ' ']) {
+    keyboard.key(key, true);
+    keyboard.key(key, false);
+  }
   await keyboard.flush();
 
-  assert.strictEqual(cdp.calls.length, 0, 'unsupported code must not dispatch anything');
-  assert.strictEqual(keyboard.rejectedKeyCount, 1);
+  assert.strictEqual(cdp.calls.length, 0, 'ASCII printable must use page.keyboard, not insertText');
+  assert.deepStrictEqual(kb.downs, ['a', ' ']);
+  assert.deepStrictEqual(kb.ups, ['a', ' ']);
+}
+
+async function testArrowKeyUsesPlaywrightKeyboard(): Promise<void> {
+  const cdp = fakeCdp();
+  const kb = fakeKeyboard();
+  const keyboard = new SparseCdpKeyboardPeripheral(cdp.send, kb.actions);
+
+  keyboard.key('ArrowLeft', true);
+  keyboard.key('ArrowLeft', false);
+  await keyboard.flush();
+
+  assert.strictEqual(cdp.calls.length, 0);
+  assert.deepStrictEqual(kb.downs, ['ArrowLeft']);
+  assert.deepStrictEqual(kb.ups, ['ArrowLeft']);
+  assert.strictEqual(keyboard.rejectedKeyCount, 0);
 }
 
 function testFactoryShapeAndDisplayInputDevicesStub(): void {
   const cdp = fakeCdp();
-  const adapter = openSparseCdpInputAdapter({ cdp, logicalWidth: 1280, logicalHeight: 720 });
+  const kb = fakeKeyboard();
+  const adapter = openSparseCdpInputAdapter({
+    cdp,
+    keyboard: kb.actions,
+    logicalWidth: 1280,
+    logicalHeight: 720,
+  });
 
   assert.strictEqual(adapter.kind, 'sparse-cdp');
   assert.strictEqual(

@@ -4498,11 +4498,11 @@
      * (open.md) needs an *unrelated* dead context on the same fan-out to trigger; a single
      * targeted resolve is naturally far less exposed to it, though not a fix for `os-abs`.
      */
-    async requestResolveNodeHit(contextId, nodeId) {
+    async requestResolveNodeHit(contextId, nodeId, x, y) {
       if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
         return { ok: false, reason: "context_not_found" };
       }
-      const result = await this.bus.invoke("resolveNodeHit", { nodeId }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+      const result = await this.bus.invoke("resolveNodeHit", { nodeId, x, y }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
       if (result.ok) return result.value;
       return { ok: false, reason: result.error?.message ?? "resolve_hit_failed" };
     }
@@ -5217,10 +5217,9 @@
     }
     bootGlobal.__speculumProjectionBoot = (async () => {
       try {
-        let clientPointInRootViewport2 = function(el) {
-          const rect = el.getBoundingClientRect();
-          let x = rect.left + rect.width / 2;
-          let y = rect.top + rect.height / 2;
+        let rootViewportFrameOffset2 = function() {
+          let dx = 0;
+          let dy = 0;
           let walk = document.defaultView;
           while (walk && walk !== walk.top) {
             let frameEl = null;
@@ -5231,17 +5230,32 @@
             }
             if (!frameEl) break;
             const fr = frameEl.getBoundingClientRect();
-            x += fr.left;
-            y += fr.top;
+            dx += fr.left;
+            dy += fr.top;
             try {
               walk = walk.parent;
             } catch {
               break;
             }
           }
-          return { x, y };
+          return { dx, dy };
+        }, clientPointInRootViewport2 = function(el) {
+          const rect = el.getBoundingClientRect();
+          const { dx, dy } = rootViewportFrameOffset2();
+          return { x: rect.left + rect.width / 2 + dx, y: rect.top + rect.height / 2 + dy };
+        }, elementRectInRootViewport2 = function(el) {
+          const rect = el.getBoundingClientRect();
+          const { dx, dy } = rootViewportFrameOffset2();
+          return {
+            left: rect.left + dx,
+            top: rect.top + dy,
+            right: rect.right + dx,
+            bottom: rect.bottom + dy
+          };
+        }, pointInsideRect2 = function(x, y, rect) {
+          return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
         };
-        var clientPointInRootViewport = clientPointInRootViewport2;
+        var rootViewportFrameOffset = rootViewportFrameOffset2, clientPointInRootViewport = clientPointInRootViewport2, elementRectInRootViewport = elementRectInRootViewport2, pointInsideRect = pointInsideRect2;
         const config = readProjectionConfig();
         const isRoot = window.parent === window;
         let mine = CONTEXT_ID_ROOT;
@@ -5412,7 +5426,15 @@
           if (!node || node.nodeType !== Node.ELEMENT_NODE) {
             return { ok: false, reason: "node_not_found" };
           }
-          const { x, y } = clientPointInRootViewport2(node);
+          const el = node;
+          if (typeof args.x === "number" && typeof args.y === "number") {
+            const rect = elementRectInRootViewport2(el);
+            if (!pointInsideRect2(args.x, args.y, rect)) {
+              return { ok: false, reason: "point_outside_node" };
+            }
+            return { ok: true, x: args.x, y: args.y };
+          }
+          const { x, y } = clientPointInRootViewport2(el);
           return { ok: true, x, y };
         });
         bus.onResyncRequest((req) => {
@@ -5537,7 +5559,7 @@
           },
           resolveNodeHit: async (args) => {
             const contextId = typeof args.contextId === "number" && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
-            return bus.requestResolveNodeHit(contextId, args.nodeId);
+            return bus.requestResolveNodeHit(contextId, args.nodeId, args.x, args.y);
           }
         };
         if (dataPlane) {
@@ -5568,7 +5590,7 @@
                 if (typeof a.nodeId !== "number") {
                   throw new Error("resolveNodeHit: missing nodeId");
                 }
-                return p.resolveNodeHit({ nodeId: a.nodeId, contextId: a.contextId });
+                return p.resolveNodeHit({ nodeId: a.nodeId, contextId: a.contextId, x: a.x, y: a.y });
               }
               case "haltWorld":
                 p.haltWorld();

@@ -207,6 +207,10 @@ export class PageProjectionBrowserSession {
 
     const inputAdapter = createInputAdapter('sparse-cdp', {
       cdp: { send: (method, params) => this.currentCdpSession().send(method as never, params as never) },
+      keyboard: {
+        down: (key) => this.requirePage().keyboard.down(key),
+        up: (key) => this.requirePage().keyboard.up(key),
+      },
       logicalWidth: options.width,
       logicalHeight: options.height,
     });
@@ -237,10 +241,22 @@ export class PageProjectionBrowserSession {
       pointer: inputAdapter.pointer,
       keyboard: inputAdapter.keyboard,
       activeViewport: () => ({ w: this.width, h: this.height }),
-      clickDelivery: liveNodeResolveClickDelivery((contextId, nodeId) =>
-        this.resolveClickTarget(contextId, nodeId),
+      clickDelivery: liveNodeResolveClickDelivery((contextId, nodeId, x, y) =>
+        this.resolveClickTarget(contextId, nodeId, x, y),
       ),
       applyScrollSet: (args) => this.applyScrollSet(args),
+      applyHistoryNav: async (direction) => {
+        try {
+          if (direction === 'back') await this.goBack();
+          else await this.goForward();
+          return { ok: true };
+        } catch (err) {
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      },
       onReject: (errorCode, phase) => {
         this.events.onConsole(3, `input_reject ${errorCode} ${phase}`);
       },
@@ -629,12 +645,19 @@ export class PageProjectionBrowserSession {
     if (!keyed.ok || typeof keyed.nodeId !== 'number' || keyed.nodeId <= 0) {
       return { status: 'dropped', reason: keyed.reason ?? 'selector_miss' };
     }
+    const hit = await this.loopbackInvoke<{ ok?: boolean; reason?: string; x?: number; y?: number }>(
+      'resolveNodeHit',
+      { contextId, nodeId: keyed.nodeId },
+    );
+    if (!hit.ok || typeof hit.x !== 'number' || typeof hit.y !== 'number') {
+      return { status: 'dropped', reason: hit.reason ?? 'resolve_hit_failed' };
+    }
     const base = {
       schemaVersion: 1 as const,
       viewportW: this.width,
       viewportH: this.height,
-      x: 0,
-      y: 0,
+      x: hit.x,
+      y: hit.y,
       button: 'left' as const,
       contextId,
       nodeId: keyed.nodeId,
@@ -729,10 +752,12 @@ export class PageProjectionBrowserSession {
   private async resolveClickTarget(
     contextId: number,
     nodeId: number,
+    x: number,
+    y: number,
   ): Promise<{ ok: boolean; x?: number; y?: number; reason?: string }> {
     const r = await this.loopbackInvoke<{ ok?: boolean; reason?: string; x?: number; y?: number }>(
       'resolveNodeHit',
-      { contextId, nodeId },
+      { contextId, nodeId, x, y },
     );
     if (!r.ok || typeof r.x !== 'number' || typeof r.y !== 'number') {
       return { ok: false, reason: r.reason ?? 'node_not_found' };

@@ -167,6 +167,7 @@ function formatIntentShort(intent: Record<string, unknown>): string {
           ? rec.op
           : 'intent';
   const id = rec.targetId ?? rec.nodeId ?? rec.id;
+  if (kind === 'historyNav' && typeof rec.direction === 'string') return `${kind}:${rec.direction}`;
   return id != null ? `${kind}#${id}` : kind;
 }
 
@@ -311,6 +312,9 @@ export function bootLabClient(): void {
         payload.scrollX = intent.scrollX;
         payload.scrollY = intent.scrollY;
         payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
+      } else if (intent.type === 'historyNav') {
+        payload.direction = intent.direction;
+        payload.payload = JSON.stringify({ direction: intent.direction });
       }
       payload.timestampClient = intent.timestampClient;
       ws.send(JSON.stringify({ type: 'client.intent', intent: payload }));

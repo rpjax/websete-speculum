@@ -58,6 +58,12 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **wo
 |----|---------|-------|
 | **PP-INPUT-VIRTUAL-MINT-GHOST** | (was) Real site clicks die via `apply_scroll_failed:invoke idle timeout` on OS census path. | **Closed by deletion** (OS census) + **live deliverable index 2026-08-27:** `isDeliverableDestination` is now child-scope live (`windowOf`), not `hasMinted`. Carrier routes O(1) via index — no DOM `querySelectorAll` / hopeful broadcast. |
 
+### BUG — nested iframe lab click oracle (`input-iframe-click`) (OPEN 2026-08-27)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-INPUT-IFRAME-CLICK-NESTED** | Lab blueprint `input-iframe-click` (`contextId=2`, `#inner-click`) fails `keyOfSelector` → **`node_unmapped`**. Root + real-site (Eneba) sparse input **proven**; nested oracle regressed or timing/identity gap. Not a V1 sparse seal blocker. Fixture `iframe-open.html` · repro: `docker compose … exec lab node dist/…/cli.js --blueprint input-iframe-click --headed`. |
+
 **Lab (2026-08-15 / 2026-08-16):** CSSOM poll **algorithm** — [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 **Accept:** DOM numerical 1:1; CSSOM live perceived ([acceptance.md](acceptance.md)).
 Why: [cssom-sensor-journey.md](cssom-sensor-journey.md). `SHEET_*`/`RULE_*` are on the wire (phase 1

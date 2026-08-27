@@ -105,7 +105,7 @@ async function runPageProjectionInputClickUnitTests() {
         });
         const base = {
             generation: info.generation,
-            targetId: null,
+            targetId: info.id,
             contextId: 1,
             payloadJson,
         };
@@ -117,14 +117,20 @@ async function runPageProjectionInputClickUnitTests() {
             generation: info.generation + 99,
         });
         assert_1.default.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
-        // Mode A: missing nodeId is fine (journal-only).
-        const noIdOk = await pushDom.pushInput({
+        // Missing nodeId → dispatched at ingress, rejected async by EventApplier.
+        consoleLines.length = 0;
+        const noId = await pushDom.pushInput({
             ...base,
             type: 'mousedown',
             targetId: 0,
             payloadJson: JSON.stringify({ x: info.x, y: info.y, viewportW, viewportH, button: 0, buttons: 0, modifiers: {} }),
         });
-        assert_1.default.strictEqual(noIdOk.status, 'dispatched', 'Mode A ignores nodeId');
+        assert_1.default.strictEqual(noId.status, 'dispatched');
+        const noIdDeadline = Date.now() + 2_000;
+        while (!consoleLines.some((l) => l.includes('missing_node_id')) && Date.now() < noIdDeadline) {
+            await wait(20);
+        }
+        assert_1.default.ok(consoleLines.some((l) => l.includes('input_reject missing_node_id validate')), `expected async missing_node_id reject, got: ${consoleLines.join(' | ')}`);
         // Coord validation is downstream in EventApplier now — ingressToUnifiedIntent/pushInput
         // always report 'dispatched'; an out-of-viewport point rejects asynchronously via onReject
         // (PageProjectionBrowserSession launch() logs it as `input_reject <errorCode> <phase>`).
@@ -140,15 +146,15 @@ async function runPageProjectionInputClickUnitTests() {
             await wait(20);
         }
         assert_1.default.ok(consoleLines.some((l) => l.includes('input_reject invalid_coords validate')), `expected async invalid_coords reject, got: ${consoleLines.join(' | ')}`);
-        // Activate at button center via Mode A coords (no resolve).
-        for (const type of ['mousemove', 'mousedown', 'mouseup']) {
+        // Id-addressed click via nodeId → resolveNodeHit → CDP at live center.
+        for (const type of ['mousedown', 'mouseup']) {
             const out = await pushDom.pushInput({ ...base, type });
             assert_1.default.strictEqual(out.status, 'dispatched', type);
         }
         await wait(300);
         const status = await session.evaluate(`document.getElementById('status')?.getAttribute('data-state') ?? ''`);
         assert_1.default.ok(status.ok, status.errorMessage);
-        assert_1.default.strictEqual(status.value, 'clicked', 'Virtual must reflect click via Mode A CDP coords');
+        assert_1.default.strictEqual(status.value, 'clicked', 'Virtual must reflect click via nodeId resolve');
     }
     finally {
         await session.dispose();
@@ -156,6 +162,6 @@ async function runPageProjectionInputClickUnitTests() {
             server.close((err) => (err ? reject(err) : resolve()));
         });
     }
-    console.log('[unit] PP input click Mode A coords (no resolve) ok');
+    console.log('[unit] PP input click nodeId-addressed ok');
 }
 //# sourceMappingURL=pageProjectionInputClick.unit.js.map

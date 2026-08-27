@@ -9,18 +9,18 @@
 
 ## Now (2026-08-27) — start a new chat here
 
-**Shipped (recent):** Virtual assets V1 path. **Input = sparse-cdp only** (2026-08-27) — OS ABS/S6 removed from codebase; [input.md](input.md) keeps the OS seal as historical record. Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
+**Shipped (recent):** Virtual assets V1 path. **Input = sparse-cdp V1 SEALED** (2026-08-27) — click (id + pointer coords), keyboard (incl. Space), scrollSet, historyNav; lab 9/10 + Eneba. OS ABS/S6 removed; [input.md](input.md) keeps the OS seal as historical record. Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
 
-**Input:** sparse-cdp (id-addressed click + scrollSet). Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
+**Input:** sparse-cdp only. Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
 
 **Lab UI:** `npm run lab:docker` in `Refactor/sidecar` → **http://127.0.0.1:4103/**. PP lab does **not** require `/dev/uinput` for input. Always name the full blueprint id + description + fixture when asking a human to run something.
 
 **Next product work (ordered):**
-1. Re-prove Eneba / heavy CF on sparse-cdp (id-addressed click) — OS census hang path is gone.
+1. ~~Re-prove Eneba / heavy CF on sparse-cdp~~ — done (Rodrigo 2026-08-27).
 2. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`.
 3. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
 4. MotorAssert compose seed `MirrorMode.PageProjection`.
-5. Input fine-tuning (iOS link, touch, IME) — after assets unlock visual parity.
+5. Input fine-tuning (nested iframe click oracle, touch, IME) — after assets unlock visual parity.
 
 Open named shadow / form PROP / SVG / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
@@ -47,7 +47,7 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
 | Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus transport → **[context-bus.md](context-bus.md)** |
 | **ContextBus** (inter-context JS transport) | **[context-bus.md](context-bus.md)** — emit/invoke; domain protocols sit on top |
-| Input intents | **OS unified SEALED** ([input.md](input.md) 2026-08-26) — [input-v2.md](input-v2.md) superseded / purged; draft [input-unified-design-draft.md](input-unified-design-draft.md) = long-form register |
+| Input intents | **sparse-cdp V1 SEALED** ([input.md](input.md) 2026-08-27) — OS unified seal is historical record only; [input-v2.md](input-v2.md) superseded / purged |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Virtual Document **CSP surgery** (cutover session) | **[csp.md](csp.md)** |
 | Session / mirror-mode contracts (sidecar port) | **[browser-session.md](browser-session.md)** — SEALED 2026-08-21 |

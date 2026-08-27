@@ -46,9 +46,9 @@ async function runEventApplierUnitTests() {
         },
         keyboard: { key: () => { }, sanitize: () => { } },
         activeViewport: () => ({ w: 800, h: 600 }),
-        clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async (contextId, nodeId) => {
-            resolveCalls.push({ contextId, nodeId });
-            return { ok: true, x: 111, y: 222 };
+        clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async (contextId, nodeId, x, y) => {
+            resolveCalls.push({ contextId, nodeId, x, y });
+            return { ok: true, x, y };
         }),
     });
     applierResolve.enqueue({
@@ -63,8 +63,8 @@ async function runEventApplierUnitTests() {
         nodeId: 42,
     });
     await applierResolve.flush();
-    assert_1.default.deepStrictEqual(resolveCalls, [{ contextId: 3, nodeId: 42 }]);
-    assert_1.default.deepStrictEqual(moves3[0], { x: 111, y: 222 }, 'must dispatch at the resolved point, not the raw hit-test coord');
+    assert_1.default.deepStrictEqual(resolveCalls, [{ contextId: 3, nodeId: 42, x: 10, y: 20 }]);
+    assert_1.default.deepStrictEqual(moves3[0], { x: 10, y: 20 }, 'must dispatch at the client pointer point');
     assert_1.default.ok(buttons3.some((b) => b.btn === 'left' && b.down === true));
     // resolve failure → reject, no dispatch
     const rejects2 = [];
@@ -93,18 +93,19 @@ async function runEventApplierUnitTests() {
     });
     await applierResolveFail.flush();
     assert_1.default.ok(rejects2.includes('resolve_click_failed:node_not_found'));
-    // No nodeId → dispatch at raw client coordinate
-    const moves4 = [];
+    // missing nodeId → reject fail-closed, no dispatch
+    const rejects3 = [];
     const applierNoTarget = new EventApplier_1.EventApplier({
         buffer: new SidecarBuffer_1.SidecarBuffer(),
         pointer: {
-            moveTo: (x, y) => moves4.push({ x, y }),
-            button: () => { },
+            moveTo: () => assert_1.default.fail('missing nodeId must not move'),
+            button: () => assert_1.default.fail('missing nodeId must not click'),
             sanitize: () => { },
         },
         keyboard: { key: () => { }, sanitize: () => { } },
         activeViewport: () => ({ w: 800, h: 600 }),
         clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async () => assert_1.default.fail('must not call resolve when nodeId is null')),
+        onReject: (code) => rejects3.push(code),
     });
     const downNull = {
         schemaVersion: 1,
@@ -119,7 +120,56 @@ async function runEventApplierUnitTests() {
     };
     applierNoTarget.enqueue(downNull);
     await applierNoTarget.flush();
-    assert_1.default.deepStrictEqual(moves4[0], { x: 50, y: 60 });
+    assert_1.default.ok(rejects3.includes('missing_node_id'));
+    // keyboard prefers intent.key over intent.code (KeyA → a)
+    const keys = [];
+    const applierKey = new EventApplier_1.EventApplier({
+        buffer: new SidecarBuffer_1.SidecarBuffer(),
+        pointer: { moveTo: () => { }, button: () => { }, sanitize: () => { } },
+        keyboard: {
+            key: (k) => keys.push(k),
+            sanitize: () => { },
+        },
+        activeViewport: () => ({ w: 800, h: 600 }),
+        clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async () => ({ ok: true, x: 0, y: 0 })),
+    });
+    applierKey.enqueue({
+        schemaVersion: 1,
+        type: 'keyDown',
+        key: 'a',
+        code: 'KeyA',
+    });
+    await applierKey.flush();
+    assert_1.default.deepStrictEqual(keys, ['a'], 'must dispatch key not UIEvent.code');
+    keys.length = 0;
+    applierKey.enqueue({
+        schemaVersion: 1,
+        type: 'keyDown',
+        key: ' ',
+        code: 'Space',
+    });
+    await applierKey.flush();
+    assert_1.default.deepStrictEqual(keys, ['Space'], 'Space must not be trimmed away');
+    // historyNav → applyHistoryNav
+    const navCalls = [];
+    const applierNav = new EventApplier_1.EventApplier({
+        buffer: new SidecarBuffer_1.SidecarBuffer(),
+        pointer: { moveTo: () => { }, button: () => { }, sanitize: () => { } },
+        keyboard: { key: () => { }, sanitize: () => { } },
+        activeViewport: () => ({ w: 800, h: 600 }),
+        clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)(async () => ({ ok: true, x: 0, y: 0 })),
+        applyHistoryNav: async (direction) => {
+            navCalls.push(direction);
+            return { ok: true };
+        },
+    });
+    applierNav.enqueue({
+        schemaVersion: 1,
+        type: 'historyNav',
+        direction: 'back',
+    });
+    await applierNav.flush();
+    assert_1.default.deepStrictEqual(navCalls, ['back']);
     console.log('[unit] EventApplier live-node-resolve ok');
 }
 //# sourceMappingURL=EventApplier.unit.js.map

@@ -99,6 +99,33 @@ function ingressToUnifiedIntent(raw) {
             files: payload.files ?? payload,
         };
     }
+    if (type === 'goback' || unifiedType === 'goback') {
+        return {
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type: 'historyNav',
+            timestampClient: raw.timestampClient ?? undefined,
+            direction: 'back',
+        };
+    }
+    if (type === 'goforward' || unifiedType === 'goforward') {
+        return {
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type: 'historyNav',
+            timestampClient: raw.timestampClient ?? undefined,
+            direction: 'forward',
+        };
+    }
+    if (unifiedType === 'historyNav') {
+        const dir = String(raw.direction ?? payload.direction ?? '').trim().toLowerCase();
+        if (dir !== 'back' && dir !== 'forward')
+            return null;
+        return {
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type: 'historyNav',
+            timestampClient: raw.timestampClient ?? undefined,
+            direction: dir,
+        };
+    }
     return null;
 }
 //# sourceMappingURL=ingressToUnifiedIntent.js.map

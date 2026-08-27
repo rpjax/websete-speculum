@@ -4307,6 +4307,14 @@
       function tagName(node) {
         return isElement(node) ? node.tagName.toUpperCase() : "";
       }
+      function isEditableTarget(target) {
+        if (!isElement(target))
+          return false;
+        const tag = target.tagName.toUpperCase();
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT")
+          return true;
+        return target.isContentEditable;
+      }
       function buttonFromEvent(button) {
         if (button === 1)
           return "middle";
@@ -4314,10 +4322,57 @@
           return "right";
         return "left";
       }
+      var EDGE_SWIPE_PX = 24;
+      var EDGE_SWIPE_MIN_DX = 72;
+      function historyNavFromKeyboard(event) {
+        if (isEditableTarget(event.target))
+          return null;
+        if (event.altKey && event.key === "ArrowLeft")
+          return "back";
+        if (event.altKey && event.key === "ArrowRight")
+          return "forward";
+        if (event.metaKey && event.key === "[")
+          return "back";
+        if (event.metaKey && event.key === "]")
+          return "forward";
+        return null;
+      }
       function attachProjectedInputCapture2(surface, registry, send, opts) {
         const doc = surface.ownerDocument;
         const win = doc.defaultView;
         const buffer = new ClientBuffer_1.ClientBuffer();
+        let edgeSwipe = null;
+        const fireHistoryNav = (direction) => {
+          enqueue({
+            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
+            type: "historyNav",
+            timestampClient: performance.now(),
+            direction
+          });
+        };
+        const trapProjectedHistory = () => {
+          if (!win)
+            return () => void 0;
+          try {
+            history.pushState({ speculumHistoryTrap: true }, "", win.location.href);
+          } catch {
+            return () => void 0;
+          }
+          const onPopState = () => {
+            try {
+              history.pushState({ speculumHistoryTrap: true }, "", win.location.href);
+            } catch {
+            }
+            if (!opts.isArmed()) {
+              opts.metrics?.noteSkip("disarmed");
+              return;
+            }
+            fireHistoryNav("back");
+          };
+          win.addEventListener("popstate", onPopState);
+          return () => win.removeEventListener("popstate", onPopState);
+        };
+        const detachHistoryTrap = trapProjectedHistory();
         const fire = (intent) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
@@ -4382,8 +4437,16 @@
             return;
           }
           const stamp = viewportStamp();
-          const hit = doc.elementFromPoint(event.clientX, event.clientY);
-          const nodeId = hit ? registry.idOfNearest(hit) ?? null : null;
+          const target = event.target;
+          if (!target || typeof target !== "object" || !("nodeType" in target)) {
+            opts.metrics?.noteSkip("no_node");
+            return;
+          }
+          const nodeId = registry.idOf(target);
+          if (nodeId == null) {
+            opts.metrics?.noteSkip("no_node");
+            return;
+          }
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type,
@@ -4414,6 +4477,17 @@
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
             return;
+          }
+          const historyDir = historyNavFromKeyboard(event);
+          if (historyDir) {
+            event.preventDefault();
+            event.stopPropagation();
+            fireHistoryNav(historyDir);
+            return;
+          }
+          if (isEditableTarget(event.target)) {
+            event.preventDefault();
+            event.stopPropagation();
           }
           const tag = tagName(event.target);
           const type = tag === "INPUT" ? event.target.type : tag === "BUTTON" ? event.target.type : "";
@@ -4497,9 +4571,64 @@
             return;
           opts.onMarkPropDirty?.(nodeId);
         };
-        const onPointerDown = (event) => onPointerEdge(event, "down");
-        const onPointerUp = (event) => onPointerEdge(event, "up");
+        const onPointerDown = (event) => {
+          if (event.pointerType === "touch" && win) {
+            const vw = win.innerWidth;
+            if (event.clientX <= EDGE_SWIPE_PX) {
+              edgeSwipe = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                edge: "left"
+              };
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+            if (event.clientX >= vw - EDGE_SWIPE_PX) {
+              edgeSwipe = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                edge: "right"
+              };
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+          }
+          onPointerEdge(event, "down");
+        };
+        const onPointerMove = (event) => {
+          if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId)
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+        };
+        const onPointerUp = (event) => {
+          if (edgeSwipe && event.pointerId === edgeSwipe.pointerId) {
+            const track = edgeSwipe;
+            edgeSwipe = null;
+            event.preventDefault();
+            event.stopPropagation();
+            const dx = event.clientX - track.startX;
+            const dy = event.clientY - track.startY;
+            if (Math.abs(dy) > EDGE_SWIPE_MIN_DX * 0.75)
+              return;
+            if (track.edge === "left" && dx >= EDGE_SWIPE_MIN_DX) {
+              fireHistoryNav("back");
+              return;
+            }
+            if (track.edge === "right" && dx <= -EDGE_SWIPE_MIN_DX) {
+              fireHistoryNav("forward");
+              return;
+            }
+            return;
+          }
+          onPointerEdge(event, "up");
+        };
         doc.addEventListener("pointerdown", onPointerDown, true);
+        doc.addEventListener("pointermove", onPointerMove, true);
         doc.addEventListener("pointerup", onPointerUp, true);
         doc.addEventListener("click", onClick, true);
         doc.addEventListener("submit", onSubmit, true);
@@ -4513,7 +4642,9 @@
         win?.addEventListener("scroll", onScroll, true);
         return () => {
           buffer.dispose();
+          detachHistoryTrap();
           doc.removeEventListener("pointerdown", onPointerDown, true);
+          doc.removeEventListener("pointermove", onPointerMove, true);
           doc.removeEventListener("pointerup", onPointerUp, true);
           doc.removeEventListener("click", onClick, true);
           doc.removeEventListener("submit", onSubmit, true);
@@ -5512,6 +5643,7 @@
     const rec = intent;
     const kind = typeof rec.type === "string" ? rec.type : typeof rec.kind === "string" ? rec.kind : typeof rec.op === "string" ? rec.op : "intent";
     const id = rec.targetId ?? rec.nodeId ?? rec.id;
+    if (kind === "historyNav" && typeof rec.direction === "string") return `${kind}:${rec.direction}`;
     return id != null ? `${kind}#${id}` : kind;
   }
   function readTelemetryFromUi() {
@@ -5624,6 +5756,9 @@
           payload.scrollX = intent.scrollX;
           payload.scrollY = intent.scrollY;
           payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
+        } else if (intent.type === "historyNav") {
+          payload.direction = intent.direction;
+          payload.payload = JSON.stringify({ direction: intent.direction });
         }
         payload.timestampClient = intent.timestampClient;
         ws.send(JSON.stringify({ type: "client.intent", intent: payload }));

@@ -123,12 +123,14 @@ declare global {
           reason?: string;
         }>;
         /**
-         * Sparse-cdp path — resolves a client-hit-tested `nodeId` to its live
-         * root-viewport point. EventApplier dispatches off this result.
+         * Sparse-cdp path — validates client pointer coords against live node bounds and
+         * returns the root-viewport point for CDP dispatch (not element center).
          */
         resolveNodeHit: (args: {
           nodeId: number;
           contextId?: number;
+          x?: number;
+          y?: number;
         }) => Promise<{ ok: boolean; x?: number; y?: number; reason?: string }>;
       }
     | undefined;
@@ -317,10 +319,9 @@ void (async () => {
 
   bus.setApplyScrollHandler((positions) => applyScrollPositions(domNodes, document, positions));
 
-  function clientPointInRootViewport(el: Element): { x: number; y: number } {
-    const rect = el.getBoundingClientRect();
-    let x = rect.left + rect.width / 2;
-    let y = rect.top + rect.height / 2;
+  function rootViewportFrameOffset(): { dx: number; dy: number } {
+    let dx = 0;
+    let dy = 0;
     let walk: Window | null = document.defaultView;
     while (walk && walk !== walk.top) {
       let frameEl: Element | null = null;
@@ -331,15 +332,45 @@ void (async () => {
       }
       if (!frameEl) break;
       const fr = frameEl.getBoundingClientRect();
-      x += fr.left;
-      y += fr.top;
+      dx += fr.left;
+      dy += fr.top;
       try {
         walk = walk.parent;
       } catch {
         break;
       }
     }
-    return { x, y };
+    return { dx, dy };
+  }
+
+  function clientPointInRootViewport(el: Element): { x: number; y: number } {
+    const rect = el.getBoundingClientRect();
+    const { dx, dy } = rootViewportFrameOffset();
+    return { x: rect.left + rect.width / 2 + dx, y: rect.top + rect.height / 2 + dy };
+  }
+
+  function elementRectInRootViewport(el: Element): {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  } {
+    const rect = el.getBoundingClientRect();
+    const { dx, dy } = rootViewportFrameOffset();
+    return {
+      left: rect.left + dx,
+      top: rect.top + dy,
+      right: rect.right + dx,
+      bottom: rect.bottom + dy,
+    };
+  }
+
+  function pointInsideRect(
+    x: number,
+    y: number,
+    rect: { left: number; top: number; right: number; bottom: number },
+  ): boolean {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
   }
 
   bus.onInvocation('keyOfSelector', (args: { selector: string }) => {
@@ -365,13 +396,21 @@ void (async () => {
     return { ok: true as const, x, y, scrollX, scrollY, nodeId };
   });
 
-  bus.onInvocation('resolveNodeHit', (args: { nodeId: number }) => {
+  bus.onInvocation('resolveNodeHit', (args: { nodeId: number; x?: number; y?: number }) => {
     frameEmitter.flushNow();
     const node = domNodes.get(args.nodeId);
     if (!node || node.nodeType !== Node.ELEMENT_NODE) {
       return { ok: false as const, reason: 'node_not_found' };
     }
-    const { x, y } = clientPointInRootViewport(node as Element);
+    const el = node as Element;
+    if (typeof args.x === 'number' && typeof args.y === 'number') {
+      const rect = elementRectInRootViewport(el);
+      if (!pointInsideRect(args.x, args.y, rect)) {
+        return { ok: false as const, reason: 'point_outside_node' };
+      }
+      return { ok: true as const, x: args.x, y: args.y };
+    }
+    const { x, y } = clientPointInRootViewport(el);
     return { ok: true as const, x, y };
   });
 
@@ -515,7 +554,7 @@ void (async () => {
     resolveNodeHit: async (args) => {
       const contextId =
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
-      return bus.requestResolveNodeHit(contextId, args.nodeId);
+      return bus.requestResolveNodeHit(contextId, args.nodeId, args.x, args.y);
     },
   };
 
@@ -548,11 +587,11 @@ void (async () => {
           return p.resolveElementHit({ selector: a.selector, contextId: a.contextId });
         }
         case 'resolveNodeHit': {
-          const a = (args ?? {}) as { nodeId?: number; contextId?: number };
+          const a = (args ?? {}) as { nodeId?: number; contextId?: number; x?: number; y?: number };
           if (typeof a.nodeId !== 'number') {
             throw new Error('resolveNodeHit: missing nodeId');
           }
-          return p.resolveNodeHit({ nodeId: a.nodeId, contextId: a.contextId });
+          return p.resolveNodeHit({ nodeId: a.nodeId, contextId: a.contextId, x: a.x, y: a.y });
         }
         case 'haltWorld':
           p.haltWorld();

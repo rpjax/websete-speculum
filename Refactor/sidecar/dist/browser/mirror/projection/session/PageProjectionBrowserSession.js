@@ -139,6 +139,10 @@ class PageProjectionBrowserSession {
         this.displayHeight = maxH;
         const inputAdapter = (0, createInputAdapter_1.createInputAdapter)('sparse-cdp', {
             cdp: { send: (method, params) => this.currentCdpSession().send(method, params) },
+            keyboard: {
+                down: (key) => this.requirePage().keyboard.down(key),
+                up: (key) => this.requirePage().keyboard.up(key),
+            },
             logicalWidth: options.width,
             logicalHeight: options.height,
         });
@@ -166,8 +170,23 @@ class PageProjectionBrowserSession {
             pointer: inputAdapter.pointer,
             keyboard: inputAdapter.keyboard,
             activeViewport: () => ({ w: this.width, h: this.height }),
-            clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)((contextId, nodeId) => this.resolveClickTarget(contextId, nodeId)),
+            clickDelivery: (0, clickDelivery_1.liveNodeResolveClickDelivery)((contextId, nodeId, x, y) => this.resolveClickTarget(contextId, nodeId, x, y)),
             applyScrollSet: (args) => this.applyScrollSet(args),
+            applyHistoryNav: async (direction) => {
+                try {
+                    if (direction === 'back')
+                        await this.goBack();
+                    else
+                        await this.goForward();
+                    return { ok: true };
+                }
+                catch (err) {
+                    return {
+                        ok: false,
+                        error: err instanceof Error ? err.message : String(err),
+                    };
+                }
+            },
             onReject: (errorCode, phase) => {
                 this.events.onConsole(3, `input_reject ${errorCode} ${phase}`);
             },
@@ -533,12 +552,16 @@ class PageProjectionBrowserSession {
         if (!keyed.ok || typeof keyed.nodeId !== 'number' || keyed.nodeId <= 0) {
             return { status: 'dropped', reason: keyed.reason ?? 'selector_miss' };
         }
+        const hit = await this.loopbackInvoke('resolveNodeHit', { contextId, nodeId: keyed.nodeId });
+        if (!hit.ok || typeof hit.x !== 'number' || typeof hit.y !== 'number') {
+            return { status: 'dropped', reason: hit.reason ?? 'resolve_hit_failed' };
+        }
         const base = {
             schemaVersion: 1,
             viewportW: this.width,
             viewportH: this.height,
-            x: 0,
-            y: 0,
+            x: hit.x,
+            y: hit.y,
             button: 'left',
             contextId,
             nodeId: keyed.nodeId,
@@ -608,8 +631,8 @@ class PageProjectionBrowserSession {
         await this.eventApplier.flush();
         return { status: 'dispatched' };
     }
-    async resolveClickTarget(contextId, nodeId) {
-        const r = await this.loopbackInvoke('resolveNodeHit', { contextId, nodeId });
+    async resolveClickTarget(contextId, nodeId, x, y) {
+        const r = await this.loopbackInvoke('resolveNodeHit', { contextId, nodeId, x, y });
         if (!r.ok || typeof r.x !== 'number' || typeof r.y !== 'number') {
             return { ok: false, reason: r.reason ?? 'node_not_found' };
         }

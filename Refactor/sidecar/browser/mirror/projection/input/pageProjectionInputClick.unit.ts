@@ -117,7 +117,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
     });
     const base = {
       generation: info.generation,
-      targetId: null as number | null,
+      targetId: info.id,
       contextId: 1,
       payloadJson,
     };
@@ -139,14 +139,23 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
     });
     assert.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
 
-    // Mode A: missing nodeId is fine (journal-only).
-    const noIdOk = await pushDom.pushInput({
+    // Missing nodeId → dispatched at ingress, rejected async by EventApplier.
+    consoleLines.length = 0;
+    const noId = await pushDom.pushInput({
       ...base,
       type: 'mousedown',
       targetId: 0,
       payloadJson: JSON.stringify({ x: info.x, y: info.y, viewportW, viewportH, button: 0, buttons: 0, modifiers: {} }),
     });
-    assert.strictEqual(noIdOk.status, 'dispatched', 'Mode A ignores nodeId');
+    assert.strictEqual(noId.status, 'dispatched');
+    const noIdDeadline = Date.now() + 2_000;
+    while (!consoleLines.some((l) => l.includes('missing_node_id')) && Date.now() < noIdDeadline) {
+      await wait(20);
+    }
+    assert.ok(
+      consoleLines.some((l) => l.includes('input_reject missing_node_id validate')),
+      `expected async missing_node_id reject, got: ${consoleLines.join(' | ')}`,
+    );
 
     // Coord validation is downstream in EventApplier now — ingressToUnifiedIntent/pushInput
     // always report 'dispatched'; an out-of-viewport point rejects asynchronously via onReject
@@ -167,8 +176,8 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
       `expected async invalid_coords reject, got: ${consoleLines.join(' | ')}`,
     );
 
-    // Activate at button center via Mode A coords (no resolve).
-    for (const type of ['mousemove', 'mousedown', 'mouseup'] as const) {
+    // Id-addressed click via nodeId → resolveNodeHit → CDP at live center.
+    for (const type of ['mousedown', 'mouseup'] as const) {
       const out = await pushDom.pushInput({ ...base, type });
       assert.strictEqual(out.status, 'dispatched', type);
     }
@@ -179,12 +188,12 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
       `document.getElementById('status')?.getAttribute('data-state') ?? ''`,
     );
     assert.ok(status.ok, status.errorMessage);
-    assert.strictEqual(status.value, 'clicked', 'Virtual must reflect click via Mode A CDP coords');
+    assert.strictEqual(status.value, 'clicked', 'Virtual must reflect click via nodeId resolve');
   } finally {
     await session.dispose();
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });
   }
-  console.log('[unit] PP input click Mode A coords (no resolve) ok');
+  console.log('[unit] PP input click nodeId-addressed ok');
 }

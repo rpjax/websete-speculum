@@ -36,6 +36,7 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
   scrollX?: number;
   scrollY?: number;
   button?: string | number;
+  direction?: string;
 }): UnifiedIntent | null {
   const type = raw.type.trim();
   const payload = parsePayload(raw.payload ?? raw.payloadJson);
@@ -112,6 +113,35 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
       contextId: raw.contextId && raw.contextId > 0 ? raw.contextId : 1,
       nodeId,
       files: payload.files ?? payload,
+    };
+  }
+
+  if (type === 'goback' || unifiedType === 'goback') {
+    return {
+      schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
+      type: 'historyNav',
+      timestampClient: raw.timestampClient ?? undefined,
+      direction: 'back',
+    };
+  }
+
+  if (type === 'goforward' || unifiedType === 'goforward') {
+    return {
+      schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
+      type: 'historyNav',
+      timestampClient: raw.timestampClient ?? undefined,
+      direction: 'forward',
+    };
+  }
+
+  if (unifiedType === 'historyNav') {
+    const dir = String(raw.direction ?? payload.direction ?? '').trim().toLowerCase();
+    if (dir !== 'back' && dir !== 'forward') return null;
+    return {
+      schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
+      type: 'historyNav',
+      timestampClient: raw.timestampClient ?? undefined,
+      direction: dir,
     };
   }
 

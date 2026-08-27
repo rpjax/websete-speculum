@@ -4,17 +4,21 @@
 
 **Historical (below):** The body of this file (§1–§9 ABS uinput + S6 census + Display fail-closed) is **development history** — the sealed OS unified design from 2026-08-26. It is **not** implemented in the current codebase. Reopen only with an explicit redesign + decision-log row. Design provenance: [input-unified-design-draft.md](input-unified-design-draft.md). Superseded CDP Mode A/B/C: [input-v2.md](input-v2.md).
 
-**Bar today:** lab Docker effect oracles on sparse-cdp (click by nodeId / type / scrollSet). Display/Xorg may still start for headed Chrome; PP input itself does **not** require `/dev/uinput`.
+**Bar today:** lab Docker effect oracles on sparse-cdp + real-site (Eneba) validation. Display/Xorg may still start for headed Chrome; PP input itself does **not** require `/dev/uinput`.
+
+**Lab proof (sparse-cdp V1 — 2026-08-27):** Docker blueprints **9/10 PASS** — `input-click`, `input-forms`, `input-forms-keycode`, `input-forms-enter`, `input-scroll`, `input-scroll-components`, `input-iframe-scroll`, `input-stress`, `input-e2e-stress`. `input-iframe-click` nested `contextId=2` → `keyOfSelector` **`node_unmapped`** (open follow-up; root + real-site paths proven). `input-forms` may flake `Target.createTarget` on back-to-back cold boots — PASS on isolated retry (lab infra). **Real-site:** Eneba search/space/overlay dismiss validated (Rodrigo). Sidecar `npm run unit` green.
 
 ---
 
 ## Canonical pipeline (2026-08-27+)
 
 ```
-Projected capture (sparse: elementFromPoint → nodeId, no pointermove stream)
-  → UnifiedIntent (down/up + nodeId/contextId; scrollSet)
+Projected capture (sparse: event.target → idOf, no pointermove stream)
+  → UnifiedIntent (down/up + nodeId/contextId; keyDown/keyUp; scrollSet; historyNav)
   → wire → SidecarBuffer → EventApplier
-       ├─ click: loopback resolveNodeHit → live x/y → CDP Input.dispatchMouseEvent
+       ├─ click: loopback resolveNodeHit(nodeId + x/y) → validate in live bounds → CDP at pointer
+       ├─ keyboard: intent.key → page.keyboard.down/up (ASCII + editing keys); non-ASCII → insertText
+       ├─ history: page.goBack / page.goForward on Virtual
        └─ scroll: loopback applyScrollSet → Virtual applyScrollPositions
 ```
 
@@ -128,16 +132,18 @@ variants now coexist behind `EventApplier` (§2.1, `clickDelivery.ts`); this sec
 `sparse-cdp`, keep `os-abs` sealed).
 
 - Projected `attachProjectedInputCapture`'s `sparse` capture policy (§2.1, previously
-  pointermove-only) also skips scroll census on `down`/`up`: it hit-tests locally with
-  `document.elementFromPoint(clientX, clientY)` + `registry.idOfNearest(el)` and sends the
-  result as `PointerIntent.nodeId`/`contextId` (new optional wire fields — `unifiedIntentTypes.ts`;
-  `os-abs` never sets them, `ingressToUnifiedIntent.ts` pass-through is a harmless no-op for it).
+  pointermove-only) also skips scroll census on `down`/`up`: it resolves the click target from
+  **`event.target`** via `registry.idOf(target)` (exact match — **no** `idOfNearest`, **no**
+  `elementFromPoint`) and sends the result as `PointerIntent.nodeId`/`contextId` (new optional
+  wire fields — `unifiedIntentTypes.ts`; `os-abs` never sets them, `ingressToUnifiedIntent.ts`
+  pass-through is a harmless no-op for it). **Registry miss → skip** (`metrics.skippedNoNodeId`);
+  no intent with `nodeId: null` is emitted from capture.
 - `EventApplier.applyOne`'s `down`/`up` case switches exhaustively on `clickDelivery.mode`
   (`clickDelivery.ts`; `PageProjectionBrowserSession.launch()` wires exactly one strategy per
   `inputAdapterKind`): `'live-node-resolve'` + `nodeId != null` → resolve via Virtual RPC
-  `resolveNodeHit` (§5) to a live root-viewport point, dispatch there; `nodeId == null`
-  (hit-test miss / empty space) → dispatch at the client's raw coordinate, unresolved, no
-  Virtual round trip — accepted trade-off (documented, not silent).
+  `resolveNodeHit` (§5) with client `(x,y)` — validates point inside live node bounds,
+  dispatches CDP there; **`nodeId == null` →
+  reject `missing_node_id` / phase `validate`** — fail-closed, no raw-coordinate fallback.
 - Lab/CLI proof helper: `PageProjectionBrowserSession.resolveAndClickDomInputByNodeId(selector,
   contextId)`, sibling to `resolveAndClickDomInput` but addressing by nodeId. Root-context proof
   green in Docker (`scripts/scratch/diag/diag-nodeid-click.js`) via real DOM state read, not a
@@ -194,7 +200,7 @@ Carrier: draft §10.1c. Expand only by decision. Closed list for this cutover:
 | `applyScrollSet` | `{ contextId, nodeId, scrollX, scrollY }` | `{ ok, reason? }` | Applier `scrollSet` |
 | `keyOfSelector` | `{ selector, contextId? }` | `{ ok, nodeId?, reason? }` | lab `resolveAndScrollElement` |
 | `resolveElementHit` | `{ selector, contextId? }` | `{ ok, x?, y?, scrollX?, scrollY?, nodeId?, reason? }` | lab `resolveAndClick` / type |
-| `resolveNodeHit` | `{ nodeId, contextId? }` | `{ ok, x?, y?, reason? }` | `sparse-cdp`'s `'live-node-resolve'` `ClickDeliveryStrategy` (§2.1a) — id-addressed, not selector-based |
+| `resolveNodeHit` | `{ nodeId, x?, y?, contextId? }` | `{ ok, x?, y?, reason? }` | `sparse-cdp`'s `'live-node-resolve'` — id + pointer coords (center fallback when x/y omitted) |
 | `haltWorld` | `{}` | `{ ok, reason? }` | lab / session |
 | `resumeWorld` | `{}` | `{ ok, reason? }` | lab / session |
 | `flushFrame` | `{}` | `{ ok, generation?, sequence?, reason? }` | lab / session |
@@ -230,6 +236,13 @@ Sealed on effect oracles above — producer RPC path is loopback only (no CDP MA
 | MotorAssert Live PP intents | gate 10 compose |
 | Chrome inset calibration / ABS screen offset | TEMP #3–4 — not input law |
 | Continuous pointer move / hover / drag on the `sparse-cdp` adapter | Accepted gap **specific to `sparse-cdp`** (2026-08-27) — click/keys/scroll/upload catalog only. Does **not** regress the frozen `os-abs` legacy path, which still streams every `move` intent unchanged. |
+| IME / composition / `beforeinput` on Projected | DEFERRED (no IME v0) — keyboard is `keyDown`/`keyUp` + `insertText` for single code units |
+
+**Sparse keyboard (2026-08-27):** wire canonical = **`intent.key`** (not `UIEvent.code` — `KeyA` must not be dispatched as-is). Projected capture **`preventDefault`s editable targets** (`INPUT`/`TEXTAREA`/`SELECT`/`contenteditable`) so Virtual is the sole mutator. Sidecar: ASCII printable + editing/special keys → lazy `page.keyboard.down/up` (PatchrightInputBackend shape); non-ASCII single code unit → `Input.insertText`. Lab proof: `input-forms-keycode`, `input-forms-enter` blueprints.
+
+**History nav (2026-08-27):** `historyNav` intent (`back`/`forward`) — Projected capture blocks local history (`preventDefault` on shortcuts; `popstate` trap; touch edge-swipe) and forwards to Virtual `page.goBack`/`goForward`. Wire aliases: `goback`/`goforward`.
+
+**Click coords (2026-08-27):** `resolveNodeHit` receives client `(x,y)` + `nodeId`; Virtual validates the point is inside the live element bounds and returns the same coords for CDP (not element center). Lab helpers without coords still fall back to center. **Space:** never `.trim()` `intent.key` — `' '` maps to Playwright `Space`.
 
 ---
 

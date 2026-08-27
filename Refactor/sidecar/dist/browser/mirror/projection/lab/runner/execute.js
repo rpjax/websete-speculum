@@ -222,7 +222,6 @@ async function executeBlueprint(bp, hooks) {
                     cpuProfiling: overrides.cpu === true || params.cpuProfiling === true,
                     blueprintId: bp.id,
                     slug: bp.id,
-                    inputAdapterKind: overrides.inputAdapterKind,
                 });
                 return finish(true);
             }
@@ -283,6 +282,13 @@ async function executeBlueprint(bp, hooks) {
                             const selector = String(st.selector ?? '');
                             const contextId = typeof st.contextId === 'number' && st.contextId > 0 ? st.contextId : 1;
                             const v4 = session;
+                            if (typeof v4.resolveAndClickDomInputByNodeId === 'function') {
+                                const out = await v4.resolveAndClickDomInputByNodeId(selector, contextId);
+                                if (out.status === 'dropped')
+                                    return finish(false, out.reason ?? 'click failed');
+                                chassis.journal.acts.push({ name: `click:${selector}`, ok: true });
+                                continue;
+                            }
                             if (typeof v4.resolveAndClickDomInput === 'function') {
                                 const out = await v4.resolveAndClickDomInput(selector, contextId);
                                 if (out.status === 'dropped')
@@ -341,15 +347,8 @@ async function executeBlueprint(bp, hooks) {
                                     viewportH: vh,
                                     x: info.x,
                                     y: info.y,
+                                    nodeId: info.id,
                                     payloadJson: JSON.stringify({ x: info.x, y: info.y, button: 'left' }),
-                                    census: {
-                                        contexts: [
-                                            {
-                                                contextId,
-                                                positions: [{ nodeId: null, scrollX: 0, scrollY: 0 }],
-                                            },
-                                        ],
-                                    },
                                 });
                                 if (out.status === 'dropped')
                                     return finish(false, `${type}: ${out.reason}`);

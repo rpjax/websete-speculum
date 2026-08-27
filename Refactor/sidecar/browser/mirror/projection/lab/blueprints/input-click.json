@@ -1,6 +1,6 @@
 {
   "id": "input-click",
-  "description": "OS ABS — root click (resolveAndClick → EventApplier → uinput) flips Virtual #status",
+  "description": "sparse-cdp — root click (resolveAndClick → ByNodeId → CDP) flips Virtual #status",
   "sessionPolicy": "cold",
   "fold": "input-click",
   "queues": [

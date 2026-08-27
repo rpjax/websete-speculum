@@ -33,16 +33,8 @@ export async function runPageProjectionSessionUnitTests(): Promise<void> {
     console.log('[unit] PageProjectionBrowserSession skipped (SPECULUM_SKIP_PP_SESSION=1)');
     return;
   }
-
-  let uinputOk = false;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    uinputOk = require('../../../input/os/uinput').uinputAvailable() === true;
-  } catch {
-    uinputOk = false;
-  }
-  if (!uinputOk) {
-    console.log('[unit] PageProjectionBrowserSession skipped (no /dev/uinput — OS input fail-closed)');
+  if (!process.env['CHROME_EXECUTABLE']?.trim()) {
+    console.log('[unit] PageProjectionBrowserSession skipped (no CHROME_EXECUTABLE)');
     return;
   }
 

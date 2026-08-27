@@ -60,8 +60,6 @@ export type ExecuteHooks = {
     invariants?: boolean;
     headed?: boolean;
     outDir?: string;
-    /** Opt-in only (never an env var) — see docs/page-projection/spec/decision-log.md 2026-08-27. */
-    inputAdapterKind?: 'os-abs' | 'sparse-cdp';
   };
 };
 
@@ -255,7 +253,6 @@ export async function executeBlueprint(
           cpuProfiling: overrides.cpu === true || params.cpuProfiling === true,
           blueprintId: bp.id,
           slug: bp.id,
-          inputAdapterKind: overrides.inputAdapterKind,
         });
         return finish(true);
       }
@@ -311,8 +308,15 @@ export async function executeBlueprint(
               const selector = String(st.selector ?? '');
               const contextId = typeof st.contextId === 'number' && st.contextId > 0 ? st.contextId : 1;
               const v4 = session as {
+                resolveAndClickDomInputByNodeId?: (s: string, c: number) => Promise<{ status: string; reason?: string }>;
                 resolveAndClickDomInput?: (s: string, c: number) => Promise<{ status: string; reason?: string }>;
               };
+              if (typeof v4.resolveAndClickDomInputByNodeId === 'function') {
+                const out = await v4.resolveAndClickDomInputByNodeId(selector, contextId);
+                if (out.status === 'dropped') return finish(false, out.reason ?? 'click failed');
+                chassis.journal.acts.push({ name: `click:${selector}`, ok: true });
+                continue;
+              }
               if (typeof v4.resolveAndClickDomInput === 'function') {
                 const out = await v4.resolveAndClickDomInput(selector, contextId);
                 if (out.status === 'dropped') return finish(false, out.reason ?? 'click failed');
@@ -366,15 +370,8 @@ export async function executeBlueprint(
                   viewportH: vh,
                   x: info.x,
                   y: info.y,
+                  nodeId: info.id,
                   payloadJson: JSON.stringify({ x: info.x, y: info.y, button: 'left' }),
-                  census: {
-                    contexts: [
-                      {
-                        contextId,
-                        positions: [{ nodeId: null, scrollX: 0, scrollY: 0 }],
-                      },
-                    ],
-                  },
                 });
                 if (out.status === 'dropped') return finish(false, `${type}: ${out.reason}`);
               }

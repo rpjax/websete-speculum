@@ -9,12 +9,14 @@
 
 ## Now (2026-08-27) — start a new chat here
 
-**Shipped (recent):** Virtual assets V1 path. **OS unified input SEALED** 2026-08-26 — [input.md](input.md). **2026-08-27:** Projected nested-host **load-after-drop** — `dropNestedHost` must cancel the pending `load` bind (flag + `removeEventListener`); otherwise late bind registers a ghost in `ProjectedInputRuntime` → S6 census includes orphan `contextId` → Phase A / click dies. Law: [multi-document.md](multi-document.md) §4.1 · [input.md](input.md) §4 · [decision-log.md](decision-log.md). Code: `ProjectionClient.cancelPendingNestedHost`. Lab repro: `scripts/diag-click-ghost-context.js` + fixtures `input-ghost-context` / `input-ghost-registry`.
+**Shipped (recent):** Virtual assets V1 path. **Input = sparse-cdp only** (2026-08-27) — OS ABS/S6 removed from codebase; [input.md](input.md) keeps the OS seal as historical record. Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
 
-**Input:** sealed. Nested-drop census ghost **fixed**. Do **not** reopen CDP Mode A/B — that ban is specifically the purged input-v2 Mode A/B/C letters, not a ban on registering a new adapter behind the sealed port contract (`createInputAdapter`, [input.md](input.md) §2.1; `os-abs` sealed v0, `sparse-cdp` accepted opt-in second adapter). Journal `intent ok:true` ≠ Phase A succeeded (enqueue can succeed while Applier skips ABS).
+**Input:** sparse-cdp (id-addressed click + scrollSet). Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
+
+**Lab UI:** `npm run lab:docker` in `Refactor/sidecar` → **http://127.0.0.1:4103/**. PP lab does **not** require `/dev/uinput` for input. Always name the full blueprint id + description + fixture when asking a human to run something.
 
 **Next product work (ordered):**
-1. Re-prove Eneba / heavy CF after the nested-drop fix — if click still dies with census **`[1]` only**, that is a **different** defect (not Projected registry ghost). Wire-mint ghosts without dropHost still poison Phase A when census includes them (`census[1,2]` ~2s timeout) — Virtual mint lifetime / dropHost wiring is separate.
+1. Re-prove Eneba / heavy CF on sparse-cdp (id-addressed click) — OS census hang path is gone.
 2. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`.
 3. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
 4. MotorAssert compose seed `MirrorMode.PageProjection`.
@@ -23,8 +25,6 @@
 Open named shadow / form PROP / SVG / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
-
-**Lab UI (input OS):** `npm run lab:docker` in `Refactor/sidecar` → **http://127.0.0.1:4103/**. Bare `npm run lab:projection` is DOM/CSSOM/assets only (fail-closed without uinput). Always name the full blueprint id + description + fixture when asking a human to run something.
 
 Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Technical density only when debating the detail (`.cursor/rules/speculum-comunicacao.mdc`).
 

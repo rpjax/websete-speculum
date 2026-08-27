@@ -4286,6 +4286,7 @@
     isDeliverableDestination;
     mine;
     lookupScopeId = null;
+    childFabric = null;
     snapshotHandler = null;
     resumeHandler = null;
     applyScrollHandler = null;
@@ -4368,6 +4369,14 @@
     }
     setScopeLookup(fn) {
       this.lookupScopeId = fn;
+    }
+    /** Wire live child-scope fabric (O(1) route; replaces DOM querySelectorAll scan). */
+    setChildFabric(fabric) {
+      this.childFabric = fabric;
+    }
+    /** Replace deliverable check (bootstrap: live index, not mint-ever). */
+    setDeliverableCheck(fn) {
+      this.isDeliverableDestination = fn;
     }
     onFrame(cb) {
       return this.bus.onEvent("frame", (ev) => {
@@ -4629,31 +4638,31 @@
     routeOutbound(envelope) {
       if (this.disposed) return;
       if (envelope.destination === "*") {
-        this.forEachChildWindow((w) => w.postMessage(envelope, "*"));
+        this.forEachLiveChild((w) => w.postMessage(envelope, "*"));
         return;
       }
       const dest = envelope.destination;
       if (dest === this.mine || dest === CONTEXT_BUS_RUNTIME && this.bus.servesRuntime) {
         return;
       }
-      const child = this.findChildForContext(dest);
-      if (child) {
-        child.postMessage(envelope, "*");
-        return;
+      if (typeof dest === "number") {
+        const child = this.findChildForContext(dest);
+        if (child) {
+          child.postMessage(envelope, "*");
+          return;
+        }
       }
       if (this.parent) {
         this.parent.postMessage(envelope, "*");
         return;
       }
-      if (envelope.type === "request-invocation" && typeof dest === "number" && this.isDeliverableDestination && !this.isDeliverableDestination(dest)) {
+      if (envelope.type === "request-invocation" && typeof dest === "number") {
         const req = envelope.event;
         this.sendLocalErrorResponse(envelope.source, req, {
           message: "context_not_found",
           name: "UndeliverableDestination"
         });
-        return;
       }
-      this.forEachChildWindow((w) => w.postMessage(envelope, "*"));
     }
     sendLocalErrorResponse(callerContextId, req, error) {
       this.bus.receive({
@@ -4665,21 +4674,10 @@
       });
     }
     findChildForContext(contextId) {
-      let found = null;
-      this.forEachChildWindow((w) => {
-        if (found) return;
-        if (this.lookupScopeId?.(w) === contextId) found = w;
-      });
-      return found;
+      return this.childFabric?.windowOf(contextId) ?? null;
     }
-    forEachChildWindow(fn) {
-      const doc = this.win.document;
-      const hosts = doc.querySelectorAll("iframe,frame,object,embed");
-      for (let i = 0; i < hosts.length; i++) {
-        const el = hosts[i];
-        const w = el.contentWindow;
-        if (w) fn(w);
-      }
+    forEachLiveChild(fn) {
+      this.childFabric?.forEachLive((w) => fn(w));
     }
   };
 
@@ -4991,7 +4989,9 @@
         window: win,
         role: "root",
         mint: () => this.mint(),
-        isDeliverableDestination: (contextId) => this.mintAllocator.hasMinted(contextId),
+        // Stub until bootstrap wires live ChildScopeIndex via setDeliverableCheck.
+        // Must not use hasMinted (monotonic) — that was PP-INPUT-VIRTUAL-MINT-GHOST.
+        isDeliverableDestination: (contextId) => contextId === 1,
         emitFrame: (bytes) => {
           this.frameTransport.send(bytes);
         }
@@ -5059,33 +5059,79 @@
     constructor(mint) {
       this.mint = mint;
     }
+    /** nodeId → contextId */
     map = /* @__PURE__ */ new Map();
+    /** contextId → nodeId */
+    byContext = /* @__PURE__ */ new Map();
+    /** contentWindow → contextId (O(1) getScopeId) */
+    byWindow = /* @__PURE__ */ new WeakMap();
     get mapView() {
       return this.map;
     }
     get(nodeId) {
       return this.map.get(nodeId);
     }
+    hasContext(contextId) {
+      return this.byContext.has(contextId);
+    }
+    nodeIdOf(contextId) {
+      return this.byContext.get(contextId);
+    }
+    windowOf(contextId, nodeOf) {
+      const nodeId = this.byContext.get(contextId);
+      if (nodeId === void 0) return null;
+      const node = nodeOf(nodeId);
+      const w = node?.contentWindow;
+      return w ?? null;
+    }
+    forEachLiveWindow(nodeOf, fn) {
+      for (const [contextId, nodeId] of this.byContext) {
+        const node = nodeOf(nodeId);
+        const w = node?.contentWindow;
+        if (w) fn(w, contextId);
+      }
+    }
     drop(nodeId) {
+      const contextId = this.map.get(nodeId);
+      if (contextId === void 0) return;
       this.map.delete(nodeId);
+      this.byContext.delete(contextId);
     }
     admit(nodeId, node) {
       if (!isNestedBrowsingHost(node)) return { kind: "none" };
       const existing = this.map.get(nodeId);
-      if (existing !== void 0) return { kind: "host", contextId: existing };
+      if (existing !== void 0) {
+        this.bindWindow(node, existing);
+        return { kind: "host", contextId: existing };
+      }
       const minted = this.mint();
       if (minted == null) return { kind: "pending" };
       this.map.set(nodeId, minted);
+      this.byContext.set(minted, nodeId);
+      this.bindWindow(node, minted);
       return { kind: "host", contextId: minted };
     }
     lookupByContentWindow(source, nodeOf) {
+      if (source !== null && typeof source === "object") {
+        const hit = this.byWindow.get(source);
+        if (hit !== void 0) {
+          if (this.byContext.has(hit)) return hit;
+        }
+      }
       for (const [nodeId, contextId] of this.map) {
         const node = nodeOf(nodeId);
         if (node && node.contentWindow === source) {
+          if (source !== null && typeof source === "object") {
+            this.byWindow.set(source, contextId);
+          }
           return contextId;
         }
       }
       return void 0;
+    }
+    bindWindow(node, contextId) {
+      const w = node.contentWindow;
+      if (w) this.byWindow.set(w, contextId);
     }
   };
   function createMintPort(opts) {
@@ -5234,9 +5280,17 @@
         }
         const childScopes = new ChildScopeIndex(mintFn);
         const domNodes = new DomNodeTable();
-        bus.setScopeLookup(
-          (source) => childScopes.lookupByContentWindow(source, (id) => domNodes.get(id))
-        );
+        const nodeOf = (id) => domNodes.get(id);
+        bus.setScopeLookup((source) => childScopes.lookupByContentWindow(source, nodeOf));
+        bus.setChildFabric({
+          windowOf: (contextId) => childScopes.windowOf(contextId, nodeOf),
+          forEachLive: (fn) => childScopes.forEachLiveWindow(nodeOf, fn),
+          hasContext: (contextId) => childScopes.hasContext(contextId)
+        });
+        bus.setDeliverableCheck((contextId) => {
+          if (contextId === CONTEXT_ID_ROOT) return true;
+          return childScopes.windowOf(contextId, nodeOf) != null;
+        });
         domNodes.bind(document, DOCUMENT_ID);
         domNodes.setGeneration(config.generation);
         const table = new ReplicatedTable();
@@ -5463,19 +5517,6 @@
             );
             return Object.fromEntries(entries);
           },
-          applyScrollCensus: async (census) => {
-            const results = await Promise.all(
-              census.contexts.map((ctx) => bus.requestApplyScroll(ctx.contextId, ctx.positions))
-            );
-            const missingNodeIds = [];
-            for (const r of results) {
-              if (!r.ok) {
-                return { ok: false, reason: r.reason ?? "apply_scroll_failed", missingNodeIds };
-              }
-              if (r.missingNodeIds) missingNodeIds.push(...r.missingNodeIds);
-            }
-            return { ok: true, missingNodeIds };
-          },
           applyScrollSet: async (args) => {
             const r = await bus.requestApplyScroll(args.contextId, [
               { nodeId: args.nodeId, scrollX: args.scrollX, scrollY: args.scrollY }
@@ -5501,11 +5542,6 @@
             const p = globalThis.__speculumProjection;
             if (!p) throw new Error("producer missing");
             switch (name) {
-              case "applyScrollCensus": {
-                const census = args?.census;
-                if (!census) throw new Error("applyScrollCensus: missing census");
-                return p.applyScrollCensus(census);
-              }
               case "applyScrollSet": {
                 const a = args;
                 return p.applyScrollSet(a);

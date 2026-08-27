@@ -87,8 +87,7 @@ function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
   } else if (intent.type === 'setFiles') {
     payload.files = intent.files
   }
-  // `nodeId`/`contextId` on `down`/`up` — `sparse-cdp` alternate pipeline's id-addressed click
-  // (decision-log.md 2026-08-27); `null`/`1` for `os-abs` or an unresolved (empty-space) hit.
+  // `nodeId`/`contextId` on `down`/`up` — sparse-cdp id-addressed click; `null`/`1` when unresolved.
   const pointerNodeId =
     (intent.type === 'down' || intent.type === 'up') && intent.nodeId != null ? intent.nodeId : null
   const pointerContextId = intent.type === 'down' || intent.type === 'up' ? (intent.contextId ?? 1) : 1
@@ -105,10 +104,7 @@ function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
     schemaVersion: intent.schemaVersion,
     viewportW: 'viewportW' in intent ? intent.viewportW : null,
     viewportH: 'viewportH' in intent ? intent.viewportH : null,
-    census:
-      (intent.type === 'down' || intent.type === 'up') && intent.census
-        ? JSON.stringify(intent.census)
-        : null,
+    census: null,
   }
 }
 
@@ -345,15 +341,10 @@ function PageProjectionV2Surface({
         isArmed: () => client.isArmed,
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
-        scrollIndex: client.getScrollableIndex(),
         getSessionId: () => sessionRef.current.sessionId,
         getToken: () => sessionRef.current.token,
         getAssetBaseUrl: () =>
           sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
-        requestScrollCensus: async () => {
-          const r = await client.requestScrollCensus(CONTEXT_ID_ROOT)
-          return r.ok ? r.census : r
-        },
       },
     )
     const nestedDetachers: Array<() => void> = []
@@ -374,15 +365,10 @@ function PageProjectionV2Surface({
             isArmed: info.isArmed,
             onMarkPropDirty: info.markPropDirty,
             consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
-            scrollIndex: client.getScrollableIndex(),
             getSessionId: () => sessionRef.current.sessionId,
             getToken: () => sessionRef.current.token,
             getAssetBaseUrl: () =>
               sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
-            requestScrollCensus: async () => {
-              const r = await client.requestScrollCensus(info.contextId)
-              return r.ok ? r.census : r
-            },
           },
         ),
       )

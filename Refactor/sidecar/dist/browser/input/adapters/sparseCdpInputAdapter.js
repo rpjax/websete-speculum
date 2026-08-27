@@ -1,8 +1,7 @@
 "use strict";
 /**
- * Sparse/minimal CDP-backed input adapter — CANONICAL DEFAULT (2026-08-27, Rodrigo
- * explicit ruling, see docs/page-projection/spec/decision-log.md). `os-abs`
- * ({@link ../adapters/osAbsInputAdapter.ts}) is frozen legacy, opt-in only.
+ * Sparse CDP-backed input adapter — sole PageProjection input path
+ * (decision-log.md 2026-08-27).
  *
  * Closed catalog: `click` (single moveTo+press+release), a minimal keyboard set
  * (`Enter`/`Escape`/`Tab` plus single printable characters for `type`, sent via
@@ -10,7 +9,7 @@
  * (`PageProjectionBrowserSession.applyScrollSet`) — adapter-agnostic, does not depend on
  * `pointer`/`keyboard`. Click *addressing* is id-based (`live-node-resolve`, see
  * `../clickDelivery.ts`), not this file's concern — this file only knows how to move a
- * pointer/press keys once given coordinates, same as `os-abs`.
+ * pointer/press keys once given coordinates.
  *
  * No `displayInputDevices()` here on purpose: this adapter has no kernel input device at
  * all (dispatches straight into the CDP target), so it does not implement

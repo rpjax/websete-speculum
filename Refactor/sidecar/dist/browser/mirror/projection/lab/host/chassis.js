@@ -167,14 +167,6 @@ class LabChassis {
     lastInputPipelineMetrics = null;
     /** Client capture counters from browse.stop payload. */
     lastInputCaptureMetrics = null;
-    /** Adapter kind for the current session — sourced into `probes/input-pipeline.json` so a
-     *  `sparse-cdp` run never reports the frozen `os-abs` label (D-UI honesty; never publish a
-     *  probe field that misrepresents which path actually ran). */
-    inputAdapterKind = 'sparse-cdp';
-    /** Resolved kind actually used to boot the current/last session — for `session.booted` echo. */
-    getInputAdapterKind() {
-        return this.inputAdapterKind;
-    }
     getClientSnapshotFn = null;
     static BROWSE_SNAP_TIMEOUT_MS = 45_000;
     journal = {
@@ -468,7 +460,6 @@ class LabChassis {
     async boot(opts) {
         if (this.session)
             await this.disposeVirtual();
-        this.inputAdapterKind = opts.inputAdapterKind ?? 'sparse-cdp';
         this.frameRateHz = opts.frameRateHz ?? 60;
         this.telemetry = {
             ...telemetry_1.LAB_TELEMETRY_DEFAULTS,
@@ -538,7 +529,6 @@ class LabChassis {
             frameRateHz: this.frameRateHz,
             projectionTelemetry: this.telemetry,
             cpuProfiling: this.cpuProfiling,
-            pageProjectionInputAdapterKind: opts.inputAdapterKind,
         }));
         await this.session.navigate(opts.url);
         record.url = opts.url;
@@ -587,7 +577,7 @@ class LabChassis {
             intent,
             ok: result.ok,
             error: result.error,
-            mode: result.mode ?? 'OS',
+            mode: result.mode ?? 'CDP',
             dispatchMs: result.dispatchMs,
             clientLagMs: result.clientLagMs,
         };
@@ -855,8 +845,8 @@ class LabChassis {
         };
         await (0, write_1.writeJson)(this.dossier, 'probes/input-pipeline.json', {
             wallMs,
-            backend: this.inputAdapterKind === 'sparse-cdp' ? 'cdp' : 'os',
-            path: this.inputAdapterKind === 'sparse-cdp' ? 'eventApplier+sparseCdp' : 'eventApplier+absUinput',
+            backend: 'cdp',
+            path: 'eventApplier+sparseCdp',
             capture: this.lastInputCaptureMetrics,
             journal: {
                 total: intents.length,

@@ -1,7 +1,5 @@
 /**
- * `capturePolicy` split (Fase 2.5) — 'peripheral' (default) still registers `pointermove`
- * and coalesces moves exactly as before; 'sparse' never registers `pointermove` and never
- * emits a `move` intent, even when the surface receives synthetic pointermove events.
+ * Projected input capture — sparse-cdp only (hit-test nodeId; no pointermove / census).
  */
 
 import assert from 'assert';
@@ -60,15 +58,14 @@ function baseOpts(overrides?: Partial<ProjectedInputCaptureOptions>): ProjectedI
 }
 
 export async function runProjectedInputCaptureUnitTests(): Promise<void> {
-  await testPeripheralPolicyRegistersAndCoalescesMove();
-  await testSparsePolicyNeverEmitsMove();
-  await testSparsePolicyHitTestsNodeIdAndSkipsCensus();
-  await testSparsePolicyMissFallsBackToNullNodeId();
-  console.log('[unit] projectedInputCapture capturePolicy ok');
+  await testSparseNeverEmitsMove();
+  await testSparseHitTestsNodeId();
+  await testSparseMissFallsBackToNullNodeId();
+  console.log('[unit] projectedInputCapture sparse ok');
 }
 
-/** Default (omitted `capturePolicy`) must stay 100% identical to pre-Fase-2 behaviour. */
-async function testPeripheralPolicyRegistersAndCoalescesMove(): Promise<void> {
+/** Sparse must never register `pointermove` and never emit a `move` intent. */
+async function testSparseNeverEmitsMove(): Promise<void> {
   const { doc, surface } = mockSurface();
   const sent: UnifiedIntent[] = [];
   const registry = new PageProjectionRegistry();
@@ -81,57 +78,38 @@ async function testPeripheralPolicyRegistersAndCoalescesMove(): Promise<void> {
     baseOpts(),
   );
   try {
-    assert.strictEqual(doc.hasListener('pointermove'), true, 'default policy must register pointermove');
-    // Coalesce: two rapid moves within the 50ms window collapse to the last one.
+    assert.strictEqual(doc.hasListener('pointermove'), false, 'sparse must not register pointermove');
     doc.dispatch('pointermove', { clientX: 10, clientY: 10 });
     doc.dispatch('pointermove', { clientX: 20, clientY: 20 });
-    assert.strictEqual(sent.length, 0, 'move must not fire before the 50ms coalesce window');
     await new Promise((r) => setTimeout(r, 80));
-    assert.strictEqual(sent.length, 1, 'coalesced move must fire exactly once');
-    assert.strictEqual(sent[0]!.type, 'move');
-    if (sent[0]!.type === 'move') {
-      assert.strictEqual(sent[0]!.x, 20);
-      assert.strictEqual(sent[0]!.y, 20);
-    }
+    assert.strictEqual(sent.length, 0, 'sparse must never emit move');
   } finally {
     detach();
   }
 }
 
-/**
- * `sparse-cdp` alternate pipeline (decision-log.md 2026-08-27) — `sparse` policy hit-tests
- * the click locally and addresses it by nodeId, never runs S6 census/sync at all.
- */
-async function testSparsePolicyHitTestsNodeIdAndSkipsCensus(): Promise<void> {
+/** Hit-test resolves registry nodeId on down. */
+async function testSparseHitTestsNodeId(): Promise<void> {
   const target = {};
   const { doc, surface } = mockSurface(() => target);
   const sent: UnifiedIntent[] = [];
   const registry = new PageProjectionRegistry();
   registry.register(42, target as never);
-  let censusCalls = 0;
   const detach = attachProjectedInputCapture(
     surface as never,
     registry,
     (intent) => {
       sent.push(intent);
     },
-    baseOpts({
-      capturePolicy: 'sparse',
-      requestScrollCensus: async () => {
-        censusCalls += 1;
-        return { contexts: [] };
-      },
-    }),
+    baseOpts(),
   );
   try {
     doc.dispatch('pointerdown', { clientX: 5, clientY: 6, button: 0 });
     await new Promise((r) => setTimeout(r, 10));
     assert.strictEqual(sent.length, 1);
     assert.strictEqual(sent[0]!.type, 'down');
-    assert.strictEqual(censusCalls, 0, 'sparse must never request a scroll census');
     if (sent[0]!.type === 'down') {
-      assert.strictEqual(sent[0]!.nodeId, 42, 'must resolve the hit-tested element to its registry nodeId');
-      assert.strictEqual(sent[0]!.census, undefined, 'sparse must never attach a census');
+      assert.strictEqual(sent[0]!.nodeId, 42);
       assert.strictEqual(sent[0]!.x, 5);
       assert.strictEqual(sent[0]!.y, 6);
     }
@@ -140,8 +118,8 @@ async function testSparsePolicyHitTestsNodeIdAndSkipsCensus(): Promise<void> {
   }
 }
 
-/** `sparse` policy on an empty-space hit (no element under the point) falls back to `nodeId: null`. */
-async function testSparsePolicyMissFallsBackToNullNodeId(): Promise<void> {
+/** Empty-space hit falls back to `nodeId: null`. */
+async function testSparseMissFallsBackToNullNodeId(): Promise<void> {
   const { doc, surface } = mockSurface(() => null);
   const sent: UnifiedIntent[] = [];
   const registry = new PageProjectionRegistry();
@@ -151,7 +129,7 @@ async function testSparsePolicyMissFallsBackToNullNodeId(): Promise<void> {
     (intent) => {
       sent.push(intent);
     },
-    baseOpts({ capturePolicy: 'sparse' }),
+    baseOpts(),
   );
   try {
     doc.dispatch('pointerup', { clientX: 1, clientY: 2, button: 0 });
@@ -160,37 +138,6 @@ async function testSparsePolicyMissFallsBackToNullNodeId(): Promise<void> {
     if (sent[0]!.type === 'up') {
       assert.strictEqual(sent[0]!.nodeId, null);
     }
-  } finally {
-    detach();
-  }
-}
-
-/** `sparse` must never register `pointermove` and never emit a `move` intent. */
-async function testSparsePolicyNeverEmitsMove(): Promise<void> {
-  const { doc, surface } = mockSurface();
-  const sent: UnifiedIntent[] = [];
-  const registry = new PageProjectionRegistry();
-  const detach = attachProjectedInputCapture(
-    surface as never,
-    registry,
-    (intent) => {
-      sent.push(intent);
-    },
-    baseOpts({ capturePolicy: 'sparse' }),
-  );
-  try {
-    assert.strictEqual(doc.hasListener('pointermove'), false, 'sparse policy must not register pointermove');
-    // Dispatching against a surface with no registered listener is a structural no-op —
-    // proves sparse cannot emit `move` even under a synthetic pointermove flood.
-    doc.dispatch('pointermove', { clientX: 1, clientY: 1 });
-    doc.dispatch('pointermove', { clientX: 2, clientY: 2 });
-    await new Promise((r) => setTimeout(r, 80));
-    assert.strictEqual(sent.length, 0, 'sparse must never emit a move intent');
-    // Other listeners stay intact under sparse — only pointermove is dropped.
-    assert.strictEqual(doc.hasListener('pointerdown'), true);
-    assert.strictEqual(doc.hasListener('pointerup'), true);
-    assert.strictEqual(doc.hasListener('scroll'), true);
-    assert.strictEqual(doc.hasListener('keydown'), true);
   } finally {
     detach();
   }

@@ -1,4 +1,31 @@
-# PageProjection — OS unified input
+# PageProjection — input
+
+**Status (codebase, 2026-08-27):** **sparse-cdp only** — id-addressed click via CDP, no OS ABS, no S6 census on the hot path. See §2.1a / decision-log.md.
+
+**Historical (below):** The body of this file (§1–§9 ABS uinput + S6 census + Display fail-closed) is **development history** — the sealed OS unified design from 2026-08-26. It is **not** implemented in the current codebase. Reopen only with an explicit redesign + decision-log row. Design provenance: [input-unified-design-draft.md](input-unified-design-draft.md). Superseded CDP Mode A/B/C: [input-v2.md](input-v2.md).
+
+**Bar today:** lab Docker effect oracles on sparse-cdp (click by nodeId / type / scrollSet). Display/Xorg may still start for headed Chrome; PP input itself does **not** require `/dev/uinput`.
+
+---
+
+## Canonical pipeline (2026-08-27+)
+
+```
+Projected capture (sparse: elementFromPoint → nodeId, no pointermove stream)
+  → UnifiedIntent (down/up + nodeId/contextId; scrollSet)
+  → wire → SidecarBuffer → EventApplier
+       ├─ click: loopback resolveNodeHit → live x/y → CDP Input.dispatchMouseEvent
+       └─ scroll: loopback applyScrollSet → Virtual applyScrollPositions
+```
+
+No census fan-out. No ABS uinput. No `os-abs` adapter.
+
+---
+
+<details>
+<summary>Historical OS unified input seal (2026-08-26) — record only, not current code</summary>
+
+# PageProjection — OS unified input (HISTORICAL)
 
 **Status:** **SEALED** 2026-08-26 (Rodrigo) — OS unified hot path; Phase A + lab resolve = loopback invoke only.  
 **Bar:** lab Docker `/dev/uinput` effect oracles ([LAB-DOCKER.md](../../Refactor/sidecar/LAB-DOCKER.md)). **PASS** — see §6.  
@@ -229,3 +256,5 @@ Sealed on effect oracles above — producer RPC path is loopback only (no CDP MA
 - ABS stack: `Refactor/sidecar/browser/input/AbsOsInputStack.ts`
 - Lab ghost repro: `Refactor/sidecar/scripts/diag-click-ghost-context.js`
 - Loopback mux: `Refactor/packages/page-projection/src/core/loopback/envelope.ts`
+
+</details>

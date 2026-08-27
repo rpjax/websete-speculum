@@ -194,7 +194,6 @@ class WsLabConnection {
                         width: typeof msg.width === 'number' ? msg.width : undefined,
                         height: typeof msg.height === 'number' ? msg.height : undefined,
                         device: msg.device,
-                        inputAdapterKind: msg.inputAdapter,
                     });
                     this.startDebugProbe();
                     this.send({
@@ -203,7 +202,6 @@ class WsLabConnection {
                         mode: 'browse',
                         url: record.url ?? msg.url,
                         dossierDir: record.dossierDir,
-                        inputAdapter: this.chassis.getInputAdapterKind(),
                     });
                 }
                 catch (err) {

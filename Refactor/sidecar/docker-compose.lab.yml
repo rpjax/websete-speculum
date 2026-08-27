@@ -1,4 +1,4 @@
-# Projection lab with OS uinput (canonical for input cutover).
+# Projection lab (PageProjection). PP input is sparse-cdp — does not need /dev/uinput.
 # From Refactor/: docker compose -f sidecar/docker-compose.lab.yml up --build
 services:
   lab:
@@ -9,18 +9,13 @@ services:
     init: true
     cap_add:
       - SYS_ADMIN
-      - MKNOD
     shm_size: 2gb
-    devices:
-      - /dev/uinput:/dev/uinput
-    device_cgroup_rules:
-      - "c 10:223 rwm"
-      - "c 13:* rwm"
     environment:
       NODE_ENV: production
       SPECULUM_LAB_HOST: 0.0.0.0
       SPECULUM_LAB_PORT: "4103"
       SPECULUM_LAB_HEADED: "1"
+      # VideoStreaming OS path only — PageProjection uses sparse-cdp (CDP), not SPECULUM_INPUT_BACKEND.
       SPECULUM_INPUT_BACKEND: os
       CHROME_EXECUTABLE: /usr/bin/google-chrome
       DISPLAY: ":99"

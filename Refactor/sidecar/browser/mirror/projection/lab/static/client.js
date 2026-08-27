@@ -2407,7 +2407,6 @@
           }
           for (let i = 0; i < op.ids.length; i++) {
             const id = op.ids[i];
-            this.options.scrollableIndex?.onNodeDrop(id);
             const node = this.registry.get(id);
             if (node !== void 0)
               this.registry.unregisterSubtree(node);
@@ -2481,9 +2480,6 @@
             return this.fail("bad_target", "nodeNew", op.id);
           }
           this.registry.register(op.id, node);
-          if (op.kind === opcodes_1.NodeKind.Element) {
-            this.noteScrollable(op.id, node);
-          }
           return true;
         }
         applyInsert(op) {
@@ -2540,7 +2536,6 @@
           if (!applyAttrs(node, attrs, this.options.stampUrl)) {
             return this.fail("malformed", "attrSet", op.node);
           }
-          this.noteScrollable(op.node, node);
           return true;
         }
         applyAttrDel(op) {
@@ -2591,31 +2586,6 @@
           const el = node;
           if (el.contentWindow)
             this.options.onNestedHost?.(el, childScopeId);
-        }
-        noteScrollable(id, el) {
-          const index = this.options.scrollableIndex;
-          if (!index)
-            return;
-          const tag = el.tagName.toUpperCase();
-          if (tag === "TEXTAREA") {
-            index.onNodeCreate(id, { overflowY: "scroll" });
-            return;
-          }
-          let styleHint = {};
-          try {
-            const inline = el.getAttribute("style") ?? "";
-            const oy = /overflow-y\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
-            const ox = /overflow-x\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
-            const o = /(?:^|;)\s*overflow\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
-            styleHint = { overflowY: oy, overflowX: ox, overflow: o };
-            if (!oy && !ox && !o && el.isConnected) {
-              const cs = el.ownerDocument.defaultView?.getComputedStyle(el);
-              if (cs)
-                styleHint = { overflowY: cs.overflowY, overflowX: cs.overflowX, overflow: cs.overflow };
-            }
-          } catch {
-          }
-          index.recheck(id, styleHint);
         }
       };
       exports.DomFrameApplier = DomFrameApplier;
@@ -3232,46 +3202,6 @@
     }
   });
 
-  // ../packages/page-projection/dist/projected/scroll/scrollableIndex.js
-  var require_scrollableIndex = __commonJS({
-    "../packages/page-projection/dist/projected/scroll/scrollableIndex.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.ScrollableIndex = exports.isScrollableStyle = void 0;
-      function isScrollableStyle(style) {
-        const axes = [style.overflowY, style.overflowX, style.overflow];
-        return axes.some((v) => v === "auto" || v === "scroll" || v === "overlay");
-      }
-      exports.isScrollableStyle = isScrollableStyle;
-      var ScrollableIndex = class {
-        ids = /* @__PURE__ */ new Set();
-        get size() {
-          return this.ids.size;
-        }
-        has(nodeId) {
-          return this.ids.has(nodeId);
-        }
-        entries() {
-          return [...this.ids];
-        }
-        onNodeCreate(nodeId, style) {
-          if (isScrollableStyle(style))
-            this.ids.add(nodeId);
-        }
-        onNodeDrop(nodeId) {
-          this.ids.delete(nodeId);
-        }
-        recheck(nodeId, style) {
-          if (isScrollableStyle(style))
-            this.ids.add(nodeId);
-          else
-            this.ids.delete(nodeId);
-        }
-      };
-      exports.ScrollableIndex = ScrollableIndex;
-    }
-  });
-
   // ../packages/page-projection/dist/projected/nestedProjectedApply.js
   var require_nestedProjectedApply = __commonJS({
     "../packages/page-projection/dist/projected/nestedProjectedApply.js"(exports) {
@@ -3287,7 +3217,6 @@
       var tableDigest_1 = require_tableDigest();
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
-      var scrollableIndex_1 = require_scrollableIndex();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -3308,7 +3237,6 @@
         armed = false;
         everArmed = false;
         lastDesyncReason = null;
-        scrollIndex = new scrollableIndex_1.ScrollableIndex();
         onArmedCb;
         onNestedHostCb;
         onNestedHostDropCb;
@@ -3333,10 +3261,6 @@
         }
         get isArmed() {
           return this.armed;
-        }
-        /** Per-context scrollable index (D-UI-32). */
-        getScrollableIndex() {
-          return this.scrollIndex;
         }
         get desynced() {
           return this.lastDesyncReason !== null;
@@ -3401,7 +3325,6 @@
           return new applyDom_1.DomFrameApplier(doc, registry, {
             stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, token(), base()),
             stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, token(), base()),
-            scrollableIndex: this.scrollIndex,
             onWarn: (message) => {
               this.onTelemetry?.({
                 v: telemetry_1.TELEMETRY_WIRE_VERSION,
@@ -3744,649 +3667,6 @@
     }
   });
 
-  // ../packages/page-projection/dist/core/contextBusConstants.js
-  var require_contextBusConstants = __commonJS({
-    "../packages/page-projection/dist/core/contextBusConstants.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.CONTEXT_BUS_CHANNEL = exports.CONTEXT_ID_PROVISIONAL = exports.CONTEXT_ID_MAX_DOCUMENT = exports.CONTEXT_BUS_RUNTIME = void 0;
-      exports.CONTEXT_BUS_RUNTIME = 4294967295;
-      exports.CONTEXT_ID_MAX_DOCUMENT = 4294967294;
-      exports.CONTEXT_ID_PROVISIONAL = 0;
-      exports.CONTEXT_BUS_CHANNEL = "speculum.context.bus";
-    }
-  });
-
-  // ../packages/page-projection/dist/core/contextBus/types.js
-  var require_types = __commonJS({
-    "../packages/page-projection/dist/core/contextBus/types.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.serializeBusError = exports.assertStructuredCloneSafe = exports.isBusEnvelope = exports.isMalformedEnvelope = exports.isValidDestination = exports.isValidContextId = exports.TRANSPORT_PROTOCOL_TYPES = exports.INVOKE_DEDUPE_TTL_MS = exports.HEARTBEAT_INTERVAL_MS = exports.DEFAULT_INVOKE_IDLE_TIMEOUT_MS = exports.CONTEXT_BUS_CHANNEL = exports.CONTEXT_ID_PROVISIONAL = exports.CONTEXT_ID_MAX_DOCUMENT = exports.CONTEXT_BUS_RUNTIME = void 0;
-      var contextBusConstants_1 = require_contextBusConstants();
-      Object.defineProperty(exports, "CONTEXT_BUS_CHANNEL", { enumerable: true, get: function() {
-        return contextBusConstants_1.CONTEXT_BUS_CHANNEL;
-      } });
-      Object.defineProperty(exports, "CONTEXT_BUS_RUNTIME", { enumerable: true, get: function() {
-        return contextBusConstants_1.CONTEXT_BUS_RUNTIME;
-      } });
-      Object.defineProperty(exports, "CONTEXT_ID_MAX_DOCUMENT", { enumerable: true, get: function() {
-        return contextBusConstants_1.CONTEXT_ID_MAX_DOCUMENT;
-      } });
-      Object.defineProperty(exports, "CONTEXT_ID_PROVISIONAL", { enumerable: true, get: function() {
-        return contextBusConstants_1.CONTEXT_ID_PROVISIONAL;
-      } });
-      exports.DEFAULT_INVOKE_IDLE_TIMEOUT_MS = 2e3;
-      exports.HEARTBEAT_INTERVAL_MS = 500;
-      exports.INVOKE_DEDUPE_TTL_MS = 5e3;
-      exports.TRANSPORT_PROTOCOL_TYPES = /* @__PURE__ */ new Set([
-        "request-invocation",
-        "invocation-started",
-        "invocation-heartbeat",
-        "invocation-response"
-      ]);
-      function isValidContextId(id) {
-        return Number.isInteger(id) && id >= 1 && id <= contextBusConstants_1.CONTEXT_ID_MAX_DOCUMENT;
-      }
-      exports.isValidContextId = isValidContextId;
-      function isValidDestination(id) {
-        return id === contextBusConstants_1.CONTEXT_ID_PROVISIONAL || isValidContextId(id) || id === contextBusConstants_1.CONTEXT_BUS_RUNTIME;
-      }
-      exports.isValidDestination = isValidDestination;
-      function isMalformedEnvelope(data) {
-        if (typeof data !== "object" || data === null)
-          return true;
-        const env = data;
-        if (env.channel !== contextBusConstants_1.CONTEXT_BUS_CHANNEL)
-          return true;
-        if (!Number.isInteger(env.source) || env.source === void 0 || !isValidDestination(env.source))
-          return true;
-        if (env.destination === "*") {
-        } else if (!Number.isInteger(env.destination) || !isValidDestination(env.destination)) {
-          return true;
-        }
-        if (typeof env.type !== "string" || env.type.length === 0)
-          return true;
-        if (!("event" in env))
-          return true;
-        return false;
-      }
-      exports.isMalformedEnvelope = isMalformedEnvelope;
-      function isBusEnvelope(data) {
-        return !isMalformedEnvelope(data);
-      }
-      exports.isBusEnvelope = isBusEnvelope;
-      function assertStructuredCloneSafe(value) {
-        if (typeof structuredClone === "function") {
-          structuredClone(value);
-          return;
-        }
-        JSON.parse(JSON.stringify(value));
-      }
-      exports.assertStructuredCloneSafe = assertStructuredCloneSafe;
-      function serializeBusError(err) {
-        if (err instanceof Error) {
-          return { message: err.message, name: err.name };
-        }
-        return { message: String(err) };
-      }
-      exports.serializeBusError = serializeBusError;
-    }
-  });
-
-  // ../packages/page-projection/dist/core/contextBus/contextBus.js
-  var require_contextBus = __commonJS({
-    "../packages/page-projection/dist/core/contextBus/contextBus.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.INVOKE_DEDUPE_TTL_MS = exports.HEARTBEAT_INTERVAL_MS = exports.DEFAULT_INVOKE_IDLE_TIMEOUT_MS = exports.CONTEXT_ID_MAX_DOCUMENT = exports.CONTEXT_BUS_RUNTIME = exports.CONTEXT_BUS_CHANNEL = exports.ContextBus = void 0;
-      var types_1 = require_types();
-      var ContextBus = class {
-        contextId;
-        servesRuntime;
-        carrier;
-        disposed = false;
-        nextInvocationId = 1;
-        eventHandlers = /* @__PURE__ */ new Map();
-        invocationHandlers = /* @__PURE__ */ new Map();
-        pending = /* @__PURE__ */ new Map();
-        seenInvocations = /* @__PURE__ */ new Map();
-        activeHeartbeats = /* @__PURE__ */ new Map();
-        constructor(opts) {
-          this.contextId = opts.contextId;
-          this.servesRuntime = opts.servesRuntime;
-          this.carrier = opts.carrier;
-        }
-        emit(type, event, opts) {
-          if (this.disposed)
-            return;
-          if (!opts || opts.destination === void 0) {
-            throw new TypeError("emit requires opts.destination");
-          }
-          if (types_1.TRANSPORT_PROTOCOL_TYPES.has(type) || type.length === 0) {
-            throw new TypeError(`invalid emit type: ${type}`);
-          }
-          (0, types_1.assertStructuredCloneSafe)(event);
-          const envelope = {
-            channel: types_1.CONTEXT_BUS_CHANNEL,
-            source: this.contextId,
-            destination: opts.destination,
-            type,
-            event
-          };
-          this.carrier.send(envelope);
-          this.deliverLocal(envelope);
-        }
-        invoke(name, args, opts) {
-          if (this.disposed) {
-            return Promise.resolve({ ok: false, error: { message: "bus_disposed", name: "BusDisposed" } });
-          }
-          if (!name || name.length === 0)
-            throw new TypeError("invoke requires non-empty name");
-          if (opts?.destination === void 0 || !(0, types_1.isValidDestination)(opts.destination)) {
-            throw new TypeError("invoke requires valid unicast destination");
-          }
-          const meta = {
-            source: this.contextId,
-            destination: opts.destination,
-            type: "request-invocation"
-          };
-          if (opts.destination === this.contextId || opts.destination === types_1.CONTEXT_BUS_RUNTIME && this.servesRuntime) {
-            return this.localInvoke(name, args, meta);
-          }
-          (0, types_1.assertStructuredCloneSafe)(args);
-          const invocationId = this.allocInvocationId();
-          const timeoutMs = opts.timeoutMs ?? types_1.DEFAULT_INVOKE_IDLE_TIMEOUT_MS;
-          return new Promise((resolve) => {
-            const resetTimer = () => {
-              const pending = this.pending.get(invocationId);
-              if (!pending)
-                return;
-              clearTimeout(pending.timer);
-              pending.timer = setTimeout(() => {
-                this.pending.delete(invocationId);
-                resolve({ ok: false, error: { message: "timeout", name: "InvokeTimeout" } });
-              }, timeoutMs);
-            };
-            const timer = setTimeout(() => {
-              this.pending.delete(invocationId);
-              resolve({ ok: false, error: { message: "timeout", name: "InvokeTimeout" } });
-            }, timeoutMs);
-            this.pending.set(invocationId, { timeoutMs, timer, resolve });
-            this.carrier.send({
-              channel: types_1.CONTEXT_BUS_CHANNEL,
-              source: this.contextId,
-              destination: opts.destination,
-              type: "request-invocation",
-              event: { invocationId, name, args }
-            });
-          });
-        }
-        onEvent(type, handler) {
-          const list = this.eventHandlers.get(type) ?? [];
-          list.push(handler);
-          this.eventHandlers.set(type, list);
-          return () => {
-            const cur = this.eventHandlers.get(type);
-            if (!cur)
-              return;
-            const idx = cur.indexOf(handler);
-            if (idx >= 0)
-              cur.splice(idx, 1);
-          };
-        }
-        onInvocation(name, handler) {
-          this.invocationHandlers.set(name, handler);
-          return () => {
-            if (this.invocationHandlers.get(name) === handler) {
-              this.invocationHandlers.delete(name);
-            }
-          };
-        }
-        dispose() {
-          if (this.disposed)
-            return;
-          this.disposed = true;
-          this.eventHandlers.clear();
-          this.invocationHandlers.clear();
-          for (const hb of this.activeHeartbeats.values())
-            clearInterval(hb);
-          this.activeHeartbeats.clear();
-          for (const p of this.pending.values()) {
-            clearTimeout(p.timer);
-            p.resolve({ ok: false, error: { message: "bus_disposed", name: "BusDisposed" } });
-          }
-          this.pending.clear();
-          this.seenInvocations.clear();
-        }
-        receive(envelope) {
-          if (this.disposed || (0, types_1.isMalformedEnvelope)(envelope))
-            return;
-          if (!this.isAddressedHere(envelope))
-            return;
-          if (types_1.TRANSPORT_PROTOCOL_TYPES.has(envelope.type)) {
-            void this.handleTransport(envelope);
-            return;
-          }
-          this.dispatchEvent(envelope);
-        }
-        isAddressedHere(envelope) {
-          if (envelope.destination === "*") {
-            return envelope.source !== this.contextId;
-          }
-          if (envelope.destination === this.contextId)
-            return true;
-          if (envelope.destination === types_1.CONTEXT_BUS_RUNTIME && this.servesRuntime)
-            return true;
-          return false;
-        }
-        deliverLocal(envelope) {
-          if (!this.isAddressedHere(envelope))
-            return;
-          if (types_1.TRANSPORT_PROTOCOL_TYPES.has(envelope.type))
-            return;
-          this.dispatchEvent(envelope);
-        }
-        dispatchEvent(envelope) {
-          const handlers = this.eventHandlers.get(envelope.type);
-          if (!handlers || handlers.length === 0)
-            return;
-          const meta = {
-            source: envelope.source,
-            destination: envelope.destination,
-            type: envelope.type
-          };
-          for (const handler of handlers) {
-            try {
-              const ret = handler(envelope.event, meta);
-              if (ret && typeof ret.catch === "function") {
-                void ret.catch(() => {
-                });
-              }
-            } catch {
-            }
-          }
-        }
-        async localInvoke(name, args, meta) {
-          const handler = this.invocationHandlers.get(name);
-          if (!handler) {
-            return { ok: false, error: { message: "no_handler", name: "NoInvocationHandler" } };
-          }
-          try {
-            const value = await handler(args, meta);
-            return { ok: true, value };
-          } catch (err) {
-            return { ok: false, error: (0, types_1.serializeBusError)(err) };
-          }
-        }
-        async handleTransport(envelope) {
-          if (envelope.destination === "*")
-            return;
-          switch (envelope.type) {
-            case "request-invocation":
-              await this.handleRequestInvocation(envelope);
-              break;
-            case "invocation-started":
-              this.handleInvocationStarted(envelope.event);
-              break;
-            case "invocation-heartbeat":
-              this.handleInvocationHeartbeat(envelope.event);
-              break;
-            case "invocation-response":
-              this.handleInvocationResponse(envelope.event);
-              break;
-          }
-        }
-        seenKey(source, invocationId) {
-          return `${source}:${invocationId}`;
-        }
-        markSeen(source, invocationId) {
-          const key = this.seenKey(source, invocationId);
-          const now = Date.now();
-          const existing = this.seenInvocations.get(key);
-          if (existing && existing.expiresAt > now)
-            return false;
-          this.seenInvocations.set(key, { expiresAt: now + types_1.INVOKE_DEDUPE_TTL_MS });
-          return true;
-        }
-        async handleRequestInvocation(envelope) {
-          const req = envelope.event;
-          if (!this.markSeen(envelope.source, req.invocationId))
-            return;
-          const meta = {
-            source: envelope.source,
-            destination: envelope.destination,
-            type: "request-invocation"
-          };
-          const handler = this.invocationHandlers.get(req.name);
-          if (!handler) {
-            this.sendTransport(envelope.source, "invocation-response", {
-              invocationId: req.invocationId,
-              error: { message: "no_handler", name: "NoInvocationHandler" }
-            });
-            return;
-          }
-          this.sendTransport(envelope.source, "invocation-started", { invocationId: req.invocationId });
-          const heartbeat = setInterval(() => {
-            this.sendTransport(envelope.source, "invocation-heartbeat", { invocationId: req.invocationId });
-          }, types_1.HEARTBEAT_INTERVAL_MS);
-          this.activeHeartbeats.set(req.invocationId, heartbeat);
-          try {
-            const value = await handler(req.args, meta);
-            clearInterval(heartbeat);
-            this.activeHeartbeats.delete(req.invocationId);
-            this.sendTransport(envelope.source, "invocation-response", {
-              invocationId: req.invocationId,
-              result: value
-            });
-          } catch (err) {
-            clearInterval(heartbeat);
-            this.activeHeartbeats.delete(req.invocationId);
-            this.sendTransport(envelope.source, "invocation-response", {
-              invocationId: req.invocationId,
-              error: (0, types_1.serializeBusError)(err)
-            });
-          }
-        }
-        handleInvocationStarted(event) {
-          this.resetPendingTimer(event.invocationId);
-        }
-        handleInvocationHeartbeat(event) {
-          this.resetPendingTimer(event.invocationId);
-        }
-        resetPendingTimer(invocationId) {
-          const pending = this.pending.get(invocationId);
-          if (!pending)
-            return;
-          clearTimeout(pending.timer);
-          pending.timer = setTimeout(() => {
-            this.pending.delete(invocationId);
-            pending.resolve({ ok: false, error: { message: "timeout", name: "InvokeTimeout" } });
-          }, pending.timeoutMs);
-        }
-        handleInvocationResponse(event) {
-          const pending = this.pending.get(event.invocationId);
-          if (!pending)
-            return;
-          clearTimeout(pending.timer);
-          this.pending.delete(event.invocationId);
-          if (event.error !== void 0) {
-            pending.resolve({ ok: false, error: event.error });
-            return;
-          }
-          pending.resolve({ ok: true, value: event.result });
-        }
-        sendTransport(destination, type, event) {
-          this.carrier.send({
-            channel: types_1.CONTEXT_BUS_CHANNEL,
-            source: this.contextId,
-            destination,
-            type,
-            event
-          });
-        }
-        allocInvocationId() {
-          const id = this.nextInvocationId;
-          this.nextInvocationId = id === 4294967295 ? 1 : id + 1;
-          if (this.nextInvocationId === 0)
-            this.nextInvocationId = 1;
-          return id;
-        }
-      };
-      exports.ContextBus = ContextBus;
-      var types_2 = require_types();
-      Object.defineProperty(exports, "CONTEXT_BUS_CHANNEL", { enumerable: true, get: function() {
-        return types_2.CONTEXT_BUS_CHANNEL;
-      } });
-      Object.defineProperty(exports, "CONTEXT_BUS_RUNTIME", { enumerable: true, get: function() {
-        return types_2.CONTEXT_BUS_RUNTIME;
-      } });
-      Object.defineProperty(exports, "CONTEXT_ID_MAX_DOCUMENT", { enumerable: true, get: function() {
-        return types_2.CONTEXT_ID_MAX_DOCUMENT;
-      } });
-      Object.defineProperty(exports, "DEFAULT_INVOKE_IDLE_TIMEOUT_MS", { enumerable: true, get: function() {
-        return types_2.DEFAULT_INVOKE_IDLE_TIMEOUT_MS;
-      } });
-      Object.defineProperty(exports, "HEARTBEAT_INTERVAL_MS", { enumerable: true, get: function() {
-        return types_2.HEARTBEAT_INTERVAL_MS;
-      } });
-      Object.defineProperty(exports, "INVOKE_DEDUPE_TTL_MS", { enumerable: true, get: function() {
-        return types_2.INVOKE_DEDUPE_TTL_MS;
-      } });
-    }
-  });
-
-  // ../packages/page-projection/dist/core/contextBus/index.js
-  var require_contextBus2 = __commonJS({
-    "../packages/page-projection/dist/core/contextBus/index.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.serializeBusError = exports.isValidDestination = exports.isValidContextId = exports.isMalformedEnvelope = exports.isBusEnvelope = exports.assertStructuredCloneSafe = exports.TRANSPORT_PROTOCOL_TYPES = exports.INVOKE_DEDUPE_TTL_MS = exports.HEARTBEAT_INTERVAL_MS = exports.DEFAULT_INVOKE_IDLE_TIMEOUT_MS = exports.CONTEXT_ID_PROVISIONAL = exports.CONTEXT_ID_MAX_DOCUMENT = exports.CONTEXT_BUS_RUNTIME = exports.CONTEXT_BUS_CHANNEL = exports.ContextBus = void 0;
-      var contextBus_1 = require_contextBus();
-      Object.defineProperty(exports, "ContextBus", { enumerable: true, get: function() {
-        return contextBus_1.ContextBus;
-      } });
-      var types_1 = require_types();
-      Object.defineProperty(exports, "CONTEXT_BUS_CHANNEL", { enumerable: true, get: function() {
-        return types_1.CONTEXT_BUS_CHANNEL;
-      } });
-      Object.defineProperty(exports, "CONTEXT_BUS_RUNTIME", { enumerable: true, get: function() {
-        return types_1.CONTEXT_BUS_RUNTIME;
-      } });
-      Object.defineProperty(exports, "CONTEXT_ID_MAX_DOCUMENT", { enumerable: true, get: function() {
-        return types_1.CONTEXT_ID_MAX_DOCUMENT;
-      } });
-      Object.defineProperty(exports, "CONTEXT_ID_PROVISIONAL", { enumerable: true, get: function() {
-        return types_1.CONTEXT_ID_PROVISIONAL;
-      } });
-      Object.defineProperty(exports, "DEFAULT_INVOKE_IDLE_TIMEOUT_MS", { enumerable: true, get: function() {
-        return types_1.DEFAULT_INVOKE_IDLE_TIMEOUT_MS;
-      } });
-      Object.defineProperty(exports, "HEARTBEAT_INTERVAL_MS", { enumerable: true, get: function() {
-        return types_1.HEARTBEAT_INTERVAL_MS;
-      } });
-      Object.defineProperty(exports, "INVOKE_DEDUPE_TTL_MS", { enumerable: true, get: function() {
-        return types_1.INVOKE_DEDUPE_TTL_MS;
-      } });
-      Object.defineProperty(exports, "TRANSPORT_PROTOCOL_TYPES", { enumerable: true, get: function() {
-        return types_1.TRANSPORT_PROTOCOL_TYPES;
-      } });
-      Object.defineProperty(exports, "assertStructuredCloneSafe", { enumerable: true, get: function() {
-        return types_1.assertStructuredCloneSafe;
-      } });
-      Object.defineProperty(exports, "isBusEnvelope", { enumerable: true, get: function() {
-        return types_1.isBusEnvelope;
-      } });
-      Object.defineProperty(exports, "isMalformedEnvelope", { enumerable: true, get: function() {
-        return types_1.isMalformedEnvelope;
-      } });
-      Object.defineProperty(exports, "isValidContextId", { enumerable: true, get: function() {
-        return types_1.isValidContextId;
-      } });
-      Object.defineProperty(exports, "isValidDestination", { enumerable: true, get: function() {
-        return types_1.isValidDestination;
-      } });
-      Object.defineProperty(exports, "serializeBusError", { enumerable: true, get: function() {
-        return types_1.serializeBusError;
-      } });
-    }
-  });
-
-  // ../packages/page-projection/dist/projected/input/snapshotScrollCensus.js
-  var require_snapshotScrollCensus = __commonJS({
-    "../packages/page-projection/dist/projected/input/snapshotScrollCensus.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.snapshotScrollCensus = void 0;
-      function snapshotScrollCensus(args) {
-        const positions = [];
-        const { doc, win, registry, scrollIndex } = args;
-        const top = win?.scrollY || doc.scrollingElement?.scrollTop || 0;
-        const left = win?.scrollX || doc.scrollingElement?.scrollLeft || 0;
-        positions.push({ nodeId: null, scrollX: left, scrollY: top });
-        if (scrollIndex) {
-          for (const nodeId of scrollIndex.entries()) {
-            const node = registry.get(nodeId);
-            if (!node || node.nodeType !== 1)
-              continue;
-            const el = node;
-            positions.push({
-              nodeId,
-              scrollX: el.scrollLeft || 0,
-              scrollY: el.scrollTop || 0
-            });
-          }
-        }
-        return { contexts: [{ contextId: args.contextId, positions }] };
-      }
-      exports.snapshotScrollCensus = snapshotScrollCensus;
-    }
-  });
-
-  // ../packages/page-projection/dist/projected/input/projectedInputRuntime.js
-  var require_projectedInputRuntime = __commonJS({
-    "../packages/page-projection/dist/projected/input/projectedInputRuntime.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.ProjectedInputRuntime = exports.RPC_SNAPSHOT_ONE = exports.RPC_SNAPSHOT_ALL = void 0;
-      var contextBus_1 = require_contextBus2();
-      var frame_1 = require_frame();
-      var snapshotScrollCensus_1 = require_snapshotScrollCensus();
-      exports.RPC_SNAPSHOT_ALL = "snapshotScrollPositionsFromAllContexts";
-      exports.RPC_SNAPSHOT_ONE = "snapshotScrollPosition";
-      var ProjectedInputRuntime = class {
-        contextBuses = /* @__PURE__ */ new Map();
-        registry = /* @__PURE__ */ new Set();
-        runtime;
-        constructor() {
-          const carrier = { send: (envelope) => this.route(envelope) };
-          this.runtime = new contextBus_1.ContextBus({
-            contextId: contextBus_1.CONTEXT_BUS_RUNTIME,
-            servesRuntime: true,
-            carrier
-          });
-          this.wireRuntime();
-          this.runtime.onEvent("contextRootOnline", (ev) => {
-            this.registry.add(ev.rootContextId);
-          });
-          this.runtime.onEvent("contextHostAdmitted", (ev) => {
-            this.registry.add(ev.contextId);
-          });
-          this.runtime.onEvent("contextHostDropped", (ev) => {
-            this.registry.delete(ev.contextId);
-          });
-        }
-        bootstrapRoot(deps) {
-          const bus = this.registerContext(deps);
-          bus.emit("contextRootOnline", { rootContextId: frame_1.CONTEXT_ID_ROOT }, {
-            destination: contextBus_1.CONTEXT_BUS_RUNTIME
-          });
-          return bus;
-        }
-        registerContext(deps) {
-          const carrier = { send: (envelope) => this.route(envelope) };
-          const bus = new contextBus_1.ContextBus({
-            contextId: deps.contextId,
-            servesRuntime: false,
-            carrier
-          });
-          bus.onInvocation(exports.RPC_SNAPSHOT_ONE, () => {
-            const doc = deps.getDocument();
-            const snap = (0, snapshotScrollCensus_1.snapshotScrollCensus)({
-              contextId: deps.contextId,
-              doc,
-              win: doc.defaultView,
-              registry: deps.getRegistry(),
-              scrollIndex: deps.getScrollIndex()
-            });
-            const ctx = snap.contexts[0];
-            if (!ctx)
-              throw new Error("snapshot_empty");
-            return { contextId: ctx.contextId, positions: ctx.positions };
-          });
-          this.contextBuses.set(deps.contextId, bus);
-          this.registry.add(deps.contextId);
-          return bus;
-        }
-        unregisterContext(contextId) {
-          this.registry.delete(contextId);
-          const bus = this.contextBuses.get(contextId);
-          if (bus) {
-            bus.dispose();
-            this.contextBuses.delete(contextId);
-          }
-        }
-        getContextBus(contextId) {
-          return this.contextBuses.get(contextId);
-        }
-        announceHostAdmitted(fromContextId, contextId, hostNodeId) {
-          const bus = this.contextBuses.get(fromContextId);
-          if (!bus)
-            return;
-          bus.emit("contextHostAdmitted", { contextId, hostNodeId }, { destination: contextBus_1.CONTEXT_BUS_RUNTIME });
-        }
-        announceHostDropped(fromContextId, contextId, hostNodeId) {
-          const bus = this.contextBuses.get(fromContextId);
-          if (!bus)
-            return;
-          bus.emit("contextHostDropped", { contextId, hostNodeId }, { destination: contextBus_1.CONTEXT_BUS_RUNTIME });
-        }
-        async requestScrollCensus(fromContextId) {
-          const bus = this.contextBuses.get(fromContextId);
-          if (!bus)
-            return { ok: false, reason: "context_not_registered" };
-          const r = await bus.invoke(exports.RPC_SNAPSHOT_ALL, {}, { destination: contextBus_1.CONTEXT_BUS_RUNTIME, timeoutMs: contextBus_1.DEFAULT_INVOKE_IDLE_TIMEOUT_MS });
-          if (!r.ok)
-            return { ok: false, reason: r.error?.message ?? "census_failed" };
-          return { ok: true, census: r.value };
-        }
-        dispose() {
-          for (const bus of this.contextBuses.values())
-            bus.dispose();
-          this.contextBuses.clear();
-          this.registry.clear();
-          this.runtime.dispose();
-        }
-        wireRuntime() {
-          this.runtime.onInvocation(exports.RPC_SNAPSHOT_ALL, async () => {
-            const ids = [...this.registry].sort((a, b) => a - b);
-            if (ids.length === 0)
-              throw new Error("census_no_contexts");
-            const contexts = [];
-            for (const id of ids) {
-              const r = await this.runtime.invoke(exports.RPC_SNAPSHOT_ONE, {}, { destination: id, timeoutMs: contextBus_1.DEFAULT_INVOKE_IDLE_TIMEOUT_MS });
-              if (!r.ok)
-                throw new Error(r.error?.message ?? "census_partial_failure");
-              contexts.push({ contextId: r.value.contextId, positions: r.value.positions });
-            }
-            return { contexts };
-          });
-        }
-        route(envelope) {
-          const dest = envelope.destination;
-          if (dest === "*") {
-            for (const [id, bus] of this.contextBuses) {
-              if (envelope.source !== id)
-                bus.receive(envelope);
-            }
-            if (envelope.source !== contextBus_1.CONTEXT_BUS_RUNTIME) {
-              this.runtime.receive(envelope);
-            }
-            return;
-          }
-          if (dest === contextBus_1.CONTEXT_BUS_RUNTIME) {
-            this.runtime.receive(envelope);
-            return;
-          }
-          const node = this.contextBuses.get(dest);
-          if (node)
-            node.receive(envelope);
-        }
-      };
-      exports.ProjectedInputRuntime = ProjectedInputRuntime;
-    }
-  });
-
   // ../packages/page-projection/dist/projected/ProjectionClient.js
   var require_ProjectionClient = __commonJS({
     "../packages/page-projection/dist/projected/ProjectionClient.js"(exports) {
@@ -4403,8 +3683,6 @@
       var opcodes_1 = require_opcodes();
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
-      var scrollableIndex_1 = require_scrollableIndex();
-      var projectedInputRuntime_1 = require_projectedInputRuntime();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -4420,8 +3698,6 @@
         getAssetBaseUrl;
         token;
         assetBaseUrl;
-        scrollIndex = new scrollableIndex_1.ScrollableIndex();
-        inputRuntime = new projectedInputRuntime_1.ProjectedInputRuntime();
         /** The currently-live target — reassigned wholesale on a successful resync swap. */
         live;
         /** Set only while a resync response is being built into the standby surface; `null` otherwise. */
@@ -4465,12 +3741,6 @@
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, this.surface.document);
           this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
-          this.inputRuntime.bootstrapRoot({
-            contextId: frame_1.CONTEXT_ID_ROOT,
-            getDocument: () => this.surface.document,
-            getRegistry: () => this.live.registry,
-            getScrollIndex: () => this.scrollIndex
-          });
         }
         installNestedHost(iframe, contextId) {
           if (this.nested.has(contextId))
@@ -4513,13 +3783,6 @@
               })
             });
             this.nested.set(contextId, session);
-            this.inputRuntime.registerContext({
-              contextId,
-              getDocument: () => iframe.contentDocument,
-              getRegistry: () => session.registry,
-              getScrollIndex: () => session.getScrollableIndex()
-            });
-            this.inputRuntime.announceHostAdmitted(frame_1.CONTEXT_ID_ROOT, contextId, contextId);
             const queued = this.pendingNestedFrames.get(contextId);
             if (queued) {
               this.pendingNestedFrames.delete(contextId);
@@ -4546,8 +3809,6 @@
           const existing = this.nested.get(contextId);
           if (!existing)
             return;
-          this.inputRuntime.announceHostDropped(frame_1.CONTEXT_ID_ROOT, contextId, contextId);
-          this.inputRuntime.unregisterContext(contextId);
           existing.dispose();
           this.nested.delete(contextId);
         }
@@ -4560,10 +3821,6 @@
         getLiveRegistry() {
           return this.live.registry;
         }
-        /** Projected scrollable index (D-UI-32) for S6 census. */
-        getScrollableIndex() {
-          return this.scrollIndex;
-        }
         markPropDirty(id) {
           this.live.applier.markPropDirty(id);
         }
@@ -4575,17 +3832,9 @@
               registry: nested.registry,
               isArmed: () => nested.isArmed,
               getGeneration: () => nested.getGeneration(),
-              markPropDirty: (id) => nested.markPropDirty(id),
-              getScrollableIndex: () => nested.getScrollableIndex()
+              markPropDirty: (id) => nested.markPropDirty(id)
             });
           }
-        }
-        /**
-         * S6 — multi-context census via ContextBus RPC (draft §10.1b).
-         * Invoked from the emitting Projected context; RUNTIME fans out per context.
-         */
-        async requestScrollCensus(fromContextId) {
-          return this.inputRuntime.requestScrollCensus(fromContextId);
         }
         /**
          * Last sequence accepted into the apply queue (may still be one `requestAnimationFrame` away
@@ -4653,18 +3902,10 @@
           for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
             this.cancelPendingNestedHost(contextId);
           }
-          this.inputRuntime.dispose();
-          this.inputRuntime = new projectedInputRuntime_1.ProjectedInputRuntime();
           this.surface.reset();
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, this.surface.document);
           this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
-          this.inputRuntime.bootstrapRoot({
-            contextId: frame_1.CONTEXT_ID_ROOT,
-            getDocument: () => this.surface.document,
-            getRegistry: () => this.live.registry,
-            getScrollIndex: () => this.scrollIndex
-          });
         }
         ingest(bytes) {
           const hdr = (0, decode_1.peekFrameHeader)(bytes);
@@ -4740,7 +3981,6 @@
           const applier = new applyDom_1.DomFrameApplier(doc, registry, {
             stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
             stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, this.resolveToken(), this.resolveAssetBaseUrl()),
-            scrollableIndex: this.scrollIndex,
             onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onWarn: (message) => {
@@ -5061,7 +4301,6 @@
       exports.attachNestedProjectedInputCapture = exports.attachProjectedInputCapture = void 0;
       var unifiedIntentTypes_1 = require_unifiedIntentTypes();
       var ClientBuffer_1 = require_ClientBuffer();
-      var snapshotScrollCensus_1 = require_snapshotScrollCensus();
       function isElement(node) {
         return !!node && typeof node === "object" && node.nodeType === 1;
       }
@@ -5079,7 +4318,6 @@
         const doc = surface.ownerDocument;
         const win = doc.defaultView;
         const buffer = new ClientBuffer_1.ClientBuffer();
-        const sparse = opts.capturePolicy === "sparse";
         const fire = (intent) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
@@ -5133,28 +4371,7 @@
           const sy = y * (vh / visH);
           return { x: Math.min(Math.max(sx, 0), vw - 1e-6), y: Math.min(Math.max(sy, 0), vh - 1e-6) };
         };
-        const onPointerMove = (event) => {
-          if (!opts.isArmed()) {
-            opts.metrics?.noteSkip("disarmed");
-            return;
-          }
-          const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
-          if (!coords) {
-            opts.metrics?.noteSkip("no_coords");
-            return;
-          }
-          opts.metrics?.noteMoveCoalesce();
-          const stamp = viewportStamp();
-          enqueue({
-            schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
-            type: "move",
-            timestampClient: performance.now(),
-            ...stamp,
-            x: coords.x,
-            y: coords.y
-          });
-        };
-        const runPointerEdge = async (event, type) => {
+        const runPointerEdge = (event, type) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
             return;
@@ -5165,43 +4382,8 @@
             return;
           }
           const stamp = viewportStamp();
-          if (sparse) {
-            const hit = doc.elementFromPoint(event.clientX, event.clientY);
-            const nodeId = hit ? registry.idOfNearest(hit) ?? null : null;
-            enqueue({
-              schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
-              type,
-              timestampClient: performance.now(),
-              ...stamp,
-              x: coords.x,
-              y: coords.y,
-              button: buttonFromEvent(event.button),
-              contextId: opts.contextId,
-              nodeId
-            });
-            return;
-          }
-          const censusT0 = performance.now();
-          let census;
-          if (opts.requestScrollCensus) {
-            const full = await opts.requestScrollCensus();
-            if ("ok" in full && full.ok === false) {
-              opts.metrics?.noteSkip("census_fail");
-              return;
-            }
-            census = full;
-          } else {
-            census = (0, snapshotScrollCensus_1.snapshotScrollCensus)({
-              contextId: opts.contextId,
-              doc,
-              win,
-              registry,
-              scrollIndex: opts.scrollIndex ?? null
-            });
-          }
-          const censusMs = performance.now() - censusT0;
-          const positionCount = census.contexts.reduce((n, c) => n + c.positions.length, 0);
-          opts.metrics?.noteCensusSnapshot(censusMs, positionCount);
+          const hit = doc.elementFromPoint(event.clientX, event.clientY);
+          const nodeId = hit ? registry.idOfNearest(hit) ?? null : null;
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type,
@@ -5210,11 +4392,12 @@
             x: coords.x,
             y: coords.y,
             button: buttonFromEvent(event.button),
-            census
+            contextId: opts.contextId,
+            nodeId
           });
         };
         const onPointerEdge = (event, type) => {
-          void runPointerEdge(event, type);
+          runPointerEdge(event, type);
         };
         const onClick = (event) => {
           event.preventDefault();
@@ -5316,9 +4499,6 @@
         };
         const onPointerDown = (event) => onPointerEdge(event, "down");
         const onPointerUp = (event) => onPointerEdge(event, "up");
-        if (!sparse) {
-          doc.addEventListener("pointermove", onPointerMove, true);
-        }
         doc.addEventListener("pointerdown", onPointerDown, true);
         doc.addEventListener("pointerup", onPointerUp, true);
         doc.addEventListener("click", onClick, true);
@@ -5333,9 +4513,6 @@
         win?.addEventListener("scroll", onScroll, true);
         return () => {
           buffer.dispose();
-          if (!sparse) {
-            doc.removeEventListener("pointermove", onPointerMove, true);
-          }
           doc.removeEventListener("pointerdown", onPointerDown, true);
           doc.removeEventListener("pointerup", onPointerUp, true);
           doc.removeEventListener("click", onClick, true);
@@ -5391,9 +4568,7 @@
         skippedNoCoords = 0;
         skippedNoNodeId = 0;
         lastEmitWallMs = null;
-        lastCensusPositions = null;
         intervalSamples = [];
-        censusSamples = [];
         noteEmit(type) {
           this.emitted += 1;
           const key = type || "unknown";
@@ -5423,14 +4598,6 @@
           else
             this.skippedNoNodeId += 1;
         }
-        noteCensusSnapshot(ms, positionCount) {
-          if (Number.isFinite(ms) && ms >= 0) {
-            this.censusSamples.push(ms);
-            if (this.censusSamples.length > SAMPLE_CAP)
-              this.censusSamples.shift();
-          }
-          this.lastCensusPositions = positionCount;
-        }
         snapshot() {
           return {
             emitted: this.emitted,
@@ -5441,8 +4608,6 @@
             skippedNoCoords: this.skippedNoCoords,
             skippedNoNodeId: this.skippedNoNodeId,
             emitIntervalMs: latencyStats(this.intervalSamples),
-            censusSnapshotMs: latencyStats(this.censusSamples),
-            lastCensusPositions: this.lastCensusPositions,
             lastEmitWallMs: this.lastEmitWallMs
           };
         }
@@ -6083,6 +5248,7 @@
   // browser/mirror/projection/lab/client/LabProjectedHarness.ts
   var import_ProjectionClient = __toESM(require_ProjectionClient());
   var import_frame = __toESM(require_frame());
+  var import_tableDigest = __toESM(require_tableDigest());
   var LabProjectedHarness = class {
     client;
     constructor(opts) {
@@ -6129,32 +5295,21 @@
     getLiveRegistry() {
       return this.client.getLiveRegistry();
     }
-    getScrollableIndex() {
-      return this.client.getScrollableIndex();
-    }
-    requestScrollCensus(fromContextId) {
-      return this.client.requestScrollCensus(fromContextId);
-    }
     /**
-     * Lab diag — peek Projected input fabric (registry vs live buses vs nested hosts).
-     * Ghost signature: id in `registry` but missing from `buses` (or nested already dropped).
+     * Lab diag — peek nested host bookkeeping (awaiting load vs bound nested).
      */
-    peekProjectedInputRuntime() {
+    peekNestedHosts() {
       const c = this.client;
-      const registry = [...c.inputRuntime.registry].sort((a, b) => a - b);
-      const buses = [...c.inputRuntime.contextBuses.keys()].sort((a, b) => a - b);
-      const nested = [...c.nested.keys()].sort((a, b) => a - b);
-      const awaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
-      const busSet = new Set(buses);
-      const nestedSet = new Set(nested);
-      const ghosts = registry.filter((id) => id !== 1 && (!busSet.has(id) || !nestedSet.has(id)));
-      return { registry, buses, nested, awaiting, ghosts };
+      return {
+        nested: [...c.nested.keys()].sort((a, b) => a - b),
+        awaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b)
+      };
     }
     /**
      * Lab diag — load-after-drop: drop must cancel the pending `load` bind so a later
-     * navigation cannot register a ProjectedInputRuntime ghost. Relocated out of
+     * navigation cannot leave a dangling awaiting-load entry. Relocated out of
      * {@link ProjectionClient} (product/web bundle) — same logic, driven through its private
-     * nested-host bookkeeping via the same lab-only cast as {@link peekProjectedInputRuntime}.
+     * nested-host bookkeeping via the same lab-only cast as {@link peekNestedHosts}.
      */
     forceLoadAfterDropRaceForDiag(contextId) {
       const c = this.client;
@@ -6216,7 +5371,7 @@
           contextId,
           sequence: 0,
           generation: 0,
-          table: digestReplicatedTable(this.client.getLiveRegistry()),
+          table: (0, import_tableDigest.digestReplicatedTable)(this.client.getLiveRegistry()),
           desynced: true,
           applyError: "nested_context_missing",
           armed: false,
@@ -6383,35 +5538,12 @@
     let inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
     let sessionToken = "";
     let assetBaseUrl = window.location.origin;
-    let activeInputAdapter = "sparse-cdp";
     let canonicalViewport = { width: 1280, height: 720 };
     let viewportSync = null;
     let pendingResize = null;
     let bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
-    window.__labDiagProjectedPeek = () => projection ? projection.peekProjectedInputRuntime() : null;
+    window.__labDiagProjectedPeek = () => projection ? projection.peekNestedHosts() : null;
     window.__labDiagForceLoadAfterDrop = (contextId = 99) => projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
-    window.__labDiagProjectedInput = async () => {
-      if (!projection) return null;
-      const peek = projection.peekProjectedInputRuntime();
-      const t0 = performance.now();
-      const census = await projection.requestScrollCensus(import_frame2.CONTEXT_ID_ROOT);
-      const censusMs = performance.now() - t0;
-      if (census.ok) {
-        return {
-          ...peek,
-          censusOk: true,
-          censusIds: census.census.contexts.map((c) => c.contextId),
-          censusMs
-        };
-      }
-      return {
-        ...peek,
-        censusOk: false,
-        censusReason: census.reason,
-        censusIds: [],
-        censusMs
-      };
-    };
     function disposeViewportSync() {
       viewportSync?.dispose();
       viewportSync = null;
@@ -6477,7 +5609,6 @@
           payload.viewportW = intent.viewportW;
           payload.viewportH = intent.viewportH;
           payload.button = intent.button;
-          if (intent.census) payload.census = intent.census;
           if (intent.type !== "move") {
             if (intent.contextId != null) payload.contextId = intent.contextId;
             if (intent.nodeId !== void 0) payload.nodeId = intent.nodeId;
@@ -6504,7 +5635,6 @@
       inputDetachers.clear();
       inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
       const scrollEcho = new import_projected.ScrollEchoGate();
-      const capturePolicy = activeInputAdapter === "sparse-cdp" ? "sparse" : "peripheral";
       const rootSurface = client.document.documentElement;
       if (rootSurface && rootSurface.nodeType === 1) {
         const detach = (0, import_projected.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
@@ -6514,12 +5644,6 @@
           isArmed: () => client.isArmed,
           onMarkPropDirty: (id) => client.markPropDirty(id),
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
-          scrollIndex: client.getScrollableIndex(),
-          capturePolicy,
-          requestScrollCensus: async () => {
-            const r = await client.requestScrollCensus(import_frame2.CONTEXT_ID_ROOT);
-            return r.ok ? r.census : r;
-          },
           metrics: inputCaptureMetrics
         });
         inputDetachers.set(import_frame2.CONTEXT_ID_ROOT, detach);
@@ -6539,12 +5663,6 @@
           isArmed: info.isArmed,
           onMarkPropDirty: info.markPropDirty,
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
-          scrollIndex: info.getScrollableIndex(),
-          capturePolicy,
-          requestScrollCensus: async () => {
-            const r = await client.requestScrollCensus(info.contextId);
-            return r.ok ? r.census : r;
-          },
           metrics: inputCaptureMetrics
         });
         inputDetachers.set(info.contextId, detach);
@@ -7176,8 +6294,7 @@
           phase = "live";
           browseSnapCount = 0;
           $("streamSnaps").textContent = "0";
-          activeInputAdapter = msg.inputAdapter === "os-abs" ? "os-abs" : "sparse-cdp";
-          logActivity(`booted mode=${msg.mode} inputAdapter=${activeInputAdapter} dossier=${msg.dossierDir}`);
+          logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
           startViewportSync();
           if (msg.mode === "browse") startAutoSnap();
           syncButtons();
@@ -7354,8 +6471,7 @@
           device: bootDeviceProfile,
           frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
           telemetry: readTelemetryFromUi(),
-          cpuProfiling: document.getElementById("browseCpu")?.checked === true,
-          inputAdapter: document.getElementById("inputAdapter")?.value ?? "sparse-cdp"
+          cpuProfiling: document.getElementById("browseCpu")?.checked === true
         })
       );
     });

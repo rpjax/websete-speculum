@@ -16,8 +16,6 @@ export type LabClientMessage =
       width?: number;
       height?: number;
       device?: Record<string, unknown>;
-      /** Opt-in only (never an env var) — see docs/page-projection/spec/decision-log.md 2026-08-27. */
-      inputAdapter?: 'os-abs' | 'sparse-cdp';
     }
   | { type: 'browse.stop'; exportDossier?: boolean; inputCapture?: unknown }
   | { type: 'browse.navigate'; url: string }
@@ -83,7 +81,6 @@ export type LabHostMessage =
       mode: 'browse' | 'run';
       url: string;
       dossierDir: string;
-      inputAdapter?: 'os-abs' | 'sparse-cdp';
     }
   | {
       type: 'session.stopped';

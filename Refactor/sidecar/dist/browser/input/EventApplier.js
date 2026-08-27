@@ -1,6 +1,6 @@
 "use strict";
 /**
- * Serial EventApplier — routes unified intents (§10.5).
+ * Serial EventApplier — routes unified intents (sparse-cdp / live-node only).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventApplier = void 0;
@@ -41,6 +41,7 @@ class EventApplier {
     async applyOne(intent) {
         switch (intent.type) {
             case 'move':
+                // Sparse catalog rejects continuous move at the peripheral; still validate stamp.
                 if (!this.validatePointer(intent))
                     return;
                 this.opts.pointer.moveTo(intent.x, intent.y);
@@ -50,44 +51,18 @@ class EventApplier {
                 if (!this.validatePointer(intent))
                     return;
                 const delivery = this.opts.clickDelivery;
-                switch (delivery.mode) {
-                    case 'live-node-resolve': {
-                        // `sparse-cdp` pipeline (decision-log.md 2026-08-27) — id-addressed, no S6
-                        // census/sync at all. `nodeId == null` (empty space / unmapped hit-test miss) is
-                        // the documented fallback: dispatch straight at the client's raw coordinate,
-                        // unresolved, no Virtual round trip.
-                        if (intent.nodeId == null) {
-                            this.opts.pointer.moveTo(intent.x, intent.y);
-                            this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
-                            return;
-                        }
-                        const resolved = await delivery.resolveClickTarget(intent.contextId ?? 1, intent.nodeId);
-                        if (!resolved.ok || resolved.x == null || resolved.y == null) {
-                            this.reject(resolved.reason ? `resolve_click_failed:${resolved.reason}` : 'resolve_click_failed', 'virtual_resolve');
-                            return;
-                        }
-                        this.opts.pointer.moveTo(resolved.x, resolved.y);
-                        this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
-                        return;
-                    }
-                    case 'census-coordinated': {
-                        // Sealed `os-abs` path (S6, LOCKED D-UI-26) — unchanged.
-                        if (this.opts.isPageProjection()) {
-                            if (!intent.census) {
-                                this.reject('missing_census', 'validate');
-                                return;
-                            }
-                            const phaseA = await delivery.applyScrollCensus(intent.census);
-                            if (!phaseA.ok) {
-                                this.reject(phaseA.error ? `apply_scroll_failed:${phaseA.error}` : 'apply_scroll_failed', 'virtual_apply');
-                                return;
-                            }
-                        }
-                        this.opts.pointer.moveTo(intent.x, intent.y);
-                        this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
-                        return;
-                    }
+                if (intent.nodeId == null) {
+                    this.opts.pointer.moveTo(intent.x, intent.y);
+                    this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
+                    return;
                 }
+                const resolved = await delivery.resolveClickTarget(intent.contextId ?? 1, intent.nodeId);
+                if (!resolved.ok || resolved.x == null || resolved.y == null) {
+                    this.reject(resolved.reason ? `resolve_click_failed:${resolved.reason}` : 'resolve_click_failed', 'virtual_resolve');
+                    return;
+                }
+                this.opts.pointer.moveTo(resolved.x, resolved.y);
+                this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
                 return;
             }
             case 'keyDown':

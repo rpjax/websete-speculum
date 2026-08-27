@@ -25,10 +25,34 @@ export type NodeDataPlaneOptions = {
 
 const DEFAULT_WATERMARK = 256 * 1024;
 
+/** One finished (or timed-out) sidecar→Virtual invoke — for SPECULUM_DIAG_LOOPBACK=1. */
+export type InvokeDiagTrace = {
+  name: string;
+  correlationId: number;
+  wallMs: number;
+  timeoutMs: number;
+  started: boolean;
+  heartbeats: number;
+  ok: boolean;
+  errorMessage?: string;
+  errorName?: string;
+};
+
+const DIAG = process.env.SPECULUM_DIAG_LOOPBACK === '1';
+const diagTraces: InvokeDiagTrace[] = [];
+
+export function drainInvokeDiagTraces(): InvokeDiagTrace[] {
+  return diagTraces.splice(0, diagTraces.length);
+}
+
 type PendingInvoke = {
   resolve: (r: LoopbackInvokeResult) => void;
   timer: ReturnType<typeof setTimeout>;
   timeoutMs: number;
+  name: string;
+  t0: number;
+  started: boolean;
+  heartbeats: number;
 };
 
 /**
@@ -62,6 +86,11 @@ export class NodeDataPlane implements DataPlane {
       const bytes = Uint8Array.from(buf);
       const env = decodeLoopbackEnvelope(bytes);
       if (env?.kind === 'invoke-started' || env?.kind === 'invoke-heartbeat') {
+        const pending = this.pending.get(env.correlationId);
+        if (pending) {
+          if (env.kind === 'invoke-started') pending.started = true;
+          if (env.kind === 'invoke-heartbeat') pending.heartbeats += 1;
+        }
         this.resetPendingTimer(env.correlationId);
         return;
       }
@@ -70,11 +99,13 @@ export class NodeDataPlane implements DataPlane {
         if (!pending) return;
         this.pending.delete(env.correlationId);
         clearTimeout(pending.timer);
-        pending.resolve({
+        const result: LoopbackInvokeResult = {
           ok: env.ok,
           value: env.value,
           error: env.error,
-        });
+        };
+        this.recordDiag(pending, env.correlationId, result);
+        pending.resolve(result);
         return;
       }
       if (this.handler === null) return;
@@ -123,13 +154,24 @@ export class NodeDataPlane implements DataPlane {
     const timeoutMs = opts?.timeoutMs ?? LOOPBACK_INVOKE_IDLE_MS;
     const resultPromise = new Promise<LoopbackInvokeResult>((resolve) => {
       const timer = setTimeout(() => {
+        const pending = this.pending.get(correlationId);
         this.pending.delete(correlationId);
-        resolve({
+        const result: LoopbackInvokeResult = {
           ok: false,
           error: { message: `invoke idle timeout (${timeoutMs}ms)`, name: 'timeout' },
-        });
+        };
+        if (pending) this.recordDiag(pending, correlationId, result);
+        resolve(result);
       }, timeoutMs);
-      this.pending.set(correlationId, { resolve, timer, timeoutMs });
+      this.pending.set(correlationId, {
+        resolve,
+        timer,
+        timeoutMs,
+        name,
+        t0: performance.now(),
+        started: false,
+        heartbeats: 0,
+      });
     });
 
     try {
@@ -163,26 +205,49 @@ export class NodeDataPlane implements DataPlane {
     return 'accepted';
   }
 
+  private recordDiag(
+    pending: PendingInvoke,
+    correlationId: number,
+    result: LoopbackInvokeResult,
+  ): void {
+    if (!DIAG) return;
+    diagTraces.push({
+      name: pending.name,
+      correlationId,
+      wallMs: performance.now() - pending.t0,
+      timeoutMs: pending.timeoutMs,
+      started: pending.started,
+      heartbeats: pending.heartbeats,
+      ok: result.ok,
+      errorMessage: result.error?.message,
+      errorName: result.error?.name,
+    });
+  }
+
   private resetPendingTimer(correlationId: number): void {
     const pending = this.pending.get(correlationId);
     if (!pending) return;
     clearTimeout(pending.timer);
     pending.timer = setTimeout(() => {
       this.pending.delete(correlationId);
-      pending.resolve({
+      const result: LoopbackInvokeResult = {
         ok: false,
         error: {
           message: `invoke idle timeout (${pending.timeoutMs}ms)`,
           name: 'timeout',
         },
-      });
+      };
+      this.recordDiag(pending, correlationId, result);
+      pending.resolve(result);
     }, pending.timeoutMs);
   }
 
   private failAllPending(message: string): void {
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
-      pending.resolve({ ok: false, error: { message, name: 'closed' } });
+      const result: LoopbackInvokeResult = { ok: false, error: { message, name: 'closed' } };
+      this.recordDiag(pending, id, result);
+      pending.resolve(result);
       this.pending.delete(id);
     }
   }

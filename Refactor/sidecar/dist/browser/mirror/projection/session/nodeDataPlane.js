@@ -4,10 +4,16 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PlaneChannel = exports.NodeDataPlane = void 0;
+exports.drainInvokeDiagTraces = drainInvokeDiagTraces;
 const plane_1 = require("@speculum/page-projection/core/plane");
 Object.defineProperty(exports, "PlaneChannel", { enumerable: true, get: function () { return plane_1.PlaneChannel; } });
 const core_1 = require("@speculum/page-projection/core");
 const DEFAULT_WATERMARK = 256 * 1024;
+const DIAG = process.env.SPECULUM_DIAG_LOOPBACK === '1';
+const diagTraces = [];
+function drainInvokeDiagTraces() {
+    return diagTraces.splice(0, diagTraces.length);
+}
 /**
  * Adapts an already-accepted Node WebSocket (server side).
  */
@@ -37,6 +43,13 @@ class NodeDataPlane {
             const bytes = Uint8Array.from(buf);
             const env = (0, core_1.decodeLoopbackEnvelope)(bytes);
             if (env?.kind === 'invoke-started' || env?.kind === 'invoke-heartbeat') {
+                const pending = this.pending.get(env.correlationId);
+                if (pending) {
+                    if (env.kind === 'invoke-started')
+                        pending.started = true;
+                    if (env.kind === 'invoke-heartbeat')
+                        pending.heartbeats += 1;
+                }
                 this.resetPendingTimer(env.correlationId);
                 return;
             }
@@ -46,11 +59,13 @@ class NodeDataPlane {
                     return;
                 this.pending.delete(env.correlationId);
                 clearTimeout(pending.timer);
-                pending.resolve({
+                const result = {
                     ok: env.ok,
                     value: env.value,
                     error: env.error,
-                });
+                };
+                this.recordDiag(pending, env.correlationId, result);
+                pending.resolve(result);
                 return;
             }
             if (this.handler === null)
@@ -93,13 +108,25 @@ class NodeDataPlane {
         const timeoutMs = opts?.timeoutMs ?? core_1.LOOPBACK_INVOKE_IDLE_MS;
         const resultPromise = new Promise((resolve) => {
             const timer = setTimeout(() => {
+                const pending = this.pending.get(correlationId);
                 this.pending.delete(correlationId);
-                resolve({
+                const result = {
                     ok: false,
                     error: { message: `invoke idle timeout (${timeoutMs}ms)`, name: 'timeout' },
-                });
+                };
+                if (pending)
+                    this.recordDiag(pending, correlationId, result);
+                resolve(result);
             }, timeoutMs);
-            this.pending.set(correlationId, { resolve, timer, timeoutMs });
+            this.pending.set(correlationId, {
+                resolve,
+                timer,
+                timeoutMs,
+                name,
+                t0: performance.now(),
+                started: false,
+                heartbeats: 0,
+            });
         });
         try {
             socket.send(Buffer.from((0, core_1.encodeLoopbackInvoke)(correlationId, name, args)), { binary: true });
@@ -131,6 +158,21 @@ class NodeDataPlane {
         socket.send(Buffer.from((0, plane_1.encodePlaneEnvelope)(channel, payload)), { binary: true });
         return 'accepted';
     }
+    recordDiag(pending, correlationId, result) {
+        if (!DIAG)
+            return;
+        diagTraces.push({
+            name: pending.name,
+            correlationId,
+            wallMs: performance.now() - pending.t0,
+            timeoutMs: pending.timeoutMs,
+            started: pending.started,
+            heartbeats: pending.heartbeats,
+            ok: result.ok,
+            errorMessage: result.error?.message,
+            errorName: result.error?.name,
+        });
+    }
     resetPendingTimer(correlationId) {
         const pending = this.pending.get(correlationId);
         if (!pending)
@@ -138,19 +180,23 @@ class NodeDataPlane {
         clearTimeout(pending.timer);
         pending.timer = setTimeout(() => {
             this.pending.delete(correlationId);
-            pending.resolve({
+            const result = {
                 ok: false,
                 error: {
                     message: `invoke idle timeout (${pending.timeoutMs}ms)`,
                     name: 'timeout',
                 },
-            });
+            };
+            this.recordDiag(pending, correlationId, result);
+            pending.resolve(result);
         }, pending.timeoutMs);
     }
     failAllPending(message) {
         for (const [id, pending] of this.pending) {
             clearTimeout(pending.timer);
-            pending.resolve({ ok: false, error: { message, name: 'closed' } });
+            const result = { ok: false, error: { message, name: 'closed' } };
+            this.recordDiag(pending, id, result);
+            pending.resolve(result);
             this.pending.delete(id);
         }
     }

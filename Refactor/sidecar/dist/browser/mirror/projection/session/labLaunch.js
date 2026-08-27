@@ -20,7 +20,6 @@ function labLaunchOptions(overrides = {}) {
         language: overrides.language ?? 'en-US',
         timeZoneId: overrides.timeZoneId ?? 'UTC',
         colorScheme: overrides.colorScheme ?? 'light',
-        pageProjectionInputAdapterKind: overrides.pageProjectionInputAdapterKind,
     };
 }
 //# sourceMappingURL=labLaunch.js.map

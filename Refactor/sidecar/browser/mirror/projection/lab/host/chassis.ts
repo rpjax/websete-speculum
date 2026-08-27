@@ -236,15 +236,6 @@ export class LabChassis {
   private lastInputPipelineMetrics: unknown = null;
   /** Client capture counters from browse.stop payload. */
   private lastInputCaptureMetrics: unknown = null;
-  /** Adapter kind for the current session — sourced into `probes/input-pipeline.json` so a
-   *  `sparse-cdp` run never reports the frozen `os-abs` label (D-UI honesty; never publish a
-   *  probe field that misrepresents which path actually ran). */
-  private inputAdapterKind: 'os-abs' | 'sparse-cdp' = 'sparse-cdp';
-
-  /** Resolved kind actually used to boot the current/last session — for `session.booted` echo. */
-  getInputAdapterKind(): 'os-abs' | 'sparse-cdp' {
-    return this.inputAdapterKind;
-  }
   private getClientSnapshotFn:
     | ((contextId: number) => Promise<ClientStateSnapshot | null>)
     | null = null;
@@ -612,13 +603,9 @@ export class LabChassis {
     width?: number;
     height?: number;
     device?: BrowserDeviceProfile | Record<string, unknown>;
-    /** `sparse-cdp` is canonical; `os-abs` is frozen legacy, opt-in only — never an env var.
-     *  See docs/page-projection/spec/decision-log.md 2026-08-27. */
-    inputAdapterKind?: 'os-abs' | 'sparse-cdp';
   }): Promise<LabSessionRecord> {
     if (this.session) await this.disposeVirtual();
 
-    this.inputAdapterKind = opts.inputAdapterKind ?? 'sparse-cdp';
     this.frameRateHz = opts.frameRateHz ?? 60;
     this.telemetry = {
       ...LAB_TELEMETRY_DEFAULTS,
@@ -693,7 +680,6 @@ export class LabChassis {
         frameRateHz: this.frameRateHz,
         projectionTelemetry: this.telemetry,
         cpuProfiling: this.cpuProfiling,
-        pageProjectionInputAdapterKind: opts.inputAdapterKind,
       }),
     );
     await this.session.navigate(opts.url);
@@ -762,7 +748,7 @@ export class LabChassis {
       intent,
       ok: result.ok,
       error: result.error,
-      mode: result.mode ?? 'OS',
+      mode: result.mode ?? 'CDP',
       dispatchMs: result.dispatchMs,
       clientLagMs: result.clientLagMs,
     };
@@ -1062,8 +1048,8 @@ export class LabChassis {
       'probes/input-pipeline.json',
       {
         wallMs,
-        backend: this.inputAdapterKind === 'sparse-cdp' ? 'cdp' : 'os',
-        path: this.inputAdapterKind === 'sparse-cdp' ? 'eventApplier+sparseCdp' : 'eventApplier+absUinput',
+        backend: 'cdp',
+        path: 'eventApplier+sparseCdp',
         capture: this.lastInputCaptureMetrics,
         journal: {
           total: intents.length,

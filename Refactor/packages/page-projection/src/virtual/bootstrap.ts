@@ -39,7 +39,6 @@ import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import { PlaneChannel, type DataPlane } from '../core/plane';
 import type { CssomPollStats } from './cssom/cssomPoller';
 import { applyScrollPositions } from './input/applyScrollPositions';
-import type { ScrollCensus } from '../core/input/unifiedIntentTypes';
 import { NONE_DOM_NODE_KEY } from '../core/domNodeKey';
 
 declare global {
@@ -101,7 +100,6 @@ declare global {
         ) => Promise<Record<number, import('./bus/virtualDomainBus').SnapshotRpcPayload | { ok: false; reason: string }>>;
         resumeContext: (contextId: number) => Promise<{ ok: boolean; reason?: string }>;
         resumeAllKnown: (contextIds: number[]) => Promise<Record<number, { ok: boolean; reason?: string }>>;
-        applyScrollCensus: (census: ScrollCensus) => Promise<{ ok: boolean; missingNodeIds?: number[]; reason?: string }>;
         applyScrollSet: (args: {
           contextId: number;
           nodeId: number | null;
@@ -125,10 +123,8 @@ declare global {
           reason?: string;
         }>;
         /**
-         * `sparse-cdp` alternate pipeline only (decision-log.md 2026-08-27) — resolves a
-         * client-hit-tested `nodeId` (not a CSS selector) to its live root-viewport point.
-         * No S6 census involved: the caller (sidecar `EventApplier`) dispatches straight off
-         * this instead of a scroll-census/coordinate pair. `os-abs` never calls this.
+         * Sparse-cdp path — resolves a client-hit-tested `nodeId` to its live
+         * root-viewport point. EventApplier dispatches off this result.
          */
         resolveNodeHit: (args: {
           nodeId: number;
@@ -198,9 +194,18 @@ void (async () => {
   const childScopes = new ChildScopeIndex(mintFn);
 
   const domNodes = new DomNodeTable();
-  bus.setScopeLookup((source) =>
-    childScopes.lookupByContentWindow(source, (id) => domNodes.get(id)),
-  );
+  const nodeOf = (id: number) => domNodes.get(id);
+  bus.setScopeLookup((source) => childScopes.lookupByContentWindow(source, nodeOf));
+  bus.setChildFabric({
+    windowOf: (contextId) => childScopes.windowOf(contextId, nodeOf),
+    forEachLive: (fn) => childScopes.forEachLiveWindow(nodeOf, fn),
+    hasContext: (contextId) => childScopes.hasContext(contextId),
+  });
+  // Live index only — never mint-ever (hasMinted). Root document id always deliverable.
+  bus.setDeliverableCheck((contextId) => {
+    if (contextId === CONTEXT_ID_ROOT) return true;
+    return childScopes.windowOf(contextId, nodeOf) != null;
+  });
   domNodes.bind(document, DOCUMENT_ID);
   domNodes.setGeneration(config.generation);
   const table = new ReplicatedTable();
@@ -361,7 +366,6 @@ void (async () => {
     return { ok: true as const, x, y, scrollX, scrollY, nodeId };
   });
 
-  // `sparse-cdp` alternate pipeline only — see `resolveNodeHit` doc comment above.
   bus.onInvocation('resolveNodeHit', (args: { nodeId: number }) => {
     frameEmitter.flushNow();
     const node = domNodes.get(args.nodeId);
@@ -492,20 +496,6 @@ void (async () => {
       );
       return Object.fromEntries(entries);
     },
-    applyScrollCensus: async (census) => {
-      // Spec §10.2 / draft: fan-out parallel; any invoke !ok ⇒ whole apply fail-closed.
-      const results = await Promise.all(
-        census.contexts.map((ctx) => bus.requestApplyScroll(ctx.contextId, ctx.positions)),
-      );
-      const missingNodeIds: number[] = [];
-      for (const r of results) {
-        if (!r.ok) {
-          return { ok: false, reason: r.reason ?? 'apply_scroll_failed', missingNodeIds };
-        }
-        if (r.missingNodeIds) missingNodeIds.push(...r.missingNodeIds);
-      }
-      return { ok: true, missingNodeIds };
-    },
     applyScrollSet: async (args) => {
       const r = await bus.requestApplyScroll(args.contextId, [
         { nodeId: args.nodeId, scrollX: args.scrollX, scrollY: args.scrollY },
@@ -535,11 +525,6 @@ void (async () => {
       const p = globalThis.__speculumProjection;
       if (!p) throw new Error('producer missing');
       switch (name) {
-        case 'applyScrollCensus': {
-          const census = (args as { census?: ScrollCensus } | null)?.census;
-          if (!census) throw new Error('applyScrollCensus: missing census');
-          return p.applyScrollCensus(census);
-        }
         case 'applyScrollSet': {
           const a = args as {
             contextId: number;

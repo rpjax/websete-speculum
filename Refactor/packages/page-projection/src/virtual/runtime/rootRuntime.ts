@@ -44,7 +44,9 @@ export class RootRuntime {
       window: win,
       role: 'root',
       mint: () => this.mint(),
-      isDeliverableDestination: (contextId) => this.mintAllocator.hasMinted(contextId),
+      // Stub until bootstrap wires live ChildScopeIndex via setDeliverableCheck.
+      // Must not use hasMinted (monotonic) — that was PP-INPUT-VIRTUAL-MINT-GHOST.
+      isDeliverableDestination: (contextId) => contextId === 1,
       emitFrame: (bytes) => {
         this.frameTransport.send(bytes);
       },

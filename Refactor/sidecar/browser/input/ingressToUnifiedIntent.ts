@@ -1,10 +1,9 @@
 /**
- * Map wire / DomInputIngress → UnifiedIntent (schemaVersion ≥ 1 unified types).
+ * Map wire / DomInputIngress → UnifiedIntent (sparse-cdp / id-addressed).
  */
 
 import {
   UNIFIED_INTENT_SCHEMA_VERSION,
-  type ScrollCensus,
   type UnifiedIntent,
 } from '@speculum/page-projection/core/input/unifiedIntentTypes';
 import type { DomInputIngress } from '@speculum/page-projection/core/input/intentTypes';
@@ -20,16 +19,6 @@ function parsePayload(raw: string | undefined): Record<string, unknown> {
   return {};
 }
 
-function parseCensus(raw: string | ScrollCensus | null | undefined): ScrollCensus | undefined {
-  if (!raw) return undefined;
-  if (typeof raw === 'object') return raw;
-  try {
-    return JSON.parse(raw) as ScrollCensus;
-  } catch {
-    return undefined;
-  }
-}
-
 function buttonName(v: unknown): 'left' | 'middle' | 'right' {
   if (v === 'middle' || v === 1) return 'middle';
   if (v === 'right' || v === 2) return 'right';
@@ -40,7 +29,6 @@ function buttonName(v: unknown): 'left' | 'middle' | 'right' {
 export function ingressToUnifiedIntent(raw: DomInputIngress & {
   viewportW?: number | null;
   viewportH?: number | null;
-  census?: string | ScrollCensus | null;
   x?: number;
   y?: number;
   key?: string;
@@ -55,7 +43,6 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
   const viewportH = Number(raw.viewportH ?? payload.viewportH ?? 0);
   const x = Number(raw.x ?? payload.x ?? 0);
   const y = Number(raw.y ?? payload.y ?? 0);
-  const census = parseCensus(raw.census ?? (payload.census as string | ScrollCensus | undefined));
 
   const mapLegacy = (t: string): string => {
     if (t === 'mousemove') return 'move';
@@ -70,8 +57,6 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
   const unifiedType = mapLegacy(type);
 
   if (unifiedType === 'move' || unifiedType === 'down' || unifiedType === 'up') {
-    // nodeId/targetId + contextId — `sparse-cdp` alternate pipeline's id-addressed click
-    // (decision-log.md 2026-08-27). `os-abs` never sends these; harmless no-op pass-through.
     const nodeId = raw.nodeId ?? raw.targetId ?? null;
     return {
       schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
@@ -82,7 +67,6 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
       x,
       y,
       button: buttonName(raw.button ?? payload.button),
-      census: unifiedType === 'move' ? undefined : census,
       contextId:
         unifiedType === 'move' ? undefined : raw.contextId && raw.contextId > 0 ? raw.contextId : 1,
       nodeId: unifiedType === 'move' ? undefined : nodeId != null && nodeId > 0 ? nodeId : null,
@@ -96,7 +80,7 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
       timestampClient: raw.timestampClient ?? undefined,
       key: String(raw.key ?? payload.key ?? ''),
       code: String(raw.code ?? payload.code ?? ''),
-      modifiers: (payload.modifiers as UnifiedIntent extends never ? never : {
+      modifiers: (payload.modifiers as {
         ctrl?: boolean;
         shift?: boolean;
         alt?: boolean;

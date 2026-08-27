@@ -34,9 +34,6 @@ import {
   stampAttrAuth,
   stampCssTextAuth,
 } from './sessionBindingAuth';
-import { ScrollableIndex } from './scroll/scrollableIndex';
-import { ProjectedInputRuntime } from './input/projectedInputRuntime';
-import type { ScrollCensus } from '../core/input/unifiedIntentTypes';
 
 export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -107,8 +104,6 @@ export class ProjectionClient {
   private readonly getAssetBaseUrl?: () => string | undefined;
   private readonly token?: string;
   private readonly assetBaseUrl?: string;
-  private readonly scrollIndex = new ScrollableIndex();
-  private inputRuntime = new ProjectedInputRuntime();
 
   /** The currently-live target — reassigned wholesale on a successful resync swap. */
   private live: ApplyTarget;
@@ -157,12 +152,6 @@ export class ProjectionClient {
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
-    this.inputRuntime.bootstrapRoot({
-      contextId: CONTEXT_ID_ROOT,
-      getDocument: () => this.surface.document,
-      getRegistry: () => this.live.registry,
-      getScrollIndex: () => this.scrollIndex,
-    });
   }
 
   private installNestedHost(iframe: HTMLIFrameElement, contextId: number): void {
@@ -208,13 +197,6 @@ export class ProjectionClient {
           }),
       });
       this.nested.set(contextId, session);
-      this.inputRuntime.registerContext({
-        contextId,
-        getDocument: () => iframe.contentDocument!,
-        getRegistry: () => session.registry,
-        getScrollIndex: () => session.getScrollableIndex(),
-      });
-      this.inputRuntime.announceHostAdmitted(CONTEXT_ID_ROOT, contextId, contextId);
       const queued = this.pendingNestedFrames.get(contextId);
       if (queued) {
         this.pendingNestedFrames.delete(contextId);
@@ -240,8 +222,6 @@ export class ProjectionClient {
     this.pendingNestedFrames.delete(contextId);
     const existing = this.nested.get(contextId);
     if (!existing) return;
-    this.inputRuntime.announceHostDropped(CONTEXT_ID_ROOT, contextId, contextId);
-    this.inputRuntime.unregisterContext(contextId);
     existing.dispose();
     this.nested.delete(contextId);
   }
@@ -258,11 +238,6 @@ export class ProjectionClient {
     return this.live.registry;
   }
 
-  /** Projected scrollable index (D-UI-32) for S6 census. */
-  getScrollableIndex(): ScrollableIndex {
-    return this.scrollIndex;
-  }
-
   markPropDirty(id: number): void {
     this.live.applier.markPropDirty(id);
   }
@@ -275,7 +250,6 @@ export class ProjectionClient {
       isArmed: () => boolean;
       getGeneration: () => number;
       markPropDirty: (id: number) => void;
-      getScrollableIndex: () => ScrollableIndex;
     }) => void,
   ): void {
     for (const [contextId, nested] of this.nested) {
@@ -286,19 +260,8 @@ export class ProjectionClient {
         isArmed: () => nested.isArmed,
         getGeneration: () => nested.getGeneration(),
         markPropDirty: (id) => nested.markPropDirty(id),
-        getScrollableIndex: () => nested.getScrollableIndex(),
       });
     }
-  }
-
-  /**
-   * S6 — multi-context census via ContextBus RPC (draft §10.1b).
-   * Invoked from the emitting Projected context; RUNTIME fans out per context.
-   */
-  async requestScrollCensus(
-    fromContextId: number,
-  ): Promise<{ ok: true; census: ScrollCensus } | { ok: false; reason: string }> {
-    return this.inputRuntime.requestScrollCensus(fromContextId);
   }
 
   /**
@@ -379,18 +342,10 @@ export class ProjectionClient {
     for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
       this.cancelPendingNestedHost(contextId);
     }
-    this.inputRuntime.dispose();
-    this.inputRuntime = new ProjectedInputRuntime();
     this.surface.reset();
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
-    this.inputRuntime.bootstrapRoot({
-      contextId: CONTEXT_ID_ROOT,
-      getDocument: () => this.surface.document,
-      getRegistry: () => this.live.registry,
-      getScrollIndex: () => this.scrollIndex,
-    });
   }
 
   ingest(bytes: Uint8Array): void {
@@ -485,7 +440,6 @@ export class ProjectionClient {
     const applier = new DomFrameApplier(doc, registry, {
       stampUrl: (name, value) => stampAttrAuth(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
       stampCssText: (text) => stampCssTextAuth(text, this.resolveToken(), this.resolveAssetBaseUrl()),
-      scrollableIndex: this.scrollIndex,
       onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
       onWarn: (message) => {

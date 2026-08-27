@@ -88,8 +88,6 @@ export interface DomFrameApplierOptions {
   stampUrl?: (name: string, value: string) => string;
   /** Stamp cssText / rule text the same way. */
   stampCssText?: (text: string) => string;
-  /** Projected scrollable index (D-UI-32) — updated on element create / style attrs. */
-  scrollableIndex?: import('./scroll/scrollableIndex').ScrollableIndex;
 }
 
 export class DomFrameApplier {
@@ -594,7 +592,6 @@ export class DomFrameApplier {
     }
     for (let i = 0; i < op.ids.length; i++) {
       const id = op.ids[i]!;
-      this.options.scrollableIndex?.onNodeDrop(id);
       const node = this.registry.get(id);
       if (node !== undefined) this.registry.unregisterSubtree(node);
     }
@@ -662,9 +659,6 @@ export class DomFrameApplier {
       return this.fail('bad_target', 'nodeNew', op.id);
     }
     this.registry.register(op.id, node);
-    if (op.kind === NodeKind.Element) {
-      this.noteScrollable(op.id, node as Element);
-    }
     return true;
   }
 
@@ -725,7 +719,6 @@ export class DomFrameApplier {
     if (!applyAttrs(node as Element, attrs, this.options.stampUrl)) {
       return this.fail('malformed', 'attrSet', op.node);
     }
-    this.noteScrollable(op.node, node as Element);
     return true;
   }
 
@@ -775,31 +768,6 @@ export class DomFrameApplier {
     // Projected host stays about:blank. ProjectionClient waits for the initial `load`
     // before binding NestedProjectedApply (pre-load contentDocument is discarded).
     if (el.contentWindow) this.options.onNestedHost?.(el, childScopeId);
-  }
-
-  private noteScrollable(id: number, el: Element): void {
-    const index = this.options.scrollableIndex;
-    if (!index) return;
-    const tag = el.tagName.toUpperCase();
-    if (tag === 'TEXTAREA') {
-      index.onNodeCreate(id, { overflowY: 'scroll' });
-      return;
-    }
-    let styleHint: { overflow?: string; overflowX?: string; overflowY?: string } = {};
-    try {
-      const inline = el.getAttribute('style') ?? '';
-      const oy = /overflow-y\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
-      const ox = /overflow-x\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
-      const o = /(?:^|;)\s*overflow\s*:\s*([^;]+)/i.exec(inline)?.[1]?.trim();
-      styleHint = { overflowY: oy, overflowX: ox, overflow: o };
-      if (!oy && !ox && !o && el.isConnected) {
-        const cs = el.ownerDocument.defaultView?.getComputedStyle(el);
-        if (cs) styleHint = { overflowY: cs.overflowY, overflowX: cs.overflowX, overflow: cs.overflow };
-      }
-    } catch {
-      /* */
-    }
-    index.recheck(id, styleHint);
   }
 }
 

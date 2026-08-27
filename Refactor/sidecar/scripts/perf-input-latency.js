@@ -9,11 +9,11 @@
  * share one OS clock — no time-origin handshake needed.
  *
  * Deliberately does NOT rely on `EventApplier.flush()` / `resolveAnd*DomInput()`'s own
- * resolved promise as "done" — both `IPointerPeripheral.moveTo`/`button` are fire-and-forget
- * (queued, not awaited) by design (§10.5), so that promise can resolve before the event has
- * actually reached the page. Only the fixture's own event listener timestamp is trustworthy.
+ * resolved promise as "done" — peripheral move/button are fire-and-forget (queued, not
+ * awaited) by design (§10.5), so that promise can resolve before the event has actually
+ * reached the page. Only the fixture's own event listener timestamp is trustworthy.
  *
- * Docker: node scripts/perf-input-latency.js [--iterations N] [--adapter os-abs|sparse-cdp|both]
+ * Docker: node scripts/perf-input-latency.js [--iterations N]
  */
 const path = require('node:path');
 const fs = require('node:fs');
@@ -27,11 +27,10 @@ function wait(ms) {
 }
 
 function parseArgs(argv) {
-  const args = { iterations: 30, adapter: 'both', gapMs: 250 };
+  const args = { iterations: 30, gapMs: 250 };
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t === '--iterations') args.iterations = Number(argv[++i]) || args.iterations;
-    else if (t === '--adapter') args.adapter = argv[++i];
     else if (t === '--gap-ms') args.gapMs = Number(argv[++i]) || args.gapMs;
   }
   return args;
@@ -136,22 +135,21 @@ async function measureCheckbox(chassis, n, gapMs) {
   return stats(samples);
 }
 
-async function runAdapter(kind, fixtureOrigin, n, gapMs) {
+async function runSparse(fixtureOrigin, n, gapMs) {
   const { LabChassis } = require('../dist/browser/mirror/projection/lab/host/chassis');
-  const chassis = new LabChassis({ headless: false, outDir: path.join(OUT, kind) });
-  console.log(`\n=== ${kind} ===`);
+  const chassis = new LabChassis({ headless: false, outDir: path.join(OUT, 'sparse-cdp') });
+  console.log('\n=== sparse-cdp ===');
   await chassis.boot({
     mode: 'run',
     url: `${fixtureOrigin}/fixtures/perf-input-latency.html`,
     frameRateHz: 60,
-    blueprintId: `perf-input-latency-${kind}`,
-    slug: `perf-input-latency-${kind}`,
+    blueprintId: 'perf-input-latency-sparse-cdp',
+    slug: 'perf-input-latency-sparse-cdp',
     width: 800,
     height: 600,
-    inputAdapterKind: kind,
   });
   await wait(1500); // let the surface settle before the first sample
-  const result = { kind };
+  const result = { kind: 'sparse-cdp' };
   try {
     result.click = await measureClick(chassis, n, gapMs);
     console.log(`  click    : ${JSON.stringify(result.click)}`);
@@ -167,41 +165,26 @@ async function runAdapter(kind, fixtureOrigin, n, gapMs) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  let uok = false;
-  try {
-    uok = require('../dist/browser/input/os/uinput').uinputAvailable() === true;
-  } catch {
-    uok = false;
-  }
-  if (args.adapter !== 'sparse-cdp' && !uok) {
-    console.error('FAIL: need /dev/uinput for os-abs (Docker lab)');
-    process.exit(2);
-  }
 
   process.env.SPECULUM_LAB_HEADED = '1';
   process.env.CHROME_EXECUTABLE = process.env.CHROME_EXECUTABLE || '/usr/bin/google-chrome';
   fs.mkdirSync(OUT, { recursive: true });
 
   const fixture = await startFixtureHttp();
-  const kinds = args.adapter === 'both' ? ['os-abs', 'sparse-cdp'] : [args.adapter];
   const report = { at: new Date().toISOString(), iterations: args.iterations, gapMs: args.gapMs, results: {} };
   try {
-    for (const kind of kinds) {
-      report.results[kind] = await runAdapter(kind, fixture.origin, args.iterations, args.gapMs);
-    }
+    report.results['sparse-cdp'] = await runSparse(fixture.origin, args.iterations, args.gapMs);
   } finally {
     await fixture.close();
   }
 
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log('\n=== SUMMARY (ms, dispatch-command -> DOM event observed) ===');
-  for (const kind of Object.keys(report.results)) {
-    const r = report.results[kind];
-    console.log(`${kind}:`);
-    console.log(`  click    avg=${r.click.avg} p95=${r.click.p95} max=${r.click.max}`);
-    console.log(`  type/char avg=${r.type.avg} p95=${r.type.p95} max=${r.type.max}`);
-    console.log(`  checkbox avg=${r.checkbox.avg} p95=${r.checkbox.p95} max=${r.checkbox.max}`);
-  }
+  const r = report.results['sparse-cdp'];
+  console.log('sparse-cdp:');
+  console.log(`  click    avg=${r.click.avg} p95=${r.click.p95} max=${r.click.max}`);
+  console.log(`  type/char avg=${r.type.avg} p95=${r.type.p95} max=${r.type.max}`);
+  console.log(`  checkbox avg=${r.checkbox.avg} p95=${r.checkbox.p95} max=${r.checkbox.max}`);
   console.log(`\nReport: ${path.join(OUT, 'report.json')}`);
 }
 

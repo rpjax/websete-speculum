@@ -1,5 +1,5 @@
 /**
- * Serial EventApplier — routes unified intents (§10.5).
+ * Serial EventApplier — routes unified intents (sparse-cdp / live-node only).
  */
 
 import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes';
@@ -18,11 +18,9 @@ export type EventApplierOptions = {
   buffer: SidecarBuffer;
   pointer: IPointerPeripheral;
   keyboard: IKeyboardPeripheral;
-  /** How to decide where a `down`/`up` lands — see clickDelivery.ts. Exactly one strategy per instance. */
   clickDelivery: ClickDeliveryStrategy;
   applyScrollSet?: ApplyScrollSetFn;
   activeViewport: () => { w: number; h: number };
-  isPageProjection: () => boolean;
   onReject?: (errorCode: string, phase: string) => void;
 };
 
@@ -61,6 +59,7 @@ export class EventApplier {
   private async applyOne(intent: UnifiedIntent): Promise<void> {
     switch (intent.type) {
       case 'move':
+        // Sparse catalog rejects continuous move at the peripheral; still validate stamp.
         if (!this.validatePointer(intent)) return;
         this.opts.pointer.moveTo(intent.x, intent.y);
         return;
@@ -69,50 +68,21 @@ export class EventApplier {
         if (!this.validatePointer(intent)) return;
 
         const delivery = this.opts.clickDelivery;
-        switch (delivery.mode) {
-          case 'live-node-resolve': {
-            // `sparse-cdp` pipeline (decision-log.md 2026-08-27) — id-addressed, no S6
-            // census/sync at all. `nodeId == null` (empty space / unmapped hit-test miss) is
-            // the documented fallback: dispatch straight at the client's raw coordinate,
-            // unresolved, no Virtual round trip.
-            if (intent.nodeId == null) {
-              this.opts.pointer.moveTo(intent.x, intent.y);
-              this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
-              return;
-            }
-            const resolved = await delivery.resolveClickTarget(intent.contextId ?? 1, intent.nodeId);
-            if (!resolved.ok || resolved.x == null || resolved.y == null) {
-              this.reject(
-                resolved.reason ? `resolve_click_failed:${resolved.reason}` : 'resolve_click_failed',
-                'virtual_resolve',
-              );
-              return;
-            }
-            this.opts.pointer.moveTo(resolved.x, resolved.y);
-            this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
-            return;
-          }
-          case 'census-coordinated': {
-            // Sealed `os-abs` path (S6, LOCKED D-UI-26) — unchanged.
-            if (this.opts.isPageProjection()) {
-              if (!intent.census) {
-                this.reject('missing_census', 'validate');
-                return;
-              }
-              const phaseA = await delivery.applyScrollCensus(intent.census);
-              if (!phaseA.ok) {
-                this.reject(
-                  phaseA.error ? `apply_scroll_failed:${phaseA.error}` : 'apply_scroll_failed',
-                  'virtual_apply',
-                );
-                return;
-              }
-            }
-            this.opts.pointer.moveTo(intent.x, intent.y);
-            this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
-            return;
-          }
+        if (intent.nodeId == null) {
+          this.opts.pointer.moveTo(intent.x, intent.y);
+          this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
+          return;
         }
+        const resolved = await delivery.resolveClickTarget(intent.contextId ?? 1, intent.nodeId);
+        if (!resolved.ok || resolved.x == null || resolved.y == null) {
+          this.reject(
+            resolved.reason ? `resolve_click_failed:${resolved.reason}` : 'resolve_click_failed',
+            'virtual_resolve',
+          );
+          return;
+        }
+        this.opts.pointer.moveTo(resolved.x, resolved.y);
+        this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
         return;
       }
       case 'keyDown':

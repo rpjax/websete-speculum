@@ -819,13 +819,6 @@
           <div class="cfg-row"><label for="frameRateHz">frameRateHz</label><input id="frameRateHz" type="number" min="1" max="120" value="60" /></div>
           <div class="cfg-row"><label for="browseCpu">cpuProfiling</label><input id="browseCpu" type="checkbox" /></div>
           <p class="hint">When on: CDP CPU profile for the whole Browse session → <code>probes/cpu/</code> on Stop.</p>
-          <div class="cfg-row"><label for="inputAdapter">inputAdapter</label>
-            <select id="inputAdapter">
-              <option value="sparse-cdp" selected>sparse-cdp (canonical, id-addressed click)</option>
-              <option value="os-abs">os-abs (frozen legacy)</option>
-            </select>
-          </div>
-          <p class="hint">Opt-in only — never persisted, picked fresh each Browse start.</p>
           <h2 class="panel-title" style="margin-top:1rem">Browse snaps</h2>
           <p class="hint">Snapshot button is primary (table digest only — not full tree/cssom). Auto-snap optional while Virtual is live.</p>
           <div class="cfg-row"><label for="autoSnap">auto-snap</label><input id="autoSnap" type="checkbox" /></div>

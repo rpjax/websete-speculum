@@ -1,6 +1,6 @@
 "use strict";
 /**
- * Map wire / DomInputIngress → UnifiedIntent (schemaVersion ≥ 1 unified types).
+ * Map wire / DomInputIngress → UnifiedIntent (sparse-cdp / id-addressed).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ingressToUnifiedIntent = ingressToUnifiedIntent;
@@ -18,18 +18,6 @@ function parsePayload(raw) {
     }
     return {};
 }
-function parseCensus(raw) {
-    if (!raw)
-        return undefined;
-    if (typeof raw === 'object')
-        return raw;
-    try {
-        return JSON.parse(raw);
-    }
-    catch {
-        return undefined;
-    }
-}
 function buttonName(v) {
     if (v === 'middle' || v === 1)
         return 'middle';
@@ -45,7 +33,6 @@ function ingressToUnifiedIntent(raw) {
     const viewportH = Number(raw.viewportH ?? payload.viewportH ?? 0);
     const x = Number(raw.x ?? payload.x ?? 0);
     const y = Number(raw.y ?? payload.y ?? 0);
-    const census = parseCensus(raw.census ?? payload.census);
     const mapLegacy = (t) => {
         if (t === 'mousemove')
             return 'move';
@@ -63,8 +50,6 @@ function ingressToUnifiedIntent(raw) {
     };
     const unifiedType = mapLegacy(type);
     if (unifiedType === 'move' || unifiedType === 'down' || unifiedType === 'up') {
-        // nodeId/targetId + contextId — `sparse-cdp` alternate pipeline's id-addressed click
-        // (decision-log.md 2026-08-27). `os-abs` never sends these; harmless no-op pass-through.
         const nodeId = raw.nodeId ?? raw.targetId ?? null;
         return {
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -75,7 +60,6 @@ function ingressToUnifiedIntent(raw) {
             x,
             y,
             button: buttonName(raw.button ?? payload.button),
-            census: unifiedType === 'move' ? undefined : census,
             contextId: unifiedType === 'move' ? undefined : raw.contextId && raw.contextId > 0 ? raw.contextId : 1,
             nodeId: unifiedType === 'move' ? undefined : nodeId != null && nodeId > 0 ? nodeId : null,
         };

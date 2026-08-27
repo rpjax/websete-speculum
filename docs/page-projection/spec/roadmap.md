@@ -52,7 +52,7 @@ V4 lab (DOM table, single document, no production)
 | 3 CSSOM on **live path** | 15% | **0%** — lab algorithm done; prod not wired |
 | 4 Shadow on live path | 10% | **0%** prod · **Done** lab |
 | 5 OPEN-6 SO lab + XO NIT | 15% | **~85%** lab SO · XO NIT |
-| 6 Input redesign | 15% | **SEALED** 2026-08-26 — OS unified ([input.md](input.md)); lab suite 8/8 + spike + accept |
+| 6 Input redesign | 15% | **sparse-cdp only** 2026-08-27 — OS ABS deleted; [input.md](input.md) |
 | 6.5 Shared TS package | hygiene | **Done 2026-08-20** — `@speculum/page-projection` (`core`/`virtual`/`projected`); amends E-11; **before** canvas; ≠ gate 10 |
 | 7 Canvas content | 10% | **0%** — ships into the shared package after 6.5 |
 | 10 Production Integration | 20% | **Done surface 2026-08-22** — web package + Frames; canvas still blocks full M1 |
@@ -70,7 +70,7 @@ Lab DOM-table core is **not** a cutover license. Close the **product** before sw
 | 3 | **CSSOM plane in the V4 engine** | Product | **YES** for accept | Algorithm on PP session path. Gate remaining = **web/** apply + surface accept — not DomMap. |
 | 4 | **Shadow DOM** | Product | **DONE** open/named | Feature 1 of [subtrees.md](subtrees.md). Lab `shadow-open`. Closed/manual NIT. Spec: [shadow.md](shadow.md). **Before** OPEN-6. |
 | 5 | **OPEN-6 nested browsing contexts** | Product | **PARTIAL** | Lab same-origin iframe + observability + resync shipped. **CSSOM = same algorithm per nested instance** — not a separate build. XO / srcdoc / sandbox / fenced NIT. Optional: nested `cssomO2` lab assert ([seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`). |
-| 6 | **Input redesign** | Product | **SEALED 2026-08-26** | Hot path: UnifiedIntent → EventApplier → ABS uinput; `scrollSet` + S6 census (ContextBus RPC). Mode A/B CDP **purged**. Loopback Phase A + LB-03. Lab Docker suite 8/8. Live MotorAssert intents = cutover / gate 10. |
+| 6 | **Input redesign** | Product | **sparse-cdp only 2026-08-27** | Hot path: UnifiedIntent → EventApplier → CDP (id-addressed click) + scrollSet. OS ABS/S6 removed from codebase ([input.md](input.md) historical). Mode A/B CDP **purged**. Live MotorAssert intents = cutover / gate 10. |
 | 6.5 | **Shared `@speculum/page-projection` package** | Hygiene | **DONE 2026-08-20** | Extract `core`/`virtual`/`projected` to `Refactor/packages/page-projection`. Lab/session stay callers. Amends E-11 ([decision-log.md](decision-log.md) §J). **Not** Integration — gate 10 consumes the package. |
 | 6.6 | **Sealed BrowserSession path** | Hygiene / path | **DONE 2026-08-21** | `PageProjectionBrowserSession` + sealed factory; `LivePageProjection` deleted; `RequestResync` only. Scratchpad: [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md). |
 | 7 | **`<canvas>` projection** | Product | **YES** — **last feature before Integration** | Project canvas **bitmap/content** (not element-only / not placeholder-forever). Design + implement + effect asserts before gate 10. Ships **into** the shared package after 6.5. Until then: box + `CANVAS_PLACEHOLDER` only ([support-matrix.md](support-matrix.md)). **Not** a [seal-gaps.md](seal-gaps.md) row. |

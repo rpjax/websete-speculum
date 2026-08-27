@@ -197,9 +197,6 @@ export function bootLabClient(): void {
   let inputCaptureMetrics = new ProjectedInputCaptureMetrics();
   let sessionToken = '';
   let assetBaseUrl = window.location.origin;
-  /** `sparse-cdp` is canonical; `os-abs` is frozen legacy, opt-in only — never an env var.
-   *  See docs/page-projection/spec/decision-log.md 2026-08-27. */
-  let activeInputAdapter: 'os-abs' | 'sparse-cdp' = 'sparse-cdp';
   let canonicalViewport: ViewportSize = { width: 1280, height: 720 };
   let viewportSync: ViewportSync | null = null;
   let pendingResize: {
@@ -210,23 +207,12 @@ export function bootLabClient(): void {
   /** Lab-only diag hooks — early so a later boot throw cannot hide them. */
   (
     window as unknown as {
-      __labDiagProjectedPeek?: () => ReturnType<LabProjectedHarness['peekProjectedInputRuntime']> | null;
+      __labDiagProjectedPeek?: () => ReturnType<LabProjectedHarness['peekNestedHosts']> | null;
       __labDiagForceLoadAfterDrop?: (
         contextId?: number,
       ) => ReturnType<LabProjectedHarness['forceLoadAfterDropRaceForDiag']> | null;
-      __labDiagProjectedInput?: () => Promise<{
-        registry: number[];
-        buses: number[];
-        nested: number[];
-        awaiting: number[];
-        ghosts: number[];
-        censusOk: boolean;
-        censusReason?: string;
-        censusIds: number[];
-        censusMs: number;
-      } | null>;
     }
-  ).__labDiagProjectedPeek = () => (projection ? projection.peekProjectedInputRuntime() : null);
+  ).__labDiagProjectedPeek = () => (projection ? projection.peekNestedHosts() : null);
   (
     window as unknown as {
       __labDiagForceLoadAfterDrop?: (
@@ -235,42 +221,6 @@ export function bootLabClient(): void {
     }
   ).__labDiagForceLoadAfterDrop = (contextId = 99) =>
     projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
-  (
-    window as unknown as {
-      __labDiagProjectedInput?: () => Promise<{
-        registry: number[];
-        buses: number[];
-        nested: number[];
-        awaiting: number[];
-        ghosts: number[];
-        censusOk: boolean;
-        censusReason?: string;
-        censusIds: number[];
-        censusMs: number;
-      } | null>;
-    }
-  ).__labDiagProjectedInput = async () => {
-    if (!projection) return null;
-    const peek = projection.peekProjectedInputRuntime();
-    const t0 = performance.now();
-    const census = await projection.requestScrollCensus(CONTEXT_ID_ROOT);
-    const censusMs = performance.now() - t0;
-    if (census.ok) {
-      return {
-        ...peek,
-        censusOk: true,
-        censusIds: census.census.contexts.map((c) => c.contextId),
-        censusMs,
-      };
-    }
-    return {
-      ...peek,
-      censusOk: false,
-      censusReason: census.reason,
-      censusIds: [],
-      censusMs,
-    };
-  };
 
   function disposeViewportSync(): void {
     viewportSync?.dispose();
@@ -345,10 +295,7 @@ export function bootLabClient(): void {
         payload.viewportW = intent.viewportW;
         payload.viewportH = intent.viewportH;
         payload.button = intent.button;
-        if (intent.census) payload.census = intent.census;
-        // `sparse-cdp` alternate pipeline id-addressed click (decision-log.md 2026-08-27) —
-        // `os-abs` never sets these (attachProjectedInputCapture only fills them in `sparse`
-        // capture policy), harmless no-op pass-through otherwise.
+        // Sparse-cdp id-addressed click — hit-test nodeId/contextId on down/up.
         if (intent.type !== 'move') {
           if (intent.contextId != null) payload.contextId = intent.contextId;
           if (intent.nodeId !== undefined) payload.nodeId = intent.nodeId;
@@ -382,9 +329,6 @@ export function bootLabClient(): void {
     // ScrollEchoGate: call expect() before any programmatic Projected scroll apply;
     // until apply sets scroll, consume is a no-op (local-first user scroll still intents).
     const scrollEcho = new ScrollEchoGate();
-    // `sparse-cdp` (decision-log.md 2026-08-27): no continuous pointermove, no S6 scroll
-    // census — Projected hit-tests locally and addresses clicks by nodeId instead.
-    const capturePolicy = activeInputAdapter === 'sparse-cdp' ? 'sparse' : 'peripheral';
     const rootSurface = client.document.documentElement;
     if (rootSurface && rootSurface.nodeType === 1) {
       const detach = attachProjectedInputCapture(rootSurface, client.getLiveRegistry(), sendInputIntent, {
@@ -394,12 +338,6 @@ export function bootLabClient(): void {
         isArmed: () => client.isArmed,
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
-        scrollIndex: client.getScrollableIndex(),
-        capturePolicy,
-        requestScrollCensus: async () => {
-          const r = await client.requestScrollCensus(CONTEXT_ID_ROOT);
-          return r.ok ? r.census : r;
-        },
         metrics: inputCaptureMetrics,
       });
       inputDetachers.set(CONTEXT_ID_ROOT, detach);
@@ -420,12 +358,6 @@ export function bootLabClient(): void {
         isArmed: info.isArmed,
         onMarkPropDirty: info.markPropDirty,
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
-        scrollIndex: info.getScrollableIndex(),
-        capturePolicy,
-        requestScrollCensus: async () => {
-          const r = await client.requestScrollCensus(info.contextId);
-          return r.ok ? r.census : r;
-        },
         metrics: inputCaptureMetrics,
       });
       inputDetachers.set(info.contextId, detach);
@@ -1140,8 +1072,7 @@ export function bootLabClient(): void {
         phase = 'live';
         browseSnapCount = 0;
         $('streamSnaps').textContent = '0';
-        activeInputAdapter = msg.inputAdapter === 'os-abs' ? 'os-abs' : 'sparse-cdp';
-        logActivity(`booted mode=${msg.mode} inputAdapter=${activeInputAdapter} dossier=${msg.dossierDir}`);
+        logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
         startViewportSync();
         if (msg.mode === 'browse') startAutoSnap();
         syncButtons();
@@ -1329,11 +1260,6 @@ export function bootLabClient(): void {
         frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
         telemetry: readTelemetryFromUi(),
         cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
-        inputAdapter:
-          ((document.getElementById('inputAdapter') as HTMLSelectElement | null)?.value as
-            | 'os-abs'
-            | 'sparse-cdp'
-            | undefined) ?? 'sparse-cdp',
       }),
     );
   });

@@ -9,7 +9,7 @@ import {
   type ProjectionClientOptions,
 } from '@speculum/page-projection/projected/ProjectionClient';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
-import type { ReplicatedTableDigest } from '@speculum/page-projection/core/tableDigest';
+import { digestReplicatedTable } from '@speculum/page-projection/core/tableDigest';
 
 export type LabProjectedHarnessOptions = ProjectionClientOptions;
 
@@ -74,48 +74,28 @@ export class LabProjectedHarness {
     return this.client.getLiveRegistry();
   }
 
-  getScrollableIndex() {
-    return this.client.getScrollableIndex();
-  }
-
-  requestScrollCensus(fromContextId: number) {
-    return this.client.requestScrollCensus(fromContextId);
-  }
-
   /**
-   * Lab diag — peek Projected input fabric (registry vs live buses vs nested hosts).
-   * Ghost signature: id in `registry` but missing from `buses` (or nested already dropped).
+   * Lab diag — peek nested host bookkeeping (awaiting load vs bound nested).
    */
-  peekProjectedInputRuntime(): {
-    registry: number[];
-    buses: number[];
+  peekNestedHosts(): {
     nested: number[];
     awaiting: number[];
-    ghosts: number[];
   } {
     const c = this.client as unknown as {
-      inputRuntime: {
-        registry: Set<number>;
-        contextBuses: Map<number, unknown>;
-      };
       nested: Map<number, unknown>;
       nestedHostAwaitingLoad: Map<number, unknown>;
     };
-    const registry = [...c.inputRuntime.registry].sort((a, b) => a - b);
-    const buses = [...c.inputRuntime.contextBuses.keys()].sort((a, b) => a - b);
-    const nested = [...c.nested.keys()].sort((a, b) => a - b);
-    const awaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
-    const busSet = new Set(buses);
-    const nestedSet = new Set(nested);
-    const ghosts = registry.filter((id) => id !== 1 && (!busSet.has(id) || !nestedSet.has(id)));
-    return { registry, buses, nested, awaiting, ghosts };
+    return {
+      nested: [...c.nested.keys()].sort((a, b) => a - b),
+      awaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b),
+    };
   }
 
   /**
    * Lab diag — load-after-drop: drop must cancel the pending `load` bind so a later
-   * navigation cannot register a ProjectedInputRuntime ghost. Relocated out of
+   * navigation cannot leave a dangling awaiting-load entry. Relocated out of
    * {@link ProjectionClient} (product/web bundle) — same logic, driven through its private
-   * nested-host bookkeeping via the same lab-only cast as {@link peekProjectedInputRuntime}.
+   * nested-host bookkeeping via the same lab-only cast as {@link peekNestedHosts}.
    */
   forceLoadAfterDropRaceForDiag(contextId: number): {
     ok: boolean;

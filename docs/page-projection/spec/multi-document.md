@@ -145,6 +145,8 @@ Who paints inside that window is the **nested algorithm**. The **parent** instal
 
 Table attrs `src` / `srcdoc` stay on the row (producer truth). Phase 2 on a nested-context host **must not** navigate the browsing context to those URLs.
 
+**Install / drop (LOCKED 2026-08-27):** parent waits for the blank iframe’s initial `load` before binding `NestedProjectedApply` + `ProjectedInputRuntime.registerContext` (`nestedHostAwaitingLoad`). On **`NODE_DROP` / `onNestedHostDrop`**, Projected MUST **cancel** that pending bind (`cancelled` flag + `removeEventListener`) and drop any `pendingNestedFrames` for that `contextId` — even when bind has not run yet. Clearing the awaiting map alone is **not** enough: a late `load` would register a ghost context into the S6 census and poison input Phase A ([input.md](input.md) §4). `reset()` cancels all pending binds the same way.
+
 ---
 
 ## 5. Sequences

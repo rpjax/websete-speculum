@@ -75,8 +75,17 @@ class Display {
     }
     static async start(number, width, height, inputs) {
         const lockFile = `/tmp/.X${number}-lock`;
+        const socketPath = `/tmp/.X11-unix/X${number}`;
         try {
             fs.unlinkSync(lockFile);
+        }
+        catch {
+            /* missing */
+        }
+        // SIGKILL'd Xorg can leave a stale unix socket; next spawn then exits with
+        // "Cannot establish any listening sockets" / code 1 (browse_boot_failed).
+        try {
+            fs.unlinkSync(socketPath);
         }
         catch {
             /* missing */
@@ -179,6 +188,12 @@ class Display {
         ]);
         try {
             fs.unlinkSync(`/tmp/.X${this.number}-lock`);
+        }
+        catch {
+            /* gone */
+        }
+        try {
+            fs.unlinkSync(`/tmp/.X11-unix/X${this.number}`);
         }
         catch {
             /* gone */

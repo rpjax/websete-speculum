@@ -42,7 +42,7 @@ O Document **já foi pedido e respondido pelo Chromium**. A cirurgia roda só de
 | `Fetch.getResponseBody` → mutate → `Fetch.fulfillRequest` com **esse** body/headers | Re-fetch / proxy do HTML pelo sidecar (TLS/HTTP2/JA3–JA4 ≠ Chrome) |
 | `continueResponse` se nada mudou ou 3xx | Servir o Document “do zero” pelo Node |
 
-**Escopo de frames:** todo browsing context que carrega HTML Document (main **e** iframes / nested). Não pausar CSS/XHR/img à toa.
+**Escopo de frames:** todo browsing context que carrega HTML Document (main **e** iframes / nested), inclusive OOPIF cross-site. O hook na page CDP **não basta** para Script em target filho — o mesmo `Fetch.enable` / fulfill de stored scripts roda também em `context.newCDPSession(frame)` (API pública Patchright). Não usar browser-level `Target.setAutoAttach` com `flatten: false` (Chromium rejeita). Não pausar CSS/XHR/img à toa.
 
 **Hook único:** um pipeline de mutators no Response (CSP primeiro; inject de tags depois, mesmo pause).
 
@@ -195,3 +195,4 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 | 2026-08-20 | E-03/E-08 amended: cirurgia CSP ok (carrier plane ruled separately). |
 | 2026-08-20 | **SEALED** — §§3–7 + impl `session/csp/*` + units/e2e. Não reabrir sem decision-log. |
 | 2026-08-26 | E-03 revised: loopback WS = sole Virtual↔sidecar carrier; CDP binding plane purged. |
+| 2026-08-27 | OOPIF: mesmo Fetch/stored-script fulfill via `context.newCDPSession(frame)` (não `Target.setAutoAttach` flatten:false no browser CDP — Chromium rejeita). |

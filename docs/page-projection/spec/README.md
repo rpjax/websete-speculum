@@ -7,18 +7,18 @@
 
 ---
 
-## Now (2026-08-26) — start a new chat here
+## Now (2026-08-27) — start a new chat here
 
-**Shipped (recent):** Virtual assets V1 path (D-SPEC-7 rewrite + `/w7s/virtual-*`). **OS unified input (PP):** **SEALED** 2026-08-26 — [input.md](input.md); UnifiedIntent → EventApplier → uinput ABS; Mode A/B CDP purged; Phase A + lab resolve = loopback invoke (D-UI-28). Sole data plane = loopback WS + Chrome LNA policy.
+**Shipped (recent):** Virtual assets V1 path. **OS unified input SEALED** 2026-08-26 — [input.md](input.md). **2026-08-27:** Projected nested-host **load-after-drop** — `dropNestedHost` must cancel the pending `load` bind (flag + `removeEventListener`); otherwise late bind registers a ghost in `ProjectedInputRuntime` → S6 census includes orphan `contextId` → Phase A / click dies. Law: [multi-document.md](multi-document.md) §4.1 · [input.md](input.md) §4 · [decision-log.md](decision-log.md). Code: `ProjectionClient.cancelPendingNestedHost`. Lab repro: `scripts/diag-click-ghost-context.js` + fixtures `input-ghost-context` / `input-ghost-registry`.
 
-**Input:** sealed. Fine-tuning (iOS link, touch, IME) stays backlog. Do **not** reopen CDP Mode A/B or CDP MAIN producer RPC.
+**Input:** sealed. Nested-drop census ghost **fixed**. Do **not** reopen CDP Mode A/B. Journal `intent ok:true` ≠ Phase A succeeded (enqueue can succeed while Applier skips ABS).
 
 **Next product work (ordered):**
-1. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`; harden miss/oracle.
-2. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
-3. MotorAssert compose seed `MirrorMode.PageProjection` for deep Live surface.
-4. Input fine-tuning (iOS link suppress, touch polish, IME) — after assets unlock visual parity.
-5. Antibot / IDB restore as Live needs them.
+1. Re-prove Eneba / heavy CF after the nested-drop fix — if click still dies with census **`[1]` only**, that is a **different** defect (not Projected registry ghost). Wire-mint ghosts without dropHost still poison Phase A when census includes them (`census[1,2]` ~2s timeout) — Virtual mint lifetime / dropHost wiring is separate.
+2. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`.
+3. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
+4. MotorAssert compose seed `MirrorMode.PageProjection`.
+5. Input fine-tuning (iOS link, touch, IME) — after assets unlock visual parity.
 
 Open named shadow / form PROP / SVG / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 

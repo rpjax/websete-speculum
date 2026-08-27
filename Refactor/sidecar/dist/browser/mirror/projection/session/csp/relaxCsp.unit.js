@@ -71,6 +71,57 @@ function runRelaxCspUnitTests() {
     assert_1.default.ok(meta.html.includes('img-src https:'));
     const round = (0, relaxCsp_1.serializeCspPolicy)((0, relaxCsp_1.parseCspPolicy)("img-src 'self'; style-src 'self'"));
     assert_1.default.strictEqual(round, "img-src 'self'; style-src 'self'");
+    // --- Eneba / Cloudflare regressions ---
+    // &#39; embeds `;` — naive split(';') shredded nonce into a directive *name*.
+    assert_1.default.strictEqual((0, relaxCsp_1.decodeCspMetaContent)("default-src &#39;none&#39;"), "default-src 'none'");
+    assert_1.default.strictEqual((0, relaxCsp_1.decodeCspMetaContent)("script-src &#39;nonce-s1gdf7pgtgxmxlisiypfvp&#39;"), "script-src 'nonce-s1gdf7pgtgxmxlisiypfvp'");
+    const entityMetaIn = `<html><head><meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; script-src &#39;nonce-s1gdf7pgtgxmxlisiypfvp&#39;"></head></html>`;
+    const entityMeta = (0, relaxCsp_1.rewriteCspMetasInHtml)(entityMetaIn);
+    assert_1.default.strictEqual(entityMeta.changed, true);
+    assert_1.default.ok(!/nonce-s1gdf7pgtgxmxlisiypfvp/.test(entityMeta.html), `nonce must be stripped after entity decode: ${entityMeta.html}`);
+    assert_1.default.ok(!/&#39;\s/.test(entityMeta.html) && !/default-src &#39; none/.test(entityMeta.html), `must not emit shredded &#39; tokens: ${entityMeta.html}`);
+    assert_1.default.ok(entityMeta.html.includes("'unsafe-inline'"), entityMeta.html);
+    assert_1.default.ok(/\*/.test(entityMeta.html), `network compensation after nonce strip: ${entityMeta.html}`);
+    // Always double-quoted content= so CSP quotes stay raw.
+    assert_1.default.ok(/content="/.test(entityMeta.html), entityMeta.html);
+    assert_1.default.ok(!/content='/.test(entityMeta.html), `must not use single-quoted content=: ${entityMeta.html}`);
+    // Same shredding must not appear when entities are already decoded in the attribute.
+    const decodedChallenge = (0, relaxCsp_1.relaxCspPolicy)("default-src 'none'; script-src 'nonce-s1gdf7pgtgxmxlisiypfvp' 'unsafe-inline'");
+    assert_1.default.ok(!decodedChallenge.includes("'nonce-s1gdf7pgtgxmxlisiypfvp'"), decodedChallenge);
+    assert_1.default.ok(decodedChallenge.includes("'unsafe-inline'"));
+    assert_1.default.ok(/\bscript-src[^;]*\*/.test(decodedChallenge), decodedChallenge);
+    assert_1.default.ok(decodedChallenge.includes("default-src 'none'"), `default-src preserved: ${decodedChallenge}`);
+    // 'none' is exclusive — never leave 'none' beside other sources after merge.
+    const noneOnly = (0, relaxCsp_1.relaxCspPolicy)("default-src 'none'");
+    const noneScript = (0, relaxCsp_1.parseCspPolicy)(noneOnly).find((d) => d.name === 'script-src');
+    assert_1.default.ok(noneScript, noneOnly);
+    assert_1.default.ok(!noneScript.values.includes("'none'"), `script-src must drop exclusive none: ${noneOnly}`);
+    assert_1.default.ok(noneScript.values.includes("'unsafe-inline'"), noneOnly);
+    const noneConnect = (0, relaxCsp_1.parseCspPolicy)(noneOnly).find((d) => d.name === 'connect-src');
+    assert_1.default.ok(noneConnect && !noneConnect.values.includes("'none'"), `connect-src must drop none: ${noneOnly}`);
+    assert_1.default.ok(noneConnect.values.includes('*'), noneOnly);
+    const attrNone = (0, relaxCsp_1.relaxCspPolicy)("script-src-attr 'none'");
+    const attrAfter = (0, relaxCsp_1.parseCspPolicy)(attrNone).find((d) => d.name === 'script-src-attr');
+    assert_1.default.ok(attrAfter, attrNone);
+    assert_1.default.ok(!attrAfter.values.includes("'none'"), `attr none + inline must drop none: ${attrNone}`);
+    assert_1.default.ok(attrAfter.values.includes("'unsafe-inline'"), attrNone);
+    // Single-quoted meta with raw CSP quotes truncates at first ' — still must not leave shreds.
+    const sqBroken = (0, relaxCsp_1.rewriteCspMetasInHtml)(`<html><head><meta http-equiv="Content-Security-Policy" content='default-src 'none'; script-src 'nonce-abc''></head></html>`);
+    assert_1.default.ok(sqBroken.changed);
+    assert_1.default.ok(/content="/.test(sqBroken.html), sqBroken.html);
+    assert_1.default.ok(!/nonce-abc/.test(sqBroken.html) || sqBroken.html.includes("'unsafe-inline'"), sqBroken.html);
+    // &apos; / &#x27; forms
+    assert_1.default.strictEqual((0, relaxCsp_1.decodeCspMetaContent)('&#x27;none&#x27;'), "'none'");
+    assert_1.default.strictEqual((0, relaxCsp_1.decodeCspMetaContent)("&apos;self&apos;"), "'self'");
+    // Comma-separated multi-policy (CSP3 AND) — each policy relaxed independently.
+    const multi = (0, relaxCsp_1.relaxCspPolicy)("default-src 'none', script-src 'nonce-abc'");
+    assert_1.default.ok(multi.includes(','), `must preserve multi-policy separator: ${multi}`);
+    assert_1.default.ok(!multi.includes("'nonce-abc'"), `nonce stripped in second policy: ${multi}`);
+    assert_1.default.ok(!/script-src 'none',/.test(multi), `must not treat comma as token glue: ${multi}`);
+    const multiParts = multi.split(',').map((s) => s.trim());
+    assert_1.default.ok(multiParts.length >= 2, multi);
+    assert_1.default.ok(multiParts.some((p) => p.startsWith('default-src')), multi);
+    assert_1.default.ok(multiParts.some((p) => /\bscript-src\b/.test(p) && p.includes("'unsafe-inline'")), multi);
     console.log('[unit] relaxCsp surgical merge ok');
 }
 //# sourceMappingURL=relaxCsp.unit.js.map

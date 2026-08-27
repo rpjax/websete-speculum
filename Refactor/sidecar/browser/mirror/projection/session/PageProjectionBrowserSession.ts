@@ -205,9 +205,9 @@ export class PageProjectionBrowserSession {
     loadInpageScript();
     await this.dataPlane.listen();
 
-    // Display+ABS = logical viewport (identity 1:1). Soft-resize over-alloc R = D-UI-05/11 later.
-    const maxW = options.width;
-    const maxH = options.height;
+    // Display+ABS capacity = policy max R; logical viewport soft-resizes within R (D-UI-05/11).
+    const maxW = options.viewportPolicy.maxWidth;
+    const maxH = options.viewportPolicy.maxHeight;
     this.displayWidth = maxW;
     this.displayHeight = maxH;
 
@@ -215,6 +215,8 @@ export class PageProjectionBrowserSession {
       sessionId: this.sessionId,
       displayWidth: maxW,
       displayHeight: maxH,
+      logicalWidth: options.width,
+      logicalHeight: options.height,
     });
     this.absInput = absInput;
 
@@ -301,8 +303,8 @@ export class PageProjectionBrowserSession {
       resizing: this.resizing,
       width: this.width,
       height: this.height,
-      displayWidth: 0,
-      displayHeight: 0,
+      displayWidth: this.displayWidth,
+      displayHeight: this.displayHeight,
       chromeWidth: this.open ? this.width : 0,
       chromeHeight: this.open ? this.height : 0,
     };
@@ -460,6 +462,8 @@ export class PageProjectionBrowserSession {
         height: nextH,
         chromeWidth: nextW,
         chromeHeight: nextH,
+        displayWidth: this.displayWidth,
+        displayHeight: this.displayHeight,
       };
     }
 
@@ -482,16 +486,18 @@ export class PageProjectionBrowserSession {
         this.width = nextW;
         this.height = nextH;
         this.device = nextDevice;
+        this.absInput?.setLogicalSize(nextW, nextH);
         return {
           ok: true,
           width: nextW,
           height: nextH,
           chromeWidth: nextW,
           chromeHeight: nextH,
+          displayWidth: this.displayWidth,
+          displayHeight: this.displayHeight,
         };
       }
 
-      await this.page.setViewportSize({ width: nextW, height: nextH });
       const cdp = await this.ensureCdp();
       try {
         const proven = await proveLogicalViewport(cdp, nextW, nextH, nextDevice, {
@@ -501,15 +507,16 @@ export class PageProjectionBrowserSession {
         this.width = proven.width;
         this.height = proven.height;
         this.device = proven.device;
+        this.absInput?.setLogicalSize(this.width, this.height);
       } catch (err) {
-        // Soft accept after setViewportSize when prove fails on live pages without
-        // viewport-meta (same trap as launch). Hard-fail only for other errors.
+        // Soft accept when prove fails on live pages without viewport-meta (same as launch).
         if ((err as { errorCode?: string }).errorCode !== 'viewport_unproven') {
           throw err;
         }
         this.width = nextW;
         this.height = nextH;
         this.device = nextDevice;
+        this.absInput?.setLogicalSize(this.width, this.height);
       }
       return {
         ok: true,
@@ -517,11 +524,14 @@ export class PageProjectionBrowserSession {
         height: this.height,
         chromeWidth: this.width,
         chromeHeight: this.height,
+        displayWidth: this.displayWidth,
+        displayHeight: this.displayHeight,
       };
     } catch (err) {
       this.width = previous.width;
       this.height = previous.height;
       this.device = previous.device;
+      this.absInput?.setLogicalSize(previous.width, previous.height);
       try {
         await this.page?.setViewportSize({ width: previous.width, height: previous.height });
       } catch {
@@ -1062,6 +1072,8 @@ export class PageProjectionBrowserSession {
         createScriptInjectMutator(launchScripts),
       ],
       storedScripts,
+      context,
+      page: p,
     });
     // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).
     try {

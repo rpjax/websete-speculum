@@ -78,6 +78,13 @@ type ApplyTarget = {
 /** In-flight resync build (`ApplyTarget` plus which attempt number produced it). */
 type ResyncBuild = ApplyTarget & { attempt: number };
 
+/** Nested host waiting for about:blank `load` — drop must cancel this, not only delete the map entry. */
+type NestedHostPendingLoad = {
+  iframe: HTMLIFrameElement;
+  bind: () => void;
+  cancelled: boolean;
+};
+
 const MAX_RESYNC_ATTEMPTS = 3;
 const RESYNC_BACKOFF_MS = 300;
 /** How long to wait for a resync-flagged frame to arrive after requesting one before retrying. */
@@ -131,7 +138,7 @@ export class ProjectionClient {
   private readonly nested = new Map<number, NestedProjectedApply>();
   private readonly pendingNestedFrames = new Map<number, Uint8Array[]>();
   /** contextId → host waiting for initial about:blank `load` before apply binds. */
-  private readonly nestedHostAwaitingLoad = new Map<number, HTMLIFrameElement>();
+  private readonly nestedHostAwaitingLoad = new Map<number, NestedHostPendingLoad>();
 
   constructor(opts: ProjectionClientOptions) {
     this.surface = createSurfaceHost(opts.surfaceHost, {
@@ -165,8 +172,9 @@ export class ProjectionClient {
     // Binding NestedProjectedApply before that paints an orphaned Document; load then
     // replaces contentDocument and the nested surface looks empty (armed flag can still
     // stick on the Window). Keep frames in pendingNestedFrames until load, then bind once.
-    this.nestedHostAwaitingLoad.set(contextId, iframe);
-    const bind = () => {
+    const pending: NestedHostPendingLoad = { iframe, bind: () => undefined, cancelled: false };
+    const bind = (): void => {
+      if (pending.cancelled) return;
       this.nestedHostAwaitingLoad.delete(contextId);
       if (this.nested.has(contextId)) return;
       const doc = iframe.contentDocument;
@@ -207,25 +215,77 @@ export class ProjectionClient {
         getScrollIndex: () => session.getScrollableIndex(),
       });
       this.inputRuntime.announceHostAdmitted(CONTEXT_ID_ROOT, contextId, contextId);
-      const pending = this.pendingNestedFrames.get(contextId);
-      if (pending) {
+      const queued = this.pendingNestedFrames.get(contextId);
+      if (queued) {
         this.pendingNestedFrames.delete(contextId);
-        for (let i = 0; i < pending.length; i++) session.ingest(pending[i]!);
+        for (let i = 0; i < queued.length; i++) session.ingest(queued[i]!);
       }
       session.flush();
     };
+    pending.bind = bind;
+    this.nestedHostAwaitingLoad.set(contextId, pending);
     iframe.addEventListener('load', bind, { once: true });
   }
 
-  private dropNestedHost(contextId: number): void {
+  private cancelPendingNestedHost(contextId: number): void {
+    const pending = this.nestedHostAwaitingLoad.get(contextId);
+    if (!pending) return;
+    pending.cancelled = true;
+    pending.iframe.removeEventListener('load', pending.bind);
     this.nestedHostAwaitingLoad.delete(contextId);
+  }
+
+  private dropNestedHost(contextId: number): void {
+    this.cancelPendingNestedHost(contextId);
+    this.pendingNestedFrames.delete(contextId);
     const existing = this.nested.get(contextId);
     if (!existing) return;
     this.inputRuntime.announceHostDropped(CONTEXT_ID_ROOT, contextId, contextId);
     this.inputRuntime.unregisterContext(contextId);
     existing.dispose();
     this.nested.delete(contextId);
-    this.pendingNestedFrames.delete(contextId);
+  }
+
+  /**
+   * Lab diag — load-after-drop: drop must cancel the pending `load` bind so a later
+   * navigation cannot register a ProjectedInputRuntime ghost.
+   */
+  forceLoadAfterDropRaceForDiag(contextId: number): {
+    ok: boolean;
+    reason?: string;
+    afterInstallAwaiting: number[];
+    afterDropAwaiting: number[];
+  } {
+    if (contextId === CONTEXT_ID_ROOT) {
+      return {
+        ok: false,
+        reason: 'contextId_must_not_be_root',
+        afterInstallAwaiting: [],
+        afterDropAwaiting: [],
+      };
+    }
+    if (this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId)) {
+      return {
+        ok: false,
+        reason: 'contextId_in_use',
+        afterInstallAwaiting: [...this.nestedHostAwaitingLoad.keys()],
+        afterDropAwaiting: [],
+      };
+    }
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('data-lab-load-after-drop', String(contextId));
+    iframe.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden';
+    document.documentElement.appendChild(iframe);
+    this.installNestedHost(iframe, contextId);
+    const afterInstallAwaiting = [...this.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+    this.dropNestedHost(contextId);
+    const afterDropAwaiting = [...this.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+    iframe.src = 'about:blank';
+    return {
+      ok: true,
+      afterInstallAwaiting,
+      afterDropAwaiting,
+    };
   }
 
   get isArmed(): boolean {
@@ -358,7 +418,9 @@ export class ProjectionClient {
     for (const n of this.nested.values()) n.dispose();
     this.nested.clear();
     this.pendingNestedFrames.clear();
-    this.nestedHostAwaitingLoad.clear();
+    for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
+      this.cancelPendingNestedHost(contextId);
+    }
     this.inputRuntime.dispose();
     this.inputRuntime = new ProjectedInputRuntime();
     this.surface.reset();

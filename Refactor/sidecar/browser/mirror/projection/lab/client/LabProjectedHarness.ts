@@ -82,6 +82,39 @@ export class LabProjectedHarness {
     return this.client.requestScrollCensus(fromContextId);
   }
 
+  /**
+   * Lab diag — peek Projected input fabric (registry vs live buses vs nested hosts).
+   * Ghost signature: id in `registry` but missing from `buses` (or nested already dropped).
+   */
+  peekProjectedInputRuntime(): {
+    registry: number[];
+    buses: number[];
+    nested: number[];
+    awaiting: number[];
+    ghosts: number[];
+  } {
+    const c = this.client as unknown as {
+      inputRuntime: {
+        registry: Set<number>;
+        contextBuses: Map<number, unknown>;
+      };
+      nested: Map<number, unknown>;
+      nestedHostAwaitingLoad: Map<number, unknown>;
+    };
+    const registry = [...c.inputRuntime.registry].sort((a, b) => a - b);
+    const buses = [...c.inputRuntime.contextBuses.keys()].sort((a, b) => a - b);
+    const nested = [...c.nested.keys()].sort((a, b) => a - b);
+    const awaiting = [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b);
+    const busSet = new Set(buses);
+    const nestedSet = new Set(nested);
+    const ghosts = registry.filter((id) => id !== 1 && (!busSet.has(id) || !nestedSet.has(id)));
+    return { registry, buses, nested, awaiting, ghosts };
+  }
+
+  forceLoadAfterDropRaceForDiag(contextId: number) {
+    return this.client.forceLoadAfterDropRaceForDiag(contextId);
+  }
+
   markPropDirty(id: number): void {
     this.client.markPropDirty(id);
   }

@@ -343,6 +343,10 @@ function PageProjectionV2Surface({
         getToken: () => sessionRef.current.token,
         getAssetBaseUrl: () =>
           sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
+        requestScrollCensus: async () => {
+          const r = await client.requestScrollCensus(CONTEXT_ID_ROOT)
+          return r.ok ? r.census : r
+        },
       },
     )
     const nestedDetachers: Array<() => void> = []
@@ -368,6 +372,10 @@ function PageProjectionV2Surface({
             getToken: () => sessionRef.current.token,
             getAssetBaseUrl: () =>
               sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
+            requestScrollCensus: async () => {
+              const r = await client.requestScrollCensus(info.contextId)
+              return r.ok ? r.census : r
+            },
           },
         ),
       )

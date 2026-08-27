@@ -23,6 +23,7 @@ import {
   uinputAvailable,
 } from '../patchright/input/uinput';
 import {
+  createCoordTransform,
   createLogicalWindowTransform,
   mapLogicalToAbs,
   type CoordTransform,
@@ -33,8 +34,12 @@ import { resolveKeyStroke, allKeyboardKeyCodes, KEY } from '../patchright/input/
 
 export type AbsOsInputOpenOptions = {
   sessionId: string;
+  /** Display capacity R (policy max) — uinput ABS range. */
   displayWidth: number;
   displayHeight: number;
+  /** Logical CSS viewport — F(x) domain (D-UI-04/05). Defaults to display when omitted. */
+  logicalWidth?: number;
+  logicalHeight?: number;
 };
 
 export class AbsOsInputStack {
@@ -44,7 +49,7 @@ export class AbsOsInputStack {
   readonly pointerWriter: AbsPointerWriter;
   readonly keyboardWriter: KeyboardWriter;
   private disposed = false;
-  private readonly transform: CoordTransform;
+  private transform: CoordTransform;
 
   private constructor(
     pointer: UinputDevice,
@@ -78,12 +83,19 @@ export class AbsOsInputStack {
         phase: 'launch',
       });
     }
-    const transform = createLogicalWindowTransform(opts.displayWidth, opts.displayHeight);
+    const absMaxX = Math.max(0, opts.displayWidth - 1);
+    const absMaxY = Math.max(0, opts.displayHeight - 1);
+    const logicalW = opts.logicalWidth ?? opts.displayWidth;
+    const logicalH = opts.logicalHeight ?? opts.displayHeight;
+    const transform =
+      logicalW === opts.displayWidth && logicalH === opts.displayHeight
+        ? createLogicalWindowTransform(logicalW, logicalH)
+        : createCoordTransform(logicalW, logicalH, absMaxX, absMaxY);
     const shortId = createHash('sha1').update(opts.sessionId).digest('hex').slice(0, 12);
     const pointer = UinputDevice.openAbsPointer(
       `speculum-abs-${shortId}`,
-      transform.absMaxX,
-      transform.absMaxY,
+      absMaxX,
+      absMaxY,
     );
     let keyboard: UinputDevice;
     try {
@@ -96,8 +108,8 @@ export class AbsOsInputStack {
     try {
       touch = UinputDevice.openMultitouch(
         `speculum-mt-${shortId}`,
-        transform.absMaxX,
-        transform.absMaxY,
+        absMaxX,
+        absMaxY,
         10,
       );
     } catch (err) {
@@ -107,6 +119,16 @@ export class AbsOsInputStack {
     }
     ensureInputEventNodes(pointer.name, keyboard.name, touch.name);
     return new AbsOsInputStack(pointer, keyboard, touch, transform);
+  }
+
+  /** Refresh logical viewport after soft-resize — ABS capacity stays at R. */
+  setLogicalSize(logicalWidth: number, logicalHeight: number): void {
+    this.transform = createCoordTransform(
+      logicalWidth,
+      logicalHeight,
+      Math.max(0, this.transform.absMaxX),
+      Math.max(0, this.transform.absMaxY),
+    );
   }
 
   /** Identity transform used by the pointer writer (tests / diagnostics). */

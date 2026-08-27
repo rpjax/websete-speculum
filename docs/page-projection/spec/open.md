@@ -34,6 +34,18 @@ No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md
 
 Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **working** — stress/harden separately; this row is the Unico/XFO pin only.
 
+### BUG — injected `virtual.js` on third-party origin (OPEN 2026-08-27)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-INJECT-THIRD-PARTY-MIME** | Lab console: `Refused to execute script from 'https://widget.trustpilot.com/__speculum/virtual.js' because its MIME type ('text/html') is not executable` | Document inject writes `/__speculum/virtual.js` (or relative). On third-party nested docs (Trustpilot widget, etc.) the browser resolves against **that** origin; request hits the real host → HTML 404/SPA shell → strict MIME refuse. Stored-script Fetch fulfill is supposed to catch this (unit already covers CF-shaped URL); Trustpilot path still leaks. **Not** input pipeline. Related: OOPIF/frame CDP Fetch attach ([csp.md](csp.md) 2026-08-27). Do **not** “fix” by punching MIME or serving JS from Trustpilot. Observed lab 2026-08-27. |
+
+### BUG — Projected nested load-after-drop census ghost (**CLOSED 2026-08-27**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-INPUT-NESTED-DROP-LOAD** | After iframe churn, click dead; S6 census includes orphan `contextId`; Phase A ~2s timeout or ABS never fires | `dropNestedHost` cleared `nestedHostAwaitingLoad` but left the `load` listener → late bind → ghost in `ProjectedInputRuntime`. **Fix:** `cancelPendingNestedHost` (flag + `removeEventListener`) + drop pending frames. [multi-document.md](multi-document.md) §4.1 · [input.md](input.md) §4. Repro: `diag-click-ghost-context.js`. **Not** the same as Virtual mint-without-dropHost (wire ghosts in census `[1,N]`). |
+
 **Lab (2026-08-15 / 2026-08-16):** CSSOM poll **algorithm** — [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 **Accept:** DOM numerical 1:1; CSSOM live perceived ([acceptance.md](acceptance.md)).
 Why: [cssom-sensor-journey.md](cssom-sensor-journey.md). `SHEET_*`/`RULE_*` are on the wire (phase 1

@@ -54,9 +54,11 @@ Fail-closed without `/dev/uinput`. No CDP Mode A/B. Input does **not** gate on f
 
 - Projected maintains scrollable index; census on **down and up**.
 - **Projected census path:** ContextBus **`invoke` `snapshotScrollPositionsFromAllContexts`** on RUNTIME from the emitting context; RUNTIME fans out **`snapshotScrollPosition`** per registered context (draft §10.1b). Same path lab and product — no same-origin DOM walk.
+- **Registry law:** `ProjectedInputRuntime.registry` must only list contexts with a live bus. Nested host **drop before `load` bind** MUST cancel the pending listener ([multi-document.md](multi-document.md) §4.1) — otherwise late bind registers a ghost id; census includes it; Phase A Virtual apply times out (~2000ms) or click never reaches ABS. Fixed 2026-08-27 (`cancelPendingNestedHost`).
 - Sidecar Phase A: loopback **`invoke` `applyScrollCensus`** (args `{ census }`) → Virtual RUNTIME fan-out → `invoke-started` / `invoke-heartbeat` (reset idle) → `invoke-result`. Idle timeout **2000ms** (LB-04), same heartbeat rule as ContextBus.
 - Fine scroll: loopback **`invoke` `applyScrollSet`**.
 - Phase A fail ⇒ do **not** Phase B ABS click.
+- Lab journal `intent ok:true` means the sidecar **accepted/enqueued** the intent — **not** that Phase A succeeded (Applier may reject without throwing).
 
 ---
 
@@ -124,7 +126,9 @@ Sealed on effect oracles above — producer RPC path is loopback only (no CDP MA
 
 - Capture: `Refactor/packages/page-projection/src/projected/input/projectedInputCapture.ts`
 - S6 census runtime: `Refactor/packages/page-projection/src/projected/input/projectedInputRuntime.ts`
+- Nested host install/drop (cancel pending load): `Refactor/packages/page-projection/src/projected/ProjectionClient.ts` (`cancelPendingNestedHost`)
 - Session: `Refactor/sidecar/browser/mirror/projection/session/PageProjectionBrowserSession.ts`
 - Applier: `Refactor/sidecar/browser/input/EventApplier.ts`
 - ABS stack: `Refactor/sidecar/browser/input/AbsOsInputStack.ts`
+- Lab ghost repro: `Refactor/sidecar/scripts/diag-click-ghost-context.js`
 - Loopback mux: `Refactor/packages/page-projection/src/core/loopback/envelope.ts`

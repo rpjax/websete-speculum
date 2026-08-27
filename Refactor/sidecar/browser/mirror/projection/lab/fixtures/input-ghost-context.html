@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Input ghost context fixture</title>
+    <style>
+      body {
+        font-family: ui-monospace, Consolas, monospace;
+        margin: 1.25rem;
+        background: #101820;
+        color: #e8eef4;
+      }
+      #hud {
+        display: grid;
+        gap: 0.35rem;
+        margin-bottom: 1rem;
+        font-size: 0.85rem;
+      }
+      #hud span[data-k]::before {
+        content: attr(data-k) ': ';
+        opacity: 0.65;
+      }
+      button {
+        min-height: 44px;
+        min-width: 160px;
+        font: inherit;
+        cursor: pointer;
+      }
+      #click-target[data-clicked='1'] {
+        background: #2a6f4e;
+        border-color: #3ecf8e;
+      }
+      iframe {
+        width: 100%;
+        height: 72px;
+        border: 1px solid rgb(255 255 255 / 22%);
+        margin: 0.5rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Ghost context (CF-shaped)</h1>
+    <div id="hud">
+      <span data-k="phase" id="phase">boot</span>
+      <span data-k="iframes_spawned" id="iframes-spawned">0</span>
+      <span data-k="iframes_removed" id="iframes-removed">0</span>
+    </div>
+    <p>Mints nested browsing hosts then removes them (no Virtual dropHost). Like CF OOPIF churn.</p>
+    <div id="iframe-slot"></div>
+    <button id="click-target" type="button" data-clicked="0">Click target</button>
+    <script>
+      (function () {
+        var phaseEl = document.getElementById('phase');
+        var spawnedEl = document.getElementById('iframes-spawned');
+        var removedEl = document.getElementById('iframes-removed');
+        var slot = document.getElementById('iframe-slot');
+        var spawned = 0;
+        var removed = 0;
+
+        function setPhase(text) {
+          if (phaseEl) phaseEl.textContent = text;
+        }
+
+        function spawn(label, src) {
+          var frame = document.createElement('iframe');
+          frame.title = label;
+          frame.src = src;
+          slot.appendChild(frame);
+          spawned += 1;
+          if (spawnedEl) spawnedEl.textContent = String(spawned);
+          return frame;
+        }
+
+        function removeFrame(frame) {
+          if (!frame || !frame.parentNode) return;
+          frame.parentNode.removeChild(frame);
+          removed += 1;
+          if (removedEl) removedEl.textContent = String(removed);
+        }
+
+        document.getElementById('click-target').addEventListener('click', function () {
+          this.setAttribute('data-clicked', '1');
+        });
+
+        // Cycle 1: same-origin nested producer (live ctx 2), then drop host.
+        setPhase('spawn_same_origin');
+        var sameOrigin = spawn('same-origin', 'input-ghost-context-inner.html');
+        setTimeout(function () {
+          setPhase('drop_same_origin');
+          removeFrame(sameOrigin);
+          // Cycle 2–4: cross-origin OOPIF-shaped hosts (mint on root, no nested Virtual peer).
+          var crossSrc = 'https://example.com/';
+          var crossA = spawn('cross-a', crossSrc);
+          setTimeout(function () {
+            removeFrame(crossA);
+            setPhase('spawn_cross_b');
+            var crossB = spawn('cross-b', crossSrc);
+            setTimeout(function () {
+              removeFrame(crossB);
+              setPhase('spawn_cross_c');
+              var crossC = spawn('cross-c', crossSrc);
+              setTimeout(function () {
+                removeFrame(crossC);
+                setPhase('ghosts_ready');
+              }, 1200);
+            }, 1200);
+          }, 1200);
+        }, 1500);
+
+        window.__ghostLab = {
+          getPhase: function () {
+            return phaseEl ? phaseEl.textContent : '';
+          },
+          clickState: function () {
+            var el = document.getElementById('click-target');
+            return el ? el.getAttribute('data-clicked') : null;
+          },
+        };
+      })();
+    </script>
+  </body>
+</html>

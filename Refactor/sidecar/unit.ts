@@ -36,18 +36,21 @@ import {
 import {
   testAssetStoreDataAndClear,
   testFrameRewriteHopBuffersMultiPart,
+  testFrameRewriteHopIsolatesContextTables,
   testFrameRewriteHopRehashesCheck,
 } from './browser/mirror/projection/assets/rewritePart.unit';
 import { testLabVirtualAssetsServeHelpers } from './browser/mirror/projection/lab/host/labVirtualAssets.unit';
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/relaxCsp.unit';
+import { runDocumentResponseHookUnitTests } from './browser/mirror/projection/session/csp/documentResponseHook.unit';
 import { runInputIntentTypesUnitTests } from './browser/mirror/projection/input/intentTypes.unit';
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
+import { runProjectedInputRuntimeGhostUnitTests } from './browser/mirror/projection/input/projectedInputRuntimeGhost.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
 import { runScrollableIndexUnitTests } from './browser/mirror/projection/scroll/scrollableIndex.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
 import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
-import { runAbsCoordMapUnitTests } from './browser/input/AbsCoordMap.unit';
+import { runAbsCoordMapUnitTests, testAbsOsInputOverallocTransform } from './browser/input/AbsCoordMap.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
 import type { BrowserCookieState } from './browser/BrowserSession';
 import { collectTelemetry } from './telemetry/collectTelemetry';
@@ -4131,6 +4134,7 @@ async function main(): Promise<void> {
   testVirtualAssetUrlFormsStress();
   testFrameRewriteHopRehashesCheck();
   testFrameRewriteHopBuffersMultiPart();
+  testFrameRewriteHopIsolatesContextTables();
   await testAssetStoreDataAndClear();
   testLabVirtualAssetsServeHelpers();
   await testBrowserPoolWarmUpAndAcquire();
@@ -4205,8 +4209,11 @@ async function main(): Promise<void> {
   runScriptingOnPaintParityUnitTests();
   await runEventApplierUnitTests();
   runAbsCoordMapUnitTests();
+  testAbsOsInputOverallocTransform();
   runInputIntentTypesUnitTests();
   await runRelaxCspUnitTests();
+  await runDocumentResponseHookUnitTests();
+  await runProjectedInputRuntimeGhostUnitTests();
   await runPageProjectionSessionUnitTests();
   await runPageProjectionInputClickUnitTests();
   console.log('[unit] all passed');

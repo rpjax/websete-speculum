@@ -205,6 +205,71 @@ export function bootLabClient(): void {
   } | null = null;
   let bootDeviceProfile: ViewportDeviceProfile = detectViewportDeviceProfile();
 
+  /** Lab-only diag hooks — early so a later boot throw cannot hide them. */
+  (
+    window as unknown as {
+      __labDiagProjectedPeek?: () => ReturnType<LabProjectedHarness['peekProjectedInputRuntime']> | null;
+      __labDiagForceLoadAfterDrop?: (
+        contextId?: number,
+      ) => ReturnType<LabProjectedHarness['forceLoadAfterDropRaceForDiag']> | null;
+      __labDiagProjectedInput?: () => Promise<{
+        registry: number[];
+        buses: number[];
+        nested: number[];
+        awaiting: number[];
+        ghosts: number[];
+        censusOk: boolean;
+        censusReason?: string;
+        censusIds: number[];
+        censusMs: number;
+      } | null>;
+    }
+  ).__labDiagProjectedPeek = () => (projection ? projection.peekProjectedInputRuntime() : null);
+  (
+    window as unknown as {
+      __labDiagForceLoadAfterDrop?: (
+        contextId?: number,
+      ) => ReturnType<LabProjectedHarness['forceLoadAfterDropRaceForDiag']> | null;
+    }
+  ).__labDiagForceLoadAfterDrop = (contextId = 99) =>
+    projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
+  (
+    window as unknown as {
+      __labDiagProjectedInput?: () => Promise<{
+        registry: number[];
+        buses: number[];
+        nested: number[];
+        awaiting: number[];
+        ghosts: number[];
+        censusOk: boolean;
+        censusReason?: string;
+        censusIds: number[];
+        censusMs: number;
+      } | null>;
+    }
+  ).__labDiagProjectedInput = async () => {
+    if (!projection) return null;
+    const peek = projection.peekProjectedInputRuntime();
+    const t0 = performance.now();
+    const census = await projection.requestScrollCensus(CONTEXT_ID_ROOT);
+    const censusMs = performance.now() - t0;
+    if (census.ok) {
+      return {
+        ...peek,
+        censusOk: true,
+        censusIds: census.census.contexts.map((c) => c.contextId),
+        censusMs,
+      };
+    }
+    return {
+      ...peek,
+      censusOk: false,
+      censusReason: census.reason,
+      censusIds: [],
+      censusMs,
+    };
+  };
+
   function disposeViewportSync(): void {
     viewportSync?.dispose();
     viewportSync = null;
@@ -489,6 +554,11 @@ export function bootLabClient(): void {
       /* CSS chrome hide still works when native fullscreen is denied (common on mobile). */
     }
     logActivity('fullscreen on');
+    // Class toggle can miss ResizeObserver coalescing with native fullscreen — flush measure.
+    if (viewportSync) {
+      const measured = measureHostElement(surfaceHost);
+      viewportSync.schedule(measured.width, measured.height);
+    }
   }
 
   async function exitLabFullscreen(): Promise<void> {
@@ -500,6 +570,10 @@ export function bootLabClient(): void {
       /* */
     }
     logActivity('fullscreen off');
+    if (viewportSync) {
+      const measured = measureHostElement(surfaceHost);
+      viewportSync.schedule(measured.width, measured.height);
+    }
   }
 
   function refreshStatus(): void {
@@ -1337,6 +1411,7 @@ export function bootLabClient(): void {
   showTab('Stream');
   refreshStatus();
   syncButtons();
+  (window as unknown as { __labBootOk?: number }).__labBootOk = Date.now();
 }
 
 bootLabClient();

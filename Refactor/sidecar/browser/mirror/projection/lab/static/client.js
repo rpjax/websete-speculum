@@ -6548,6 +6548,10 @@
       } catch {
       }
       logActivity("fullscreen on");
+      if (viewportSync) {
+        const measured = (0, import_projected2.measureHostElement)(surfaceHost);
+        viewportSync.schedule(measured.width, measured.height);
+      }
     }
     async function exitLabFullscreen() {
       labFullscreen = false;
@@ -6557,6 +6561,10 @@
       } catch {
       }
       logActivity("fullscreen off");
+      if (viewportSync) {
+        const measured = (0, import_projected2.measureHostElement)(surfaceHost);
+        viewportSync.schedule(measured.width, measured.height);
+      }
     }
     function refreshStatus() {
       if (!ws || ws.readyState !== WebSocket.OPEN) {

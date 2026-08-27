@@ -8,6 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.testFrameRewriteHopRehashesCheck = testFrameRewriteHopRehashesCheck;
 exports.testFrameRewriteHopBuffersMultiPart = testFrameRewriteHopBuffersMultiPart;
+exports.testFrameRewriteHopIsolatesContextTables = testFrameRewriteHopIsolatesContextTables;
 exports.testAssetStoreDataAndClear = testAssetStoreDataAndClear;
 const strict_1 = __importDefault(require("node:assert/strict"));
 const decode_1 = require("@speculum/page-projection/core/decode");
@@ -20,7 +21,7 @@ const binaryFrameEncoder_1 = require("@speculum/page-projection/virtual/frame/bi
 const AssetStore_1 = require("./AssetStore");
 const rewritePart_1 = require("./rewritePart");
 const urlForms_1 = require("./urlForms");
-function buildProducerFrame(ops, sequence = 1, resync = true) {
+function buildProducerFrame(ops, sequence = 1, resync = true, contextId = 1) {
     const table = new replicatedTable_1.ReplicatedTable();
     if (resync)
         table.reset();
@@ -40,6 +41,7 @@ function buildProducerFrame(ops, sequence = 1, resync = true) {
         sequence,
         preTableHash,
         resync,
+        contextId,
         ops: withCheck,
     });
     return new binaryFrameEncoder_1.BinaryFrameEncoder().encode(frame)[0];
@@ -156,6 +158,70 @@ function testFrameRewriteHopBuffersMultiPart() {
     }
     strict_1.default.ok(sawVirtual, 'multi-part rewrite must virtualize URL attrs');
     console.log('[unit] FrameRewriteHop multi-part buffer ok');
+}
+/** OPEN-6: nested ctx2 resync must not poison root ctx1 preTableHash (Eneba desync). */
+function testFrameRewriteHopIsolatesContextTables() {
+    const assets = new AssetStore_1.AssetStore();
+    const hop = new rewritePart_1.FrameRewriteHop();
+    const ctx = { pageUrl: 'https://www.example.com/', assets };
+    const rootBootstrap = [
+        {
+            op: opcodes_1.OpCode.NodeNew,
+            id: 10,
+            kind: opcodes_1.NodeKind.Element,
+            ns: elementNs_1.ElementNs.Html,
+            name: 'div',
+            attrs: [{ name: 'id', value: 'root' }],
+        },
+        { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [10] },
+    ];
+    const rootTick = [
+        {
+            op: opcodes_1.OpCode.AttrSet,
+            node: 10,
+            attrs: [{ name: 'data-x', value: '1' }],
+        },
+    ];
+    const nestedBootstrap = [
+        {
+            op: opcodes_1.OpCode.NodeNew,
+            id: 20,
+            kind: opcodes_1.NodeKind.Element,
+            ns: elementNs_1.ElementNs.Html,
+            name: 'iframe',
+            attrs: [{ name: 'src', value: 'https://ads.example.com/pixel' }],
+        },
+        { op: opcodes_1.OpCode.Insert, parent: 1, before: 0, ids: [20] },
+    ];
+    const rootAfterNested = [
+        {
+            op: opcodes_1.OpCode.AttrSet,
+            node: 10,
+            attrs: [{ name: 'data-x', value: '2' }],
+        },
+    ];
+    const root1 = hop.push(buildProducerFrame(rootBootstrap, 1, true, 1), ctx)[0];
+    const root2 = hop.push(buildProducerFrame(rootTick, 2, false, 1), ctx)[0];
+    hop.push(buildProducerFrame(nestedBootstrap, 1, true, 2), ctx);
+    const root3 = hop.push(buildProducerFrame(rootAfterNested, 3, false, 1), ctx)[0];
+    const client = new replicatedTable_1.ReplicatedTable();
+    for (const bytes of [root1, root2]) {
+        const d = (0, decode_1.decodeFramePart)(bytes, new decode_1.PersistentStringTable());
+        strict_1.default.ok(d.ok);
+        if (!d.ok)
+            return;
+        const applied = (0, replicatedTableApply_1.applyFrameToTableChecked)(client, d.part.resync, d.part.ops, d.part.sequence);
+        strict_1.default.equal(applied.ok, true);
+    }
+    const expectedPre = client.tableHash;
+    const d3 = (0, decode_1.decodeFramePart)(root3, new decode_1.PersistentStringTable());
+    strict_1.default.ok(d3.ok);
+    if (!d3.ok)
+        return;
+    strict_1.default.equal(d3.part.preTableHash, expectedPre, 'ctx1 seq3 preTableHash must match root table after ctx2 resync on wire');
+    const applied3 = (0, replicatedTableApply_1.applyFrameToTableChecked)(client, d3.part.resync, d3.part.ops, d3.part.sequence);
+    strict_1.default.equal(applied3.ok, true, 'ctx1 seq3 must apply green after nested ctx2 frame');
+    console.log('[unit] FrameRewriteHop isolates context tables ok');
 }
 async function testAssetStoreDataAndClear() {
     const store = new AssetStore_1.AssetStore();

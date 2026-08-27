@@ -21,24 +21,38 @@ function evaluateCheck(table, op) {
 }
 /**
  * Session-scoped rewrite hop. Buffer multi-part frames until complete, then emit rehashed parts.
+ * OPEN-6: one replicated table + assembler per `contextId` — nested frames must not poison root
+ * `preTableHash`/`CHECK`.
  */
 class FrameRewriteHop {
-    table = new replicatedTable_1.ReplicatedTable();
-    persistent = new decode_1.PersistentStringTable();
-    assembler = new decode_1.FramePartAssembler();
+    contexts = new Map();
     encoder = new binaryFrameEncoder_1.BinaryFrameEncoder();
+    contextState(contextId) {
+        let state = this.contexts.get(contextId);
+        if (state === undefined) {
+            state = {
+                table: new replicatedTable_1.ReplicatedTable(),
+                persistent: new decode_1.PersistentStringTable(),
+                assembler: new decode_1.FramePartAssembler(),
+            };
+            this.contexts.set(contextId, state);
+        }
+        return state;
+    }
     /** Call on navigate / session stop — producer table identity resets with the page. */
     reset() {
-        this.table = new replicatedTable_1.ReplicatedTable();
-        this.persistent = new decode_1.PersistentStringTable();
-        this.assembler.reset();
+        this.contexts.clear();
     }
     /**
      * Ingest one wire part. Returns zero or more rewritten parts to relay (empty while buffering
      * a multi-part frame).
      */
     push(input, ctx) {
-        const decoded = (0, decode_1.decodeFramePart)(input, this.persistent);
+        const hdr = (0, decode_1.peekFrameHeader)(input);
+        if (hdr === null)
+            return [input];
+        const scope = this.contextState(hdr.contextId);
+        const decoded = (0, decode_1.decodeFramePart)(input, scope.persistent);
         if (!decoded.ok)
             return [input];
         const pageBase = ctx.pageUrl || 'https://invalid.local/';
@@ -58,14 +72,14 @@ class FrameRewriteHop {
             ...decoded.part,
             ops: decoded.part.ops.map((op) => rewriteOp(op, pageBase, onRewrite)),
         };
-        const assembled = this.assembler.ingest(part);
+        const assembled = scope.assembler.ingest(part);
         if (assembled === null)
             return [];
         if (assembled === 'missing_part' || assembled === 'malformed') {
             // Fall back to original bytes for this part only — better a single corrupt part than silence.
             return [input];
         }
-        const { preTableHash, ops } = rehashFrame(this.table, assembled.resync, assembled.sequence, assembled.ops);
+        const { preTableHash, ops } = rehashFrame(scope.table, assembled.resync, assembled.sequence, assembled.ops);
         const frame = {
             version: frame_1.FRAME_WIRE_VERSION,
             flags: { resync: assembled.resync },

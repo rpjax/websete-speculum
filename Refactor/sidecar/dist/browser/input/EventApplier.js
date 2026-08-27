@@ -56,7 +56,7 @@ class EventApplier {
                     }
                     const phaseA = await this.opts.applyScrollCensus?.(intent.census);
                     if (!phaseA?.ok) {
-                        this.reject('apply_scroll_failed', 'virtual_apply');
+                        this.reject(phaseA?.error ? `apply_scroll_failed:${phaseA.error}` : 'apply_scroll_failed', 'virtual_apply');
                         return;
                     }
                 }
@@ -82,8 +82,9 @@ class EventApplier {
                     scrollX: intent.scrollX,
                     scrollY: intent.scrollY,
                 });
-                if (!r.ok)
-                    this.reject('apply_scroll_failed', 'virtual_apply');
+                if (!r.ok) {
+                    this.reject(r.error ? `apply_scroll_failed:${r.error}` : 'apply_scroll_failed', 'virtual_apply');
+                }
                 return;
             }
             case 'setFiles':

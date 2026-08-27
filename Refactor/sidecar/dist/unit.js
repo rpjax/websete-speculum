@@ -57,8 +57,10 @@ const rewritePart_unit_1 = require("./browser/mirror/projection/assets/rewritePa
 const labVirtualAssets_unit_1 = require("./browser/mirror/projection/lab/host/labVirtualAssets.unit");
 const pageProjectionSession_unit_1 = require("./browser/mirror/projection/session/pageProjectionSession.unit");
 const relaxCsp_unit_1 = require("./browser/mirror/projection/session/csp/relaxCsp.unit");
+const documentResponseHook_unit_1 = require("./browser/mirror/projection/session/csp/documentResponseHook.unit");
 const intentTypes_unit_1 = require("./browser/mirror/projection/input/intentTypes.unit");
 const pageProjectionInputClick_unit_1 = require("./browser/mirror/projection/input/pageProjectionInputClick.unit");
+const projectedInputRuntimeGhost_unit_1 = require("./browser/mirror/projection/input/projectedInputRuntimeGhost.unit");
 const contextBus_unit_1 = require("./browser/mirror/projection/bus/contextBus.unit");
 const scrollableIndex_unit_1 = require("./browser/mirror/projection/scroll/scrollableIndex.unit");
 const scriptingOnPaintParity_unit_1 = require("./browser/mirror/projection/projected/scriptingOnPaintParity.unit");
@@ -3559,6 +3561,7 @@ async function main() {
     (0, urlForms_unit_1.testVirtualAssetUrlFormsStress)();
     (0, rewritePart_unit_1.testFrameRewriteHopRehashesCheck)();
     (0, rewritePart_unit_1.testFrameRewriteHopBuffersMultiPart)();
+    (0, rewritePart_unit_1.testFrameRewriteHopIsolatesContextTables)();
     await (0, rewritePart_unit_1.testAssetStoreDataAndClear)();
     (0, labVirtualAssets_unit_1.testLabVirtualAssetsServeHelpers)();
     await testBrowserPoolWarmUpAndAcquire();
@@ -3633,8 +3636,11 @@ async function main() {
     (0, scriptingOnPaintParity_unit_1.runScriptingOnPaintParityUnitTests)();
     await (0, EventApplier_unit_1.runEventApplierUnitTests)();
     (0, AbsCoordMap_unit_1.runAbsCoordMapUnitTests)();
+    (0, AbsCoordMap_unit_1.testAbsOsInputOverallocTransform)();
     (0, intentTypes_unit_1.runInputIntentTypesUnitTests)();
     await (0, relaxCsp_unit_1.runRelaxCspUnitTests)();
+    await (0, documentResponseHook_unit_1.runDocumentResponseHookUnitTests)();
+    await (0, projectedInputRuntimeGhost_unit_1.runProjectedInputRuntimeGhostUnitTests)();
     await (0, pageProjectionSession_unit_1.runPageProjectionSessionUnitTests)();
     await (0, pageProjectionInputClick_unit_1.runPageProjectionInputClickUnitTests)();
     console.log('[unit] all passed');

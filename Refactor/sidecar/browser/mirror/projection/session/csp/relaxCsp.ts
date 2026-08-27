@@ -11,8 +11,53 @@
 const CONNECT_EXTRA = ['*', 'data:', 'blob:', 'ws:', 'wss:'] as const;
 const INLINE = "'unsafe-inline'";
 const SCRIPT_NETWORK_COMPENSATION = ['*', 'blob:', 'data:'] as const;
+const NONE = "'none'";
 
 export type CspDirective = { name: string; values: string[] };
+
+/**
+ * Decode common HTML entities that appear inside CSP meta `content` before parse.
+ * Critical: `&#39;` contains a literal `;` — splitting the policy on `;` without decoding
+ * shreds `'none'` / `'nonce-…'` into bogus directive names (Eneba Cloudflare challenge).
+ */
+export function decodeCspMetaContent(raw: string): string {
+  return raw
+    .replace(/&amp;/gi, '&')
+    .replace(/&#0*39;/gi, "'")
+    .replace(/&#x0*27;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&#0*34;/gi, '"')
+    .replace(/&#x0*22;/gi, '"')
+    .replace(/&quot;/gi, '"');
+}
+
+/**
+ * Split a header value that may contain multiple CSP policies (comma-separated, CSP3).
+ * Commas inside quoted tokens are preserved.
+ */
+export function splitCspPolicies(headerValue: string): string[] {
+  const policies: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < headerValue.length; i++) {
+    const ch = headerValue[i]!;
+    if (ch === "'" || ch === '"') {
+      inQuote = !inQuote;
+      cur += ch;
+      continue;
+    }
+    if (ch === ',' && !inQuote) {
+      const t = cur.trim();
+      if (t) policies.push(t);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  const t = cur.trim();
+  if (t) policies.push(t);
+  return policies.length > 0 ? policies : [headerValue.trim()].filter(Boolean);
+}
 
 /** Parse a single CSP policy string into directives (order preserved). */
 export function parseCspPolicy(policy: string): CspDirective[] {
@@ -38,10 +83,17 @@ function hasToken(values: readonly string[], token: string): boolean {
   return values.some((v) => v.toLowerCase() === want);
 }
 
+/**
+ * Merge source list. `'none'` is exclusive (CSP) — drop it once any other source is present
+ * so we never emit invalid `script-src-attr 'none' 'unsafe-inline'` style lists.
+ */
 function mergeUnique(values: string[], extras: readonly string[]): string[] {
   const out = [...values];
   for (const e of extras) {
     if (!hasToken(out, e)) out.push(e);
+  }
+  if (out.length > 1 && hasToken(out, NONE)) {
+    return out.filter((v) => v.toLowerCase() !== NONE);
   }
   return out;
 }
@@ -79,10 +131,7 @@ function stripNonceHashStrictDynamic(values: string[]): { values: string[]; stri
  * - Leaves all other directives untouched; preserves `'unsafe-eval'` etc. via merge.
  * - Does not touch Report-Only handling (caller chooses which header to pass).
  */
-export function relaxCspPolicy(policy: string): string {
-  const trimmed = policy.trim();
-  if (!trimmed) return policy;
-
+function relaxOnePolicy(trimmed: string): string {
   const dirs = parseCspPolicy(trimmed);
   const defaultSrc = findDirective(dirs, 'default-src');
 
@@ -136,6 +185,15 @@ export function relaxCspPolicy(policy: string): string {
   return serializeCspPolicy(dirs);
 }
 
+export function relaxCspPolicy(policy: string): string {
+  const trimmed = policy.trim();
+  if (!trimmed) return policy;
+  // Multi-policy headers (comma-separated) — relax each independently, preserve AND semantics.
+  const parts = splitCspPolicies(trimmed);
+  if (parts.length <= 1) return relaxOnePolicy(trimmed);
+  return parts.map((p) => relaxOnePolicy(p)).join(', ');
+}
+
 export type CspHeader = { name: string; value: string };
 
 /**
@@ -170,12 +228,13 @@ export function rewriteCspMetasInHtml(html: string): { html: string; changed: bo
     return tag.replace(
       /\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i,
       (full, dq: string | undefined, sq: string | undefined, bare: string | undefined) => {
-        const raw = dq ?? sq ?? bare ?? '';
+        const encoded = dq ?? sq ?? bare ?? '';
+        // Decode before parse — &#39; embeds `;` and must not be treated as a directive separator.
+        const raw = decodeCspMetaContent(encoded);
         const relaxed = relaxCspPolicy(raw);
-        if (relaxed === raw) return full;
+        if (relaxed === raw && encoded === raw) return full;
         changed = true;
-        if (dq !== undefined) return `content="${relaxed.replace(/"/g, '&quot;')}"`;
-        if (sq !== undefined) return `content='${relaxed.replace(/'/g, '&#39;')}'`;
+        // Always re-emit double-quoted content so CSP `'…'` tokens stay intact.
         return `content="${relaxed.replace(/"/g, '&quot;')}"`;
       },
     );

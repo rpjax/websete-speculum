@@ -8,6 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runAbsCoordMapUnitTests = runAbsCoordMapUnitTests;
+exports.testAbsOsInputOverallocTransform = testAbsOsInputOverallocTransform;
 const assert_1 = __importDefault(require("assert"));
 const logical_to_device_1 = require("../patchright/input/logical-to-device");
 function runAbsCoordMapUnitTests() {
@@ -65,5 +66,35 @@ function runAbsCoordMapUnitTests() {
     // Generous ceiling: 2µs/op — if we ever regress to allocation-heavy map, this fails.
     assert_1.default.ok(nsPerOp < 2000, `mapLogicalToAbs too slow: ${nsPerOp.toFixed(2)} ns/op`);
     console.log(`[unit] abs coord map F(x) ok (${nsPerOp.toFixed(1)} ns/op, n=${N})`);
+}
+/** AbsOsInputStack overalloc + setLogicalSize — resize must not clamp clicks to launch size. */
+function testAbsOsInputOverallocTransform() {
+    if (!process.env['SPECULUM_UNIT_UINPUT']) {
+        console.log('[unit] AbsOsInputStack overalloc skipped (set SPECULUM_UNIT_UINPUT=1 on Linux)');
+        return;
+    }
+    const { AbsOsInputStack } = require('./AbsOsInputStack');
+    const stack = AbsOsInputStack.open({
+        sessionId: 'unit-overalloc',
+        displayWidth: 1280,
+        displayHeight: 720,
+        logicalWidth: 800,
+        logicalHeight: 600,
+    });
+    try {
+        let t = stack.getCoordTransform();
+        assert_1.default.strictEqual(t.logicalWidth, 800);
+        assert_1.default.strictEqual(t.absMaxX, 1279);
+        assert_1.default.deepStrictEqual((0, logical_to_device_1.mapLogicalToAbs)(t, 799, 599), { x: 799, y: 599 });
+        stack.setLogicalSize(1024, 768);
+        t = stack.getCoordTransform();
+        assert_1.default.strictEqual(t.logicalWidth, 1024);
+        assert_1.default.strictEqual(t.absMaxX, 1279);
+        assert_1.default.deepStrictEqual((0, logical_to_device_1.mapLogicalToAbs)(t, 900, 700), { x: 900, y: 700 });
+        console.log('[unit] AbsOsInputStack overalloc transform ok');
+    }
+    finally {
+        stack.dispose();
+    }
 }
 //# sourceMappingURL=AbsCoordMap.unit.js.map

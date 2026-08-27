@@ -10,6 +10,7 @@ import {
   decodeFramePart,
   FramePartAssembler,
   PersistentStringTable,
+  peekFrameHeader,
   type DecodedFramePart,
 } from '@speculum/page-projection/core/decode';
 import {
@@ -41,20 +42,37 @@ function evaluateCheck(table: ReplicatedTable, op: CheckOp): bigint {
   return op.scope === CHECK_SCOPE_RANGE ? table.hashRange(op.lo, op.hi) : table.tableHash;
 }
 
+type RewriteHopContextState = {
+  table: ReplicatedTable;
+  persistent: PersistentStringTable;
+  assembler: FramePartAssembler;
+};
+
 /**
  * Session-scoped rewrite hop. Buffer multi-part frames until complete, then emit rehashed parts.
+ * OPEN-6: one replicated table + assembler per `contextId` — nested frames must not poison root
+ * `preTableHash`/`CHECK`.
  */
 export class FrameRewriteHop {
-  private table = new ReplicatedTable();
-  private persistent = new PersistentStringTable();
-  private assembler = new FramePartAssembler();
+  private readonly contexts = new Map<number, RewriteHopContextState>();
   private readonly encoder = new BinaryFrameEncoder();
+
+  private contextState(contextId: number): RewriteHopContextState {
+    let state = this.contexts.get(contextId);
+    if (state === undefined) {
+      state = {
+        table: new ReplicatedTable(),
+        persistent: new PersistentStringTable(),
+        assembler: new FramePartAssembler(),
+      };
+      this.contexts.set(contextId, state);
+    }
+    return state;
+  }
 
   /** Call on navigate / session stop — producer table identity resets with the page. */
   reset(): void {
-    this.table = new ReplicatedTable();
-    this.persistent = new PersistentStringTable();
-    this.assembler.reset();
+    this.contexts.clear();
   }
 
   /**
@@ -62,7 +80,11 @@ export class FrameRewriteHop {
    * a multi-part frame).
    */
   push(input: Uint8Array, ctx: RewritePartContext): Uint8Array[] {
-    const decoded = decodeFramePart(input, this.persistent);
+    const hdr = peekFrameHeader(input);
+    if (hdr === null) return [input];
+    const scope = this.contextState(hdr.contextId);
+
+    const decoded = decodeFramePart(input, scope.persistent);
     if (!decoded.ok) return [input];
 
     const pageBase = ctx.pageUrl || 'https://invalid.local/';
@@ -84,7 +106,7 @@ export class FrameRewriteHop {
       ops: decoded.part.ops.map((op) => rewriteOp(op, pageBase, onRewrite)),
     };
 
-    const assembled = this.assembler.ingest(part);
+    const assembled = scope.assembler.ingest(part);
     if (assembled === null) return [];
     if (assembled === 'missing_part' || assembled === 'malformed') {
       // Fall back to original bytes for this part only — better a single corrupt part than silence.
@@ -92,7 +114,7 @@ export class FrameRewriteHop {
     }
 
     const { preTableHash, ops } = rehashFrame(
-      this.table,
+      scope.table,
       assembled.resync,
       assembled.sequence,
       assembled.ops,

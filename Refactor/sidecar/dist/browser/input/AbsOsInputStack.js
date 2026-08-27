@@ -81,9 +81,15 @@ class AbsOsInputStack {
                 phase: 'launch',
             });
         }
-        const transform = (0, logical_to_device_1.createLogicalWindowTransform)(opts.displayWidth, opts.displayHeight);
+        const absMaxX = Math.max(0, opts.displayWidth - 1);
+        const absMaxY = Math.max(0, opts.displayHeight - 1);
+        const logicalW = opts.logicalWidth ?? opts.displayWidth;
+        const logicalH = opts.logicalHeight ?? opts.displayHeight;
+        const transform = logicalW === opts.displayWidth && logicalH === opts.displayHeight
+            ? (0, logical_to_device_1.createLogicalWindowTransform)(logicalW, logicalH)
+            : (0, logical_to_device_1.createCoordTransform)(logicalW, logicalH, absMaxX, absMaxY);
         const shortId = (0, node_crypto_1.createHash)('sha1').update(opts.sessionId).digest('hex').slice(0, 12);
-        const pointer = uinput_1.UinputDevice.openAbsPointer(`speculum-abs-${shortId}`, transform.absMaxX, transform.absMaxY);
+        const pointer = uinput_1.UinputDevice.openAbsPointer(`speculum-abs-${shortId}`, absMaxX, absMaxY);
         let keyboard;
         try {
             keyboard = uinput_1.UinputDevice.openKeyboard(`speculum-kbd-${shortId}`, (0, keycodes_1.allKeyboardKeyCodes)());
@@ -94,7 +100,7 @@ class AbsOsInputStack {
         }
         let touch;
         try {
-            touch = uinput_1.UinputDevice.openMultitouch(`speculum-mt-${shortId}`, transform.absMaxX, transform.absMaxY, 10);
+            touch = uinput_1.UinputDevice.openMultitouch(`speculum-mt-${shortId}`, absMaxX, absMaxY, 10);
         }
         catch (err) {
             pointer.destroy();
@@ -103,6 +109,10 @@ class AbsOsInputStack {
         }
         ensureInputEventNodes(pointer.name, keyboard.name, touch.name);
         return new AbsOsInputStack(pointer, keyboard, touch, transform);
+    }
+    /** Refresh logical viewport after soft-resize — ABS capacity stays at R. */
+    setLogicalSize(logicalWidth, logicalHeight) {
+        this.transform = (0, logical_to_device_1.createCoordTransform)(logicalWidth, logicalHeight, Math.max(0, this.transform.absMaxX), Math.max(0, this.transform.absMaxY));
     }
     /** Identity transform used by the pointer writer (tests / diagnostics). */
     getCoordTransform() {

@@ -20,6 +20,7 @@
 
 | Date | Topic | Where the full text is |
 |------|-------|------------------------|
+| 2026-08-27 | **Projected nested drop cancels pending `load` bind (Rodrigo)** — `dropNestedHost` must `cancelPendingNestedHost` (cancelled flag + `removeEventListener`) and drop `pendingNestedFrames`. Leaving the listener after clearing `nestedHostAwaitingLoad` → late bind → ghost id in `ProjectedInputRuntime.registry` → S6 census includes orphan → Phase A / click dies. Not ad-hoc; completes drop. | [multi-document.md](multi-document.md) §4.1 · [input.md](input.md) §4 · `ProjectionClient.ts` |
 | 2026-08-26 | **OS unified input SEALED (Rodrigo)** — [input.md](input.md) lacre after loopback Phase A, LB-03 resolve, S6 ContextBus RPC, Docker spike + suite 8/8 + accept same-origin PASS. False SEAL (CDP MAIN) reverted earlier same day. | [input.md](input.md) §6 |
 | 2026-08-26 | **Virtual resolve drain (Rodrigo)** — per-context `frameEmitter.flushNow()` before `keyOfSelector` / `resolveElementHit`; sync identity drain; wire emit only if pending work. | [input.md](input.md) §5 |
 | 2026-08-26 | **S6 census Projected — ContextBus RPC** — `ProjectedInputRuntime` in-process fabric; capture invokes `snapshotScrollPositionsFromAllContexts` → RUNTIME fan-out `snapshotScrollPosition` per context (draft §10.1b). **Walk `snapshotAllContextsCensus` reverted** (lab≠prod ad-hoc). | [input-unified-design-draft.md](input-unified-design-draft.md) §10.1b · `projectedInputRuntime.ts` |

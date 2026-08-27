@@ -14,6 +14,7 @@ const ws_1 = require("ws");
 const assetRoots_1 = require("../assetRoots");
 const wsSession_1 = require("./wsSession");
 const labVirtualAssets_1 = require("./labVirtualAssets");
+const fixtureServe_1 = require("../fixtureServe");
 const MIME = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
@@ -92,7 +93,7 @@ async function createLabServer(opts) {
                     res.writeHead(400).end('bad path');
                     return;
                 }
-                sendFile(res, file);
+                (0, fixtureServe_1.pipeFixtureFile)(res, file);
                 return;
             }
             res.writeHead(404).end('not found');

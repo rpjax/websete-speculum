@@ -199,9 +199,8 @@ void (async () => {
   bus.setChildFabric({
     windowOf: (contextId) => childScopes.windowOf(contextId, nodeOf),
     forEachLive: (fn) => childScopes.forEachLiveWindow(nodeOf, fn),
-    hasContext: (contextId) => childScopes.hasContext(contextId),
   });
-  // Live index only — never mint-ever (hasMinted). Root document id always deliverable.
+  // Live index only — never mint-ever (hasMinted). Root always deliverable; children need live contentWindow.
   bus.setDeliverableCheck((contextId) => {
     if (contextId === CONTEXT_ID_ROOT) return true;
     return childScopes.windowOf(contextId, nodeOf) != null;

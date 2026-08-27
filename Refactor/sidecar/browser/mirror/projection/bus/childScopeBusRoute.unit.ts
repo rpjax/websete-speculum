@@ -10,6 +10,7 @@ import type { BusEnvelope } from '@speculum/page-projection/virtual/bus/types';
 export async function runChildScopeBusRouteUnitTests(): Promise<void> {
   testChildScopeIndexReverseAndWindowLookup();
   testChildScopeDropRemovesContext();
+  testChildScopeRebindsWindowAfterReplace();
   await testBusUnicastUsesFabricNotQuerySelector();
   await testBusDeadContextFailClosedFast();
   console.log('[unit] child-scope bus O(1) route ok');
@@ -55,6 +56,23 @@ function testChildScopeDropRemovesContext(): void {
   assert.strictEqual(index.windowOf(2, (id) => nodes.get(id) as never), null);
 }
 
+/** After iframe nav, contentWindow identity changes — WeakMap must rebind via windowOf / lookup. */
+function testChildScopeRebindsWindowAfterReplace(): void {
+  let next = 2;
+  const index = new ChildScopeIndex(() => next++);
+  const winOld = { tag: 'old' };
+  const winNew = { tag: 'new' };
+  const hostA = { nodeType: 1, isConnected: true, contentWindow: winOld as object | null };
+  const nodes = new Map<number, object>([[10, hostA]]);
+  index.admit(10, hostA as never);
+
+  hostA.contentWindow = winNew;
+  assert.strictEqual(index.windowOf(2, (id) => nodes.get(id) as never), winNew);
+  assert.strictEqual(index.lookupByContentWindow(winNew, (id) => nodes.get(id) as never), 2);
+  // Stale WeakMap key must not win once reverse index is live for the new window.
+  assert.strictEqual(index.lookupByContentWindow(winOld, (id) => nodes.get(id) as never), undefined);
+}
+
 async function testBusUnicastUsesFabricNotQuerySelector(): Promise<void> {
   let queryCalls = 0;
   const received: BusEnvelope[] = [];
@@ -80,10 +98,9 @@ async function testBusUnicastUsesFabricNotQuerySelector(): Promise<void> {
     servesRuntime: true,
   });
   bus.setChildFabric({
-    windowOf: (id) => (id === 7 ? (childWin as never) : null),
-    forEachLive: (fn) => fn(childWin as never, 7),
-    hasContext: (id) => id === 7,
-  });
+    windowOf: (id: number) => (id === 7 ? childWin : null),
+    forEachLive: (fn: (w: unknown, contextId: number) => void) => fn(childWin, 7),
+  } as never);
   bus.setDeliverableCheck((id) => id === 1 || id === 7);
 
   bus.emit('telemetry', { kind: 'ping' }, { destination: 7 });
@@ -111,10 +128,9 @@ async function testBusDeadContextFailClosedFast(): Promise<void> {
     isDeliverableDestination: (id) => id === 1,
   });
   bus.setChildFabric({
-    windowOf: () => null,
-    forEachLive: () => undefined,
-    hasContext: () => false,
-  });
+    windowOf: (_id: number) => null,
+    forEachLive: (_fn: (w: unknown, contextId: number) => void) => undefined,
+  } as never);
   bus.setDeliverableCheck((id) => id === 1);
 
   const t0 = performance.now();

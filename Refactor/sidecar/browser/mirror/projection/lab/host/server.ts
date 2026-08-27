@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import { labAssetRoots } from '../assetRoots';
 import { WsLabConnection, listLabBlueprintSummaries } from './wsSession';
 import { tryServeLabVirtualAsset } from './labVirtualAssets';
+import { pipeFixtureFile } from '../fixtureServe';
 
 export type LabServerOptions = {
   host: string;
@@ -103,7 +104,7 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
           res.writeHead(400).end('bad path');
           return;
         }
-        sendFile(res, file);
+        pipeFixtureFile(res, file);
         return;
       }
       res.writeHead(404).end('not found');

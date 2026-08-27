@@ -20,6 +20,7 @@ const projectionDataPlaneHost_1 = require("./projectionDataPlaneHost");
 const documentResponseHook_1 = require("./csp/documentResponseHook");
 const scriptInjectMutator_1 = require("./csp/scriptInjectMutator");
 const projectionProducerDocumentMutator_1 = require("./csp/projectionProducerDocumentMutator");
+const singleTab_1 = require("./singleTab");
 const EditableFocus_1 = require("../../../patchright/EditableFocus");
 const Navigation_1 = require("../../../patchright/Navigation");
 const device_emulation_1 = require("../../../patchright/device-emulation");
@@ -837,6 +838,7 @@ class PageProjectionBrowserSession {
         // Document mutator + stored-script fulfill cover same-origin iframes in HTML responses.
         await p.addInitScript({ content: configPre });
         await p.addInitScript({ content: virtualScript });
+        await p.addInitScript({ content: singleTab_1.SINGLE_TAB_INIT_SCRIPT });
         // Document Response-stage hook before any navigation — CSP + optional launch scripts.
         // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
         this.cdpSession = await context.newCDPSession(p);
@@ -856,6 +858,30 @@ class PageProjectionBrowserSession {
             storedScripts,
             context,
             page: p,
+        });
+        // Locale / OAuth popups → same tab so CSP surgery + data plane stay on the primary page.
+        (0, singleTab_1.installSingleTabAdoption)({
+            page: p,
+            context,
+            adoptUrlOnPrimary: async (url) => {
+                const allowed = options.allowedNavigationDomains;
+                if (allowed && allowed.length > 0) {
+                    try {
+                        const host = new URL(url).hostname;
+                        if (!(0, Navigation_1.matchesAllowedDomain)(host, allowed)) {
+                            this.events.onMainFrameNavigationBlocked(url);
+                            return;
+                        }
+                    }
+                    catch {
+                        return;
+                    }
+                }
+                await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+                this.url = p.url() || url;
+                this.events.onLocationChanged(this.url);
+                this.editableFocus.rebind(p);
+            },
         });
         // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).
         try {

@@ -76,6 +76,8 @@ type HookState = {
   mutators: DocumentResponseMutator[];
   /** frame → CDP session (OOPIF / nested). */
   frameSessions: WeakMap<Frame, CDPSession>;
+  /** Sessions that already have a Fetch.requestPaused listener (no stacking). */
+  pausedBound: WeakSet<CDPSession>;
 };
 
 const byPageCdp = new WeakMap<CDPSession, HookState>();
@@ -162,6 +164,21 @@ async function handleRequestPaused(
     return;
   }
 
+  /** Header-only continue — used when body get/fulfill fails (huge Document, CDP limits). */
+  const continueWithHeaders = async (nextHeaders: CspHeader[]) => {
+    try {
+      await send('Fetch.continueResponse', {
+        requestId,
+        responseCode: responseStatusCode,
+        responseHeaders: nextHeaders,
+      });
+    } catch {
+      await continueResponse();
+    }
+  };
+
+  const headerOnly = rewriteCspResponseHeaders(headers);
+
   try {
     const { body, base64Encoded } = (await send('Fetch.getResponseBody', {
       requestId,
@@ -190,14 +207,28 @@ async function handleRequestPaused(
       return;
     }
 
-    await send('Fetch.fulfillRequest', {
-      requestId,
-      responseCode: responseStatusCode,
-      responseHeaders: ctx.headers,
-      body: Buffer.from(ctx.bodyHtml, 'utf-8').toString('base64'),
-    });
+    try {
+      await send('Fetch.fulfillRequest', {
+        requestId,
+        responseCode: responseStatusCode,
+        responseHeaders: ctx.headers,
+        body: Buffer.from(ctx.bodyHtml, 'utf-8').toString('base64'),
+      });
+    } catch {
+      // Body rewrite failed — still apply enforcing CSP header surgery (csp.md §4/§5).
+      if (headerOnly.cspChanged) {
+        await continueWithHeaders(headerOnly.headers);
+      } else {
+        await continueResponse();
+      }
+    }
   } catch {
-    await continueResponse();
+    // getResponseBody failed — header surgery still applies when CSP was present.
+    if (headerOnly.cspChanged) {
+      await continueWithHeaders(headerOnly.headers);
+    } else {
+      await continueResponse();
+    }
   }
 }
 
@@ -206,6 +237,8 @@ async function enableFetchOnSession(
   state: HookState,
 ): Promise<void> {
   await session.send('Fetch.enable', { patterns: state.patterns });
+  if (state.pausedBound.has(session)) return;
+  state.pausedBound.add(session);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   session.on('Fetch.requestPaused', async (event: any) => {
     const send: CdpSender = (method, params) =>
@@ -256,6 +289,7 @@ export async function installDocumentResponseHook(
       scriptMap,
       mutators,
       frameSessions: new WeakMap(),
+      pausedBound: new WeakSet(),
     };
     byPageCdp.set(cdp, state);
   } else {
@@ -274,8 +308,12 @@ export async function installDocumentResponseHook(
       void attachFrameSession(frame, page, context, state!);
     });
     // OOPIF can swap network target on navigation — re-bind Fetch.
+    // Main frame: re-Fetch.enable after cross-process nav (session may keep object, patterns drop).
     page.on('framenavigated', (frame) => {
-      if (frame === page.mainFrame()) return;
+      if (frame === page.mainFrame()) {
+        void enableFetchOnSession(cdp, state!);
+        return;
+      }
       if (state!.frameSessions.has(frame)) return;
       void attachFrameSession(frame, page, context, state!);
     });

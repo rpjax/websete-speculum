@@ -101,6 +101,7 @@ export async function runPageProjectionSessionUnitTests(): Promise<void> {
   console.log('[unit] PageProjectionBrowserSession frames+O2+halt/flush ok');
 
   await runDocumentCspHookUnitTests();
+  await runSingleTabLocaleCspPlaneUnitTests();
 }
 
 /** Response-stage Document hook: meta CSP relaxed; nonce stripped; other directives preserved. */
@@ -154,4 +155,128 @@ async function runDocumentCspHookUnitTests(): Promise<void> {
     });
   }
   console.log('[unit] V4 Document Response CSP hook ok');
+}
+
+/**
+ * Locale-popup stand-in: target=_blank / window.open must land on primary tab with
+ * CSP connect-src widened and loopback data plane open (Binance-class defect).
+ */
+async function runSingleTabLocaleCspPlaneUnitTests(): Promise<void> {
+  const policy =
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.binance.com; img-src 'self' https:";
+  const en = `<!doctype html><html><head>
+<meta http-equiv="Content-Security-Policy" content="${policy}">
+<title>EN</title></head><body>
+<h1 id="title">EN</h1>
+<a id="go-br-blank" href="/br" target="_blank" rel="noopener">BR</a>
+</body></html>`;
+  const br = `<!doctype html><html><head>
+<meta http-equiv="Content-Security-Policy" content="${policy}">
+<title>BR</title></head><body>
+<h1 id="title">BR</h1>
+<p id="landed">ok</p>
+</body></html>`;
+
+  const server = http.createServer((req, res) => {
+    const pathname = (req.url ?? '/').split('?')[0];
+    const headers = {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': policy,
+      'Cache-Control': 'no-store',
+    };
+    if (pathname === '/' || pathname === '/en') {
+      res.writeHead(200, headers);
+      res.end(en);
+      return;
+    }
+    if (pathname === '/br') {
+      res.writeHead(200, headers);
+      res.end(br);
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const addr = server.address();
+  if (!addr || typeof addr === 'string') throw new Error('no port');
+  const origin = `http://127.0.0.1:${addr.port}`;
+
+  const factory = createPageProjectionBrowserSessionFactory({ headless: true });
+  const session = factory.create('unit-pp-single-tab-csp', emptyEvents()) as ReturnType<
+    ReturnType<typeof createPageProjectionBrowserSessionFactory>['create']
+  > & {
+    measureApplyScrollSet: (args: {
+      contextId: number;
+      nodeId: number | null;
+      scrollX: number;
+      scrollY: number;
+    }) => Promise<{ ok: boolean; error?: string; wallMs: number }>;
+  };
+  try {
+    await session.launch(
+      labLaunchOptions({
+        frameRateHz: 10,
+        projectionTelemetry: { ...LAB_TELEMETRY_DEFAULTS },
+        cpuProfiling: false,
+      }),
+    );
+    await session.navigate(`${origin}/en`);
+    await wait(600);
+
+    const click = await session.evaluate(`(() => {
+      const a = document.getElementById('go-br-blank');
+      if (!a) throw new Error('missing #go-br-blank');
+      a.click();
+      return 'clicked';
+    })()`);
+    assert.ok(click.ok, click.errorMessage);
+
+    const deadline = Date.now() + 15_000;
+    let title = '';
+    while (Date.now() < deadline) {
+      const t = await session.evaluate(`document.getElementById('title')?.textContent ?? ''`);
+      title = t.value ?? '';
+      if (title === 'BR') break;
+      await wait(100);
+    }
+    assert.strictEqual(title, 'BR', 'target=_blank must fold into primary tab (single-tab)');
+
+    const meta = await session.evaluate(
+      `document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content ?? ''`,
+    );
+    assert.ok(meta.ok, meta.errorMessage);
+    assert.ok(
+      /\bconnect-src\b[^;]*\*/.test(meta.value) || /\bconnect-src\b[^;]*\bws:/.test(meta.value),
+      `connect-src widened after popup nav: ${meta.value}`,
+    );
+
+    const planeDeadline = Date.now() + 10_000;
+    let planeOk = false;
+    let lastErr = '';
+    while (Date.now() < planeDeadline) {
+      const lastPlane = await session.measureApplyScrollSet({
+        contextId: 1,
+        nodeId: null,
+        scrollX: 0,
+        scrollY: 1,
+      });
+      if (lastPlane.ok) {
+        planeOk = true;
+        break;
+      }
+      lastErr = lastPlane.error ?? '';
+      if (lastErr && !/data plane not open|not_open/i.test(lastErr)) {
+        planeOk = true;
+        break;
+      }
+      await wait(100);
+    }
+    assert.ok(planeOk, `data plane must reopen after locale popup nav: ${lastErr}`);
+  } finally {
+    await session.dispose();
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
+    });
+  }
+  console.log('[unit] single-tab locale CSP + data plane ok');
 }

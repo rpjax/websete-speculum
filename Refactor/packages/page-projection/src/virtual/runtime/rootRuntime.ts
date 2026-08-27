@@ -2,6 +2,7 @@
  * Root runtime — sidecar WS, mint, implements emitFrame. Once per tab.
  */
 
+import { CONTEXT_ID_ROOT } from '../../core/frame';
 import { PlaneChannel } from '../../core/plane';
 import type { DataPlane } from '../../core/plane';
 import type { FrameTransport } from '../transport/frameTransport';
@@ -46,7 +47,7 @@ export class RootRuntime {
       mint: () => this.mint(),
       // Stub until bootstrap wires live ChildScopeIndex via setDeliverableCheck.
       // Must not use hasMinted (monotonic) — that was PP-INPUT-VIRTUAL-MINT-GHOST.
-      isDeliverableDestination: (contextId) => contextId === 1,
+      isDeliverableDestination: (contextId) => contextId === CONTEXT_ID_ROOT,
       emitFrame: (bytes) => {
         this.frameTransport.send(bytes);
       },

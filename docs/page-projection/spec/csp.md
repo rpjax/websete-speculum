@@ -162,8 +162,8 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 |------|------|
 | Parse / merge / compensação | `session/csp/relaxCsp.ts` |
 | Hook Fetch Document Response | `session/csp/documentResponseHook.ts` |
-| Wire | `PageProjectionBrowserSession.freshPage` → `installDocumentResponseHook` antes do `goto` |
-| Units | `relaxCsp.unit.ts` + e2e nonce/meta no `v4ProjectionSession.unit.ts` |
+| Wire | `PageProjectionBrowserSession.freshPage` → `installDocumentResponseHook` before any `goto`; **single-tab** folds `window.open`/`target=_blank` into the primary page so surgery still runs |
+| Units | `relaxCsp.unit.ts` + e2e nonce/meta + single-tab locale CSP plane in `pageProjectionSession.unit.ts` |
 
 **Status (2026-08-20):** **SEALED** — Response-stage hook + `connect-src` + strip nonce/hash/`strict-dynamic` + compensação `'unsafe-inline'` / `*` / `blob:` / `data:` (delta). Do **not** reopen §§3–7 without a decision-log row. Inject de script tags = próximo passo cutover (mutator no mesmo hook).
 
@@ -196,3 +196,4 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 | 2026-08-20 | **SEALED** — §§3–7 + impl `session/csp/*` + units/e2e. Não reabrir sem decision-log. |
 | 2026-08-26 | E-03 revised: loopback WS = sole Virtual↔sidecar carrier; CDP binding plane purged. |
 | 2026-08-27 | OOPIF: mesmo Fetch/stored-script fulfill via `context.newCDPSession(frame)` (não `Target.setAutoAttach` flatten:false no browser CDP — Chromium rejeita). |
+| 2026-08-27 | **Single-tab (PP, LOCKED):** one Chromium page per session — **never** two tabs. Site `window.open` / `_blank` → same-tab `location` redirect (init script); auxiliary pages closed immediately + URL adopted on primary. | `session/singleTab.ts` · [browser-session.md](browser-session.md) |

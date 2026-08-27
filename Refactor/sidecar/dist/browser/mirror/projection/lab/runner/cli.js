@@ -7,7 +7,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const node_http_1 = __importDefault(require("node:http"));
-const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const assetRoots_1 = require("../assetRoots");
 const chassis_1 = require("../host/chassis");
@@ -15,6 +14,7 @@ const loadBlueprint_1 = require("./loadBlueprint");
 const execute_1 = require("./execute");
 const types_1 = require("../dossier/types");
 const telemetry_1 = require("@speculum/page-projection/core/telemetry");
+const fixtureServe_1 = require("../fixtureServe");
 function parseDuration(raw) {
     const m = /^(\d+(?:\.\d+)?)(ms|s|m)?$/i.exec(raw.trim());
     if (!m)
@@ -108,12 +108,11 @@ async function startFixtureHttp() {
         }
         const pathname = url.split('?')[0] ?? url;
         const file = node_path_1.default.join(fixturesDir, decodeURIComponent(pathname.slice('/fixtures/'.length)));
-        if (!file.startsWith(node_path_1.default.normalize(fixturesDir)) || !node_fs_1.default.existsSync(file)) {
-            res.writeHead(404).end('not found');
+        if (!file.startsWith(node_path_1.default.normalize(fixturesDir))) {
+            res.writeHead(400).end('bad path');
             return;
         }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        node_fs_1.default.createReadStream(file).pipe(res);
+        (0, fixtureServe_1.pipeFixtureFile)(res, file);
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     const addr = server.address();

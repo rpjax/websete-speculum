@@ -4991,7 +4991,7 @@
         mint: () => this.mint(),
         // Stub until bootstrap wires live ChildScopeIndex via setDeliverableCheck.
         // Must not use hasMinted (monotonic) — that was PP-INPUT-VIRTUAL-MINT-GHOST.
-        isDeliverableDestination: (contextId) => contextId === 1,
+        isDeliverableDestination: (contextId) => contextId === CONTEXT_ID_ROOT,
         emitFrame: (bytes) => {
           this.frameTransport.send(bytes);
         }
@@ -5065,9 +5065,6 @@
     byContext = /* @__PURE__ */ new Map();
     /** contentWindow → contextId (O(1) getScopeId) */
     byWindow = /* @__PURE__ */ new WeakMap();
-    get mapView() {
-      return this.map;
-    }
     get(nodeId) {
       return this.map.get(nodeId);
     }
@@ -5081,14 +5078,20 @@
       const nodeId = this.byContext.get(contextId);
       if (nodeId === void 0) return null;
       const node = nodeOf(nodeId);
-      const w = node?.contentWindow;
-      return w ?? null;
+      if (!node) return null;
+      const w = node.contentWindow;
+      if (!w) return null;
+      this.bindWindow(node, contextId);
+      return w;
     }
     forEachLiveWindow(nodeOf, fn) {
       for (const [contextId, nodeId] of this.byContext) {
         const node = nodeOf(nodeId);
-        const w = node?.contentWindow;
-        if (w) fn(w, contextId);
+        if (!node) continue;
+        const w = node.contentWindow;
+        if (!w) continue;
+        this.bindWindow(node, contextId);
+        fn(w, contextId);
       }
     }
     drop(nodeId) {
@@ -5112,18 +5115,19 @@
       return { kind: "host", contextId: minted };
     }
     lookupByContentWindow(source, nodeOf) {
-      if (source !== null && typeof source === "object") {
-        const hit = this.byWindow.get(source);
-        if (hit !== void 0) {
-          if (this.byContext.has(hit)) return hit;
+      if (source === null || typeof source !== "object") return void 0;
+      const hit = this.byWindow.get(source);
+      if (hit !== void 0) {
+        const nodeId = this.byContext.get(hit);
+        if (nodeId !== void 0) {
+          const node = nodeOf(nodeId);
+          if (node?.contentWindow === source) return hit;
         }
       }
-      for (const [nodeId, contextId] of this.map) {
+      for (const [contextId, nodeId] of this.byContext) {
         const node = nodeOf(nodeId);
         if (node && node.contentWindow === source) {
-          if (source !== null && typeof source === "object") {
-            this.byWindow.set(source, contextId);
-          }
+          this.byWindow.set(source, contextId);
           return contextId;
         }
       }
@@ -5284,8 +5288,7 @@
         bus.setScopeLookup((source) => childScopes.lookupByContentWindow(source, nodeOf));
         bus.setChildFabric({
           windowOf: (contextId) => childScopes.windowOf(contextId, nodeOf),
-          forEachLive: (fn) => childScopes.forEachLiveWindow(nodeOf, fn),
-          hasContext: (contextId) => childScopes.hasContext(contextId)
+          forEachLive: (fn) => childScopes.forEachLiveWindow(nodeOf, fn)
         });
         bus.setDeliverableCheck((contextId) => {
           if (contextId === CONTEXT_ID_ROOT) return true;

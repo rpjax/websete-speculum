@@ -43,6 +43,7 @@ import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
 import { createScriptInjectMutator } from './csp/scriptInjectMutator';
 import { createProjectionProducerDocumentMutator, PROJECTION_VIRTUAL_SCRIPT_PATH } from './csp/projectionProducerDocumentMutator';
+import { SINGLE_TAB_INIT_SCRIPT, installSingleTabAdoption } from './singleTab';
 import { EditableFocus } from '../../../patchright/EditableFocus';
 import { matchesAllowedDomain } from '../../../patchright/Navigation';
 import {
@@ -1063,6 +1064,7 @@ export class PageProjectionBrowserSession {
     // Document mutator + stored-script fulfill cover same-origin iframes in HTML responses.
     await p.addInitScript({ content: configPre });
     await p.addInitScript({ content: virtualScript });
+    await p.addInitScript({ content: SINGLE_TAB_INIT_SCRIPT });
     // Document Response-stage hook before any navigation — CSP + optional launch scripts.
     // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
     this.cdpSession = await context.newCDPSession(p);
@@ -1082,6 +1084,29 @@ export class PageProjectionBrowserSession {
       storedScripts,
       context,
       page: p,
+    });
+    // Locale / OAuth popups → same tab so CSP surgery + data plane stay on the primary page.
+    installSingleTabAdoption({
+      page: p,
+      context,
+      adoptUrlOnPrimary: async (url) => {
+        const allowed = options.allowedNavigationDomains;
+        if (allowed && allowed.length > 0) {
+          try {
+            const host = new URL(url).hostname;
+            if (!matchesAllowedDomain(host, allowed)) {
+              this.events.onMainFrameNavigationBlocked(url);
+              return;
+            }
+          } catch {
+            return;
+          }
+        }
+        await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        this.url = p.url() || url;
+        this.events.onLocationChanged(this.url);
+        this.editableFocus.rebind(p);
+      },
     });
     // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).
     try {

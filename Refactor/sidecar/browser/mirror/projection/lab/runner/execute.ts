@@ -19,6 +19,7 @@ import { foldFormsState } from '../blueprints/fold/formsState';
 import { foldShadowOpen, foldShadowClosed, foldShadowManual } from '../blueprints/fold/shadowOpen';
 import { foldIframeOpen } from '../blueprints/fold/iframeOpen';
 import { foldApplyHonestyDesync } from '../blueprints/fold/applyHonestyDesync';
+import { foldCspNavLocale } from '../blueprints/fold/cspNavLocale';
 import type { HostileKind } from './hostileFrames';
 import {
   encodeAttrDesyncFrame,
@@ -758,6 +759,8 @@ export async function executeBlueprint(
           const kind = parseHostileKind(params.kind, bp.id);
           if (!kind) return finish(false, `unknown honesty kind ${String(params.kind ?? bp.id)}`);
           verdicts = foldApplyHonestyDesync(chassis, kind);
+        } else if (ruleset === 'csp-nav-locale' || ruleset === 'fold/cspNavLocale') {
+          verdicts = foldCspNavLocale(chassis);
         } else return finish(false, `unknown fold ruleset ${ruleset}`);
         return finish(true, `verdicts=${verdicts.length}`);
       }

@@ -11,6 +11,7 @@ import { loadBlueprint, listBlueprintIds } from './loadBlueprint';
 import { executeBlueprint } from './execute';
 import { reportExitCode } from '../dossier/types';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
+import { pipeFixtureFile } from '../fixtureServe';
 
 type Args = {
   blueprint: string;
@@ -102,12 +103,11 @@ async function startFixtureHttp(): Promise<{ origin: string; close: () => Promis
     }
     const pathname = url.split('?')[0] ?? url;
     const file = path.join(fixturesDir, decodeURIComponent(pathname.slice('/fixtures/'.length)));
-    if (!file.startsWith(path.normalize(fixturesDir)) || !fs.existsSync(file)) {
-      res.writeHead(404).end('not found');
+    if (!file.startsWith(path.normalize(fixturesDir))) {
+      res.writeHead(400).end('bad path');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    fs.createReadStream(file).pipe(res);
+    pipeFixtureFile(res, file);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   const addr = server.address();

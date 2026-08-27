@@ -51,6 +51,7 @@ const formsState_1 = require("../blueprints/fold/formsState");
 const shadowOpen_1 = require("../blueprints/fold/shadowOpen");
 const iframeOpen_1 = require("../blueprints/fold/iframeOpen");
 const applyHonestyDesync_1 = require("../blueprints/fold/applyHonestyDesync");
+const cspNavLocale_1 = require("../blueprints/fold/cspNavLocale");
 const hostileFrames_1 = require("./hostileFrames");
 function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -692,6 +693,9 @@ async function executeBlueprint(bp, hooks) {
                     if (!kind)
                         return finish(false, `unknown honesty kind ${String(params.kind ?? bp.id)}`);
                     verdicts = (0, applyHonestyDesync_1.foldApplyHonestyDesync)(chassis, kind);
+                }
+                else if (ruleset === 'csp-nav-locale' || ruleset === 'fold/cspNavLocale') {
+                    verdicts = (0, cspNavLocale_1.foldCspNavLocale)(chassis);
                 }
                 else
                     return finish(false, `unknown fold ruleset ${ruleset}`);

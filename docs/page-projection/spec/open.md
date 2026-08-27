@@ -26,6 +26,12 @@
 
 No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18**. Same-origin nested iframe **lab shipped 2026-08-19** (`iframe-open`). **OPEN-6 observability shipped 2026-08-19**. CSSOM in nested contexts = **same algorithm instance** (not a separate feature). Remaining OPEN-6: XO / srcdoc / sandbox / fenced (NIT). Optional QA: nested `cssomO2` assert — [seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`.
 
+### BUG — locale popup / `_blank` skips CSP surgery (**CLOSED 2026-08-27**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-CSP-SINGLE-TAB** | After clicking a locale/OAuth-style popup (`target=_blank` / `window.open`), `input_reject … data plane not open`; console: `ws://127.0.0.1` violates `connect-src`. | **Session law:** one tab only — open/_blank → same-tab redirect; orphan page closed immediately. Fix: `session/singleTab.ts` + CSP hook hardening. Fixture `csp-nav-locale-*.html` · lab blueprint `csp-nav-locale` · unit `runSingleTabLocaleCspPlaneUnitTests`. |
+
 ### BUG — virtual assets / third-party framed identity (PINNED 2026-08-25)
 
 | Id | Symptom | Notes |

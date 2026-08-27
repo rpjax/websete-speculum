@@ -40,9 +40,10 @@ import {
   testFrameRewriteHopRehashesCheck,
 } from './browser/mirror/projection/assets/rewritePart.unit';
 import { testLabVirtualAssetsServeHelpers } from './browser/mirror/projection/lab/host/labVirtualAssets.unit';
-import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/relaxCsp.unit';
 import { runDocumentResponseHookUnitTests } from './browser/mirror/projection/session/csp/documentResponseHook.unit';
+import { runSingleTabUnitTests } from './browser/mirror/projection/session/singleTab.unit';
+import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
@@ -4211,6 +4212,7 @@ async function main(): Promise<void> {
   await runProjectedInputCaptureUnitTests();
   await runRelaxCspUnitTests();
   await runDocumentResponseHookUnitTests();
+  await runSingleTabUnitTests();
   await runPageProjectionSessionUnitTests();
   await runPageProjectionInputClickUnitTests();
   console.log('[unit] all passed');

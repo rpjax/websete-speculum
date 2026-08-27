@@ -55,9 +55,10 @@ const DomAssetCache_1 = require("./browser/patchright/mirror/dom/DomAssetCache")
 const urlForms_unit_1 = require("./browser/mirror/projection/assets/urlForms.unit");
 const rewritePart_unit_1 = require("./browser/mirror/projection/assets/rewritePart.unit");
 const labVirtualAssets_unit_1 = require("./browser/mirror/projection/lab/host/labVirtualAssets.unit");
-const pageProjectionSession_unit_1 = require("./browser/mirror/projection/session/pageProjectionSession.unit");
 const relaxCsp_unit_1 = require("./browser/mirror/projection/session/csp/relaxCsp.unit");
 const documentResponseHook_unit_1 = require("./browser/mirror/projection/session/csp/documentResponseHook.unit");
+const singleTab_unit_1 = require("./browser/mirror/projection/session/singleTab.unit");
+const pageProjectionSession_unit_1 = require("./browser/mirror/projection/session/pageProjectionSession.unit");
 const pageProjectionInputClick_unit_1 = require("./browser/mirror/projection/input/pageProjectionInputClick.unit");
 const projectedInputCapture_unit_1 = require("./browser/mirror/projection/input/projectedInputCapture.unit");
 const contextBus_unit_1 = require("./browser/mirror/projection/bus/contextBus.unit");
@@ -3638,6 +3639,7 @@ async function main() {
     await (0, projectedInputCapture_unit_1.runProjectedInputCaptureUnitTests)();
     await (0, relaxCsp_unit_1.runRelaxCspUnitTests)();
     await (0, documentResponseHook_unit_1.runDocumentResponseHookUnitTests)();
+    await (0, singleTab_unit_1.runSingleTabUnitTests)();
     await (0, pageProjectionSession_unit_1.runPageProjectionSessionUnitTests)();
     await (0, pageProjectionInputClick_unit_1.runPageProjectionInputClickUnitTests)();
     console.log('[unit] all passed');

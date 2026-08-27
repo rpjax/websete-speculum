@@ -22,10 +22,6 @@ export class ChildScopeIndex {
 
   constructor(private readonly mint: () => number | null) {}
 
-  get mapView(): ReadonlyMap<number, number> {
-    return this.map;
-  }
-
   get(nodeId: number): number | undefined {
     return this.map.get(nodeId);
   }
@@ -45,8 +41,11 @@ export class ChildScopeIndex {
     const nodeId = this.byContext.get(contextId);
     if (nodeId === undefined) return null;
     const node = nodeOf(nodeId) as HostWithWindow | undefined;
-    const w = node?.contentWindow;
-    return w ?? null;
+    if (!node) return null;
+    const w = node.contentWindow;
+    if (!w) return null;
+    this.bindWindow(node, contextId);
+    return w;
   }
 
   forEachLiveWindow(
@@ -55,8 +54,11 @@ export class ChildScopeIndex {
   ): void {
     for (const [contextId, nodeId] of this.byContext) {
       const node = nodeOf(nodeId) as HostWithWindow | undefined;
-      const w = node?.contentWindow;
-      if (w) fn(w, contextId);
+      if (!node) continue;
+      const w = node.contentWindow;
+      if (!w) continue;
+      this.bindWindow(node, contextId);
+      fn(w, contextId);
     }
   }
 
@@ -66,7 +68,7 @@ export class ChildScopeIndex {
     this.map.delete(nodeId);
     this.byContext.delete(contextId);
     // WeakMap entry drops when the Window is GC'd; cannot delete by contextId alone.
-    // Re-admit of a new window for a recycled host node gets a new WeakMap key.
+    // Re-admit / windowOf / forEachLive rebind the live contentWindow key.
   }
 
   admit(nodeId: number, node: Node): ChildScopeAdmit {
@@ -88,20 +90,21 @@ export class ChildScopeIndex {
     source: unknown,
     nodeOf: (id: number) => Node | undefined,
   ): number | undefined {
-    if (source !== null && typeof source === 'object') {
-      const hit = this.byWindow.get(source);
-      if (hit !== undefined) {
-        // Still live in reverse index?
-        if (this.byContext.has(hit)) return hit;
+    if (source === null || typeof source !== 'object') return undefined;
+    const hit = this.byWindow.get(source);
+    if (hit !== undefined) {
+      const nodeId = this.byContext.get(hit);
+      if (nodeId !== undefined) {
+        const node = nodeOf(nodeId) as HostWithWindow | undefined;
+        // Reject stale WeakMap keys after contentWindow replace (iframe nav).
+        if (node?.contentWindow === source) return hit;
       }
     }
     // Fallback: linear scan + rebind WeakMap (window object replaced after nav).
-    for (const [nodeId, contextId] of this.map) {
+    for (const [contextId, nodeId] of this.byContext) {
       const node = nodeOf(nodeId) as HostWithWindow | undefined;
       if (node && node.contentWindow === source) {
-        if (source !== null && typeof source === 'object') {
-          this.byWindow.set(source, contextId);
-        }
+        this.byWindow.set(source, contextId);
         return contextId;
       }
     }

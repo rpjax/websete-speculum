@@ -26,5 +26,7 @@
   { "id": "cssom-scale-5k", "path": "cssom-scale.html", "tags": ["cssom", "volume"] },
   { "id": "cssom-scale-14k", "path": "cssom-scale.html?n=14000", "tags": ["cssom", "volume"] },
   { "id": "cssom-heavy", "path": "cssom-heavy.html", "tags": ["cssom", "visual", "c6"], "notes": "Magazine; human visual bar" },
-  { "id": "cssom-heavy-static", "path": "cssom-heavy.html?auto=0", "tags": ["cssom", "gate"], "notes": "Heavy without auto theme; CLI acts" }
+  { "id": "cssom-heavy-static", "path": "cssom-heavy.html?auto=0", "tags": ["cssom", "gate"], "notes": "Heavy without auto theme; CLI acts" },
+  { "id": "csp-nav-locale-en", "path": "csp-nav-locale-en.html", "tags": ["dom", "csp", "single-tab", "pp-csp-single-tab"], "notes": "Locale popup EN — #go-br-blank; Run blueprint csp-nav-locale" },
+  { "id": "csp-nav-locale-br", "path": "csp-nav-locale-br.html", "tags": ["dom", "csp", "single-tab"], "notes": "BR landing for csp-nav-locale flow" }
 ]

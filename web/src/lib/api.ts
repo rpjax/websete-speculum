@@ -141,7 +141,6 @@ export interface ScriptingInjectionEntry {
     storedScriptId?: string | null
     remoteUrl?: string | null
   }
-  position: 'HeadStart' | 'HeadEnd' | 'BodyStart' | 'BodyEnd'
   executionType: 'Classic' | 'Module'
   targetRules: ScriptTargetRule[]
 }

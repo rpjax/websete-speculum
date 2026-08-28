@@ -24,13 +24,14 @@ message DeviceProfile {
 }
 
 message ScriptInjection {
-  string position = 1;
+  reserved 1;
   string type = 2;
   string file = 3;
   string content = 4;
   repeated UrlMatchRule target_rules = 5;
-  // Absolute http(s) URL for remote scripts. When set, sidecar injects src=remote_url
-  // (no API fetch at launch). content is empty for remote.
+  // Absolute http(s) URL for remote scripts. When set, sidecar fetches bytes at
+  // launch and inlines into the CDP inject bundle (no HTML <script src>).
+  // content is empty for remote on the wire until resolved.
   string remote_url = 6;
 }
 

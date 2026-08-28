@@ -20,7 +20,6 @@ public sealed class ScriptingConfigurationValidatorTests
                         SourceType = ScriptSourceType.Remote,
                         RemoteUrl = new Uri("https://cdn.example.com/a.js"),
                     },
-                    Position = ScriptInjectionPosition.HeadStart,
                     ExecutionType = ScriptExecutionType.Classic,
                     TargetRules = [],
                 },
@@ -47,7 +46,6 @@ public sealed class ScriptingConfigurationValidatorTests
                         SourceType = ScriptSourceType.Stored,
                         RemoteUrl = new Uri("https://cdn.example.com/a.js"),
                     },
-                    Position = ScriptInjectionPosition.HeadStart,
                     ExecutionType = ScriptExecutionType.Classic,
                     TargetRules =
                     [
@@ -80,7 +78,6 @@ public sealed class ScriptingConfigurationValidatorTests
                         SourceType = ScriptSourceType.Remote,
                         RemoteUrl = new Uri("https://cdn.example.com/a.js"),
                     },
-                    Position = ScriptInjectionPosition.HeadStart,
                     ExecutionType = ScriptExecutionType.Classic,
                     TargetRules =
                     [

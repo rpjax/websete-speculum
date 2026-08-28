@@ -25,6 +25,21 @@
 - **lateBoot:** miss-detect only — main-world probe (`projection` / boot promise / arm); settle before inject on navigate/frame; coalesce in-flight; **fail-closed** if probe is `null`; **one attempt** per `(frame, generation, url)` token. Never probe/inject via Patchright default isolate for product decisions.
 - **Not claimed:** a single CDP register covering every OOPIF forever without per-target attach; pause-until-register OOPIF (future harden). Document already live when registering still needs lateBoot.
 
+**Launch / custom scripts (LOCKED 2026-08-28):** Session `scripts` on launch are **operator-configured** injections (stored content or remote URL), not the Virtual producer.
+
+| Rule | Law |
+|------|-----|
+| Carrier | **Same CDP bundle** as the projection runtime (`ProjectionRuntimeInstaller` / `buildProjectionInjectBundle`). No HTML `<script>` tags; Document Response hook does not fulfill scripts. |
+| Snapshot | Resolved at session Start (`LaunchScriptResolver`): stored → inline `content`; remote → `remoteUrl` (sidecar **fetches** bytes and inlines into the bundle). |
+| Targets | Registered on **every** CDP browsing-context target (page + OOPIF), same as Virtual. |
+| URL gate | Each script runs only when `TargetRules` match `location.href`. **≥1 rule required** at config validate / resolve; empty rules = **never** run (match-all must be explicit Any/Any). |
+| Bundle order | Prelude (scrub / CSP meta / config / plane shim / single-tab) → **`virtual.js`** → custom scripts. Customs never precede Virtual boot. |
+| Isolation | **One IIFE + `try/catch` per custom script.** A broken custom must not abort siblings or the producer. Module: `import(…).catch(…)`. |
+| Classic / Module | `type` / `ExecutionType` on the DTO. |
+| **Position** | **Removed** from config, session DTO, and wire. CDP timing is document-start (`onNewDocument` / lateBoot), not Head/Body HTML slots. |
+
+Impl: `inject/resolveLaunchScripts.ts` · `inject/buildProjectionInjectBundle.ts` · `proto/browser_session.proto` `ScriptInjection`.
+
 ---
 
 ## 1. Problem

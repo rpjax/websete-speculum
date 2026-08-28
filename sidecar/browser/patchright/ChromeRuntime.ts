@@ -276,35 +276,22 @@ export async function closeChrome(
   }
 }
 
-/** Inject script tags into HTML by position (used by Navigation fetch fulfill). */
+/** Inject script tags into HTML at a fixed head-start point (legacy video/Patchright path).
+ * Position was removed from the script DTO — PP uses CDP inline, not this helper. */
 export function injectScriptTags(html: string, scripts: readonly BrowserScriptInjection[]): string {
-  const groups: Record<string, BrowserScriptInjection[]> = {
-    HeaderTop: [],
-    HeaderBottom: [],
-    BodyTop: [],
-    BodyBottom: [],
-  };
-  for (const s of scripts) {
-    if (s.position in groups) groups[s.position].push(s);
-  }
+  if (scripts.length === 0) return html;
   const tag = (s: BrowserScriptInjection): string => {
     const typeAttr = s.type === 'Module' ? ' type="module"' : '';
     const raw = s.remoteUrl && s.remoteUrl.length > 0 ? s.remoteUrl : s.file;
     const src = escapeHtmlAttr(raw);
     return `<script${typeAttr} src="${src}"></script>`;
   };
-  let out = html;
-  if (groups.HeaderTop.length) {
-    out = out.replace(/<head[^>]*>/i, (m) => m + groups.HeaderTop.map(tag).join(''));
+  const tags = scripts.map(tag).join('');
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (m) => m + tags);
   }
-  if (groups.HeaderBottom.length) {
-    out = out.replace(/<\/head>/i, groups.HeaderBottom.map(tag).join('') + '</head>');
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${tags}</head>`);
   }
-  if (groups.BodyTop.length) {
-    out = out.replace(/<body[^>]*>/i, (m) => m + groups.BodyTop.map(tag).join(''));
-  }
-  if (groups.BodyBottom.length) {
-    out = out.replace(/<\/body>/i, groups.BodyBottom.map(tag).join('') + '</body>');
-  }
-  return out;
+  return `<head>${tags}</head>${html}`;
 }

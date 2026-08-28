@@ -169,7 +169,7 @@ Em `sidecar/browser/patchright/Navigation.ts`:
 
 **Status (2026-08-20):** **SEALED** — Response-stage hook + `connect-src` + strip nonce/hash/`strict-dynamic` + compensação `'unsafe-inline'` / `*` / `blob:` / `data:` (delta). Do **not** reopen §§3–7 without a decision-log row.
 
-**Inject (2026-08-27 / boot SEALED 2026-08-28):** **CLOSED** — HTML `<script>` tag inject removed. Runtime + launch scripts = single CDP bundle per target (`Page.addScriptToEvaluateOnNewDocument`); OOPIF via `frameCdpSession`. Document hook **does not** fulfill stored scripts. **Boot:** main-world Virtual; inject arm IIFE; lateBoot miss-detect only (fail-closed probe null; one attempt per `generation|url`). Normative: [browser-session.md](browser-session.md) Runtime inject.
+**Inject (2026-08-27 / boot SEALED 2026-08-28; custom scripts 2026-08-28):** **CLOSED** — HTML `<script>` tag inject removed. Runtime + launch scripts = single CDP bundle per target (`Page.addScriptToEvaluateOnNewDocument`); OOPIF via `frameCdpSession`. Document hook **does not** fulfill stored scripts. Bundle order: prelude → Virtual → customs (each isolated). Remote scripts: sidecar fetch + inline, not HTML `src`. **Boot:** main-world Virtual; inject arm IIFE; lateBoot miss-detect only (fail-closed probe null; one attempt per `generation|url`). Normative: [browser-session.md](browser-session.md) Runtime inject + Launch / custom scripts.
 
 ---
 

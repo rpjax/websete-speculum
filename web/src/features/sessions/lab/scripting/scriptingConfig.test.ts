@@ -26,7 +26,6 @@ describe('scriptingConfig', () => {
           remoteUrl: 'https://cdn.example.com/a.js',
           storedScriptId: null,
         },
-        position: 'bodyEnd' as never,
         executionType: 'module' as never,
         targetRules: [{
           domain: {
@@ -43,7 +42,6 @@ describe('scriptingConfig', () => {
     })
 
     expect(normalized.injections[0].source.sourceType).toBe('Remote')
-    expect(normalized.injections[0].position).toBe('BodyEnd')
     expect(normalized.injections[0].executionType).toBe('Module')
     expect(normalized.injections[0].targetRules[0].domain.scope).toBe('Any')
     expect(normalized.injections[0].targetRules[0].path.matchType).toBe('Exact')

@@ -21,15 +21,7 @@ import {
   type LabScriptingConfig,
 } from './labEngineConfig'
 
-const POSITIONS = ['HeadStart', 'HeadEnd', 'BodyStart', 'BodyEnd'] as const
 const EXECUTION_TYPES = ['Classic', 'Module'] as const
-
-const POSITION_LABELS: Record<(typeof POSITIONS)[number], string> = {
-  HeadStart: 'Head · top',
-  HeadEnd: 'Head · bottom',
-  BodyStart: 'Body · top',
-  BodyEnd: 'Body · bottom',
-}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -41,7 +33,6 @@ function createMatchAllInjection(
   partial: Partial<LabScriptInjection> & Pick<LabScriptInjection, 'source'>,
 ): LabScriptInjection {
   return {
-    position: 'HeadStart',
     executionType: 'Classic',
     targetRules: [
       {
@@ -298,7 +289,7 @@ export function LabScriptsPanel({
                     </Badge>
                     <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
                     <span className="shrink-0 text-[11px] text-muted-foreground">
-                      {POSITION_LABELS[injection.position]}
+                      {injection.executionType}
                     </span>
                   </button>
                   {open ? (
@@ -358,53 +349,28 @@ export function LabScriptsPanel({
                         </div>
                       )}
 
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <div className="space-y-1.5">
-                          <Label className="text-[11px]">Position</Label>
-                          <Select
-                            value={injection.position}
-                            onValueChange={(value) =>
-                              patchInjection(index, {
-                                ...injection,
-                                position: value as LabScriptInjection['position'],
-                              })
-                            }
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {POSITIONS.map((position) => (
-                                <SelectItem key={position} value={position}>
-                                  {POSITION_LABELS[position]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-[11px]">Type</Label>
-                          <Select
-                            value={injection.executionType}
-                            onValueChange={(value) =>
-                              patchInjection(index, {
-                                ...injection,
-                                executionType: value as LabScriptInjection['executionType'],
-                              })
-                            }
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {EXECUTION_TYPES.map((type) => (
-                                <SelectItem key={type} value={type}>
-                                  {type}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px]">Type</Label>
+                        <Select
+                          value={injection.executionType}
+                          onValueChange={(value) =>
+                            patchInjection(index, {
+                              ...injection,
+                              executionType: value as LabScriptInjection['executionType'],
+                            })
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {EXECUTION_TYPES.map((type) => (
+                              <SelectItem key={type} value={type}>
+                                {type}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       <div className="space-y-1.5">

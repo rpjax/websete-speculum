@@ -29,7 +29,6 @@ public sealed class LaunchScriptResolverTests
                         SourceType = ScriptSourceType.Stored,
                         StoredScriptId = storedId,
                     },
-                    Position = ScriptInjectionPosition.HeadStart,
                     ExecutionType = ScriptExecutionType.Classic,
                     TargetRules =
                     [
@@ -47,7 +46,6 @@ public sealed class LaunchScriptResolverTests
                         SourceType = ScriptSourceType.Remote,
                         RemoteUrl = new Uri("https://cdn.example.com/script.js"),
                     },
-                    Position = ScriptInjectionPosition.BodyEnd,
                     ExecutionType = ScriptExecutionType.Module,
                     TargetRules =
                     [
@@ -69,7 +67,7 @@ public sealed class LaunchScriptResolverTests
         Assert.Null(resolved.Value[0].RemoteUrl);
         Assert.Equal("", resolved.Value[1].Content);
         Assert.Equal("https://cdn.example.com/script.js", resolved.Value[1].RemoteUrl);
-        Assert.Equal("BodyBottom", resolved.Value[1].Position);
+        Assert.Equal("Module", resolved.Value[1].Type);
     }
 
     [Fact]
@@ -91,7 +89,6 @@ public sealed class LaunchScriptResolverTests
                         SourceType = ScriptSourceType.Stored,
                         StoredScriptId = Guid.NewGuid(),
                     },
-                    Position = ScriptInjectionPosition.BodyEnd,
                     ExecutionType = ScriptExecutionType.Classic,
                     TargetRules =
                     [

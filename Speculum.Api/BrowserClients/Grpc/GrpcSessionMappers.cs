@@ -130,7 +130,6 @@ internal static class GrpcSessionMappers
             {
                 request.Scripts.Add(new ProtoScript
                 {
-                    Position = s.Position,
                     Type = s.Type,
                     File = s.File,
                     Content = s.Content ?? "",
@@ -180,7 +179,6 @@ internal static class GrpcSessionMappers
             {
                 request.Scripts.Add(new ProtoScript
                 {
-                    Position = s.Position,
                     Type = s.Type,
                     File = s.File,
                     Content = s.Content ?? "",

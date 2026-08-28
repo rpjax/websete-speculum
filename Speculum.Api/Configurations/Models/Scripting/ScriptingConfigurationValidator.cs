@@ -18,9 +18,6 @@ public sealed class ScriptingConfigurationValidator : IValidateOptions<Scripting
             var hasStored = injection.Source.StoredScriptId is { } storedId && storedId != Guid.Empty;
             var hasRemote = injection.Source.RemoteUrl is not null;
 
-            if (!Enum.IsDefined(injection.Position))
-                failures.Add($"Scripting.Injections[{i}].Position is invalid.");
-
             if (!Enum.IsDefined(injection.ExecutionType))
                 failures.Add($"Scripting.Injections[{i}].ExecutionType is invalid.");
 

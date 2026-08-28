@@ -167,7 +167,6 @@ function testDomainMatch(): void {
 
 function testScriptTargetRuleMatch(): void {
   const anyAny: BrowserScriptInjection = {
-    position: 'HeaderTop',
     type: 'Classic',
     file: '/s.js',
     content: '1',
@@ -179,7 +178,6 @@ function testScriptTargetRuleMatch(): void {
   assert.strictEqual(scriptMatchesUrl(anyAny, new URL('https://a.example.com/x')), true);
 
   const emptyRules: BrowserScriptInjection = {
-    position: 'HeaderTop',
     type: 'Classic',
     file: '/s.js',
     content: '1',

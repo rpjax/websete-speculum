@@ -9,7 +9,7 @@ namespace Speculum.Api.Sessions.Services;
 
 /// <summary>
 /// Builds the session script snapshot at Start: stored → literal content from SQLite;
-/// remote → URL only (no HTTP fetch — sidecar injects src).
+/// remote → URL only (sidecar fetches and inlines into the CDP inject bundle).
 /// </summary>
 public sealed class LaunchScriptResolver : ILaunchScriptResolver
 {
@@ -35,10 +35,10 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
         for (var i = 0; i < configuration.Injections.Count; i++)
         {
             var injection = configuration.Injections[i];
-            if (!Enum.IsDefined(injection.Position) || !Enum.IsDefined(injection.ExecutionType))
+            if (!Enum.IsDefined(injection.ExecutionType))
             {
                 return Result<IReadOnlyList<ScriptInjection>>.Failure(
-                    $"Failed to resolve Scripting.Injections[{i}]: invalid position or execution type");
+                    $"Failed to resolve Scripting.Injections[{i}]: invalid execution type");
             }
 
             if (injection.TargetRules.Count == 0)
@@ -60,7 +60,6 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
 
                     scripts.Add(new ScriptInjection
                     {
-                        Position = MapPosition(injection.Position),
                         Type = MapType(injection.ExecutionType),
                         File = BuildStoredVirtualFile(injection.Source, i),
                         Content = content.Value,
@@ -80,7 +79,6 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
                     var remote = injection.Source.RemoteUrl.ToString();
                     scripts.Add(new ScriptInjection
                     {
-                        Position = MapPosition(injection.Position),
                         Type = MapType(injection.ExecutionType),
                         File = remote,
                         Content = "",
@@ -131,16 +129,6 @@ public sealed class LaunchScriptResolver : ILaunchScriptResolver
             ? $"/__speculum/scripts/stored/{scriptId:D}.js"
             : $"/__speculum/scripts/{index + 1}.js";
     }
-
-    private static string MapPosition(ScriptInjectionPosition position)
-        => position switch
-        {
-            ScriptInjectionPosition.HeadStart => "HeaderTop",
-            ScriptInjectionPosition.HeadEnd => "HeaderBottom",
-            ScriptInjectionPosition.BodyStart => "BodyTop",
-            ScriptInjectionPosition.BodyEnd => "BodyBottom",
-            _ => throw new ArgumentOutOfRangeException(nameof(position), position, "Invalid script injection position"),
-        };
 
     private static string MapType(ScriptExecutionType executionType)
         => executionType switch

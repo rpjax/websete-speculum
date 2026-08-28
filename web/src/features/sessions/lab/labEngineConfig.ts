@@ -211,7 +211,6 @@ export interface LabScriptInjection {
     storedScriptId?: string | null
     remoteUrl?: string | null
   }
-  position: 'HeadStart' | 'HeadEnd' | 'BodyStart' | 'BodyEnd'
   executionType: 'Classic' | 'Module'
   targetRules: LabScriptTargetRule[]
 }
@@ -513,11 +512,6 @@ function normalizeLabScripting(
         String(injection.source?.sourceType ?? 'Stored').toLowerCase() === 'remote'
           ? 'Remote'
           : 'Stored'
-      const positionRaw = String(injection.position ?? 'HeadStart')
-      const position =
-        (['HeadStart', 'HeadEnd', 'BodyStart', 'BodyEnd'] as const).find(
-          (p) => p.toLowerCase() === positionRaw.toLowerCase(),
-        ) ?? 'HeadStart'
       const executionRaw = String(injection.executionType ?? 'Classic')
       const executionType =
         executionRaw.toLowerCase() === 'module' ? 'Module' : 'Classic'
@@ -528,7 +522,6 @@ function normalizeLabScripting(
           storedScriptId: injection.source?.storedScriptId ?? null,
           remoteUrl: injection.source?.remoteUrl ?? null,
         },
-        position,
         executionType,
         targetRules:
           rules.length > 0

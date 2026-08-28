@@ -39,7 +39,6 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     device: req.device ? toDevice(req.device) : undefined,
     scripts: Array.isArray(req.scripts)
       ? req.scripts.map((s: any) => ({
-          position: s.position,
           type: s.type,
           file: s.file,
           content: s.content ?? '',

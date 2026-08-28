@@ -1,10 +1,8 @@
 import type { ScriptTargetRule, ScriptingConfiguration, ScriptingInjectionEntry } from '@/lib/api'
 
-export type ScriptPosition = ScriptingInjectionEntry['position']
 export type ScriptExecutionType = ScriptingInjectionEntry['executionType']
 export type ScriptSourceType = ScriptingInjectionEntry['source']['sourceType']
 
-const POSITIONS = new Set<ScriptPosition>(['HeadStart', 'HeadEnd', 'BodyStart', 'BodyEnd'])
 const EXECUTION_TYPES = new Set<ScriptExecutionType>(['Classic', 'Module'])
 const SOURCE_TYPES = new Set<ScriptSourceType>(['Stored', 'Remote'])
 
@@ -67,7 +65,6 @@ export function normalizeScriptingConfiguration(
         storedScriptId: injection.source?.storedScriptId ?? null,
         remoteUrl: injection.source?.remoteUrl ?? null,
       },
-      position: pascalEnum(injection.position, POSITIONS, 'HeadStart'),
       executionType: pascalEnum(injection.executionType, EXECUTION_TYPES, 'Classic'),
       targetRules: (injection.targetRules ?? []).map(normalizeScriptTargetRule),
     })),

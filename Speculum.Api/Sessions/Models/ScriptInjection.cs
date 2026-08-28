@@ -4,18 +4,16 @@ namespace Speculum.Api.Sessions.Models;
 
 /// <summary>
 /// Launch script snapshot for the sidecar. Stored scripts carry inline <see cref="Content"/>;
-/// remote scripts carry <see cref="RemoteUrl"/> only (browser loads via src — no API fetch at Start).
+/// remote scripts carry <see cref="RemoteUrl"/> (sidecar fetches and inlines into the CDP bundle).
 /// </summary>
 public sealed class ScriptInjection
 {
-    public required string Position { get; init; }
-
     public required string Type { get; init; }
 
-    /// <summary>Virtual file path for stored (Fetch fulfill) or unused when remote.</summary>
+    /// <summary>Virtual file id for diagnostics / stored path label.</summary>
     public required string File { get; init; }
 
-    /// <summary>Inline JS for stored scripts; empty for remote.</summary>
+    /// <summary>Inline JS for stored scripts; empty for remote until sidecar resolve.</summary>
     public string Content { get; init; } = "";
 
     /// <summary>Absolute http(s) URL for remote scripts; null for stored.</summary>

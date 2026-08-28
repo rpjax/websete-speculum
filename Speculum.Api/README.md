@@ -329,11 +329,12 @@ No auto-apply on boot; sidecar restart resets shm to Docker `shm_size` floor.
 
 | Status | Feature to model |
 |--------|------------------|
-| ◐ | Ordered script sources (model + launch resolver) |
-| ◐ | Positions / Classic vs Module |
-| ◐ | Per-script target URL rules (models exist) |
-| ◐ | Session-generation snapshot at start |
-| ◐ | Resolution failure fail-closed for configured injections |
+| ✅ | Ordered script sources (model + launch resolver) |
+| ✅ | Classic vs Module (`ExecutionType`) — CDP inline; **no HTML Position** |
+| ✅ | Per-script target URL rules (`TargetRules`, ≥1) |
+| ✅ | Session-generation snapshot at start |
+| ✅ | Resolution failure fail-closed for configured injections |
+| ✅ | PP path: CDP bundle after Virtual; per-script isolation |
 | ○ | Stored-script admin CRUD (§10) |
 
 ### `Sessions.JsBridge` (legacy `JsBridge`)
@@ -389,7 +390,7 @@ Current routes:
 | ○ | Upload constraints | `.js`, non-empty, 5 MB maximum |
 | ○ | Script-reference integrity | ScriptInjection rejects missing ids |
 | ○ | Remote-script safety | Absolute HTTP(S), SSRF-safe source |
-| ○ | Injection placement/type | Session script snapshot model |
+| ✅ | Injection type + URL rules | Session script snapshot (no Position; CDP timing) |
 
 ---
 

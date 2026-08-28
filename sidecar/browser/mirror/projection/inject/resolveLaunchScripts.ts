@@ -9,7 +9,7 @@ export type ResolvedLaunchScript = {
   file: string;
   /** Inline JS source (classic or module-wrapped). */
   wrappedSource: string;
-  /** Serialized target rules for runtime URL guard (empty = always run). */
+  /** Serialized target rules for runtime URL guard (empty = never run). */
   targetRulesJson: string;
 };
 
@@ -35,28 +35,33 @@ async function fetchRemoteScript(url: string): Promise<string> {
   return content;
 }
 
+/**
+ * One IIFE per script: URL guard + try/catch so a broken custom cannot kill
+ * siblings or the Virtual producer (customs run after virtual.js in the bundle).
+ */
 function wrapLaunchContent(script: BrowserScriptInjection, content: string): string {
   const rulesJson = JSON.stringify(script.targetRules ?? []);
+  const id = sanitizeId(script.file);
   const escaped = content.replace(/<\/script/gi, '<\\/script');
   if (script.type === 'Module') {
     const dataUrl = `data:text/javascript;base64,${Buffer.from(content, 'utf-8').toString('base64')}`;
     return `
-(function speculum_launch_${sanitizeId(script.file)}() {
+(function speculum_launch_${id}() {
   'use strict';
   try {
     if (!__speculumLaunchUrlMatch(${rulesJson}, location.href)) return;
-    import('${dataUrl}');
-  } catch (_) {}
+    import('${dataUrl}').catch(function () {});
+  } catch (_e) {}
 })();
 `;
   }
   return `
-(function speculum_launch_${sanitizeId(script.file)}() {
+(function speculum_launch_${id}() {
   'use strict';
   try {
     if (!__speculumLaunchUrlMatch(${rulesJson}, location.href)) return;
     ${escaped}
-  } catch (_) {}
+  } catch (_e) {}
 })();
 `;
 }
@@ -164,7 +169,6 @@ export function filterLaunchScriptsForUrl(
       const rules = JSON.parse(s.targetRulesJson) as BrowserScriptInjection['targetRules'];
       if (!rules?.length) return false;
       const pseudo: BrowserScriptInjection = {
-        position: '',
         type: 'Classic',
         file: s.file,
         content: '',

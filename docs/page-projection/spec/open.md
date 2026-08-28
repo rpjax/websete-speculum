@@ -32,6 +32,18 @@ No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md
 |----|---------|-------|
 | **PP-CSP-SINGLE-TAB** | After clicking a locale/OAuth-style popup (`target=_blank` / `window.open`), `input_reject … data plane not open`; console: `ws://127.0.0.1` violates `connect-src`. | **Session law:** one tab only — open/_blank → same-tab redirect; orphan page closed immediately. Fix: `session/singleTab.ts` + CSP hook hardening. Fixture `csp-nav-locale-*.html` · lab blueprint `csp-nav-locale` · unit `runSingleTabLocaleCspPlaneUnitTests`. |
 
+### BUG — huge Document + meta-only CSP blocks loopback (**CLOSED 2026-08-27**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-CSP-META-HUGE** | Binance-class live: `ws://127.0.0.1` violates strict `connect-src`; `data plane not open` on cold load or post-nav. HTML huge; CSP enforcing only via `<meta http-equiv>` when `Fetch.getResponseBody` fails. | Fix: `cspMetaNeutralizeInitScript.ts` (drop meta CSP before parse) + `continueWithHeaders` no silent fallback · unit `runMetaOnlyHugeCspPlaneUnitTests` · diag `diag-csp-huge-nav.js` (`meta-only`). Related: **PP-CSP-SINGLE-TAB** (popup path). **Residual plane desync** → **PP-LOOPBACK-ESTABLISH** (not CSP). |
+
+### BUG — loopback establishment / ghost socket (**CLOSED 2026-08-27**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-LOOPBACK-ESTABLISH** | `input_reject … data plane not open` while Virtual reports WS open; sidecar `isOpen=false`; attach churn after nav. | **Fix:** [loopback.md](loopback.md) LB-08…19 — handshake `hello`/`hello-ack`, symmetric `establishConnection`/`waitEstablished`, canonical socket, `detach(true)`. Units: `nodeDataPlane.unit.ts`, `runDataPlaneNavChurnUnitTests`, `chromeLnaPolicy.unit.ts`. LNA policy-only (`["*"]`). |
+
 ### BUG — virtual assets / third-party framed identity (PINNED 2026-08-25)
 
 | Id | Symptom | Notes |

@@ -20,6 +20,15 @@ class ProjectionDataPlaneHost {
     get listenUrl() {
         return this.url;
     }
+    configureSession(sessionId, generation) {
+        this.dataPlane.setExpectedSession({ sessionId, generation });
+    }
+    waitEstablished(opts) {
+        return this.dataPlane.waitEstablished(opts);
+    }
+    get isEstablished() {
+        return this.dataPlane.isEstablished;
+    }
     async listen() {
         if (this.url)
             return this.url;

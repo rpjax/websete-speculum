@@ -96,7 +96,9 @@ async function runPageProjectionSessionUnitTests() {
     }
     console.log('[unit] PageProjectionBrowserSession frames+O2+halt/flush ok');
     await runDocumentCspHookUnitTests();
+    await runMetaOnlyHugeCspPlaneUnitTests();
     await runSingleTabLocaleCspPlaneUnitTests();
+    await runDataPlaneNavChurnUnitTests();
 }
 /** Response-stage Document hook: meta CSP relaxed; nonce stripped; other directives preserved. */
 async function runDocumentCspHookUnitTests() {
@@ -247,5 +249,185 @@ async function runSingleTabLocaleCspPlaneUnitTests() {
         });
     }
     console.log('[unit] single-tab locale CSP + data plane ok');
+}
+async function assertLoopbackOracle(session, label) {
+    const status = await session.probeLoopbackStatus();
+    if (status.nodeEstablished !== status.virtualEstablished) {
+        assert_1.default.fail(`${label}: loopback desync node=${status.nodeEstablished} virtual=${status.virtualEstablished} gen=${status.generation}`);
+    }
+    assert_1.default.ok(status.nodeEstablished, `${label}: loopback not established (gen=${status.generation})`);
+    assert_1.default.ok(status.virtualEstablished, `${label}: virtual loopback not established`);
+}
+async function waitDataPlaneOpen(session, timeoutMs = 12_000) {
+    const deadline = Date.now() + timeoutMs;
+    let lastErr = '';
+    while (Date.now() < deadline) {
+        try {
+            await assertLoopbackOracle(session, 'waitDataPlaneOpen');
+            const r = await session.measureApplyScrollSet({
+                contextId: 1,
+                nodeId: null,
+                scrollX: 0,
+                scrollY: 1,
+            });
+            if (r.ok)
+                return { ok: true, lastErr: '' };
+            lastErr = r.error ?? '';
+            if (lastErr && !/data plane not open|not_open|not_established/i.test(lastErr)) {
+                return { ok: true, lastErr };
+            }
+        }
+        catch (err) {
+            lastErr = err instanceof Error ? err.message : String(err);
+        }
+        await wait(100);
+    }
+    return { ok: false, lastErr };
+}
+/**
+ * Binance-class: huge Document + enforcing CSP only in meta (no header).
+ * When getResponseBody fails, meta neutralizer init must keep loopback open.
+ */
+async function runMetaOnlyHugeCspPlaneUnitTests() {
+    const policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.binance.com; img-src 'self' https:";
+    const padBytes = 2_000_000;
+    function pageHtml(title, nextHref) {
+        const pad = 'x'.repeat(padBytes);
+        const link = nextHref
+            ? `<a id="go-next" href="${nextHref}">next</a>`
+            : `<span id="landed">ok</span>`;
+        return `<!doctype html><html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${policy}">
+<title>${title}</title></head><body>
+<h1 id="title">${title}</h1>
+${link}
+<pre id="pad">${pad}</pre>
+</body></html>`;
+    }
+    const server = node_http_1.default.createServer((req, res) => {
+        const pathname = (req.url ?? '/').split('?')[0];
+        const headers = {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+        };
+        if (pathname === '/a') {
+            res.writeHead(200, headers);
+            res.end(pageHtml('A', '/b'));
+            return;
+        }
+        if (pathname === '/b') {
+            res.writeHead(200, headers);
+            res.end(pageHtml('B', null));
+            return;
+        }
+        res.writeHead(404).end();
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    if (!addr || typeof addr === 'string')
+        throw new Error('no port');
+    const origin = `http://127.0.0.1:${addr.port}`;
+    const factory = (0, PageProjectionBrowserSession_1.createPageProjectionBrowserSessionFactory)({ headless: true });
+    const session = factory.create('unit-pp-meta-huge-csp', emptyEvents());
+    try {
+        await session.launch((0, labLaunch_1.labLaunchOptions)({
+            frameRateHz: 10,
+            projectionTelemetry: { ...telemetry_1.LAB_TELEMETRY_DEFAULTS },
+            cpuProfiling: false,
+        }));
+        await session.navigate(`${origin}/a`);
+        await wait(1200);
+        const coldPlane = await waitDataPlaneOpen(session);
+        assert_1.default.ok(coldPlane.ok, `data plane on huge meta-only cold load: ${coldPlane.lastErr}`);
+        const metaCold = await session.evaluate(`document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content ?? ''`);
+        assert_1.default.ok(metaCold.ok, metaCold.errorMessage);
+        const coldMeta = metaCold.value ?? '';
+        assert_1.default.ok(coldMeta.length === 0 ||
+            /\bconnect-src\b[^;]*\*/.test(coldMeta) ||
+            /\bconnect-src\b[^;]*\bws:/.test(coldMeta), `meta absent or connect-src widened on cold: ${coldMeta.slice(0, 120)}`);
+        await session.evaluate(`document.getElementById('go-next')?.click()`);
+        await wait(2500);
+        const title = await session.evaluate(`document.getElementById('title')?.textContent ?? ''`);
+        assert_1.default.strictEqual(title.value, 'B', 'in-page nav to huge meta-only /b');
+        const navPlane = await waitDataPlaneOpen(session);
+        assert_1.default.ok(navPlane.ok, `data plane after huge meta-only nav: ${navPlane.lastErr}`);
+    }
+    finally {
+        await session.dispose();
+        await new Promise((resolve, reject) => {
+            server.close((err) => (err ? reject(err) : resolve()));
+        });
+    }
+    console.log('[unit] meta-only huge Document CSP + data plane ok');
+}
+/**
+ * Nav churn: 202 interim → 200 huge body (Binance-shaped doc replacement).
+ */
+async function runDataPlaneNavChurnUnitTests() {
+    const policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'";
+    const padBytes = 2_000_000;
+    function interimHtml() {
+        return `<!doctype html><html><head><meta charset="utf-8"><title>interim</title></head>
+<body><script>location.replace('/final');</script></body></html>`;
+    }
+    function finalHtml() {
+        const pad = 'x'.repeat(padBytes);
+        return `<!doctype html><html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${policy}">
+<title>final</title></head><body>
+<h1 id="title">final</h1>
+<pre id="pad">${pad}</pre>
+</body></html>`;
+    }
+    const server = node_http_1.default.createServer((req, res) => {
+        const pathname = (req.url ?? '/').split('?')[0];
+        const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' };
+        if (pathname === '/' || pathname === '/start') {
+            res.writeHead(202, headers);
+            res.end(interimHtml());
+            return;
+        }
+        if (pathname === '/final') {
+            res.writeHead(200, headers);
+            res.end(finalHtml());
+            return;
+        }
+        res.writeHead(404).end();
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    if (!addr || typeof addr === 'string')
+        throw new Error('no port');
+    const origin = `http://127.0.0.1:${addr.port}`;
+    const factory = (0, PageProjectionBrowserSession_1.createPageProjectionBrowserSessionFactory)({ headless: true });
+    const session = factory.create('unit-pp-nav-churn', emptyEvents());
+    try {
+        await session.launch((0, labLaunch_1.labLaunchOptions)({
+            frameRateHz: 10,
+            projectionTelemetry: { ...telemetry_1.LAB_TELEMETRY_DEFAULTS },
+            cpuProfiling: false,
+        }));
+        await session.navigate(`${origin}/start`);
+        await wait(3500);
+        const title = await session.evaluate(`document.getElementById('title')?.textContent ?? ''`);
+        assert_1.default.strictEqual(title.value, 'final', '202→200 churn lands on /final');
+        await assertLoopbackOracle(session, 'post-churn');
+        const scroll = await session.measureApplyScrollSet({
+            contextId: 1,
+            nodeId: null,
+            scrollX: 0,
+            scrollY: 4,
+        });
+        assert_1.default.ok(scroll.ok, `scroll first-try after nav churn: ${scroll.error ?? ''}`);
+    }
+    finally {
+        await session.dispose();
+        await new Promise((resolve, reject) => {
+            server.close((err) => (err ? reject(err) : resolve()));
+        });
+    }
+    console.log('[unit] data plane nav churn establish ok');
 }
 //# sourceMappingURL=pageProjectionSession.unit.js.map

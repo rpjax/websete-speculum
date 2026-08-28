@@ -13,6 +13,8 @@
 
 **Data plane (LOCKED 2026-08-26):** Virtual↔sidecar carrier = **page loopback WebSocket only** (`projectionDataPlane: 'loopback'`). CDP `exposeBinding` plane purged.
 
+**Loopback establishment (LOCKED 2026-08-27):** TCP `OPEN` ≠ ready. Both sides **`await establishConnection()`** / **`waitEstablished(generation)`** after handshake (`hello` / `hello-ack`). One canonical socket per `(sessionId, generation)`; ghost WS forbidden. Full protocol: [loopback.md](loopback.md). Tracker: [open.md](open.md) PP-LOOPBACK-ESTABLISH.
+
 **Single tab (LOCKED 2026-08-27):** **One Chromium page per session — always.** Sidecar **forbids** a second tab. `window.open` / `target=_blank` / `_new` on the site must become a **same-tab redirect** (`location` on the primary page). If Chromium still allocates a page, the session **closes it immediately** and adopts the http(s) URL on the primary (`page.goto`, not a new tab). Implementation: `session/singleTab.ts` · [csp.md](csp.md) · [open.md](open.md) PP-CSP-SINGLE-TAB.
 
 ---

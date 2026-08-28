@@ -10,12 +10,18 @@ const projectionConfig_1 = require("@speculum/page-projection/virtual/config/pro
 function buildConfigPayload(opts) {
     const transport = opts.transport ?? 'loopback';
     const dataPlaneUrl = (opts.dataPlaneUrl ?? '').trim();
+    const sessionId = (opts.sessionId ?? '').trim();
     if (transport === 'loopback' && dataPlaneUrl.length === 0) {
         throw new Error('buildConfigPayload: dataPlaneUrl is required when transport is "loopback"');
+    }
+    if (transport === 'loopback' && sessionId.length === 0) {
+        throw new Error('buildConfigPayload: sessionId is required when transport is "loopback"');
     }
     const payload = {
         transport,
     };
+    if (sessionId.length > 0)
+        payload.sessionId = sessionId;
     if (dataPlaneUrl.length > 0)
         payload.dataPlaneUrl = dataPlaneUrl;
     if (opts.frameRateHz !== undefined)

@@ -1,6 +1,7 @@
 "use strict";
 /**
  * Node-side DataPlane over the `ws` package (lab / future host).
+ * LB-08…19: handshake, canonical socket, symmetric establish.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PlaneChannel = exports.NodeDataPlane = void 0;
@@ -8,6 +9,7 @@ exports.drainInvokeDiagTraces = drainInvokeDiagTraces;
 const plane_1 = require("@speculum/page-projection/core/plane");
 Object.defineProperty(exports, "PlaneChannel", { enumerable: true, get: function () { return plane_1.PlaneChannel; } });
 const core_1 = require("@speculum/page-projection/core");
+const cspDiag_1 = require("./csp/cspDiag");
 const DEFAULT_WATERMARK = 256 * 1024;
 const DIAG = process.env.SPECULUM_DIAG_LOOPBACK === '1';
 const diagTraces = [];
@@ -23,25 +25,71 @@ class NodeDataPlane {
     handler = null;
     nextCorrelationId = 1;
     pending = new Map();
+    sessionId = '';
+    expectedGeneration = 1;
+    state = 'closed';
+    lastError;
+    shuttingDown = false;
+    establishedWaiters = [];
     constructor(opts = {}) {
         this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
     }
+    /** TCP OPEN only — do not use as product gate (LB-10). */
     get isOpen() {
-        return this.socket?.readyState === 1; // OPEN
+        return this.socket?.readyState === 1;
     }
-    /** Attach a server-accepted socket (replaces any previous). */
+    get isEstablished() {
+        return this.state === 'established' && this.isOpen;
+    }
+    get status() {
+        return {
+            state: this.state,
+            generation: this.expectedGeneration,
+            sessionId: this.sessionId,
+            lastError: this.lastError,
+        };
+    }
+    setExpectedSession(opts) {
+        this.sessionId = opts.sessionId;
+        this.expectedGeneration = opts.generation >>> 0;
+    }
+    waitEstablished(opts) {
+        const generation = opts.generation >>> 0;
+        if (this.isEstablished && this.expectedGeneration === generation) {
+            return Promise.resolve();
+        }
+        const timeoutMs = opts.timeoutMs ?? core_1.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.removeEstablishedWaiter(entry);
+                reject(Object.assign(new Error('data plane not established'), {
+                    errorCode: 'data_plane_not_established',
+                    phase: 'establish',
+                }));
+            }, timeoutMs);
+            const entry = { generation, resolve, reject, timer };
+            this.establishedWaiters.push(entry);
+        });
+    }
     attach(socket) {
-        this.detach(false);
+        this.detach(true, core_1.LOOPBACK_GENERATION_SUPERSEDED_CODE);
+        this.state = 'connecting';
         this.socket = socket;
+        (0, cspDiag_1.cspDiagLog)('data plane attach', { readyState: socket.readyState, generation: this.expectedGeneration });
         socket.binaryType = 'nodebuffer';
         socket.on('message', (data, isBinary) => {
             if (!isBinary)
                 return;
-            const buf = Buffer.isBuffer(data)
-                ? data
-                : Buffer.from(data);
+            const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
             const bytes = Uint8Array.from(buf);
             const env = (0, core_1.decodeLoopbackEnvelope)(bytes);
+            if (env?.kind === 'hello') {
+                this.handleHello(socket, env);
+                return;
+            }
+            if (this.state !== 'established') {
+                return;
+            }
             if (env?.kind === 'invoke-started' || env?.kind === 'invoke-heartbeat') {
                 const pending = this.pending.get(env.correlationId);
                 if (pending) {
@@ -76,16 +124,22 @@ class NodeDataPlane {
             this.handler(mapped.channel, mapped.payload);
         });
         socket.on('close', () => {
-            if (this.socket === socket)
+            if (this.socket === socket) {
                 this.socket = null;
-            this.failAllPending('data plane closed');
+                this.state = 'closed';
+                (0, cspDiag_1.cspDiagLog)('data plane socket close');
+                this.failAllPending('data plane closed');
+                this.failEstablishedWaiters(new Error('data plane closed'));
+            }
         });
     }
     open(_url) {
         throw new Error('NodeDataPlane.open: use attach(socket) on the server side');
     }
     close() {
+        this.shuttingDown = true;
         this.detach(true);
+        this.state = 'closed';
     }
     setHandler(handler) {
         this.handler = handler;
@@ -94,6 +148,12 @@ class NodeDataPlane {
         // Sidecar does not accept Virtual→sidecar invoke in v0.
     }
     async invoke(name, args = {}, opts) {
+        if (!this.isEstablished) {
+            return {
+                ok: false,
+                error: { message: 'data plane not established', name: 'not_established' },
+            };
+        }
         const socket = this.socket;
         if (socket === null || socket.readyState !== 1) {
             return { ok: false, error: { message: 'data plane not open', name: 'not_open' } };
@@ -148,6 +208,9 @@ class NodeDataPlane {
         return resultPromise;
     }
     send(channel, payload) {
+        if (!this.isEstablished) {
+            return 'deferred';
+        }
         const socket = this.socket;
         if (socket === null || socket.readyState !== 1) {
             return 'deferred';
@@ -157,6 +220,86 @@ class NodeDataPlane {
         }
         socket.send(Buffer.from((0, plane_1.encodePlaneEnvelope)(channel, payload)), { binary: true });
         return 'accepted';
+    }
+    handleHello(socket, env) {
+        const reject = (reason) => {
+            try {
+                socket.send(Buffer.from((0, core_1.encodeLoopbackHelloReject)(env.sessionId, env.generation, reason)), { binary: true });
+            }
+            catch {
+                /* ignore */
+            }
+            try {
+                socket.close();
+            }
+            catch {
+                /* ignore */
+            }
+            if (this.socket === socket) {
+                this.socket = null;
+                this.state = 'failed';
+                this.lastError = { code: reason, message: reason };
+            }
+        };
+        if (this.shuttingDown) {
+            reject('server_shutting_down');
+            return;
+        }
+        if (!this.sessionId || env.sessionId !== this.sessionId) {
+            reject('session_mismatch');
+            return;
+        }
+        if (env.generation !== this.expectedGeneration) {
+            reject('generation_mismatch');
+            return;
+        }
+        if (this.state === 'established' && this.socket !== null && this.socket !== socket) {
+            reject('already_established');
+            return;
+        }
+        if (env.role !== 'virtual-root') {
+            reject('protocol_unsupported');
+            return;
+        }
+        try {
+            socket.send(Buffer.from((0, core_1.encodeLoopbackHelloAck)(this.sessionId, this.expectedGeneration)), { binary: true });
+        }
+        catch {
+            reject('protocol_unsupported');
+            return;
+        }
+        this.socket = socket;
+        this.state = 'established';
+        (0, cspDiag_1.cspDiagLog)('data plane established', {
+            sessionId: this.sessionId,
+            generation: this.expectedGeneration,
+        });
+        this.resolveEstablishedWaiters(this.expectedGeneration);
+    }
+    resolveEstablishedWaiters(generation) {
+        const keep = [];
+        for (const w of this.establishedWaiters) {
+            if (w.generation === generation) {
+                clearTimeout(w.timer);
+                w.resolve();
+            }
+            else {
+                keep.push(w);
+            }
+        }
+        this.establishedWaiters.length = 0;
+        this.establishedWaiters.push(...keep);
+    }
+    failEstablishedWaiters(err) {
+        for (const w of this.establishedWaiters.splice(0)) {
+            clearTimeout(w.timer);
+            w.reject(err);
+        }
+    }
+    removeEstablishedWaiter(entry) {
+        const idx = this.establishedWaiters.indexOf(entry);
+        if (idx >= 0)
+            this.establishedWaiters.splice(idx, 1);
     }
     recordDiag(pending, correlationId, result) {
         if (!DIAG)
@@ -200,17 +343,25 @@ class NodeDataPlane {
             this.pending.delete(id);
         }
     }
-    detach(closeSocket) {
+    detach(closeSocket, closeCode) {
         this.failAllPending('data plane detached');
         const socket = this.socket;
         this.socket = null;
+        if (closeSocket) {
+            this.state = 'closed';
+        }
         if (socket === null || !closeSocket)
             return;
         try {
-            socket.close();
+            if (closeCode === core_1.LOOPBACK_GENERATION_SUPERSEDED_CODE) {
+                socket.close(core_1.LOOPBACK_GENERATION_SUPERSEDED_CODE, core_1.LOOPBACK_GENERATION_SUPERSEDED_REASON);
+            }
+            else {
+                socket.close();
+            }
         }
         catch {
-            // ignore
+            /* ignore */
         }
     }
 }

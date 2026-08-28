@@ -72,5 +72,35 @@ async function runDocumentResponseHookUnitTests() {
     assert_1.default.ok(frameSession.sessionCalls.some((c) => c.method === 'Fetch.fulfillRequest' &&
         c.params.responseCode === 200), 'frame Script /__speculum/virtual.js must be fulfilled');
     console.log('[unit] documentResponseHook OOPIF frame CDPSession fulfill ok');
+    await runDocumentResponseHookHeaderFallbackUnitTests();
+}
+/** getResponseBody failure must still continue with relaxed enforcing CSP headers. */
+async function runDocumentResponseHookHeaderFallbackUnitTests() {
+    const strictCsp = "default-src 'self'; connect-src 'self' https://*.binance.com; script-src 'self'";
+    const calls = [];
+    const send = async (method, params) => {
+        calls.push({ method, params });
+        if (method === 'Fetch.getResponseBody') {
+            throw new Error('simulated huge body CDP limit');
+        }
+        return {};
+    };
+    await (0, documentResponseHook_1.handleDocumentResponsePausedForTest)(send, {
+        requestId: 'doc-huge-1',
+        responseStatusCode: 200,
+        responseHeaders: [
+            { name: 'Content-Type', value: 'text/html; charset=utf-8' },
+            { name: 'Content-Security-Policy', value: strictCsp },
+        ],
+        request: { url: 'https://www.binance.com/' },
+    }, new Map(), [documentResponseHook_1.cspDocumentMutator]);
+    const continued = calls.filter((c) => c.method === 'Fetch.continueResponse');
+    assert_1.default.strictEqual(continued.length, 1, JSON.stringify(calls.map((c) => c.method)));
+    const hdrs = (continued[0].params?.responseHeaders ?? []);
+    const csp = hdrs.find((h) => h.name.toLowerCase() === 'content-security-policy')?.value ?? '';
+    assert_1.default.ok(/\bconnect-src\b[^;]*\*/.test(csp), `connect-src widened in header fallback: ${csp}`);
+    assert_1.default.ok(/\bws:/.test(csp), `ws: in header fallback: ${csp}`);
+    assert_1.default.ok(!calls.some((c) => c.method === 'Fetch.continueResponse' && !c.params?.responseHeaders));
+    console.log('[unit] documentResponseHook header fallback on getResponseBody fail ok');
 }
 //# sourceMappingURL=documentResponseHook.unit.js.map

@@ -42,8 +42,11 @@ import {
 import { testLabVirtualAssetsServeHelpers } from './browser/mirror/projection/lab/host/labVirtualAssets.unit';
 import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/relaxCsp.unit';
 import { runDocumentResponseHookUnitTests } from './browser/mirror/projection/session/csp/documentResponseHook.unit';
+import { runCspMetaNeutralizeInitScriptUnitTests } from './browser/mirror/projection/session/csp/cspMetaNeutralizeInitScript.unit';
 import { runSingleTabUnitTests } from './browser/mirror/projection/session/singleTab.unit';
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
+import { runNodeDataPlaneUnitTests } from './browser/mirror/projection/session/nodeDataPlane.unit';
+import { runChromeLnaPolicyUnitTests } from './browser/patchright/chromeLnaPolicy.unit';
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
@@ -581,6 +584,10 @@ function testBuildChromeArgsIncludesWebglSpoof(): void {
   assert.ok(
     args.includes('--disable-backgrounding-occluded-windows'),
     '§5.3.4 occluded window must not be backgrounded',
+  );
+  assert.ok(
+    !args.some((a) => a.startsWith('--disable-features=') && a.includes('LocalNetworkAccessChecks')),
+    'LNA must be policy-only — no LocalNetworkAccessChecks disable flag',
   );
   // Product path must not gate on SPECULUM_GL* env.
   process.env['SPECULUM_GL_FALLBACK'] = '0';
@@ -4211,8 +4218,11 @@ async function main(): Promise<void> {
   await runSparseCdpInputAdapterUnitTests();
   await runProjectedInputCaptureUnitTests();
   await runRelaxCspUnitTests();
+  await runCspMetaNeutralizeInitScriptUnitTests();
   await runDocumentResponseHookUnitTests();
   await runSingleTabUnitTests();
+  await runNodeDataPlaneUnitTests();
+  runChromeLnaPolicyUnitTests();
   await runPageProjectionSessionUnitTests();
   await runPageProjectionInputClickUnitTests();
   console.log('[unit] all passed');

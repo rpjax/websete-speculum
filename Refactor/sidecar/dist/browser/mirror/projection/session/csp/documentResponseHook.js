@@ -17,8 +17,10 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.cspDocumentMutator = cspDocumentMutator;
+exports.handleDocumentResponsePausedForTest = handleDocumentResponsePausedForTest;
 exports.installDocumentResponseHook = installDocumentResponseHook;
 const relaxCsp_1 = require("./relaxCsp");
+const cspDiag_1 = require("./cspDiag");
 /** CSP surgical mutator — enforcing headers + meta; Report-Only left alone. */
 function cspDocumentMutator(ctx) {
     const { headers, cspChanged } = (0, relaxCsp_1.rewriteCspResponseHeaders)(ctx.headers);
@@ -37,6 +39,10 @@ function buildFetchPatterns(storedScripts) {
         patterns.push({ requestStage: 'Request', urlPattern: `*${s.file}*` });
     }
     return patterns;
+}
+/** @internal Exported for unit tests — Document Response paused handler. */
+async function handleDocumentResponsePausedForTest(send, event, scriptMap, mutators) {
+    return handleRequestPaused(send, event, scriptMap, mutators);
 }
 async function handleRequestPaused(send, event, scriptMap, mutators) {
     const requestId = event?.requestId;
@@ -97,18 +103,19 @@ async function handleRequestPaused(send, event, scriptMap, mutators) {
     }
     /** Header-only continue — used when body get/fulfill fails (huge Document, CDP limits). */
     const continueWithHeaders = async (nextHeaders) => {
-        try {
-            await send('Fetch.continueResponse', {
-                requestId,
-                responseCode: responseStatusCode,
-                responseHeaders: nextHeaders,
-            });
-        }
-        catch {
-            await continueResponse();
-        }
+        await send('Fetch.continueResponse', {
+            requestId,
+            responseCode: responseStatusCode,
+            responseHeaders: nextHeaders,
+        });
     };
     const headerOnly = (0, relaxCsp_1.rewriteCspResponseHeaders)(headers);
+    const docUrl = event?.request?.url ?? '';
+    (0, cspDiag_1.cspDiagLog)('document paused', {
+        url: docUrl.slice(0, 120),
+        status: responseStatusCode,
+        headerCsp: headerOnly.cspChanged,
+    });
     try {
         const { body, base64Encoded } = (await send('Fetch.getResponseBody', {
             requestId,
@@ -132,6 +139,7 @@ async function handleRequestPaused(send, event, scriptMap, mutators) {
                 changed = true;
         }
         if (!changed) {
+            (0, cspDiag_1.cspDiagLog)('document unchanged continue', { url: docUrl.slice(0, 120) });
             await continueResponse();
             return;
         }
@@ -142,8 +150,14 @@ async function handleRequestPaused(send, event, scriptMap, mutators) {
                 responseHeaders: ctx.headers,
                 body: Buffer.from(ctx.bodyHtml, 'utf-8').toString('base64'),
             });
+            (0, cspDiag_1.cspDiagLog)('document fulfill ok', { url: docUrl.slice(0, 120), changed });
         }
-        catch {
+        catch (fulfillErr) {
+            (0, cspDiag_1.cspDiagLog)('document fulfill failed', {
+                url: docUrl.slice(0, 120),
+                err: fulfillErr instanceof Error ? fulfillErr.message : String(fulfillErr),
+                headerFallback: headerOnly.cspChanged,
+            });
             // Body rewrite failed — still apply enforcing CSP header surgery (csp.md §4/§5).
             if (headerOnly.cspChanged) {
                 await continueWithHeaders(headerOnly.headers);
@@ -153,7 +167,12 @@ async function handleRequestPaused(send, event, scriptMap, mutators) {
             }
         }
     }
-    catch {
+    catch (bodyErr) {
+        (0, cspDiag_1.cspDiagLog)('getResponseBody failed', {
+            url: docUrl.slice(0, 120),
+            err: bodyErr instanceof Error ? bodyErr.message : String(bodyErr),
+            headerFallback: headerOnly.cspChanged,
+        });
         // getResponseBody failed — header surgery still applies when CSP was present.
         if (headerOnly.cspChanged) {
             await continueWithHeaders(headerOnly.headers);

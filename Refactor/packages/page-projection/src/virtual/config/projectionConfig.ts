@@ -16,6 +16,7 @@ export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
 export type ProjectionTransportKind = 'console' | 'loopback' | 'discard';
 
 export type ProjectionConfigBag = {
+  sessionId?: unknown;
   dataPlaneUrl?: unknown;
   frameRateHz?: unknown;
   bufferedAmountWatermark?: unknown;
@@ -30,6 +31,8 @@ export type ProjectionConfigBag = {
 /** Resolved config available to Virtual modules after {@link readProjectionConfig}. */
 export type ProjectionConfig = {
   transport: ProjectionTransportKind;
+  /** Loopback hello identity (LB-08). */
+  sessionId: string;
   /** Required when transport is `loopback`. Empty string for console. */
   dataPlaneUrl: string;
   frameRateHz: number;
@@ -138,8 +141,18 @@ export function readProjectionConfig(): Readonly<ProjectionConfig> {
     throw new Error('ProjectionConfig.dataPlaneUrl is required when transport is "loopback"');
   }
 
+  const sessionIdRaw = bag.sessionId;
+  const sessionId =
+    typeof sessionIdRaw === 'string' && sessionIdRaw.trim().length > 0
+      ? sessionIdRaw.trim()
+      : '';
+  if (transport === 'loopback' && sessionId.length === 0) {
+    throw new Error('ProjectionConfig.sessionId is required when transport is "loopback"');
+  }
+
   const resolved: ProjectionConfig = {
     transport,
+    sessionId,
     dataPlaneUrl,
     frameRateHz: asPositiveNumber(bag.frameRateHz, DEFAULTS.frameRateHz, 'frameRateHz'),
     bufferedAmountWatermark: asPositiveNumber(

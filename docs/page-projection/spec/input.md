@@ -269,5 +269,6 @@ Sealed on effect oracles above — producer RPC path is loopback only (no CDP MA
 - ABS stack: `Refactor/sidecar/browser/input/AbsOsInputStack.ts`
 - Lab ghost repro: `Refactor/sidecar/scripts/diag-click-ghost-context.js`
 - Loopback mux: `Refactor/packages/page-projection/src/core/loopback/envelope.ts`
+- Loopback establish (normative): [loopback.md](loopback.md)
 
 </details>

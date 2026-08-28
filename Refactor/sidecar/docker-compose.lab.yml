@@ -12,6 +12,7 @@ services:
     shm_size: 2gb
     environment:
       NODE_ENV: production
+      SPECULUM_DIAG_CSP: "1"
       SPECULUM_LAB_HOST: 0.0.0.0
       SPECULUM_LAB_PORT: "4103"
       SPECULUM_LAB_HEADED: "1"

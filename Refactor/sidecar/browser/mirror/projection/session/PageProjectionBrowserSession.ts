@@ -43,6 +43,8 @@ import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
 import { createScriptInjectMutator } from './csp/scriptInjectMutator';
 import { createProjectionProducerDocumentMutator, PROJECTION_VIRTUAL_SCRIPT_PATH } from './csp/projectionProducerDocumentMutator';
+import { CSP_META_NEUTRALIZE_INIT_SCRIPT } from './csp/cspMetaNeutralizeInitScript';
+import { CSP_DIAG_PROBE_INIT_SCRIPT, cspDiagLog, isCspDiagEnabled } from './csp/cspDiag';
 import { SINGLE_TAB_INIT_SCRIPT, installSingleTabAdoption } from './singleTab';
 import { EditableFocus } from '../../../patchright/EditableFocus';
 import { matchesAllowedDomain } from '../../../patchright/Navigation';
@@ -196,6 +198,7 @@ export class PageProjectionBrowserSession {
 
     loadInpageScript();
     await this.dataPlane.listen();
+    this.dataPlane.configureSession(this.sessionId, this.generation);
 
     // Display capacity = policy max R; logical viewport soft-resizes within R (D-UI-05/11).
     // Sparse-cdp is the sole PP input path (OS ABS removed — decision-log.md 2026-08-27).
@@ -379,6 +382,7 @@ export class PageProjectionBrowserSession {
       await this.page.close();
       this.cdpSession = null;
     }
+    this.dataPlane.configureSession(this.sessionId, this.generation);
     this.page = await this.freshPage(dataPlaneUrl, opts);
     this.assets.clear();
     this.assets.bindPage(this.page);
@@ -401,8 +405,14 @@ export class PageProjectionBrowserSession {
     }
     this.editableFocus.stop();
     await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await this.dataPlane.waitEstablished({ generation: this.generation });
     this.url = this.page.url() || url;
     this.events.onLocationChanged(this.url);
+    cspDiagLog('navigate complete', {
+      url: this.url,
+      dataPlaneEstablished: this.dataPlane.isEstablished,
+      generation: this.generation,
+    });
     this.editableFocus.rebind(this.page);
     this.editableFocus.start(this.page);
   }
@@ -791,6 +801,23 @@ export class PageProjectionBrowserSession {
     return { ...r, wallMs: performance.now() - t0 };
   }
 
+  /** Lab/unit oracle — Node↔Virtual loopback establish symmetry (loopback.md §14). */
+  async probeLoopbackStatus(): Promise<{
+    nodeEstablished: boolean;
+    virtualEstablished: boolean;
+    generation: number;
+  }> {
+    const ev = await this.evaluate(`(() => {
+      const ft = globalThis.__speculumProjection?.frameTransport;
+      return !!(ft && ft.isEstablished);
+    })()`);
+    return {
+      nodeEstablished: this.dataPlane.isEstablished,
+      virtualEstablished: ev.ok === true && ev.value === 'true',
+      generation: this.generation,
+    };
+  }
+
   async pushCameraFrame(_frame: Uint8Array): Promise<void> {}
   async pushMicrophoneAudio(_chunk: Uint8Array): Promise<void> {}
 
@@ -1077,6 +1104,7 @@ export class PageProjectionBrowserSession {
     });
     const telemetry = (options.projectionTelemetry ?? LAB_TELEMETRY_DEFAULTS) as Partial<ProjectionTelemetryConfig>;
     const configPre = buildConfigPreScript({
+      sessionId: this.sessionId,
       transport: 'loopback',
       dataPlaneUrl,
       frameRateHz: options.frameRateHz ?? 60,
@@ -1086,8 +1114,13 @@ export class PageProjectionBrowserSession {
     });
     const virtualScript = loadInpageScript();
     // Main frame: init scripts run before parsed document scripts (reliable cold boot).
+    // Meta CSP neutralizer first — before parser can apply unreadable meta policies (huge Document).
     // Document mutator + stored-script fulfill cover same-origin iframes in HTML responses.
+    await p.addInitScript({ content: CSP_META_NEUTRALIZE_INIT_SCRIPT });
     await p.addInitScript({ content: configPre });
+    if (isCspDiagEnabled()) {
+      await p.addInitScript({ content: CSP_DIAG_PROBE_INIT_SCRIPT });
+    }
     await p.addInitScript({ content: virtualScript });
     await p.addInitScript({ content: SINGLE_TAB_INIT_SCRIPT });
     // Document Response-stage hook before any navigation — CSP + optional launch scripts.
@@ -1128,6 +1161,7 @@ export class PageProjectionBrowserSession {
           }
         }
         await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        await this.dataPlane.waitEstablished({ generation: this.generation });
         this.url = p.url() || url;
         this.events.onLocationChanged(this.url);
         this.editableFocus.rebind(p);

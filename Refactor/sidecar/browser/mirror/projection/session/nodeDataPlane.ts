@@ -1,5 +1,6 @@
 /**
  * Node-side DataPlane over the `ws` package (lab / future host).
+ * LB-08…19: handshake, canonical socket, symmetric establish.
  */
 
 import type { WebSocket as NodeWebSocket } from 'ws';
@@ -12,12 +13,21 @@ import {
 } from '@speculum/page-projection/core/plane';
 import {
   LOOPBACK_INVOKE_IDLE_MS,
+  LOOPBACK_GENERATION_SUPERSEDED_CODE,
+  LOOPBACK_GENERATION_SUPERSEDED_REASON,
+  LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS,
   decodeLoopbackEnvelope,
   decodeLoopbackToPlane,
+  encodeLoopbackHelloAck,
+  encodeLoopbackHelloReject,
   encodeLoopbackInvoke,
+  type HelloRejectReason,
+  type LoopbackConnectionState,
+  type LoopbackConnectionStatus,
   type LoopbackInvokeHandler,
   type LoopbackInvokeResult,
 } from '@speculum/page-projection/core';
+import { cspDiagLog } from './csp/cspDiag';
 
 export type NodeDataPlaneOptions = {
   bufferedAmountWatermark?: number;
@@ -55,6 +65,13 @@ type PendingInvoke = {
   heartbeats: number;
 };
 
+type EstablishedWaiter = {
+  generation: number;
+  resolve: () => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
 /**
  * Adapts an already-accepted Node WebSocket (server side).
  */
@@ -65,26 +82,79 @@ export class NodeDataPlane implements DataPlane {
   private nextCorrelationId = 1;
   private readonly pending = new Map<number, PendingInvoke>();
 
+  private sessionId = '';
+  private expectedGeneration = 1;
+  private state: LoopbackConnectionState = 'closed';
+  private lastError: { code: string; message: string } | undefined;
+  private shuttingDown = false;
+  private readonly establishedWaiters: EstablishedWaiter[] = [];
+
   constructor(opts: NodeDataPlaneOptions = {}) {
     this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
   }
 
+  /** TCP OPEN only — do not use as product gate (LB-10). */
   get isOpen(): boolean {
-    return this.socket?.readyState === 1; // OPEN
+    return this.socket?.readyState === 1;
   }
 
-  /** Attach a server-accepted socket (replaces any previous). */
+  get isEstablished(): boolean {
+    return this.state === 'established' && this.isOpen;
+  }
+
+  get status(): LoopbackConnectionStatus {
+    return {
+      state: this.state,
+      generation: this.expectedGeneration,
+      sessionId: this.sessionId,
+      lastError: this.lastError,
+    };
+  }
+
+  setExpectedSession(opts: { sessionId: string; generation: number }): void {
+    this.sessionId = opts.sessionId;
+    this.expectedGeneration = opts.generation >>> 0;
+  }
+
+  waitEstablished(opts: { generation: number; timeoutMs?: number }): Promise<void> {
+    const generation = opts.generation >>> 0;
+    if (this.isEstablished && this.expectedGeneration === generation) {
+      return Promise.resolve();
+    }
+    const timeoutMs = opts.timeoutMs ?? LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.removeEstablishedWaiter(entry);
+        reject(
+          Object.assign(new Error('data plane not established'), {
+            errorCode: 'data_plane_not_established',
+            phase: 'establish',
+          }),
+        );
+      }, timeoutMs);
+      const entry: EstablishedWaiter = { generation, resolve, reject, timer };
+      this.establishedWaiters.push(entry);
+    });
+  }
+
   attach(socket: NodeWebSocket): void {
-    this.detach(false);
+    this.detach(true, LOOPBACK_GENERATION_SUPERSEDED_CODE);
+    this.state = 'connecting';
     this.socket = socket;
+    cspDiagLog('data plane attach', { readyState: socket.readyState, generation: this.expectedGeneration });
     socket.binaryType = 'nodebuffer';
     socket.on('message', (data, isBinary) => {
       if (!isBinary) return;
-      const buf = Buffer.isBuffer(data)
-        ? data
-        : Buffer.from(data as ArrayBuffer);
+      const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
       const bytes = Uint8Array.from(buf);
       const env = decodeLoopbackEnvelope(bytes);
+      if (env?.kind === 'hello') {
+        this.handleHello(socket, env);
+        return;
+      }
+      if (this.state !== 'established') {
+        return;
+      }
       if (env?.kind === 'invoke-started' || env?.kind === 'invoke-heartbeat') {
         const pending = this.pending.get(env.correlationId);
         if (pending) {
@@ -114,8 +184,13 @@ export class NodeDataPlane implements DataPlane {
       this.handler(mapped.channel, mapped.payload);
     });
     socket.on('close', () => {
-      if (this.socket === socket) this.socket = null;
-      this.failAllPending('data plane closed');
+      if (this.socket === socket) {
+        this.socket = null;
+        this.state = 'closed';
+        cspDiagLog('data plane socket close');
+        this.failAllPending('data plane closed');
+        this.failEstablishedWaiters(new Error('data plane closed'));
+      }
     });
   }
 
@@ -124,7 +199,9 @@ export class NodeDataPlane implements DataPlane {
   }
 
   close(): void {
+    this.shuttingDown = true;
     this.detach(true);
+    this.state = 'closed';
   }
 
   setHandler(handler: DataPlaneMessageHandler | null): void {
@@ -140,6 +217,12 @@ export class NodeDataPlane implements DataPlane {
     args: unknown = {},
     opts?: { timeoutMs?: number },
   ): Promise<LoopbackInvokeResult> {
+    if (!this.isEstablished) {
+      return {
+        ok: false,
+        error: { message: 'data plane not established', name: 'not_established' },
+      };
+    }
     const socket = this.socket;
     if (socket === null || socket.readyState !== 1) {
       return { ok: false, error: { message: 'data plane not open', name: 'not_open' } };
@@ -194,6 +277,9 @@ export class NodeDataPlane implements DataPlane {
   }
 
   send(channel: PlaneChannel, payload: Uint8Array): DataPlaneResult {
+    if (!this.isEstablished) {
+      return 'deferred';
+    }
     const socket = this.socket;
     if (socket === null || socket.readyState !== 1) {
       return 'deferred';
@@ -203,6 +289,97 @@ export class NodeDataPlane implements DataPlane {
     }
     socket.send(Buffer.from(encodePlaneEnvelope(channel, payload)), { binary: true });
     return 'accepted';
+  }
+
+  private handleHello(
+    socket: NodeWebSocket,
+    env: { sessionId: string; generation: number; role: 'virtual-root' },
+  ): void {
+    const reject = (reason: HelloRejectReason): void => {
+      try {
+        socket.send(
+          Buffer.from(encodeLoopbackHelloReject(env.sessionId, env.generation, reason)),
+          { binary: true },
+        );
+      } catch {
+        /* ignore */
+      }
+      try {
+        socket.close();
+      } catch {
+        /* ignore */
+      }
+      if (this.socket === socket) {
+        this.socket = null;
+        this.state = 'failed';
+        this.lastError = { code: reason, message: reason };
+      }
+    };
+
+    if (this.shuttingDown) {
+      reject('server_shutting_down');
+      return;
+    }
+    if (!this.sessionId || env.sessionId !== this.sessionId) {
+      reject('session_mismatch');
+      return;
+    }
+    if (env.generation !== this.expectedGeneration) {
+      reject('generation_mismatch');
+      return;
+    }
+    if (this.state === 'established' && this.socket !== null && this.socket !== socket) {
+      reject('already_established');
+      return;
+    }
+    if (env.role !== 'virtual-root') {
+      reject('protocol_unsupported');
+      return;
+    }
+
+    try {
+      socket.send(
+        Buffer.from(encodeLoopbackHelloAck(this.sessionId, this.expectedGeneration)),
+        { binary: true },
+      );
+    } catch {
+      reject('protocol_unsupported');
+      return;
+    }
+
+    this.socket = socket;
+    this.state = 'established';
+    cspDiagLog('data plane established', {
+      sessionId: this.sessionId,
+      generation: this.expectedGeneration,
+    });
+    this.resolveEstablishedWaiters(this.expectedGeneration);
+  }
+
+  private resolveEstablishedWaiters(generation: number): void {
+    const keep: EstablishedWaiter[] = [];
+    for (const w of this.establishedWaiters) {
+      if (w.generation === generation) {
+        clearTimeout(w.timer);
+        w.resolve();
+      } else {
+        keep.push(w);
+      }
+    }
+    this.establishedWaiters.length = 0;
+    this.establishedWaiters.push(...keep);
+  }
+
+  private failEstablishedWaiters(err: Error): void {
+    for (const w of this.establishedWaiters.splice(0)) {
+      clearTimeout(w.timer);
+      w.reject(err);
+    }
+  }
+
+  private removeEstablishedWaiter(entry: EstablishedWaiter): void {
+    const idx = this.establishedWaiters.indexOf(entry);
+    if (idx >= 0) this.establishedWaiters.splice(idx, 1);
   }
 
   private recordDiag(
@@ -252,15 +429,22 @@ export class NodeDataPlane implements DataPlane {
     }
   }
 
-  private detach(closeSocket: boolean): void {
+  private detach(closeSocket: boolean, closeCode?: number): void {
     this.failAllPending('data plane detached');
     const socket = this.socket;
     this.socket = null;
+    if (closeSocket) {
+      this.state = 'closed';
+    }
     if (socket === null || !closeSocket) return;
     try {
-      socket.close();
+      if (closeCode === LOOPBACK_GENERATION_SUPERSEDED_CODE) {
+        socket.close(LOOPBACK_GENERATION_SUPERSEDED_CODE, LOOPBACK_GENERATION_SUPERSEDED_REASON);
+      } else {
+        socket.close();
+      }
     } catch {
-      // ignore
+      /* ignore */
     }
   }
 }

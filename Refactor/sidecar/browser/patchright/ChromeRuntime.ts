@@ -53,7 +53,7 @@ export function webglSpoofExtensionPath(): string {
  * Kit UNMASKED spoof is applied in-page via device-kits init script.
  */
 export function buildChromeArgs(width: number, height: number): string[] {
-  // Chrome ≥137 may ignore --load-extension unless this feature is disabled.
+  // Managed Speculum Chromium: LNA exemption via enterprise policy only (loopback.md §11).
   const disableFeatures = [
     'ExclusiveAccessBubble',
     'DisableLoadExtensionCommandLineSwitch',

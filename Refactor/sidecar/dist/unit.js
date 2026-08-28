@@ -57,8 +57,11 @@ const rewritePart_unit_1 = require("./browser/mirror/projection/assets/rewritePa
 const labVirtualAssets_unit_1 = require("./browser/mirror/projection/lab/host/labVirtualAssets.unit");
 const relaxCsp_unit_1 = require("./browser/mirror/projection/session/csp/relaxCsp.unit");
 const documentResponseHook_unit_1 = require("./browser/mirror/projection/session/csp/documentResponseHook.unit");
+const cspMetaNeutralizeInitScript_unit_1 = require("./browser/mirror/projection/session/csp/cspMetaNeutralizeInitScript.unit");
 const singleTab_unit_1 = require("./browser/mirror/projection/session/singleTab.unit");
 const pageProjectionSession_unit_1 = require("./browser/mirror/projection/session/pageProjectionSession.unit");
+const nodeDataPlane_unit_1 = require("./browser/mirror/projection/session/nodeDataPlane.unit");
+const chromeLnaPolicy_unit_1 = require("./browser/patchright/chromeLnaPolicy.unit");
 const pageProjectionInputClick_unit_1 = require("./browser/mirror/projection/input/pageProjectionInputClick.unit");
 const projectedInputCapture_unit_1 = require("./browser/mirror/projection/input/projectedInputCapture.unit");
 const contextBus_unit_1 = require("./browser/mirror/projection/bus/contextBus.unit");
@@ -424,6 +427,7 @@ function testBuildChromeArgsIncludesWebglSpoof() {
     assert_1.default.ok(args.includes('--disable-background-timer-throttling'), '§5.3.4 frame clock must not be background-throttled');
     assert_1.default.ok(args.includes('--disable-renderer-backgrounding'), '§5.3.4 renderer must not be backgrounded');
     assert_1.default.ok(args.includes('--disable-backgrounding-occluded-windows'), '§5.3.4 occluded window must not be backgrounded');
+    assert_1.default.ok(!args.some((a) => a.startsWith('--disable-features=') && a.includes('LocalNetworkAccessChecks')), 'LNA must be policy-only — no LocalNetworkAccessChecks disable flag');
     // Product path must not gate on SPECULUM_GL* env.
     process.env['SPECULUM_GL_FALLBACK'] = '0';
     const stillOn = (0, ChromeRuntime_1.buildChromeArgs)(800, 600);
@@ -3638,8 +3642,11 @@ async function main() {
     await (0, sparseCdpInputAdapter_unit_1.runSparseCdpInputAdapterUnitTests)();
     await (0, projectedInputCapture_unit_1.runProjectedInputCaptureUnitTests)();
     await (0, relaxCsp_unit_1.runRelaxCspUnitTests)();
+    await (0, cspMetaNeutralizeInitScript_unit_1.runCspMetaNeutralizeInitScriptUnitTests)();
     await (0, documentResponseHook_unit_1.runDocumentResponseHookUnitTests)();
     await (0, singleTab_unit_1.runSingleTabUnitTests)();
+    await (0, nodeDataPlane_unit_1.runNodeDataPlaneUnitTests)();
+    (0, chromeLnaPolicy_unit_1.runChromeLnaPolicyUnitTests)();
     await (0, pageProjectionSession_unit_1.runPageProjectionSessionUnitTests)();
     await (0, pageProjectionInputClick_unit_1.runPageProjectionInputClickUnitTests)();
     console.log('[unit] all passed');

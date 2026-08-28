@@ -18,6 +18,18 @@ export class ProjectionDataPlaneHost {
     return this.url;
   }
 
+  configureSession(sessionId: string, generation: number): void {
+    this.dataPlane.setExpectedSession({ sessionId, generation });
+  }
+
+  waitEstablished(opts: { generation: number; timeoutMs?: number }): Promise<void> {
+    return this.dataPlane.waitEstablished(opts);
+  }
+
+  get isEstablished(): boolean {
+    return this.dataPlane.isEstablished;
+  }
+
   async listen(): Promise<string> {
     if (this.url) return this.url;
     const httpServer = http.createServer((_req, res) => {

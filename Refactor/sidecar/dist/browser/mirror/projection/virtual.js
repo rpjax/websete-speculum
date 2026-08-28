@@ -330,8 +330,14 @@
     if (transport === "loopback" && dataPlaneUrl.length === 0) {
       throw new Error('ProjectionConfig.dataPlaneUrl is required when transport is "loopback"');
     }
+    const sessionIdRaw = bag.sessionId;
+    const sessionId = typeof sessionIdRaw === "string" && sessionIdRaw.trim().length > 0 ? sessionIdRaw.trim() : "";
+    if (transport === "loopback" && sessionId.length === 0) {
+      throw new Error('ProjectionConfig.sessionId is required when transport is "loopback"');
+    }
     const resolved = {
       transport,
+      sessionId,
       dataPlaneUrl,
       frameRateHz: asPositiveNumber(bag.frameRateHz, DEFAULTS2.frameRateHz, "frameRateHz"),
       bufferedAmountWatermark: asPositiveNumber(
@@ -3585,6 +3591,8 @@
   var VIRTUAL_LOOPBACK_CHANNEL = "speculum.virtual.loopback";
   var LOOPBACK_CONTROL_INVOKE_NAME = "__control";
   var LOOPBACK_INVOKE_HEARTBEAT_MS = 500;
+  var LOOPBACK_WS_OPEN_TIMEOUT_MS = 15e3;
+  var LOOPBACK_HELLO_ACK_TIMEOUT_MS = 5e3;
   function encodeLoopbackEnvelope(env) {
     return new TextEncoder().encode(JSON.stringify(env));
   }
@@ -3599,6 +3607,47 @@
     const env = parsed;
     if (env.channel !== VIRTUAL_LOOPBACK_CHANNEL || typeof env.kind !== "string") return null;
     switch (env.kind) {
+      case "hello": {
+        const h = env;
+        if (typeof h.sessionId !== "string" || typeof h.generation !== "number") return null;
+        if (h.role !== "virtual-root") return null;
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello",
+          sessionId: h.sessionId,
+          generation: h.generation >>> 0,
+          role: "virtual-root"
+        };
+      }
+      case "hello-ack": {
+        const ack = env;
+        if (typeof ack.sessionId !== "string" || typeof ack.generation !== "number") return null;
+        if (ack.ok !== true) return null;
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello-ack",
+          sessionId: ack.sessionId,
+          generation: ack.generation >>> 0,
+          ok: true
+        };
+      }
+      case "hello-reject": {
+        const rej = env;
+        if (typeof rej.sessionId !== "string" || typeof rej.generation !== "number") return null;
+        if (rej.ok !== false) return null;
+        const reason = rej.reason;
+        if (reason !== "generation_mismatch" && reason !== "session_mismatch" && reason !== "already_established" && reason !== "protocol_unsupported" && reason !== "server_shutting_down") {
+          return null;
+        }
+        return {
+          channel: VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello-reject",
+          sessionId: rej.sessionId,
+          generation: rej.generation >>> 0,
+          ok: false,
+          reason
+        };
+      }
       case "frame": {
         const bytes = env.bytes;
         if (!Array.isArray(bytes)) return null;
@@ -3650,6 +3699,15 @@
       default:
         return null;
     }
+  }
+  function encodeLoopbackHello(sessionId, generation, role = "virtual-root") {
+    return encodeLoopbackEnvelope({
+      channel: VIRTUAL_LOOPBACK_CHANNEL,
+      kind: "hello",
+      sessionId,
+      generation: generation >>> 0,
+      role
+    });
   }
   function encodeLoopbackInvoke(correlationId, name, args) {
     return encodeLoopbackEnvelope({
@@ -4726,31 +4784,75 @@
 
   // ../packages/page-projection/src/virtual/transport/loopbackDataPlane.ts
   var DEFAULT_WATERMARK = 256 * 1024;
+  var RECONNECT_BACKOFF_MS = [50, 100, 200];
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
   var LoopbackDataPlane = class {
     socket = null;
     url = null;
     watermark;
     handler = null;
     invokeHandler = null;
+    sessionId = "";
+    generation = 0;
+    state = "closed";
+    lastError;
+    intentionalClose = false;
+    reconnectBusy = false;
+    statusListeners = [];
+    helloAckWaiter = null;
     constructor(opts = {}) {
       this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
     }
     get destinationUrl() {
       return this.url;
     }
+    /** TCP OPEN only — do not use as product gate (LB-10). */
     get isOpen() {
       return this.socket?.readyState === WebSocket.OPEN;
     }
+    get isEstablished() {
+      return this.state === "established" && this.isOpen;
+    }
+    get status() {
+      return {
+        state: this.state,
+        generation: this.generation,
+        sessionId: this.sessionId,
+        lastError: this.lastError
+      };
+    }
+    onStatusChange(cb) {
+      this.statusListeners.push(cb);
+      return () => {
+        this.statusListeners = this.statusListeners.filter((x) => x !== cb);
+      };
+    }
     open(url) {
-      this.close();
+      this.tearDownSocket(true);
       this.url = url;
       const socket = new WebSocket(url);
       socket.binaryType = "arraybuffer";
       socket.addEventListener("message", (ev) => this.onSocketMessage(ev));
+      socket.addEventListener("close", () => this.onSocketClose(socket));
       this.socket = socket;
     }
-    /** Resolves when the underlying WebSocket is OPEN. */
-    whenOpen(timeoutMs = 15e3) {
+    /**
+     * Application-level establish: TCP + hello + hello-ack (LB-11…13).
+     */
+    async establishConnection(opts) {
+      this.sessionId = opts.sessionId;
+      this.generation = opts.generation >>> 0;
+      this.intentionalClose = false;
+      this.lastError = void 0;
+      const totalTimeout = opts.timeoutMs ?? LOOPBACK_WS_OPEN_TIMEOUT_MS + LOOPBACK_HELLO_ACK_TIMEOUT_MS;
+      await this.runWithTimeout(async () => {
+        await this.runEstablishAttempt();
+      }, totalTimeout, "establish_timeout");
+    }
+    /** @deprecated Prefer {@link establishConnection}. */
+    whenOpen(timeoutMs = LOOPBACK_WS_OPEN_TIMEOUT_MS) {
       if (this.isOpen) return Promise.resolve();
       const socket = this.socket;
       if (socket === null) {
@@ -4779,13 +4881,9 @@
       });
     }
     close() {
-      const socket = this.socket;
-      this.socket = null;
-      if (socket === null) return;
-      try {
-        socket.close();
-      } catch {
-      }
+      this.intentionalClose = true;
+      this.setState("closed");
+      this.tearDownSocket(true);
     }
     setHandler(handler) {
       this.handler = handler;
@@ -4800,6 +4898,9 @@
       };
     }
     send(channel, payload) {
+      if (!this.isEstablished) {
+        return "deferred";
+      }
       const socket = this.socket;
       if (socket === null || socket.readyState !== WebSocket.OPEN) {
         return "deferred";
@@ -4809,6 +4910,123 @@
       }
       socket.send(encodePlaneEnvelope(channel, payload));
       return "accepted";
+    }
+    async runEstablishAttempt() {
+      if (!this.url) {
+        throw new Error("LoopbackDataPlane.establishConnection: no url");
+      }
+      if (this.socket === null || this.socket.readyState === WebSocket.CLOSED) {
+        this.open(this.url);
+      }
+      this.setState("connecting");
+      await this.whenOpen(LOOPBACK_WS_OPEN_TIMEOUT_MS);
+      this.sendHello();
+      await this.waitHelloAck(LOOPBACK_HELLO_ACK_TIMEOUT_MS);
+      this.setState("established");
+    }
+    sendHello() {
+      const socket = this.socket;
+      if (socket === null || socket.readyState !== WebSocket.OPEN) {
+        throw new Error("LoopbackDataPlane: socket not open for hello");
+      }
+      socket.send(encodeLoopbackHello(this.sessionId, this.generation));
+    }
+    waitHelloAck(timeoutMs) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.helloAckWaiter = null;
+          reject(new Error("hello_ack_timeout"));
+        }, timeoutMs);
+        this.helloAckWaiter = {
+          resolve: () => {
+            clearTimeout(timer);
+            this.helloAckWaiter = null;
+            resolve();
+          },
+          reject: (err) => {
+            clearTimeout(timer);
+            this.helloAckWaiter = null;
+            reject(err);
+          },
+          timer
+        };
+      });
+    }
+    async runWithTimeout(fn, timeoutMs, code) {
+      let timer;
+      try {
+        await Promise.race([
+          fn(),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(code)), timeoutMs);
+          })
+        ]);
+      } catch (err) {
+        this.lastError = {
+          code: err instanceof Error && err.message === "hello_ack_timeout" ? "hello_ack_timeout" : code,
+          message: err instanceof Error ? err.message : String(err)
+        };
+        this.setState("failed");
+        throw err;
+      } finally {
+        if (timer !== void 0) clearTimeout(timer);
+      }
+    }
+    onSocketClose(closedSocket) {
+      if (this.socket !== closedSocket) return;
+      this.socket = null;
+      this.failHelloWaiter(new Error("socket closed"));
+      if (this.intentionalClose) {
+        this.setState("closed");
+        return;
+      }
+      if (this.state === "failed") return;
+      void this.tryReconnect();
+    }
+    async tryReconnect() {
+      if (this.reconnectBusy || this.intentionalClose || !this.url) return;
+      this.reconnectBusy = true;
+      this.setState("degraded");
+      for (const backoff of RECONNECT_BACKOFF_MS) {
+        await sleep(backoff);
+        if (this.intentionalClose) break;
+        try {
+          await this.runEstablishAttempt();
+          this.reconnectBusy = false;
+          return;
+        } catch {
+        }
+      }
+      this.lastError = { code: "reconnect_exhausted", message: "reconnect attempts exhausted" };
+      this.setState("failed");
+      this.reconnectBusy = false;
+    }
+    failHelloWaiter(err) {
+      const w = this.helloAckWaiter;
+      if (w) {
+        w.reject(err);
+        this.helloAckWaiter = null;
+      }
+    }
+    tearDownSocket(closeSocket) {
+      this.failHelloWaiter(new Error("socket torn down"));
+      const socket = this.socket;
+      this.socket = null;
+      if (socket === null || !closeSocket) return;
+      try {
+        socket.close();
+      } catch {
+      }
+    }
+    setState(next) {
+      this.state = next;
+      const status = this.status;
+      for (const cb of this.statusListeners) {
+        try {
+          cb(status);
+        } catch {
+        }
+      }
     }
     onSocketMessage(ev) {
       const data = ev.data;
@@ -4821,6 +5039,23 @@
         return;
       }
       const env = decodeLoopbackEnvelope(bytes);
+      if (env?.kind === "hello-ack") {
+        if (this.helloAckWaiter && env.sessionId === this.sessionId && env.generation === this.generation) {
+          this.helloAckWaiter.resolve();
+        }
+        return;
+      }
+      if (env?.kind === "hello-reject") {
+        if (this.helloAckWaiter) {
+          this.helloAckWaiter.reject(new Error(env.reason));
+        }
+        this.lastError = { code: env.reason, message: env.reason };
+        this.setState("failed");
+        return;
+      }
+      if (this.state !== "established") {
+        return;
+      }
       if (env?.kind === "invoke" && env.name !== LOOPBACK_CONTROL_INVOKE_NAME) {
         void this.dispatchInvoke(env.correlationId, env.name, env.args);
         return;
@@ -4910,19 +5145,29 @@
       this.plane = new LoopbackDataPlane(opts);
       this.frames = new PlaneFrameTransport(this.plane);
     }
-    /** Underlying mux — register Control / Telemetry handlers here later. */
     get dataPlane() {
       return this.plane;
     }
     get destinationUrl() {
       return this.plane.destinationUrl;
     }
+    /** TCP OPEN only — prefer {@link isEstablished}. */
     get isOpen() {
       return this.plane.isOpen;
+    }
+    get isEstablished() {
+      return this.plane.isEstablished;
+    }
+    get status() {
+      return this.plane.status;
     }
     open(url) {
       this.plane.open(url);
     }
+    establishConnection(opts) {
+      return this.plane.establishConnection(opts);
+    }
+    /** @deprecated Prefer {@link establishConnection}. */
     whenOpen(timeoutMs) {
       return this.plane.whenOpen(timeoutMs);
     }
@@ -4964,9 +5209,11 @@
     frameTransport;
     dataPlane;
     loopback;
+    config;
     textEncoder = new TextEncoder();
     telemetryUnsub = null;
     constructor(config, win) {
+      this.config = config;
       let frameTransport;
       let dataPlane = null;
       let loopback = null;
@@ -4989,8 +5236,6 @@
         window: win,
         role: "root",
         mint: () => this.mint(),
-        // Stub until bootstrap wires live ChildScopeIndex via setDeliverableCheck.
-        // Must not use hasMinted (monotonic) — that was PP-INPUT-VIRTUAL-MINT-GHOST.
         isDeliverableDestination: (contextId) => contextId === CONTEXT_ID_ROOT,
         emitFrame: (bytes) => {
           this.frameTransport.send(bytes);
@@ -5001,10 +5246,16 @@
     mint() {
       return this.mintAllocator.mint();
     }
+    async establishConnection() {
+      if (!this.loopback) return;
+      await this.loopback.establishConnection({
+        sessionId: this.config.sessionId,
+        generation: this.config.generation
+      });
+    }
+    /** @deprecated Prefer {@link establishConnection}. */
     async whenOpen() {
-      if (this.loopback) {
-        await this.loopback.whenOpen();
-      }
+      await this.establishConnection();
     }
     dispose() {
       this.telemetryUnsub?.();
@@ -5012,7 +5263,12 @@
     }
     fanoutTelemetry(message) {
       const plane = this.dataPlane;
-      if (plane === null || !plane.isOpen) return;
+      if (plane === null) return;
+      if ("isEstablished" in plane) {
+        if (!plane.isEstablished) return;
+      } else if (!plane.isOpen) {
+        return;
+      }
       const bytes = this.textEncoder.encode(JSON.stringify(message));
       void plane.send(3 /* Telemetry */, bytes);
     }
@@ -5273,9 +5529,11 @@
           mintFn = () => runtime.mint();
           mine = CONTEXT_ID_ROOT;
           try {
-            await runtime.whenOpen();
+            await runtime.establishConnection();
           } catch (err) {
-            console.error("[speculumProjection] data plane open failed", err);
+            throw new Error(
+              `[speculumProjection] data plane establish failed: ${err instanceof Error ? err.message : String(err)}`
+            );
           }
         } else {
           bus = new VirtualDomainBus({

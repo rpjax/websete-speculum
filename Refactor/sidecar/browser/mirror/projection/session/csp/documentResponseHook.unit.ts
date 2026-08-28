@@ -1,6 +1,10 @@
 import assert from 'assert';
 import type { BrowserContext, CDPSession, Frame, Page } from 'patchright';
-import { installDocumentResponseHook } from './documentResponseHook';
+import {
+  cspDocumentMutator,
+  handleDocumentResponsePausedForTest,
+  installDocumentResponseHook,
+} from './documentResponseHook';
 
 /**
  * Unit: root Fetch.enable + OOPIF frame gets its own CDPSession Fetch.enable
@@ -96,4 +100,46 @@ export async function runDocumentResponseHookUnitTests(): Promise<void> {
   );
 
   console.log('[unit] documentResponseHook OOPIF frame CDPSession fulfill ok');
+
+  await runDocumentResponseHookHeaderFallbackUnitTests();
+}
+
+/** getResponseBody failure must still continue with relaxed enforcing CSP headers. */
+async function runDocumentResponseHookHeaderFallbackUnitTests(): Promise<void> {
+  const strictCsp =
+    "default-src 'self'; connect-src 'self' https://*.binance.com; script-src 'self'";
+  const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+
+  const send = async (method: string, params?: Record<string, unknown>) => {
+    calls.push({ method, params });
+    if (method === 'Fetch.getResponseBody') {
+      throw new Error('simulated huge body CDP limit');
+    }
+    return {};
+  };
+
+  await handleDocumentResponsePausedForTest(
+    send,
+    {
+      requestId: 'doc-huge-1',
+      responseStatusCode: 200,
+      responseHeaders: [
+        { name: 'Content-Type', value: 'text/html; charset=utf-8' },
+        { name: 'Content-Security-Policy', value: strictCsp },
+      ],
+      request: { url: 'https://www.binance.com/' },
+    },
+    new Map(),
+    [cspDocumentMutator],
+  );
+
+  const continued = calls.filter((c) => c.method === 'Fetch.continueResponse');
+  assert.strictEqual(continued.length, 1, JSON.stringify(calls.map((c) => c.method)));
+  const hdrs = (continued[0]!.params?.responseHeaders ?? []) as Array<{ name: string; value: string }>;
+  const csp = hdrs.find((h) => h.name.toLowerCase() === 'content-security-policy')?.value ?? '';
+  assert.ok(/\bconnect-src\b[^;]*\*/.test(csp), `connect-src widened in header fallback: ${csp}`);
+  assert.ok(/\bws:/.test(csp), `ws: in header fallback: ${csp}`);
+  assert.ok(!calls.some((c) => c.method === 'Fetch.continueResponse' && !c.params?.responseHeaders));
+
+  console.log('[unit] documentResponseHook header fallback on getResponseBody fail ok');
 }

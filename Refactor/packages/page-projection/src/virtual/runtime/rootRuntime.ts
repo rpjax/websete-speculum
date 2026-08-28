@@ -19,10 +19,12 @@ export class RootRuntime {
   readonly frameTransport: FrameTransport;
   readonly dataPlane: DataPlane | null;
   readonly loopback: LoopbackFrameTransport | null;
+  private readonly config: ProjectionConfig;
   private readonly textEncoder = new TextEncoder();
   private telemetryUnsub: (() => void) | null = null;
 
   constructor(config: ProjectionConfig, win: Window) {
+    this.config = config;
     let frameTransport: FrameTransport;
     let dataPlane: DataPlane | null = null;
     let loopback: LoopbackFrameTransport | null = null;
@@ -45,8 +47,6 @@ export class RootRuntime {
       window: win,
       role: 'root',
       mint: () => this.mint(),
-      // Stub until bootstrap wires live ChildScopeIndex via setDeliverableCheck.
-      // Must not use hasMinted (monotonic) — that was PP-INPUT-VIRTUAL-MINT-GHOST.
       isDeliverableDestination: (contextId) => contextId === CONTEXT_ID_ROOT,
       emitFrame: (bytes) => {
         this.frameTransport.send(bytes);
@@ -59,10 +59,17 @@ export class RootRuntime {
     return this.mintAllocator.mint();
   }
 
+  async establishConnection(): Promise<void> {
+    if (!this.loopback) return;
+    await this.loopback.establishConnection({
+      sessionId: this.config.sessionId,
+      generation: this.config.generation,
+    });
+  }
+
+  /** @deprecated Prefer {@link establishConnection}. */
   async whenOpen(): Promise<void> {
-    if (this.loopback) {
-      await this.loopback.whenOpen();
-    }
+    await this.establishConnection();
   }
 
   dispose(): void {
@@ -72,7 +79,12 @@ export class RootRuntime {
 
   private fanoutTelemetry(message: import('../../core/telemetry').ProjectionTelemetryMessage): void {
     const plane = this.dataPlane;
-    if (plane === null || !plane.isOpen) return;
+    if (plane === null) return;
+    if ('isEstablished' in plane) {
+      if (!(plane as { isEstablished: boolean }).isEstablished) return;
+    } else if (!plane.isOpen) {
+      return;
+    }
     const bytes = this.textEncoder.encode(JSON.stringify(message));
     void plane.send(PlaneChannel.Telemetry, bytes);
   }

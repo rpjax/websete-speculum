@@ -21,6 +21,7 @@ import {
   rewriteCspResponseHeaders,
   type CspHeader,
 } from './relaxCsp';
+import { cspDiagLog } from './cspDiag';
 
 export type DocumentResponseContext = {
   url: string;
@@ -92,6 +93,21 @@ function buildFetchPatterns(
     patterns.push({ requestStage: 'Request', urlPattern: `*${s.file}*` });
   }
   return patterns;
+}
+
+/** @internal Exported for unit tests — Document Response paused handler. */
+export async function handleDocumentResponsePausedForTest(
+  send: CdpSender,
+  event: {
+    requestId?: string;
+    responseStatusCode?: number;
+    responseHeaders?: Array<{ name?: string; value?: string }>;
+    request?: { url?: string };
+  },
+  scriptMap: Map<string, { file: string; content: string }>,
+  mutators: DocumentResponseMutator[],
+): Promise<void> {
+  return handleRequestPaused(send, event, scriptMap, mutators);
 }
 
 async function handleRequestPaused(
@@ -166,18 +182,20 @@ async function handleRequestPaused(
 
   /** Header-only continue — used when body get/fulfill fails (huge Document, CDP limits). */
   const continueWithHeaders = async (nextHeaders: CspHeader[]) => {
-    try {
-      await send('Fetch.continueResponse', {
-        requestId,
-        responseCode: responseStatusCode,
-        responseHeaders: nextHeaders,
-      });
-    } catch {
-      await continueResponse();
-    }
+    await send('Fetch.continueResponse', {
+      requestId,
+      responseCode: responseStatusCode,
+      responseHeaders: nextHeaders,
+    });
   };
 
   const headerOnly = rewriteCspResponseHeaders(headers);
+  const docUrl = event?.request?.url ?? '';
+  cspDiagLog('document paused', {
+    url: docUrl.slice(0, 120),
+    status: responseStatusCode,
+    headerCsp: headerOnly.cspChanged,
+  });
 
   try {
     const { body, base64Encoded } = (await send('Fetch.getResponseBody', {
@@ -203,6 +221,7 @@ async function handleRequestPaused(
     }
 
     if (!changed) {
+      cspDiagLog('document unchanged continue', { url: docUrl.slice(0, 120) });
       await continueResponse();
       return;
     }
@@ -214,7 +233,13 @@ async function handleRequestPaused(
         responseHeaders: ctx.headers,
         body: Buffer.from(ctx.bodyHtml, 'utf-8').toString('base64'),
       });
-    } catch {
+      cspDiagLog('document fulfill ok', { url: docUrl.slice(0, 120), changed });
+    } catch (fulfillErr) {
+      cspDiagLog('document fulfill failed', {
+        url: docUrl.slice(0, 120),
+        err: fulfillErr instanceof Error ? fulfillErr.message : String(fulfillErr),
+        headerFallback: headerOnly.cspChanged,
+      });
       // Body rewrite failed — still apply enforcing CSP header surgery (csp.md §4/§5).
       if (headerOnly.cspChanged) {
         await continueWithHeaders(headerOnly.headers);
@@ -222,7 +247,12 @@ async function handleRequestPaused(
         await continueResponse();
       }
     }
-  } catch {
+  } catch (bodyErr) {
+    cspDiagLog('getResponseBody failed', {
+      url: docUrl.slice(0, 120),
+      err: bodyErr instanceof Error ? bodyErr.message : String(bodyErr),
+      headerFallback: headerOnly.cspChanged,
+    });
     // getResponseBody failed — header surgery still applies when CSP was present.
     if (headerOnly.cspChanged) {
       await continueWithHeaders(headerOnly.headers);

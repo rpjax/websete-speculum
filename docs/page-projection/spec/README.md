@@ -17,10 +17,11 @@
 
 **Next product work (ordered):**
 1. ~~Re-prove Eneba / heavy CF on sparse-cdp~~ — done (Rodrigo 2026-08-27).
-2. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`.
-3. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
-4. MotorAssert compose seed `MirrorMode.PageProjection`.
-5. Input fine-tuning (nested iframe click oracle, touch, IME) — after assets unlock visual parity.
+2. **Loopback establish protocol** — [loopback.md](loopback.md) SEALED; impl **PP-LOOPBACK-ESTABLISH** ([open.md](open.md)). Symmetric `establishConnection` / `waitEstablished`; handshake; no ghost WS. **cutover-blocker** for live input on nav-churn sites.
+3. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`.
+4. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
+5. MotorAssert compose seed `MirrorMode.PageProjection`.
+6. Input fine-tuning (nested iframe click oracle, touch, IME) — after assets unlock visual parity.
 
 Open named shadow / form PROP / SVG / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
@@ -50,6 +51,7 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Input intents | **sparse-cdp V1 SEALED** ([input.md](input.md) 2026-08-27) — OS unified seal is historical record only; [input-v2.md](input-v2.md) superseded / purged |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Virtual Document **CSP surgery** (cutover session) | **[csp.md](csp.md)** |
+| **Loopback WS** establishment + health + mux (LB-08…19) | **[loopback.md](loopback.md)** — extends input §10.1c LB-01…07 |
 | Session / mirror-mode contracts (sidecar port) | **[browser-session.md](browser-session.md)** — SEALED 2026-08-21 |
 | Published product gaps | **[support-matrix.md](support-matrix.md)** |
 | Lab tracker (QA / gaps / features; DOM and CSSOM independent) | **[seal-gaps.md](seal-gaps.md)** |
@@ -76,6 +78,7 @@ If two live docs disagree on the **PP frame** (table, opcodes, apply), **frame-p
 | 7 | [budgets.md](budgets.md) + [oracles.md](oracles.md) | If touching cost, CI, or accept |
 | 8 | [observability.md](observability.md) | If touching lab, telemetry events, probes, `report.json`, isomorphism |
 | 8a | [browser-session.md](browser-session.md) | If touching sidecar session / sinks / resync / state snapshot / mirror modes |
+| 8a2 | [loopback.md](loopback.md) | If touching data plane establish, handshake, reconnect, invoke gate |
 | 8b | [lab-design.md](lab-design.md) | If restructuring lab host/UI/CLI/dossier/blueprints (do not invent session APIs — follow browser-session.md) |
 | 9 | Adjacent layer file | cssom / **csp** / **cssom-poll-algorithm** / **cssom-sensor-journey** / **subtrees** / **shadow** / **multi-document** / input / virtual-assets / support-matrix / test-matrix |
 | 10 | [decision-log.md](decision-log.md) | Index; full CSSOM *why* is [cssom-sensor-journey.md](cssom-sensor-journey.md) |
@@ -104,6 +107,7 @@ docs/page-projection/
     input.md                Projected → Virtual intents (V1 provenance)
     input-v2.md             Input V4 normative (lab M1 closed)
     csp.md                  Virtual Document CSP surgery (cutover)
+    loopback.md             Loopback WS establish + health + mux (LB-08…19)
     browser-session.md      Session / mirror-mode contracts (SEALED)
     virtual-assets.md       URL serve plane
     support-matrix.md       accepted product gaps

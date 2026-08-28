@@ -3,17 +3,17 @@
  */
 
 import type { FrameTransport, FrameTransportResult } from './frameTransport';
-import { LoopbackDataPlane } from './loopbackDataPlane';
+import {
+  LoopbackDataPlane,
+  type LoopbackDataPlaneOptions,
+} from './loopbackDataPlane';
 import { PlaneFrameTransport } from './planeFrameTransport';
+import type { LoopbackConnectionStatus } from '../../core/loopback/envelope';
 
-export type LoopbackFrameTransportOptions = {
-  bufferedAmountWatermark?: number;
-};
+export type LoopbackFrameTransportOptions = LoopbackDataPlaneOptions;
 
 /**
  * Opens a muxed data plane and sends frames on {@link PlaneChannel.Frame}.
- * Prefer composing {@link LoopbackDataPlane} + {@link PlaneFrameTransport} when
- * the same socket must carry additional channels.
  */
 export class LoopbackFrameTransport implements FrameTransport {
   private readonly plane: LoopbackDataPlane;
@@ -24,7 +24,6 @@ export class LoopbackFrameTransport implements FrameTransport {
     this.frames = new PlaneFrameTransport(this.plane);
   }
 
-  /** Underlying mux — register Control / Telemetry handlers here later. */
   get dataPlane(): LoopbackDataPlane {
     return this.plane;
   }
@@ -33,14 +32,32 @@ export class LoopbackFrameTransport implements FrameTransport {
     return this.plane.destinationUrl;
   }
 
+  /** TCP OPEN only — prefer {@link isEstablished}. */
   get isOpen(): boolean {
     return this.plane.isOpen;
+  }
+
+  get isEstablished(): boolean {
+    return this.plane.isEstablished;
+  }
+
+  get status(): LoopbackConnectionStatus {
+    return this.plane.status;
   }
 
   open(url: string): void {
     this.plane.open(url);
   }
 
+  establishConnection(opts: {
+    sessionId: string;
+    generation: number;
+    timeoutMs?: number;
+  }): Promise<void> {
+    return this.plane.establishConnection(opts);
+  }
+
+  /** @deprecated Prefer {@link establishConnection}. */
   whenOpen(timeoutMs?: number): Promise<void> {
     return this.plane.whenOpen(timeoutMs);
   }
@@ -51,11 +68,5 @@ export class LoopbackFrameTransport implements FrameTransport {
 
   send(bytes: Uint8Array): FrameTransportResult {
     return this.frames.send(bytes);
-  }
-}
-
-export class NullFrameTransport implements FrameTransport {
-  send(_bytes: Uint8Array): FrameTransportResult {
-    return 'accepted';
   }
 }

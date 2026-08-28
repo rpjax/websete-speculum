@@ -166,9 +166,11 @@ void (async () => {
     mintFn = () => runtime.mint();
     mine = CONTEXT_ID_ROOT;
     try {
-      await runtime.whenOpen();
+      await runtime.establishConnection();
     } catch (err) {
-      console.error('[speculumProjection] data plane open failed', err);
+      throw new Error(
+        `[speculumProjection] data plane establish failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   } else {
     // Provisional bus id — must not collide with CONTEXT_ID_ROOT (1) while getScopeId pending.

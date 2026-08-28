@@ -288,9 +288,9 @@
   }
   function asLoopbackCarrier(value) {
     if (value === void 0 || value === null) return DEFAULTS2.loopbackCarrier;
-    if (value === "page-ws" || value === "extension") return value;
+    if (value === "extension") return value;
     throw new Error(
-      `ProjectionConfig.loopbackCarrier must be "page-ws" | "extension" (got ${String(value)})`
+      `ProjectionConfig.loopbackCarrier must be "extension" (got ${String(value)}); page-origin WS is not a product carrier`
     );
   }
   function asTransport(value) {
@@ -346,9 +346,9 @@
     const loopbackCarrier = asLoopbackCarrier(bag.loopbackCarrier);
     const planeBridgeTokenRaw = bag.planeBridgeToken;
     const planeBridgeToken = typeof planeBridgeTokenRaw === "string" ? planeBridgeTokenRaw.trim() : "";
-    if (transport === "loopback" && loopbackCarrier === "extension" && planeBridgeToken.length === 0) {
+    if (transport === "loopback" && planeBridgeToken.length === 0) {
       throw new Error(
-        'ProjectionConfig.planeBridgeToken is required when loopbackCarrier is "extension"'
+        'ProjectionConfig.planeBridgeToken is required when transport is "loopback"'
       );
     }
     const resolved = {
@@ -794,6 +794,9 @@
     tracker = new TableHashTracker();
     /** Stamped onto every row `setRow` touches until changed again — one frame, one `lms` (§4 preamble). */
     currentSequence = 0;
+    /** Scratch for {@link collectSubtreeIds} — reused across walks (hot path; not hashed). */
+    walkStack = [];
+    walkVisited = /* @__PURE__ */ new Set();
     get tableHash() {
       return this.tracker.value;
     }
@@ -1067,19 +1070,39 @@
       }
       return out;
     }
-    collectSubtreeIds(id, out) {
-      out.push(id);
-      const seen = /* @__PURE__ */ new Set();
-      let child = this.lastChildOf.get(id) ?? NONE;
-      while (child !== NONE) {
-        if (seen.has(child)) break;
-        seen.add(child);
-        this.collectSubtreeIds(child, out);
-        const row = this.rows.get(child);
-        child = row?.prevSibling ?? NONE;
+    /**
+     * Iterative DFS (stack + one visited). Root is first in `out`; remaining order unspecified.
+     * Revisit (cycle / corrupt derived links) → throw `ReplicatedTable: subtree walk cycle`.
+     */
+    collectSubtreeIds(rootId, out) {
+      const stack = this.walkStack;
+      const visited = this.walkVisited;
+      stack.length = 0;
+      visited.clear();
+      visited.add(rootId);
+      stack.push(rootId);
+      while (stack.length > 0) {
+        const id = stack.pop();
+        out.push(id);
+        let child = this.lastChildOf.get(id) ?? NONE;
+        while (child !== NONE) {
+          if (visited.has(child)) {
+            throw new Error("ReplicatedTable: subtree walk cycle");
+          }
+          visited.add(child);
+          stack.push(child);
+          const row = this.rows.get(child);
+          child = row?.prevSibling ?? NONE;
+        }
+        const shadow = this.shadowRootByHost.get(id);
+        if (shadow !== void 0 && shadow !== id) {
+          if (visited.has(shadow)) {
+            throw new Error("ReplicatedTable: subtree walk cycle");
+          }
+          visited.add(shadow);
+          stack.push(shadow);
+        }
       }
-      const shadow = this.shadowRootByHost.get(id);
-      if (shadow !== void 0 && shadow !== id) this.collectSubtreeIds(shadow, out);
     }
     // ---- internals ----
     setRow(id, kind, parent, prevSibling, contentHash) {
@@ -1699,7 +1722,9 @@
         tableSize: snap.tableSize,
         identitySize: snap.identitySize,
         buildMs: 0,
-        encodeMs: 0
+        encodeMs: 0,
+        resync: frame.flags.resync === true,
+        emitPath: "sendInitial"
       });
       this.lastEmittedOps = frame.ops;
       this.sequence = frame.sequence;
@@ -1815,7 +1840,9 @@
         tableSize: stats?.tableSize ?? snap.tableSize,
         identitySize: stats?.identitySize ?? snap.identitySize,
         buildMs: stats?.buildMs ?? 0,
-        encodeMs: 0
+        encodeMs: 0,
+        resync: frame.flags.resync === true,
+        emitPath: "trySendPending"
       });
       this.lastEmittedOps = frame.ops;
       this.sequence = frame.sequence;
@@ -3837,6 +3864,45 @@
     };
   }
 
+  // ../packages/page-projection/src/virtual/bootDiag.ts
+  var MARKER = "[speculum-boot-diag]";
+  function isBootDiagEnabled() {
+    const raw = globalThis.__SPECULUM_PROJECTION__;
+    return raw?.diagBoot === true;
+  }
+  function mintBootDiagId() {
+    const t = typeof performance !== "undefined" ? performance.now() : Date.now();
+    return `${t.toFixed(3)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  function getBootDiagId() {
+    return globalThis.__speculumBootDiag?.bootId ?? null;
+  }
+  function beginBootDiag(bootId) {
+    globalThis.__speculumBootDiag = {
+      bootId,
+      startedAt: typeof performance !== "undefined" ? performance.now() : Date.now()
+    };
+  }
+  function bootDiagLog(event, fields = {}) {
+    if (!isBootDiagEnabled()) return;
+    const payload = {
+      side: "virtual",
+      event,
+      bootId: getBootDiagId(),
+      t: typeof performance !== "undefined" ? performance.now() : Date.now(),
+      href: typeof location !== "undefined" ? location.href : "",
+      ...fields
+    };
+    const line = `${MARKER} ${JSON.stringify(payload)}`;
+    const bag = globalThis;
+    if (!Array.isArray(bag.__speculumBootDiagLines)) bag.__speculumBootDiagLines = [];
+    bag.__speculumBootDiagLines.push(line);
+    try {
+      console.log(line);
+    } catch {
+    }
+  }
+
   // ../packages/page-projection/src/virtual/telemetry/projectionTelemetry.ts
   var ProjectionTelemetry = class {
     config;
@@ -3882,6 +3948,20 @@
       }
     }
     recordFrameEmitted(info) {
+      bootDiagLog("frame_emitted", {
+        contextId: this.contextId,
+        generation: info.generation,
+        sequence: info.sequence,
+        opCount: info.opCount,
+        partCount: info.partCount,
+        bytes: info.bytes,
+        tableSize: info.tableSize,
+        identitySize: info.identitySize ?? null,
+        resync: info.resync === true,
+        emitPath: info.emitPath ?? null,
+        framesEmittedBefore: this.framesEmitted,
+        telemetryEnabled: this.config.enabled
+      });
       if (!this.config.enabled) return;
       this.framesEmitted += 1;
       this.opsEmitted += info.opCount;
@@ -4804,42 +4884,6 @@
   var LOOPBACK_SOCKET_OPEN = 1;
   var LOOPBACK_SOCKET_CLOSED = 3;
 
-  // ../packages/page-projection/src/virtual/transport/pageWebSocketLoopbackSocket.ts
-  var PageWebSocketLoopbackSocket = class {
-    ws;
-    constructor(url) {
-      this.ws = new WebSocket(url);
-      this.ws.binaryType = "arraybuffer";
-    }
-    get bufferedAmount() {
-      return this.ws.bufferedAmount;
-    }
-    get readyState() {
-      return this.ws.readyState;
-    }
-    get binaryType() {
-      return "arraybuffer";
-    }
-    set binaryType(_value) {
-      this.ws.binaryType = "arraybuffer";
-    }
-    send(data) {
-      this.ws.send(data);
-    }
-    close(code, reason) {
-      this.ws.close(code, reason);
-    }
-    addEventListener(type, listener, options) {
-      this.ws.addEventListener(type, listener, options);
-    }
-    removeEventListener(type, listener, options) {
-      this.ws.removeEventListener(type, listener, options);
-    }
-  };
-  function createPageWebSocketLoopbackSocket(url) {
-    return new PageWebSocketLoopbackSocket(url);
-  }
-
   // ../packages/page-projection/src/virtual/transport/loopbackDataPlane.ts
   var DEFAULT_WATERMARK = 256 * 1024;
   var RECONNECT_BACKOFF_MS = [50, 100, 200];
@@ -4861,9 +4905,9 @@
     reconnectBusy = false;
     statusListeners = [];
     helloAckWaiter = null;
-    constructor(opts = {}) {
+    constructor(opts) {
       this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
-      this.createSocket = opts.createSocket ?? createPageWebSocketLoopbackSocket;
+      this.createSocket = opts.createSocket;
     }
     get destinationUrl() {
       return this.url;
@@ -5205,7 +5249,7 @@
   var LoopbackFrameTransport = class {
     plane;
     frames;
-    constructor(opts = {}) {
+    constructor(opts) {
       this.plane = new LoopbackDataPlane(opts);
       this.frames = new PlaneFrameTransport(this.plane);
     }
@@ -5279,10 +5323,12 @@
 
   // ../packages/page-projection/src/virtual/transport/loopbackSocketFactory.ts
   function createLoopbackSocketFactory(carrier) {
-    if (carrier === "extension") {
-      return (url) => createExtensionPlaneLoopbackSocket(url);
+    if (carrier !== "extension") {
+      throw new Error(
+        `createLoopbackSocketFactory: unsupported carrier ${String(carrier)}; managed path is extension-only`
+      );
     }
-    return (url) => createPageWebSocketLoopbackSocket(url);
+    return (url) => createExtensionPlaneLoopbackSocket(url);
   }
 
   // ../packages/page-projection/src/virtual/runtime/rootRuntime.ts
@@ -5562,12 +5608,40 @@
   scrubSpeculumInjectScripts();
   document.currentScript?.remove();
   void (async () => {
-    if (globalThis.__speculumProjection) return;
     const bootGlobal = globalThis;
-    if (bootGlobal.__speculumProjectionBoot) {
-      await bootGlobal.__speculumProjectionBoot;
+    const hasProjection = !!globalThis.__speculumProjection;
+    const hasBootPromise = !!bootGlobal.__speculumProjectionBoot;
+    if (hasProjection) {
+      bootDiagLog("boot_entry", {
+        action: "skip",
+        reason: "has_projection",
+        hasProjection,
+        hasBootPromise
+      });
       return;
     }
+    if (hasBootPromise) {
+      bootDiagLog("boot_entry", {
+        action: "await",
+        reason: "existing_boot_promise",
+        hasProjection,
+        hasBootPromise
+      });
+      await bootGlobal.__speculumProjectionBoot;
+      bootDiagLog("boot_entry", {
+        action: "await_done",
+        hasProjection: !!globalThis.__speculumProjection,
+        hasBootPromise: !!bootGlobal.__speculumProjectionBoot
+      });
+      return;
+    }
+    const bootId = mintBootDiagId();
+    beginBootDiag(bootId);
+    bootDiagLog("boot_start", {
+      action: "start",
+      hasProjection,
+      hasBootPromise
+    });
     bootGlobal.__speculumProjectionBoot = (async () => {
       try {
         let rootViewportFrameOffset2 = function() {
@@ -5839,6 +5913,13 @@
         domMutationObserver.takePendingIntoBuffer();
         mutationBuffer.drain();
         await frameEmitter.sendInitial(resyncFrame);
+        bootDiagLog("boot_initial_sent", {
+          contextId: mine,
+          sequence: resyncFrame.sequence,
+          generation: resyncFrame.generation,
+          resync: resyncFrame.flags.resync === true,
+          opCount: resyncFrame.ops.length
+        });
         domMutationObserver.syncObservedShadowRoots(domNodes);
         frameEmitter.start();
         telemetry.start();
@@ -5917,6 +5998,11 @@
             return bus.requestResolveNodeHit(contextId, args.nodeId, args.x, args.y);
           }
         };
+        bootDiagLog("boot_established", {
+          contextId: mine,
+          sequence: frameEmitter.currentSequence,
+          isRoot: window.parent === window
+        });
         if (dataPlane) {
           dataPlane.setInvokeHandler(async (name, args) => {
             const p = globalThis.__speculumProjection;

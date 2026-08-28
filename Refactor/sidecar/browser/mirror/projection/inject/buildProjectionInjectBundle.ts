@@ -8,7 +8,11 @@ import {
   type ProjectionConfigPreScriptOptions,
 } from './buildConfigPreScript';
 import { loadInpageScript } from './loadInpageScript';
-import { INJECT_SENTINEL_COMMENT, buildScrubPreludeJs } from './injectSentinel';
+import {
+  INJECT_SENTINEL_COMMENT,
+  wrapInjectWithArm,
+  buildScrubPreludeJs,
+} from './injectSentinel';
 import {
   META_CSP_NEUTRALIZE_BODY,
   SINGLE_TAB_BODY,
@@ -46,7 +50,7 @@ export function buildProjectionInjectBundle(opts: BuildProjectionInjectBundleOpt
     buildConfigAssignmentJs(opts.config),
   ];
 
-  if ((opts.config.loopbackCarrier ?? 'extension') === 'extension') {
+  if ((opts.config.transport ?? 'loopback') === 'loopback') {
     preludeParts.push(buildExtensionPlaneMainShimJs());
   }
 
@@ -63,7 +67,9 @@ export function buildProjectionInjectBundle(opts: BuildProjectionInjectBundleOpt
     }
   }
 
+  const generation = opts.config.generation ?? 1;
   const prelude = wrapPreludeIife(preludeParts);
   const virtual = loadInpageScript();
-  return `${INJECT_SENTINEL_COMMENT}\n${prelude}\n${virtual}`;
+  // Arm wrapper: legal `return` inside function; second evaluate on same heap is no-op.
+  return `${INJECT_SENTINEL_COMMENT}\n${wrapInjectWithArm(generation, `${prelude}\n${virtual}`)}`;
 }

@@ -36,7 +36,7 @@ Only the **root** document uses this carrier. Nested documents continue ContextB
 | **EP-05** | **LOCKED** | Content script **isolated** world, `run_at: document_start`, `all_frames: false` (top frame only) |
 | **EP-06** | **LOCKED** | Background: at most **one** WS per tab; new `open` closes predecessor (mirrors LB-15) |
 | **EP-07** | **LOCKED** | Extension does not interpret loopback JSON — forward bytes only |
-| **EP-08** | **LOCKED** | Managed Chrome default carrier = `extension`; `page-ws` only for unit tests without extension |
+| **EP-08** | **LOCKED** | Managed Chrome carrier = `extension` only. Page-origin WS is not a product/config option; Node units inject mock sockets. |
 | **EP-09** | **LOCKED** | Bind handshake: main shim sends `bind` until `bind-ack` (timeout 5s → boot fail) |
 | **EP-10** | **LOCKED** | `event.source === window` required on main↔content postMessage |
 | **EP-11** | **LOCKED** | Sidecar `NodeDataPlane` / `ProjectionDataPlaneHost` **unchanged** — extension is another WS client |
@@ -72,8 +72,8 @@ Malformed envelopes → drop (no throw across worlds).
 
 | Field | When | Rule |
 |-------|------|------|
-| `loopbackCarrier` | `transport === 'loopback'` | `'extension'` (default managed) or `'page-ws'` (tests) |
-| `planeBridgeToken` | `loopbackCarrier === 'extension'` | UUID per session; sidecar generates at session create |
+| `loopbackCarrier` | `transport === 'loopback'` | `'extension'` only |
+| `planeBridgeToken` | `transport === 'loopback'` | UUID per session; sidecar generates at session create |
 
 ---
 
@@ -83,7 +83,6 @@ Malformed envelopes → drop (no throw across worlds).
 |-------|------|
 | Bridge envelope | `core/extensionPlane/envelope.ts` |
 | Loopback socket iface | `core/loopback/socket.ts` |
-| Page WS socket | `virtual/transport/pageWebSocketLoopbackSocket.ts` |
 | Extension socket | `virtual/transport/extensionPlaneSocket.ts` |
 | Main shim (inject) | `inject/extensionPlaneMainShim.ts` |
 | Extension MV3 | `extensions/speculum-plane/` |
@@ -113,4 +112,5 @@ Tracker: [open.md](open.md) **PP-EXTENSION-PLANE**.
 |------|-------|
 | 2026-08-27 | **Extension plane SEALED** — carrier for loopback WS outside page LNA/CSP; ContextBus untouched; NodeDataPlane unchanged. |
 | 2026-08-28 | **Launch path:** managed extensions install via CDP `Extensions.loadUnpacked` (CLI `--load-extension` dead on branded Chrome ≥137). Bridge design unchanged. |
-| 2026-08-28 | **Boot fix:** ignore Port `error`/`close` while CONNECTING until `open-ok` (superseded WS churn); `whenOpen` re-check/poll; lateBoot skips in-flight boot. |
+| 2026-08-28 | **Boot fix:** ignore Port `error`/`close` while CONNECTING until `open-ok` (superseded WS churn); `whenOpen` re-check/poll. Inject lateBoot / dual-boot seal lives in [browser-session.md](browser-session.md) (2026-08-28), not here. |
+| 2026-08-28 | **Sanitize:** page-origin WS removed from product path (`pageWebSocketLoopbackSocket` deleted; `loopbackCarrier` = `extension` only; CSP diag probe observe-only — no page `new WebSocket`). |

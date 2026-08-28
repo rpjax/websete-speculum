@@ -64,6 +64,12 @@ DOM-table path was green through seal lab. **PP-TABLE-SUBTREE-WALK** (recursive 
 
 Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **working** — stress/harden separately; this row is the Unico/XFO pin only.
 
+### BUG — inject dual-boot / isolate lateBoot (**CLOSED 2026-08-28**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-INJECT-BOOT-DUAL** | (was) lateBoot probed Patchright isolate → always “empty” while main already booting → redundant evaluate / dual-producer risk | **Fixed + SEALED:** main-world probe/inject; inject arm IIFE; lateBoot miss-detect with fail-closed + per-doc token. [browser-session.md](browser-session.md) · decision-log 2026-08-28. |
+
 ### BUG — injected `virtual.js` on third-party origin (**CLOSED 2026-08-27**)
 
 | Id | Symptom | Notes |
@@ -120,7 +126,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 |----|-------|---------------|-------|
 | **CUTOVER-FULL** | Production cutover completeness | Live switch when V4 is the **only** path with **CSSOM + shadow + OPEN-6 + OS unified input + canvas** on Live — then Integration. Nested CSSOM is not a second algorithm. DOM-only lab is not M1. Input hot path = EventApplier + registered v0 adapter (`os-abs`) ([input.md](input.md)); Mode A/B CDP purged 2026-08-26. | [roadmap.md](roadmap.md) |
 | **CUTOVER-SESSION** | Session sealed mirror contracts on Live | **DONE (shape 2026-08-21)** — `PageProjectionBrowserSession` + sealed factory; product gaps remain (antibot/assets/…). | [browser-session.md](browser-session.md); [roadmap.md](roadmap.md) gate 6.6 |
-| **E-03 / E-08** | Loopback WS data plane (canonical) | **REVISED 2026-08-26 — loopback WS is the sole Virtual↔sidecar carrier** (lab and Live). CDP `exposeBinding` data plane **purged**. Surgical Document CSP Response-stage surgery remains normative for Virtual `connect-src`/nonce — see [csp.md](csp.md). **Still rejected:** blunt CSP/`connect-src *` / disable-PNA *punch* as an antibot-visible enablement hack. **Inject (2026-08-27):** CDP-only unified bundle via `ProjectionRuntimeInstaller` — no HTML script tags. | [csp.md](csp.md) · [roadmap.md](roadmap.md) gate 8 · [browser-session.md](browser-session.md) |
+| **E-03 / E-08** | Loopback WS data plane (canonical) | **REVISED 2026-08-26 — loopback WS is the sole Virtual↔sidecar carrier** (lab and Live). CDP `exposeBinding` data plane **purged**. Surgical Document CSP Response-stage surgery remains normative for Virtual `connect-src`/nonce — see [csp.md](csp.md). **Still rejected:** blunt CSP/`connect-src *` / disable-PNA *punch* as an antibot-visible enablement hack. **Inject boot (SEALED 2026-08-28):** CDP-only unified bundle via `ProjectionRuntimeInstaller`; main-world; lateBoot miss-detect. | [csp.md](csp.md) · [browser-session.md](browser-session.md) · [roadmap.md](roadmap.md) gate 8 |
 | **Contracts pack fate** | Archive vs delete historical `contracts/` + `implementation/` | Already moved to `archive/`. Confirm deletion vs keep-for-provenance. | Default this pass: **keep in archive**, never implement from. |
 
 ---
@@ -150,6 +156,7 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 
 | Date | Item |
 |------|------|
+| 2026-08-28 | **PP inject boot SEALED** — onNewDocument happy path; main-world; arm; lateBoot miss-detect (fail-closed + token). Dual-boot isolate probe closed. [browser-session.md](browser-session.md) |
 | 2026-08-13 | Establish deleted; cold start = resync frame |
 | 2026-08-13 | OPEN-5 recovery design |
 | 2026-08-27 | PP inject CDP-only cutover — tag mutators removed; `inject/projectionRuntimeInstaller.ts` |

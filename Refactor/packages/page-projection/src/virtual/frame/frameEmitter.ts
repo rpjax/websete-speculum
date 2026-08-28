@@ -137,6 +137,8 @@ export class FrameEmitter {
       identitySize: snap.identitySize,
       buildMs: 0,
       encodeMs: 0,
+      resync: frame.flags.resync === true,
+      emitPath: 'sendInitial',
     });
 
     this.lastEmittedOps = frame.ops;
@@ -274,6 +276,8 @@ export class FrameEmitter {
       identitySize: stats?.identitySize ?? snap.identitySize,
       buildMs: stats?.buildMs ?? 0,
       encodeMs: 0,
+      resync: frame.flags.resync === true,
+      emitPath: 'trySendPending',
     });
 
     this.lastEmittedOps = frame.ops;

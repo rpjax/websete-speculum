@@ -247,7 +247,7 @@ export interface BrowserLaunchOptions {
   cpuProfiling?: boolean;
   /**
    * PageProjection Virtual→sidecar data plane.
-   * Canonical and sole carrier: page WebSocket loopback (`ws://127.0.0.1`).
+   * Carrier = loopback WebSocket opened by Speculum Plane extension (not page-origin).
    * Only `'loopback'` is accepted; omit or set `'loopback'`.
    */
   projectionDataPlane?: 'loopback';

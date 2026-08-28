@@ -17,7 +17,13 @@
 
 **Single tab (LOCKED 2026-08-27):** **One Chromium page per session — always.** Sidecar **forbids** a second tab. `window.open` / `target=_blank` / `_new` on the site must become a **same-tab redirect** (`location` on the primary page). If Chromium still allocates a page, the session **closes it immediately** and adopts the http(s) URL on the primary (`page.goto`, not a new tab). Implementation: unified CDP inject bundle (`inject/projectionRuntimeInstaller.ts`) + `session/singleTab.ts` adoption net · [csp.md](csp.md) · [open.md](open.md) PP-CSP-SINGLE-TAB.
 
-**Runtime inject (LOCKED 2026-08-27):** Virtual producer + optional `scripts` launch payloads = **CDP-only** — single bundle per browsing-context target via `Page.addScriptToEvaluateOnNewDocument` (main + OOPIF frame CDP). **No** HTML `<script>` tag inject. Document Response hook = CSP surgery only. Sentinel scrub removes inject `<script>` orphans from the live DOM (`bootstrap.ts` + bundle prelude).
+**Runtime inject / boot (LOCKED 2026-08-28):** Virtual producer + optional `scripts` launch payloads = **CDP-only** — single bundle per browsing-context target via `Page.addScriptToEvaluateOnNewDocument` (main + OOPIF frame CDP). **No** HTML `<script>` tag inject. Document Response hook = CSP surgery only. Sentinel scrub removes inject `<script>` orphans from the live DOM (`bootstrap.ts` + bundle prelude).
+
+**Boot contract (same seal):**
+- **Happy path:** `onNewDocument` on each CDP target (page + OOPIF). Virtual runs in the page **main world** (not Patchright isolate).
+- **Idempotency:** sync inject arm (`__SPECULUM_PP_INJECT_ARMED__` / generation) wraps the bundle in an IIFE — second evaluate on the same heap is a no-op (top-level `return` is illegal in CDP scripts; arm must be inside a function).
+- **lateBoot:** miss-detect only — main-world probe (`projection` / boot promise / arm); settle before inject on navigate/frame; coalesce in-flight; **fail-closed** if probe is `null`; **one attempt** per `(frame, generation, url)` token. Never probe/inject via Patchright default isolate for product decisions.
+- **Not claimed:** a single CDP register covering every OOPIF forever without per-target attach; pause-until-register OOPIF (future harden). Document already live when registering still needs lateBoot.
 
 ---
 

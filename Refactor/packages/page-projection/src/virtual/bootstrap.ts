@@ -28,6 +28,7 @@ import { disabledCssomPlane, type CssomPlane } from './cssom/cssomPlane';
 import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
+import { beginBootDiag, bootDiagLog, mintBootDiagId } from './bootDiag';
 import { BusFrameTransport } from './transport/busFrameTransport';
 import { VirtualDomainBus } from './bus/virtualDomainBus';
 import { RootRuntime } from './runtime/rootRuntime';
@@ -151,12 +152,41 @@ scrubSpeculumInjectScripts();
 document.currentScript?.remove();
 
 void (async () => {
-  if (globalThis.__speculumProjection) return;
   const bootGlobal = globalThis as { __speculumProjectionBoot?: Promise<void> };
-  if (bootGlobal.__speculumProjectionBoot) {
-    await bootGlobal.__speculumProjectionBoot;
+  const hasProjection = !!globalThis.__speculumProjection;
+  const hasBootPromise = !!bootGlobal.__speculumProjectionBoot;
+  if (hasProjection) {
+    bootDiagLog('boot_entry', {
+      action: 'skip',
+      reason: 'has_projection',
+      hasProjection,
+      hasBootPromise,
+    });
     return;
   }
+  if (hasBootPromise) {
+    bootDiagLog('boot_entry', {
+      action: 'await',
+      reason: 'existing_boot_promise',
+      hasProjection,
+      hasBootPromise,
+    });
+    await bootGlobal.__speculumProjectionBoot;
+    bootDiagLog('boot_entry', {
+      action: 'await_done',
+      hasProjection: !!globalThis.__speculumProjection,
+      hasBootPromise: !!bootGlobal.__speculumProjectionBoot,
+    });
+    return;
+  }
+
+  const bootId = mintBootDiagId();
+  beginBootDiag(bootId);
+  bootDiagLog('boot_start', {
+    action: 'start',
+    hasProjection,
+    hasBootPromise,
+  });
 
   bootGlobal.__speculumProjectionBoot = (async () => {
   try {
@@ -486,6 +516,13 @@ void (async () => {
   domMutationObserver.takePendingIntoBuffer();
   mutationBuffer.drain();
   await frameEmitter.sendInitial(resyncFrame);
+  bootDiagLog('boot_initial_sent', {
+    contextId: mine,
+    sequence: resyncFrame.sequence,
+    generation: resyncFrame.generation,
+    resync: resyncFrame.flags.resync === true,
+    opCount: resyncFrame.ops.length,
+  });
   domMutationObserver.syncObservedShadowRoots(domNodes);
 
   frameEmitter.start();
@@ -571,6 +608,11 @@ void (async () => {
       return bus.requestResolveNodeHit(contextId, args.nodeId, args.x, args.y);
     },
   };
+  bootDiagLog('boot_established', {
+    contextId: mine,
+    sequence: frameEmitter.currentSequence,
+    isRoot: window.parent === window,
+  });
 
   if (dataPlane) {
     dataPlane.setInvokeHandler(async (name, args) => {

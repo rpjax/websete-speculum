@@ -12,6 +12,7 @@ import {
   type ProjectionTelemetryMessage,
   type TelemetryCssomPoll,
 } from '../../core/telemetry';
+import { bootDiagLog } from '../bootDiag';
 
 export type EmissionStats = {
   contextId: number;
@@ -87,7 +88,23 @@ export class ProjectionTelemetry {
     identitySize?: number;
     buildMs: number;
     encodeMs: number;
+    resync?: boolean;
+    emitPath?: string;
   }): void {
+    bootDiagLog('frame_emitted', {
+      contextId: this.contextId,
+      generation: info.generation,
+      sequence: info.sequence,
+      opCount: info.opCount,
+      partCount: info.partCount,
+      bytes: info.bytes,
+      tableSize: info.tableSize,
+      identitySize: info.identitySize ?? null,
+      resync: info.resync === true,
+      emitPath: info.emitPath ?? null,
+      framesEmittedBefore: this.framesEmitted,
+      telemetryEnabled: this.config.enabled,
+    });
     if (!this.config.enabled) return;
     this.framesEmitted += 1;
     this.opsEmitted += info.opCount;

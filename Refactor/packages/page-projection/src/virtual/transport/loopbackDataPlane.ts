@@ -31,13 +31,16 @@ import {
   type LoopbackSocket,
   type LoopbackSocketFactory,
 } from '../../core/loopback/socket';
-import { createPageWebSocketLoopbackSocket } from './pageWebSocketLoopbackSocket';
 
 export type LoopbackDataPlaneOptions = {
   /** Deferred when socket.bufferedAmount exceeds this (default 256 KiB). */
   bufferedAmountWatermark?: number;
-  /** Socket factory — defaults to page WebSocket. */
-  createSocket?: LoopbackSocketFactory;
+  /**
+   * Socket factory — required.
+   * Managed Virtual passes extension-plane factory; Node units pass mocks.
+   * No page-origin WebSocket default (EP-08 / EP-15).
+   */
+  createSocket: LoopbackSocketFactory;
 };
 
 const DEFAULT_WATERMARK = 256 * 1024;
@@ -68,9 +71,9 @@ export class LoopbackDataPlane implements DataPlane {
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
 
-  constructor(opts: LoopbackDataPlaneOptions = {}) {
+  constructor(opts: LoopbackDataPlaneOptions) {
     this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
-    this.createSocket = opts.createSocket ?? createPageWebSocketLoopbackSocket;
+    this.createSocket = opts.createSocket;
   }
 
   get destinationUrl(): string | null {

@@ -5,7 +5,7 @@
 **Index:** [README.md](README.md). Scratchpad: [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md).  
 **Code:** `Refactor/sidecar/browser/mirror/projection/session/csp/`.
 
-**Related:** script injection (next cutover step — **same** Document Response hook; does not reopen §§3–7) · [virtual-assets.md](virtual-assets.md) · open.md E-03/E-08 (amended — see §8).
+**Related:** runtime inject boot **SEALED** ([browser-session.md](browser-session.md)) · [virtual-assets.md](virtual-assets.md) · open.md E-03/E-08 (amended — see §8).
 
 ---
 
@@ -169,7 +169,7 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 
 **Status (2026-08-20):** **SEALED** — Response-stage hook + `connect-src` + strip nonce/hash/`strict-dynamic` + compensação `'unsafe-inline'` / `*` / `blob:` / `data:` (delta). Do **not** reopen §§3–7 without a decision-log row.
 
-**Inject (2026-08-27):** **CLOSED** — HTML `<script>` tag inject removed. Runtime + launch scripts = single CDP bundle per target (`Page.addScriptToEvaluateOnNewDocument`); OOPIF via `frameCdpSession`. Document hook **does not** fulfill stored scripts.
+**Inject (2026-08-27 / boot SEALED 2026-08-28):** **CLOSED** — HTML `<script>` tag inject removed. Runtime + launch scripts = single CDP bundle per target (`Page.addScriptToEvaluateOnNewDocument`); OOPIF via `frameCdpSession`. Document hook **does not** fulfill stored scripts. **Boot:** main-world Virtual; inject arm IIFE; lateBoot miss-detect only (fail-closed probe null; one attempt per `generation|url`). Normative: [browser-session.md](browser-session.md) Runtime inject.
 
 ---
 
@@ -201,6 +201,7 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 | 2026-08-26 | E-03 revised: loopback WS = sole Virtual↔sidecar carrier; CDP binding plane purged. |
 | 2026-08-27 | OOPIF: mesmo Fetch Document Response via `context.newCDPSession(frame)` (não `Target.setAutoAttach` flatten:false no browser CDP — Chromium rejeita). |
 | 2026-08-27 | **PP inject CDP-only:** tag mutators + stored-script fulfill **removed**; `ProjectionRuntimeInstaller` + unified bundle; sentinel scrub in prelude + `bootstrap.ts`. |
+| 2026-08-28 | **PP inject boot SEALED:** main-world only; arm IIFE; lateBoot miss-detect (fail-closed / token). | [browser-session.md](browser-session.md) · decision-log |
 | 2026-08-27 | **Single-tab (PP, LOCKED):** one Chromium page per session — **never** two tabs. Site `window.open` / `_blank` → same-tab `location` redirect (init script); auxiliary pages closed immediately + URL adopted on primary. | `session/singleTab.ts` · [browser-session.md](browser-session.md) |
 | 2026-08-27 | **Meta CSP neutralize init:** when Document body is unreadable (huge HTML / CDP limits) and enforcing CSP is meta-only, `CSP_META_NEUTRALIZE_INIT_SCRIPT` drops `<meta http-equiv=Content-Security-Policy>` before parse — same intent as `rewriteCspMetasInHtml`, not a bypass reopen. | `session/csp/cspMetaNeutralizeInitScript.ts` · PP-CSP-META-HUGE |
 | 2026-08-27 | **LNA managed Chrome = enterprise policy only** — generic `["*"]` in `speculum-lna.json`; **reject** `LocalNetworkAccessChecks` launch disable and per-site policy URL lists. Residual plane desync → [loopback.md](loopback.md) PP-LOOPBACK-ESTABLISH. | [loopback.md](loopback.md) §11 |

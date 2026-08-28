@@ -19,7 +19,7 @@ export class LoopbackFrameTransport implements FrameTransport {
   private readonly plane: LoopbackDataPlane;
   private readonly frames: PlaneFrameTransport;
 
-  constructor(opts: LoopbackFrameTransportOptions = {}) {
+  constructor(opts: LoopbackFrameTransportOptions) {
     this.plane = new LoopbackDataPlane(opts);
     this.frames = new PlaneFrameTransport(this.plane);
   }

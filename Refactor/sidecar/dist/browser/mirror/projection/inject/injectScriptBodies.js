@@ -87,31 +87,24 @@ exports.SINGLE_TAB_BODY = `
     if (t === '_blank' || t === '_new') form.setAttribute('target', '_self');
   }, true);
 `;
+/**
+ * Observe-only CSP / plane diag for the page console.
+ * Must never open a page-origin WebSocket (LNA / EP-15).
+ */
 exports.CSP_DIAG_PROBE_BODY = `
   'use strict';
   try {
     var cfg = globalThis.__SPECULUM_PROJECTION__;
     var rt = globalThis.__speculumProjection;
     var ft = rt && rt.frameTransport;
-    var sock = ft && ft.dataPlane && ft.dataPlane.socket;
     var hasCfg = !!(cfg && cfg.dataPlaneUrl);
+    var carrier = cfg && cfg.loopbackCarrier ? String(cfg.loopbackCarrier) : 'missing';
+    var planeFactory = typeof globalThis.__SPECULUM_EXTENSION_PLANE_SOCKET_FACTORY__ === 'function';
     console.log('[speculum-csp-diag] probe document=' + location.href);
-    console.log('[speculum-csp-diag] probe config=' + (hasCfg ? cfg.dataPlaneUrl : 'missing'));
-    console.log('[speculum-csp-diag] probe runtime wsOpen=' + (ft ? ft.isOpen : 'no-runtime') + ' readyState=' + (sock ? sock.readyState : 'no-socket'));
+    console.log('[speculum-csp-diag] probe config=' + (hasCfg ? cfg.dataPlaneUrl : 'missing') + ' carrier=' + carrier);
+    console.log('[speculum-csp-diag] probe runtime open=' + (ft ? ft.isOpen : 'no-runtime') + ' planeFactory=' + planeFactory);
     var meta = document.querySelector('meta[http-equiv="Content-Security-Policy" i]');
     console.log('[speculum-csp-diag] probe metaCsp=' + (meta ? 'present len=' + (meta.content || '').length : 'absent'));
-    if (!hasCfg) return;
-    var ws = new WebSocket(cfg.dataPlaneUrl);
-    var done = false;
-    var finish = function (tag) {
-      if (done) return;
-      done = true;
-      console.log('[speculum-csp-diag] probe ws ' + tag);
-      try { ws.close(); } catch (_) {}
-    };
-    ws.onopen = function () { finish('open'); };
-    ws.onerror = function () { finish('error'); };
-    setTimeout(function () { finish('timeout'); }, 3000);
   } catch (e) {
     console.log('[speculum-csp-diag] probe err ' + (e && e.message ? e.message : String(e)));
   }

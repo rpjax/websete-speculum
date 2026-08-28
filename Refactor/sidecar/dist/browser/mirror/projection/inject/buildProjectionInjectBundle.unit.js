@@ -21,6 +21,11 @@ async function runBuildProjectionInjectBundleUnitTests() {
     });
     assert_1.default.ok(bundle.startsWith(injectSentinel_1.INJECT_SENTINEL_COMMENT));
     assert_1.default.ok(bundle.includes(injectSentinel_1.INJECT_SENTINEL_MARKER));
+    assert_1.default.ok(bundle.includes(injectSentinel_1.INJECT_ARM_GLOBAL));
+    assert_1.default.ok(bundle.includes('speculum_pp_inject_once'), 'inject must wrap in arm IIFE');
+    const onceIdx = bundle.indexOf('speculum_pp_inject_once');
+    const preludeIdx = bundle.indexOf('speculum_pp_inject_boot');
+    assert_1.default.ok(onceIdx >= 0 && preludeIdx > onceIdx, 'arm wrapper must enclose prelude');
     assert_1.default.ok(bundle.includes('__speculumScrubInjectScripts'));
     assert_1.default.ok(bundle.includes(injectScriptBodies_1.META_CSP_NEUTRALIZE_BODY.slice(0, 40)));
     assert_1.default.ok(bundle.includes(injectScriptBodies_1.SINGLE_TAB_BODY.slice(0, 30)));
@@ -38,6 +43,7 @@ async function runBuildProjectionInjectBundleUnitTests() {
         includeCspDiag: true,
     });
     assert_1.default.ok(withDiag.includes('speculum_csp_diag_probe'));
+    assert_1.default.ok(!/new WebSocket\s*\(\s*cfg\.dataPlaneUrl\s*\)/.test(withDiag));
     console.log('[unit] buildProjectionInjectBundle ok');
 }
 //# sourceMappingURL=buildProjectionInjectBundle.unit.js.map

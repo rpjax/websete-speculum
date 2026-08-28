@@ -342,7 +342,7 @@ function PageProjectionV2Surface({
         onMarkPropDirty: (id) => client.markPropDirty(id),
         consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
         getSessionId: () => sessionRef.current.sessionId,
-        getToken: () => sessionRef.current.token,
+        getToken: () => sessionRef.current.token ?? undefined,
         getAssetBaseUrl: () =>
           sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
       },
@@ -366,7 +366,7 @@ function PageProjectionV2Surface({
             onMarkPropDirty: info.markPropDirty,
             consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
             getSessionId: () => sessionRef.current.sessionId,
-            getToken: () => sessionRef.current.token,
+            getToken: () => sessionRef.current.token ?? undefined,
             getAssetBaseUrl: () =>
               sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
           },
@@ -386,7 +386,7 @@ function PageProjectionV2Surface({
       surfaceHost: host,
       width,
       height,
-      getToken: () => sessionRef.current.token,
+      getToken: () => sessionRef.current.token ?? undefined,
       getAssetBaseUrl: () =>
         sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
       onArmed: () => {

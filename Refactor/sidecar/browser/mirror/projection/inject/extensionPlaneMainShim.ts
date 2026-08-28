@@ -1,5 +1,5 @@
 /**
- * Main-world extension plane shim — injected before virtual.js when loopbackCarrier=extension.
+ * Main-world extension plane shim — injected before virtual.js for loopback transport.
  *
  * CONNECTING sockets ignore premature `error`/`close` from Port/WS churn (superseded
  * attempt) until `open-ok` or `open-fail` — otherwise establish loses the race to open-ok.

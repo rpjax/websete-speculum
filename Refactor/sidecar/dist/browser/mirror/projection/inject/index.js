@@ -4,7 +4,7 @@
  * CDP-only path: {@link ProjectionRuntimeInstaller} + {@link buildProjectionInjectBundle}.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.INJECT_SENTINEL_COMMENT = exports.INJECT_SENTINEL_MARKER = exports.filterLaunchScriptsForUrl = exports.resolveLaunchScripts = exports.ProjectionRuntimeInstaller = exports.buildProjectionInjectBundle = exports.clearInpageScriptCache = exports.loadInpageScript = exports.buildConfigPreScript = void 0;
+exports.INJECT_ARM_GLOBAL = exports.INJECT_SENTINEL_COMMENT = exports.INJECT_SENTINEL_MARKER = exports.filterLaunchScriptsForUrl = exports.resolveLaunchScripts = exports.ProjectionRuntimeInstaller = exports.buildProjectionInjectBundle = exports.clearInpageScriptCache = exports.loadInpageScript = exports.buildConfigPreScript = void 0;
 exports.loadVirtualInjectionScripts = loadVirtualInjectionScripts;
 const buildConfigPreScript_1 = require("./buildConfigPreScript");
 const loadInpageScript_1 = require("./loadInpageScript");
@@ -23,6 +23,7 @@ Object.defineProperty(exports, "filterLaunchScriptsForUrl", { enumerable: true, 
 var injectSentinel_1 = require("./injectSentinel");
 Object.defineProperty(exports, "INJECT_SENTINEL_MARKER", { enumerable: true, get: function () { return injectSentinel_1.INJECT_SENTINEL_MARKER; } });
 Object.defineProperty(exports, "INJECT_SENTINEL_COMMENT", { enumerable: true, get: function () { return injectSentinel_1.INJECT_SENTINEL_COMMENT; } });
+Object.defineProperty(exports, "INJECT_ARM_GLOBAL", { enumerable: true, get: function () { return injectSentinel_1.INJECT_ARM_GLOBAL; } });
 function loadVirtualInjectionScripts(config) {
     return {
         configPreScript: (0, buildConfigPreScript_1.buildConfigPreScript)(config),

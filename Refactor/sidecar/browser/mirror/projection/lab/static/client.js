@@ -1031,6 +1031,9 @@
         tracker = new rowHash_1.TableHashTracker();
         /** Stamped onto every row `setRow` touches until changed again — one frame, one `lms` (§4 preamble). */
         currentSequence = 0;
+        /** Scratch for {@link collectSubtreeIds} — reused across walks (hot path; not hashed). */
+        walkStack = [];
+        walkVisited = /* @__PURE__ */ new Set();
         get tableHash() {
           return this.tracker.value;
         }
@@ -1325,21 +1328,39 @@
           }
           return out;
         }
-        collectSubtreeIds(id, out) {
-          out.push(id);
-          const seen = /* @__PURE__ */ new Set();
-          let child = this.lastChildOf.get(id) ?? NONE;
-          while (child !== NONE) {
-            if (seen.has(child))
-              break;
-            seen.add(child);
-            this.collectSubtreeIds(child, out);
-            const row = this.rows.get(child);
-            child = row?.prevSibling ?? NONE;
+        /**
+         * Iterative DFS (stack + one visited). Root is first in `out`; remaining order unspecified.
+         * Revisit (cycle / corrupt derived links) → throw `ReplicatedTable: subtree walk cycle`.
+         */
+        collectSubtreeIds(rootId, out) {
+          const stack = this.walkStack;
+          const visited = this.walkVisited;
+          stack.length = 0;
+          visited.clear();
+          visited.add(rootId);
+          stack.push(rootId);
+          while (stack.length > 0) {
+            const id = stack.pop();
+            out.push(id);
+            let child = this.lastChildOf.get(id) ?? NONE;
+            while (child !== NONE) {
+              if (visited.has(child)) {
+                throw new Error("ReplicatedTable: subtree walk cycle");
+              }
+              visited.add(child);
+              stack.push(child);
+              const row = this.rows.get(child);
+              child = row?.prevSibling ?? NONE;
+            }
+            const shadow = this.shadowRootByHost.get(id);
+            if (shadow !== void 0 && shadow !== id) {
+              if (visited.has(shadow)) {
+                throw new Error("ReplicatedTable: subtree walk cycle");
+              }
+              visited.add(shadow);
+              stack.push(shadow);
+            }
           }
-          const shadow = this.shadowRootByHost.get(id);
-          if (shadow !== void 0 && shadow !== id)
-            this.collectSubtreeIds(shadow, out);
         }
         // ---- internals ----
         setRow(id, kind, parent, prevSibling, contentHash) {

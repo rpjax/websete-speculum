@@ -7,9 +7,9 @@
 
 ---
 
-## Now (2026-08-27) — start a new chat here
+## Now (2026-08-28) — start a new chat here
 
-**Shipped (recent):** Virtual assets V1 path. **Input = sparse-cdp V1 SEALED** (2026-08-27) — click (id + pointer coords), keyboard (incl. Space), scrollSet, historyNav; lab 9/10 + Eneba. OS ABS/S6 removed; [input.md](input.md) keeps the OS seal as historical record. Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
+**Shipped (recent):** **PP inject boot SEALED** (2026-08-28) — `onNewDocument` + main-world + arm + lateBoot miss-detect; [browser-session.md](browser-session.md). Virtual assets V1 path. **Input = sparse-cdp V1 SEALED** (2026-08-27). Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
 
 **Input:** sparse-cdp only. Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
 
@@ -23,7 +23,7 @@
 5. MotorAssert compose seed `MirrorMode.PageProjection`.
 6. Input fine-tuning (nested iframe click oracle, touch, IME) — after assets unlock visual parity.
 
-Open named shadow / form PROP / SVG / session shape / **gate 10 surface** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+Open named shadow / form PROP / SVG / session shape / **gate 10 surface** / **inject boot** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 

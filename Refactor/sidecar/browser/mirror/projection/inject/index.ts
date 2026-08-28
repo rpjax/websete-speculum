@@ -19,7 +19,7 @@ export {
   filterLaunchScriptsForUrl,
   type ResolvedLaunchScript,
 } from './resolveLaunchScripts';
-export { INJECT_SENTINEL_MARKER, INJECT_SENTINEL_COMMENT } from './injectSentinel';
+export { INJECT_SENTINEL_MARKER, INJECT_SENTINEL_COMMENT, INJECT_ARM_GLOBAL } from './injectSentinel';
 
 export type VirtualInjectionScripts = {
   /** Assigns `globalThis.__SPECULUM_PROJECTION__`. Inject first. */

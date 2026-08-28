@@ -120,8 +120,8 @@
       {
         "id": "web",
         "image": "speculum-refactor-web",
-        "context": "web",
-        "dockerfile": "Dockerfile",
+        "context": ".",
+        "dockerfile": "web/Dockerfile",
         "buildArgs": [
           { "name": "VITE_SPECULUM_TRANSPORT_ORIGIN", "value": "https://localhost:8443" }
         ],
@@ -286,8 +286,8 @@
       {
         "id": "web",
         "image": "speculum-web",
-        "context": "web",
-        "dockerfile": "Dockerfile",
+        "context": ".",
+        "dockerfile": "web/Dockerfile",
         "restart": "unless-stopped",
         "buildArgs": [
           { "name": "VITE_SPECULUM_TRANSPORT_ORIGIN", "value": "${TRANSPORT_ORIGIN}" }

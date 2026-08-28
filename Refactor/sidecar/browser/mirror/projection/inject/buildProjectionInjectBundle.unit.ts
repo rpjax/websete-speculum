@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { INJECT_SENTINEL_COMMENT, INJECT_SENTINEL_MARKER } from './injectSentinel';
+import { INJECT_SENTINEL_COMMENT, INJECT_SENTINEL_MARKER, INJECT_ARM_GLOBAL } from './injectSentinel';
 import { buildProjectionInjectBundle } from './buildProjectionInjectBundle';
 import { META_CSP_NEUTRALIZE_BODY, SINGLE_TAB_BODY } from './injectScriptBodies';
 
@@ -17,6 +17,11 @@ export async function runBuildProjectionInjectBundleUnitTests(): Promise<void> {
 
   assert.ok(bundle.startsWith(INJECT_SENTINEL_COMMENT));
   assert.ok(bundle.includes(INJECT_SENTINEL_MARKER));
+  assert.ok(bundle.includes(INJECT_ARM_GLOBAL));
+  assert.ok(bundle.includes('speculum_pp_inject_once'), 'inject must wrap in arm IIFE');
+  const onceIdx = bundle.indexOf('speculum_pp_inject_once');
+  const preludeIdx = bundle.indexOf('speculum_pp_inject_boot');
+  assert.ok(onceIdx >= 0 && preludeIdx > onceIdx, 'arm wrapper must enclose prelude');
   assert.ok(bundle.includes('__speculumScrubInjectScripts'));
   assert.ok(bundle.includes(META_CSP_NEUTRALIZE_BODY.slice(0, 40)));
   assert.ok(bundle.includes(SINGLE_TAB_BODY.slice(0, 30)));
@@ -35,6 +40,7 @@ export async function runBuildProjectionInjectBundleUnitTests(): Promise<void> {
     includeCspDiag: true,
   });
   assert.ok(withDiag.includes('speculum_csp_diag_probe'));
+  assert.ok(!/new WebSocket\s*\(\s*cfg\.dataPlaneUrl\s*\)/.test(withDiag));
 
   console.log('[unit] buildProjectionInjectBundle ok');
 }

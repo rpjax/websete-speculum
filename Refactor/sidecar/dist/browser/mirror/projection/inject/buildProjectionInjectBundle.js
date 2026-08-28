@@ -26,7 +26,7 @@ function buildProjectionInjectBundle(opts) {
         `(function speculum_csp_meta_neutralize() {${injectScriptBodies_1.META_CSP_NEUTRALIZE_BODY}})();`,
         buildConfigAssignmentJs(opts.config),
     ];
-    if ((opts.config.loopbackCarrier ?? 'extension') === 'extension') {
+    if ((opts.config.transport ?? 'loopback') === 'loopback') {
         preludeParts.push((0, extensionPlaneMainShim_1.buildExtensionPlaneMainShimJs)());
     }
     preludeParts.push(`(function speculum_single_tab() {${injectScriptBodies_1.SINGLE_TAB_BODY}})();`);
@@ -39,8 +39,10 @@ function buildProjectionInjectBundle(opts) {
             preludeParts.push(s.wrappedSource);
         }
     }
+    const generation = opts.config.generation ?? 1;
     const prelude = wrapPreludeIife(preludeParts);
     const virtual = (0, loadInpageScript_1.loadInpageScript)();
-    return `${injectSentinel_1.INJECT_SENTINEL_COMMENT}\n${prelude}\n${virtual}`;
+    // Arm wrapper: legal `return` inside function; second evaluate on same heap is no-op.
+    return `${injectSentinel_1.INJECT_SENTINEL_COMMENT}\n${(0, injectSentinel_1.wrapInjectWithArm)(generation, `${prelude}\n${virtual}`)}`;
 }
 //# sourceMappingURL=buildProjectionInjectBundle.js.map

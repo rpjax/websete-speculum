@@ -21,10 +21,15 @@ export type ProjectionConfigPreScriptOptions = {
   generation?: number;
   /** CSSOM poll Hz. `0` off. Lab injects `5`. */
   cssomPollHz?: number;
-  /** Loopback socket carrier. Default `extension` for managed Chrome. */
+  /** Loopback socket carrier. Managed path is always `extension`. */
   loopbackCarrier?: LoopbackCarrier;
-  /** Bridge token when loopbackCarrier is `extension`. */
+  /** Bridge token when transport is loopback (required). */
   planeBridgeToken?: string;
+  /**
+   * Lab-only dual-boot / sequence diagnostics. Not part of frozen ProjectionConfig schema —
+   * Virtual reads raw `__SPECULUM_PROJECTION__.diagBoot` (see bootDiag.ts).
+   */
+  diagBoot?: boolean;
 };
 
 export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Record<string, unknown> {
@@ -38,12 +43,15 @@ export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Reco
     throw new Error('buildConfigPayload: sessionId is required when transport is "loopback"');
   }
 
-  const loopbackCarrier = opts.loopbackCarrier ?? 'extension';
-  const planeBridgeToken = (opts.planeBridgeToken ?? '').trim();
-  if (transport === 'loopback' && loopbackCarrier === 'extension' && planeBridgeToken.length === 0) {
+  const loopbackCarrier: LoopbackCarrier = opts.loopbackCarrier ?? 'extension';
+  if (loopbackCarrier !== 'extension') {
     throw new Error(
-      'buildConfigPayload: planeBridgeToken is required when loopbackCarrier is "extension"',
+      `buildConfigPayload: loopbackCarrier must be "extension" (got ${String(loopbackCarrier)})`,
     );
+  }
+  const planeBridgeToken = (opts.planeBridgeToken ?? '').trim();
+  if (transport === 'loopback' && planeBridgeToken.length === 0) {
+    throw new Error('buildConfigPayload: planeBridgeToken is required when transport is "loopback"');
   }
 
   const payload: Record<string, unknown> = {
@@ -61,6 +69,7 @@ export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Reco
   if (opts.telemetry !== undefined) payload.telemetry = opts.telemetry;
   if (opts.generation !== undefined) payload.generation = opts.generation;
   if (opts.cssomPollHz !== undefined) payload.cssomPollHz = opts.cssomPollHz;
+  if (opts.diagBoot === true) payload.diagBoot = true;
   return payload;
 }
 

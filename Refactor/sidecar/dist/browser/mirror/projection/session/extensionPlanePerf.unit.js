@@ -13,7 +13,7 @@ const GENERATION = 1;
 const ROUNDS = 200;
 const FRAME = new Uint8Array(16 * 1024); // 16 KiB — typical small frame payload size for smoke
 /**
- * Direct mock socket (page-ws analogue) vs hop mock (extension plane: postMessage+Port latency simulated).
+ * Direct mock socket vs hop mock (extension plane: postMessage+Port latency simulated).
  * Design unchanged — only measures hop cost of the sealed tunnel shape.
  */
 class DirectMockSocket {

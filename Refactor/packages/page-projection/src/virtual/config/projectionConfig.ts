@@ -15,7 +15,8 @@ export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
 
 export type ProjectionTransportKind = 'console' | 'loopback' | 'discard';
 
-export type LoopbackCarrier = 'page-ws' | 'extension';
+/** Managed Chrome loopback carrier. Page-origin WS is not a product option (EP-08 / EP-15). */
+export type LoopbackCarrier = 'extension';
 
 export type ProjectionConfigBag = {
   sessionId?: unknown;
@@ -94,9 +95,9 @@ function asNonNegativeNumber(value: unknown, fallback: number, label: string): n
 
 function asLoopbackCarrier(value: unknown): LoopbackCarrier {
   if (value === undefined || value === null) return DEFAULTS.loopbackCarrier;
-  if (value === 'page-ws' || value === 'extension') return value;
+  if (value === 'extension') return value;
   throw new Error(
-    `ProjectionConfig.loopbackCarrier must be "page-ws" | "extension" (got ${String(value)})`,
+    `ProjectionConfig.loopbackCarrier must be "extension" (got ${String(value)}); page-origin WS is not a product carrier`,
   );
 }
 
@@ -171,9 +172,9 @@ export function readProjectionConfig(): Readonly<ProjectionConfig> {
   const planeBridgeTokenRaw = bag.planeBridgeToken;
   const planeBridgeToken =
     typeof planeBridgeTokenRaw === 'string' ? planeBridgeTokenRaw.trim() : '';
-  if (transport === 'loopback' && loopbackCarrier === 'extension' && planeBridgeToken.length === 0) {
+  if (transport === 'loopback' && planeBridgeToken.length === 0) {
     throw new Error(
-      'ProjectionConfig.planeBridgeToken is required when loopbackCarrier is "extension"',
+      'ProjectionConfig.planeBridgeToken is required when transport is "loopback"',
     );
   }
 

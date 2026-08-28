@@ -20,6 +20,7 @@
 
 | Date | Topic | Where the full text is |
 |------|-------|------------------------|
+| 2026-08-28 | **PP inject boot SEALED (Rodrigo)** — happy path = `Page.addScriptToEvaluateOnNewDocument` per CDP target (page + OOPIF); Virtual in **main world**; sync inject arm IIFE; lateBoot = miss-detect only (main-world probe, settle, coalesce, fail-closed on `probe===null`, one attempt per `generation\|url` per frame). Dual-boot from Patchright isolate probe **closed**. Pause-until-register OOPIF deferred. | [browser-session.md](browser-session.md) Runtime inject · [csp.md](csp.md) §10 · `inject/projectionRuntimeInstaller.ts` · `inject/injectSentinel.ts` |
 | 2026-08-27 | **Extension plane carrier SEALED (Rodrigo)** — loopback WS via Speculum Plane extension (background); main↔content postMessage bridge; LB-08…19 unchanged on wire; ContextBus untouched; NodeDataPlane unchanged. Impl: PP-EXTENSION-PLANE. | [extension-plane.md](extension-plane.md) · [loopback.md](loopback.md) · [open.md](open.md) |
 | 2026-08-27 | **Loopback establishment SEALED (Rodrigo)** — handshake `hello`/`hello-ack`/`hello-reject`; symmetric `establishConnection` / `waitEstablished`; one canonical socket per `(sessionId, generation)`; ghost WS forbidden; LB-08…LB-19. Impl: PP-LOOPBACK-ESTABLISH. | [loopback.md](loopback.md) · [open.md](open.md) |
 | 2026-08-27 | **LNA managed Chrome = enterprise policy only** — generic `["*"]` in `speculum-lna.json`; **reject** `LocalNetworkAccessChecks` launch disable and per-site policy lists. | [loopback.md](loopback.md) §11 · [csp.md](csp.md) §8 |
@@ -179,7 +180,7 @@ Original: [`../archive/engine-redesign-extension.md`](../archive/engine-redesign
 | 2026-08-12 | E-04 | Op vocabulary | Affirm then-parent §5.4 | **SUPERSEDED** by frame-protocol opcode space |
 | 2026-08-12 | E-05 | Identity reverse map | WeakMap + WeakRef + FinalizationRegistry; no DOM identity writes | **IN FORCE** (`DomNodeTable`) |
 | 2026-08-12 | E-06 | ISR + double-buffer pointers | MO marks only; swap on clock | Producer: mutation buffer + tick. Client double-buffer is Stage 4 surface, not Frozen pointer |
-| 2026-08-12 | E-07 | Isolated World | Producer in isolated world | **IN FORCE** if inject still does this |
+| 2026-08-12 | E-07 | Isolated World | Producer in isolated world | **SUPERSEDED 2026-08-28** — Virtual producer boots in page **main world** (CDP inject / lateBoot). Patchright isolate must not be used for product lateBoot probe/inject. |
 | 2026-08-12 | E-08 | CSP / PNA bypass for E-03 | Strip CSP, PNA flags | **SUPERSEDED 2026-08-14** — punch rejected (antibot). Keep site CSP. |
 | 2026-08-12 | E-09 | Slice order | Dual track oracles + engine | Lab oracles partial; O1/O4/O5 still open |
 | 2026-08-12 | E-10 | No absolute E2E ms as contract | Measure E1/E3/E5 | **IN FORCE** |

@@ -12,10 +12,13 @@ services:
     shm_size: 2gb
     environment:
       NODE_ENV: production
-      SPECULUM_DIAG_CSP: "1"
+      # Do not set SPECULUM_DIAG_CSP here — page probe is observe-only, but lab
+      # default must not inject diag into the product session path.
       SPECULUM_LAB_HOST: 0.0.0.0
       SPECULUM_LAB_PORT: "4103"
       SPECULUM_LAB_HEADED: "1"
+      # Dual-boot / sequence diagnostics (Virtual console + sidecar lateBoot).
+      SPECULUM_DIAG_BOOT: "1"
       # VideoStreaming OS path only — PageProjection uses sparse-cdp (CDP), not SPECULUM_INPUT_BACKEND.
       SPECULUM_INPUT_BACKEND: os
       CHROME_EXECUTABLE: /usr/bin/google-chrome

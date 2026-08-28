@@ -18,9 +18,12 @@ function buildConfigPayload(opts) {
         throw new Error('buildConfigPayload: sessionId is required when transport is "loopback"');
     }
     const loopbackCarrier = opts.loopbackCarrier ?? 'extension';
+    if (loopbackCarrier !== 'extension') {
+        throw new Error(`buildConfigPayload: loopbackCarrier must be "extension" (got ${String(loopbackCarrier)})`);
+    }
     const planeBridgeToken = (opts.planeBridgeToken ?? '').trim();
-    if (transport === 'loopback' && loopbackCarrier === 'extension' && planeBridgeToken.length === 0) {
-        throw new Error('buildConfigPayload: planeBridgeToken is required when loopbackCarrier is "extension"');
+    if (transport === 'loopback' && planeBridgeToken.length === 0) {
+        throw new Error('buildConfigPayload: planeBridgeToken is required when transport is "loopback"');
     }
     const payload = {
         transport,
@@ -45,6 +48,8 @@ function buildConfigPayload(opts) {
         payload.generation = opts.generation;
     if (opts.cssomPollHz !== undefined)
         payload.cssomPollHz = opts.cssomPollHz;
+    if (opts.diagBoot === true)
+        payload.diagBoot = true;
     return payload;
 }
 /**

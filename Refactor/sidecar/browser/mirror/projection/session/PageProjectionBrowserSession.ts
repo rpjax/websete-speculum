@@ -1121,14 +1121,13 @@ export class PageProjectionBrowserSession {
         sessionId: this.sessionId,
         transport: 'loopback',
         dataPlaneUrl,
-        loopbackCarrier: (process.env.SPECULUM_LOOPBACK_CARRIER === 'page-ws'
-          ? 'page-ws'
-          : 'extension') as 'page-ws' | 'extension',
+        loopbackCarrier: 'extension',
         planeBridgeToken: this.planeBridgeToken,
         frameRateHz: options.frameRateHz ?? 60,
         telemetry,
         generation: this.generation,
         cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
+        ...(process.env.SPECULUM_DIAG_BOOT === '1' ? { diagBoot: true } : {}),
       },
       launchScripts: resolvedLaunch,
       includeCspDiag: isCspDiagEnabled(),

@@ -506,14 +506,14 @@ Touch, IME/insertText, real upload (v1.1), container-per-session, Wayland, `over
 
 | Area | Path |
 |------|------|
-| REL pointer + soft cursor | `Refactor/sidecar/browser/patchright/input/OsInputBackend.ts` |
-| uinput device open (REL pointer) | `Refactor/sidecar/browser/patchright/input/uinput.ts` |
-| CDP input backend | `Refactor/sidecar/browser/patchright/input/PatchrightInputBackend.ts` |
-| Xorg dummy + InputDevice bind | `Refactor/sidecar/browser/patchright/Display.ts` |
-| Backend selection | `Refactor/sidecar/browser/patchright/PatchrightBrowserSession.ts` |
-| PP input dispatch | `Refactor/sidecar/browser/mirror/projection/input/` |
+| REL pointer + soft cursor | `sidecar/browser/patchright/input/OsInputBackend.ts` |
+| uinput device open (REL pointer) | `sidecar/browser/patchright/input/uinput.ts` |
+| CDP input backend | `sidecar/browser/patchright/input/PatchrightInputBackend.ts` |
+| Xorg dummy + InputDevice bind | `sidecar/browser/patchright/Display.ts` |
+| Backend selection | `sidecar/browser/patchright/PatchrightBrowserSession.ts` |
+| PP input dispatch | `sidecar/browser/mirror/projection/input/` |
 | Normative (to supersede) | [input-v2.md](input-v2.md) |
-| Existing bus (extend, do not fork blindly) | `Refactor/packages/page-projection/src/virtual/bus/projectionBus.ts` |
+| Existing bus (extend, do not fork blindly) | `packages/page-projection/src/virtual/bus/projectionBus.ts` |
 | Multi-doc bus rules | [multi-document.md](multi-document.md) §4 |
 
 ---

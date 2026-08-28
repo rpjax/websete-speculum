@@ -1,6 +1,6 @@
 # Implementation — `applyCssom.ts` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/applyCssom.ts`  
+**Future path:** `web/src/features/sessions/live/page/applyCssom.ts`  
 **LOC ceiling:** 300  
 **Contracts:** [06-cssom.md](../../contracts/06-cssom.md), [09-apply.md](../../contracts/09-apply.md), [04-wire.md](../../contracts/04-wire.md)  
 **Decisions:** D-SPEC-8 (Cssom id range `[0x80000001 .. 0xFFFFFFFF]`)  

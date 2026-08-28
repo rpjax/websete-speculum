@@ -1,299 +1,261 @@
-# Deploy — Speculum
+# Deploy — Speculum Refactor
 
-**Canonical deployment** for Speculum uses [@rodrigopjax/dockup](https://github.com/rpjax/npm-dockup) v2. Dockup reads a declarative JSON manifest, generates a Docker Compose stack per environment, builds images, and writes output to `deploy/out/`.
-
-> **Do not hand-edit `deploy/out/`** — it is generated and gitignored. Change `speculum.dockup.json` (or the tracked example) and re-run dockup.
-
----
-
-## Table of contents
-
-- [Why dockup](#why-dockup)
-- [Prerequisites](#prerequisites)
-- [First-time setup](#first-time-setup)
-- [Configuration reference](#configuration-reference)
-- [Commands](#commands)
-- [Environments](#environments)
-- [Generated output layout](#generated-output-layout)
-- [Post-deploy configuration](#post-deploy-configuration)
-- [Production VPS workflow](#production-vps-workflow)
-- [Partial deploys](#partial-deploys)
-- [Troubleshooting](#troubleshooting)
-- [Alternative: reference compose](#alternative-reference-compose)
-
----
-
-## Why dockup
-
-| Benefit | Description |
-|---------|-------------|
-| **Single manifest** | One JSON file defines dev and prod with shared container definitions |
-| **Environment substitution** | `${namespace}`, `${network}`, and container env resolved per env |
-| **Reproducible output** | `out/dev` and `out/prod` are disposable, regenerable artifacts |
-| **CI-friendly** | `dockup validate` catches config errors before deploy |
-
-Each service owns its image: `Speculum.Api/Dockerfile`, `web/Dockerfile`, `sidecar/Dockerfile`. Dockup resolves those contexts from the repo root (`--root ..`).
-
----
+Dockup manifest for the refactor stack (gRPC sidecar + Api + optional web lab).
 
 ## Prerequisites
 
-| Requirement | Notes |
-|-------------|-------|
-| Docker Engine + Compose v2 | Linux recommended for production |
-| Node.js 22+ | For global dockup CLI |
-| DNS (prod) | Apex (+ optional `www`) → server IP; wildcard via DNS-01 when mirroring ON |
-| Ports | Dev: `8080` (HTTP); Prod: `80`/`443` |
-
-Install dockup (once):
+- Docker Engine + Compose v2
+- Node.js 22+
+- [@rodrigopjax/dockup](https://github.com/rpjax/npm-dockup) `>= 2.0.2`
 
 ```bash
 npm install -g @rodrigopjax/dockup
-dockup --version   # must be >= 2.0.2 (Windows: fixes docker build on paths with spaces)
 ```
-
----
-
-## First-time setup
-
-```bash
-cd deploy
-cp speculum.dockup.example.json speculum.dockup.json
-```
-
-Edit `speculum.dockup.json` for production domains and ACME email. The file is **gitignored** — never commit secrets or production-specific hostnames if they are sensitive.
-
-Validate before first deploy:
-
-```bash
-dockup validate --root ..
-```
-
-Deploy local dev stack:
-
-```bash
-dockup deploy --env dev --root ..
-```
-
-Open **http://speculum.localhost:8080** — dev uses plain HTTP so no certificate trust step is required.
-
----
-
-## Configuration reference
-
-### Top-level keys (`speculum.dockup.json`)
-
-Each environment (`dev`, `prod`) defines:
-
-| Field | Purpose |
-|-------|---------|
-| `namespace` | Docker object prefix (e.g. `websete`) |
-| `network` | Docker network name |
-| `env` | Variables substituted into labels and container env |
-| `containers` | Service definitions (Traefik, sidecar, api, web) |
-| `volumes` | Named volumes (`speculum-data`, `traefik-letsencrypt` in prod) |
-
-### Required environment variables
-
-Containers are **domain-agnostic**. No `Motor__PublicDomain`, `VITE_API_URL`, or Traefik `Host()` labels in the manifest.
-
-| Variable | Purpose |
-|----------|---------|
-| `HttpAddress`, `Database__Path`, `Sidecar__BaseUrl` | API bootstrap |
-| `Traefik__Root`, `Traefik__DynamicDir`, `Traefik__DockerSocket` | EdgeSynchronizer + Traefik reload |
-| `Cors__AllowedOrigins` | Dev-only SPA origins (`localhost:5173`) |
-| `ADMIN_BOOTSTRAP_KEY` | Optional first-boot admin key (dev) |
-| `SPECULUM_DIAGNOSTICS_PROFILE` | Optional first-boot Diagnostics seed on the API container (`Assertive` for CI / full observability; otherwise `Development` or `Production` from `ASPNETCORE_ENVIRONMENT`) |
-
-CI motor-assertive (GitHub Actions only): compose file `deploy/compose/docker-compose.motor-assert.yml` + seed script `deploy/compose/seed-motor-assert.sh`. Not intended for laptop day-to-day use.
-
-### Web image
-
-Same-origin: the web image uses **relative** `/api` and `/vhub` paths. No `VITE_API_URL` build arg.
-
-### Bootstrap (virgin VPS)
-
-1. Deploy stack — Traefik serves HTTP catch-all via `bootstrap.yml` (any Host, including IP). Traefik loads static ACME resolvers from `/data/traefik/traefik.static.yml` (materialized by EdgeSynchronizer; `--configfile` in the Traefik command).
-2. Open `http://<VPS-IP>/admin` — configure **Hosting** (domains, TLS email, mirroring) and **Forwarding** (target site).
-3. EdgeSynchronizer materializes Traefik static/dynamic files and restarts Traefik when ACME static config changes; apex HTTPS via HTTP-01; wildcard per profile via DNS-01 when mirroring is ON.
-
----
-
-## Commands
-
-Always run from `deploy/` with `--root ..` (repository root as build context):
-
-```bash
-cd deploy
-
-# Validate manifest and generated compose
-dockup validate --root ..
-
-# Build images + start stack
-dockup deploy --env dev --root ..
-dockup deploy --env prod --root ..
-
-# Regenerate compose/files without starting (inspect out/)
-dockup deploy --env dev --generate-only --root ..
-
-# Deploy single service (e.g. API-only rollout)
-dockup deploy --env prod --only api --root ..
-```
-
----
 
 ## Environments
 
-| | **dev** | **prod** |
-|---|---------|----------|
-| Traefik host ports | `8080` → 80 (HTTP only) | `80`, `443` |
-| TLS | None (plug-and-play local dev) | Let's Encrypt HTTP (apex) + DNS challenge prep for optional wildcard |
-| Public URL | `http://speculum.localhost:8080` (same-origin `/api`, `/vhub`) | `https://<profile-domain>` per Hosting config |
-| Output directory | `deploy/out/dev/` | `deploy/out/prod/` |
+| Env | Sidecar browser | Purpose |
+|-----|-----------------|---------|
+| **`dev`** | `patchright` (Chrome); input defaults to **uinput** (`os`) | Local lab — Traefik + web + API; `SPECULUM_BYPASS_API_AUTH`. WSL/no-uinput: set `SPECULUM_INPUT_BACKEND=patchright`. |
+| **`prod`** | `patchright` + **`SPECULUM_INPUT_BACKEND=patchright`** | VPS production — Traefik `:80`/`:443`, web admin SPA, no auth bypass; images push to Docker Hub `websete/*`. CDP input until OS→Chrome X11 delivery is proven. |
+| **`test`** | `patchright` + motor-fixture + **`SPECULUM_INPUT_BACKEND=patchright`** | Act→Assert `SessionsTest` (CI also uses compose) |
 
-### Services (both environments)
+`dev` publishes Traefik on host **`:8080`**; `prod` on **`:80`/`:443`**. Both publish
+WebTransport on **`:8443`** — run only one at a time.
+`test` / compose sessions-test uses **`:18090`** (API) so it can run beside local stacks.
+Sidecar uses Docker `init: true` (reaps Chrome/Xvfb zombies). Volumes are env-scoped
+(`speculum-refactor-dev-data` / `speculum-refactor-data` / `speculum-refactor-test-data`).
+Sidecar compose mounts `/dev/uinput` (OS path WIP). **`prod` / `test` force CDP input**
+(`SPECULUM_INPUT_BACKEND=patchright`) so Session input Act→Assert and VPS sessions work
+while Chrome under Patchright still ignores X11 CorePointer/CoreKeyboard events.
+`dev` leaves the backend unset (`os`) for Linux hosts developing the uinput path.
+After deploy, sidecar `/ready` is 200 when Chrome (+ uinput when backend=`os`) is present.
 
-| ID | Image | Public |
-|----|-------|--------|
-| `traefik` | `traefik:v3.6.1` | Edge ports |
-| `sidecar` | `speculum-sidecar` (build) | Internal |
-| `api` | `speculum-api` (build) | Via Traefik (same host as web) |
-| `web` | `speculum-web` (build) | Via Traefik (EdgeSynchronizer routes) |
+First-boot mandatory config: `dev` / `test` seed Sessions + ResourceManagement +
+Navigation via env so `/w7s/health/ready` can pass. `prod` seeds Sessions +
+ResourceManagement only — Navigation stays empty until an operator Applies it
+(pending-config / StartSession gated). Docker `depends_on` / container healthchecks
+for `dev` and `prod` use `/w7s/health/live` (process up) so Traefik stays reachable
+while pending config is fixed via `/w7s/api/configurations`. `test` / compose still
+wait on `/w7s/health/ready`. The API uses `UsePathBase("/w7s")`; Traefik routes
+`/w7s/api`, `/w7s/vhub`, `/w7s/health` to the API and everything else to the SPA
+(Live catch-all + `/w7s/admin` / `/w7s/lab` / `/w7s/setup`).
 
----
+## Dev (localhost, real Chrome)
 
-## Generated output layout
+Same topology as a production-shaped deploy (Traefik → web/api, api → sidecar),
+HTTP-only on localhost — no ACME / public domains. Sidecar launches Chrome via
+Patchright (`SPECULUM_BROWSER=patchright`).
 
-After `dockup deploy --generate-only` or full deploy:
-
-```
-deploy/out/
-├── dev/
-│   ├── docker-compose.yml
-│   └── .env                    # substituted variables
-└── prod/
-    ├── docker-compose.yml
-    └── .env
-```
-
-`deploy/out/` is **gitignored**. On a VPS you typically copy `out/prod/` only.
-
----
-
-## Post-deploy configuration
-
-Infrastructure env vars are set by dockup. **Motor** configuration is still required in SQLite:
-
-1. Sign in at `http://<motor-domain>/admin` with API key **`password`** (dev default from `ADMIN_BOOTSTRAP_KEY`). If the DB was created before this key was set, run `docker compose down -v` in `out/dev` and redeploy.
-
-2. Open `https://<motor-domain>/admin` and configure:
-   - **Hosting** — motor domain(s), ACME email, optional subdomain mirroring + Cloudflare token
-   - **Forwarding** — `host` = target site apex (e.g. `www.olx.com.br`); `domains` = navigation allowlist
-   - **MaxSessions** — concurrent browser cap
-
-3. Verify readiness:
-   ```bash
-   curl -sk https://<motor-domain>/ready
-   ```
-
----
-
-## Production VPS workflow
-
-On your workstation:
+From `deploy/`:
 
 ```bash
-cd deploy
-# Ensure speculum.dockup.json prod domains and ACME_EMAIL are correct
-dockup deploy --env prod --generate-only --root ..
+dockup validate -c dockup.json --root ..
+dockup deploy --env dev -c dockup.json --root .. --skip-push
 ```
 
-Transfer to server:
+`--skip-push` builds images locally and writes compose under `out/dev/` without
+pushing to Docker Hub. Then:
 
 ```bash
-scp -r out/prod/ user@vps:/opt/speculum
+cd out/dev
+docker compose --env-file .env up -d
 ```
 
-On the VPS:
+**Docker Desktop / no `/dev/uinput`:** the sidecar device mount fails on Windows.
+Use the override (CDP input, no uinput mount) instead of hand-editing `out/`:
 
 ```bash
-cd /opt/speculum
-docker compose pull    # if using registry; otherwise images built locally
-docker compose up -d
-docker compose ps
+cd out/dev
+docker compose -f docker-compose.yml -f ../../compose/docker-compose.dev.nouinput.yml --env-file .env up -d
 ```
 
-Ensure firewall allows `80` and `443`. DNS for each Hosting profile apex must point to the VPS before ACME succeeds.
+Open **http://localhost:8080** — Live catch-all at `/`; control plane under
+`/w7s/*` (Admin `/w7s/admin`, Lab `/w7s/lab`). Traefik routes `/w7s/vhub`,
+`/w7s/health`, and `/w7s/api` to the api (nginx also proxies them same-origin).
 
-### Optional: subdomain mirroring (wildcard TLS)
+`dev` keeps `ASPNETCORE_ENVIRONMENT=Production` (container has no ASP.NET
+dev cert) and sets `SPECULUM_BYPASS_API_AUTH=true` so lab/harness and
+configurations API work without a Bearer token. Local `dotnet run` also needs
+`SPECULUM_BYPASS_API_AUTH=true` (or login via `POST /w7s/api/auth/login` and
+`Authorization: Bearer <accessToken>`) — Development alone does not bypass auth. First-boot
+env (or lab PUT) must supply Navigation + Sessions + ResourceManagement before
+StartSession / `/w7s/health/ready`. Container health for Traefik depends on
+`/w7s/health/live`, not ready.
 
-Configure in Admin → **Hosting**: one profile per motor domain. Enable **Subdomain mirroring** and provide Cloudflare credentials. Add a wildcard to **Forwarding.domains** (e.g. `*.example.com`). EdgeSynchronizer materializes `cloudflare-{domain}.env` and `wildcard-{domain}.yml` under `/data/traefik/`. Restart Traefik if wildcard certs do not appear (multi-domain Cloudflare tokens may require manual cert upload — see architecture docs).
-
----
-
-## Partial deploys
-
-Roll out a single container after API or web changes:
+Stop / wipe:
 
 ```bash
-dockup deploy --env prod --only api --root ..
-dockup deploy --env prod --only web --root ..
+cd out/dev
+docker compose down        # stop
+docker compose down -v     # also wipe SQLite volume
 ```
 
-Sidecar changes require rebuilding `speculum-sidecar`; active sessions should drain gracefully (API `GracefulShutdownHostedService`).
+Sidecar health `startPeriod` is **60s** (Chrome + Xvfb warm-up). First boot can
+take a minute before Traefik comes up.
 
----
+Generated compose lives under `out/dev/` (gitignored). Do not hand-edit it.
 
-## Troubleshooting
+## Host resources (admin uncap)
 
-| Symptom | Likely cause | Action |
-|---------|--------------|--------|
-| Traefik 404 on motor paths | EdgeSynchronizer not run / empty Hosting | Configure Hosting in Admin; check `/data/traefik/dynamic/` |
-| Traefik docker provider errors / all routes 404 | Docker 29+ with Traefik **< 3.6.1** | Use `traefik:v3.6.1` or newer in the manifest |
-| CORS errors in browser | `Cors__AllowedOrigins` missing dev origin | Include `http://localhost:5173` and `http://speculum.localhost:8080` in dev |
-| Motor cannot connect SignalR | Traefik routing or not same-origin | Same-origin stack: no `VITE_API_URL`; verify `/vhub` reaches API |
-| `ready` returns 503 | Forwarding / MaxSessions not configured | Use `/admin` or Admin API |
-| Mirrored subdomain 404 on `/api` or `/vhub` | Wildcard routers missing API paths | Redeploy API with current EdgeSynchronizer; check `wildcard-*.yml` includes `speculum-api-wildcard` |
-| ACME failure (prod) | DNS or port 80 blocked | Verify A records and firewall |
-| Machine telemetry shows `cgroup`/`unavailable` | Host `/proc` not mounted | Confirm `/proc:/host/proc:ro` on api + `Diagnostics__Telemetry__Host__ProcPath=/host/proc` |
-| Chrome crashes in sidecar | Low `/dev/shm` | Confirm `shm_size: 2gb` in manifest |
-| Session dies / fake crash after YouTube navigate | Sidecar link vs Chromium contract | Optional lab: `cd Refactor/web && node scripts/smoke-hub.mjs http://localhost:8080` — Start → Navigate → assert still live (not CI) |
-| `dockup validate` fails | JSON syntax or missing `--root` | Run from `deploy/` with `--root ..` |
-| `docker buildx build requires 1 argument` (Windows) | dockup **< 2.0.2** on a repo path with spaces | `npm install -g @rodrigopjax/dockup@2.0.2` |
-| `npm ci` fails in sidecar build | `package-lock.json` out of sync with `package.json` | Run `npm install` in `sidecar/` and rebuild |
+Sidecar Docker `shm_size` starts at **2gb** (Chrome IPC floor). Admins can raise
+live `/dev/shm` (and optional ulimits) without redeploy via:
 
-Logs:
+- UI: **Admin → Capacity → Host resources**
+- API: `GET/POST /w7s/api/admin/host-resources` (+ `/preview`, `/apply`)
+
+The API sizes from host procfs (`Telemetry.Host.ProcPath`, typically `/host/proc`)
+using a RAM **budget** (`maxRamBytes` ceiling optional — use this on shared
+developer machines). Sidecar only executes the precomputed remount.
+
+**Caveats:** Docker Desktop reflects the **Linux VM** RAM, not the Windows host.
+Sidecar restart resets shm to the compose floor until Apply is run again (no
+automatic reapply on boot).
+
+## Prod (VPS)
+
+Chrome sidecar + API + Traefik + admin SPA. No `SPECULUM_BYPASS_API_AUTH`.
+Images build/push to Docker Hub under namespace `websete`. The prod manifest
+pull tag is **`:latest`**; CI also pushes semver tags (`:1.2.3`) on each GitHub
+Release (see [Releases](#releases-and-image-publish) below). Traefik publishes
+**`:80`/TCP `:443`**; WebTransport **UDP `:443`** (→ Kestrel `:8443`) plus
+fallback **`:8443`** TCP+UDP.
+
+**Auth (required):** default operator is `admin` / `admin` (seeded on first boot).
+Obtain tokens via `POST /w7s/api/auth/login`, then send
+`Authorization: Bearer <accessToken>` on configuration / journal / session harness
+APIs. Refresh with `POST /w7s/api/auth/refresh`. Do **not** set
+`SPECULUM_BYPASS_API_AUTH` in prod. Change the password after first boot
+(`POST /w7s/api/auth/change-password`).
+
+**Pending Navigation:** prod does **not** seed `Navigation` (no
+`www.example.com` / open allowlist). After first boot, `/w7s/health/ready` stays
+unhealthy and StartSession is blocked until an operator Applies Navigation
+(and confirms Sessions / ResourceManagement) via
+`PUT /w7s/api/configurations` with a Bearer access token.
+
+**TLS:** Traefik terminates HTTPS **TCP** `:443` with Let's Encrypt (HTTP-01 via
+entrypoint `web`, resolver `le`). HTTP `:80` redirects to HTTPS. Set
+`PUBLIC_HOST` / `ACME_EMAIL` in `dockup.json` prod `env` (routers are
+`Host(\`${PUBLIC_HOST}\`)`). WebTransport cannot pass Traefik/nginx: prod
+publishes Kestrel QUIC on host **UDP `:443`** (`443:8443/udp`) so the client
+uses same-origin `https://${PUBLIC_HOST}/w7s/vtransport` (mobile-friendly). Cert
+pin still comes from `/w7s/health/webtransport-cert` on Traefik TCP `:443`. Host
+`:8443` TCP+UDP stays published as a lab/fallback edge. When Sessions
+`dataStreamTransport` is `webSocket`, the SPA uses `/w7s/vstream` (proxied like
+`/w7s/vhub` via nginx/Traefik) — no UDP/H3 required for the data plane.
 
 ```bash
-cd deploy/out/dev   # or prod
-docker compose logs -f api
-docker compose logs -f sidecar
-docker compose logs -f web
+dockup validate -c dockup.json --root ..
+dockup deploy --env prod -c dockup.json --root ..
+# compose + .env under out/prod/ — deploy that compose to the VPS (Hostinger Docker Manager)
 ```
 
----
-
-## Alternative: reference compose
-
-If you cannot use dockup, a hand-maintained production-style compose file is available:
-
-**[compose/docker-compose.reference.yml](compose/docker-compose.reference.yml)**
+Local dry-run without registry push:
 
 ```bash
-cd deploy/compose
-export ACME_EMAIL=admin@example.com
-docker compose -f docker-compose.reference.yml up -d --build
+dockup deploy --env prod -c dockup.json --root .. --skip-push
+cd out/prod
+docker compose --env-file .env up -d
 ```
 
-Configure **Hosting** in Admin after first boot — Traefik routes are materialized by EdgeSynchronizer, not compose env vars.
+Then login and Apply Navigation (example):
 
-See [compose/README.md](compose/README.md). **Prefer dockup** for parity with documented dev/prod workflows.
+```bash
+TOKENS=$(curl -sf -X POST http://127.0.0.1/w7s/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}')
+ACCESS=$(echo "$TOKENS" | jq -r .accessToken)
+curl -sf -X PUT http://127.0.0.1/w7s/api/configurations/Navigation \
+  -H "Authorization: Bearer $ACCESS" \
+  -H 'Content-Type: application/json' \
+  -d '{"defaultTargetHost":"www.example.com","allowedMainFrameUrls":[{"domain":{"scope":"Any","labels":[]}}]}'
+```
 
----
+Generated compose lives under `out/prod/` (gitignored). Do not hand-edit it.
 
-## Related documentation
+## WebTransport (frames)
 
-- [../readme.md](../readme.md) — project overview
-- [../docs/architecture.md](../docs/architecture.md) — system design
-- [speculum.dockup.example.json](speculum.dockup.example.json) — tracked template manifest
-- [dockup upstream docs](https://github.com/rpjax/npm-dockup)
+WebTransport is HTTPS + HTTP/3 only and cannot pass through Traefik/nginx.
+**dev** publishes **`https://localhost:8443`** (TCP+UDP) with an ephemeral
+ECDSA cert (`VITE_SPECULUM_TRANSPORT_ORIGIN=https://localhost:8443`).
+**prod** maps host **UDP `:443` → Kestrel `:8443`** and builds the web image
+with `VITE_SPECULUM_TRANSPORT_ORIGIN=https://${PUBLIC_HOST}` so Chromium dials
+QUIC on the standard HTTPS port (works on cellular where UDP `:8443` is often
+blocked). The client fetches `/w7s/health/webtransport-cert` (via Traefik TCP
+`:443` → api `:8080`) and pins the cert with
+`serverCertificateHashes`.
+
+If you cleared Wire overrides in localStorage, hard-refresh so the baked transport
+origin applies (dockup bakes `VITE_SPECULUM_TRANSPORT_ORIGIN=https://localhost:8443`).
+
+## Test (SessionsTest)
+
+Chrome + `tests/motor-fixture` for Act→Assert input/resize. CI uses compose on `:18090`.
+
+```bash
+docker compose -f deploy/compose/docker-compose.sessions-test.yml up -d --build
+# wait for http://127.0.0.1:18090/w7s/health/ready + fixture health
+./deploy/compose/seed-sessions-test.sh   # explicit Journal enable only
+dotnet test Speculum.Api.SessionsTest.Tests --filter Category=SessionsTest
+```
+
+Opt-in journal (`Telemetry.Sessions.VideoStreamingInput.Applied` / `ResizeApplied` / `ResizeRejected`) stays off until seed
+(`PUT /w7s/api/configurations/Journal`) — never by env alone. See
+[`../Speculum.Api.SessionsTest.Tests/MATRIX.md`](../Speculum.Api.SessionsTest.Tests/MATRIX.md).
+
+## Process-local (no Docker)
+
+Fast iteration without Traefik/nginx images:
+
+1. Sidecar (mock): `SPECULUM_BROWSER=mock SPECULUM_GRPC_PORT=50051 SPECULUM_HEALTH_PORT=3001 npm start` in `sidecar`.
+2. Api: `ASPNETCORE_ENVIRONMENT=Development dotnet run` in `Speculum.Api` (Kestrel serves `https://localhost:5001` with HTTP/3 for `/w7s/vtransport`).
+3. Web: `npm run dev` in `web` — Vite proxies `/w7s/vhub` + `/w7s/vstream` + `/w7s/health` + `/w7s/api` to `https://localhost:5001`. For WebTransport frames, set the transport origin to `https://localhost:5001` in the **Wire** tab; WebSocket data plane can stay same-origin via the Vite `/w7s/vstream` proxy (Sessions `dataStreamTransport`).
+
+Trust the dev cert once with `dotnet dev-certs https --trust` so the browser accepts WebTransport.
+
+For real Chrome without dockup, run the sidecar with `SPECULUM_BROWSER=patchright`
+(and `CHROME_EXECUTABLE` on the host). Prefer **`dockup --env dev`** for prod-parity.
+
+## Containers
+
+| id | Role |
+|----|------|
+| `traefik` | HTTP entry on host `:8080` |
+| `sidecar` | gRPC (`:50051` internal) — Chrome via patchright |
+| `api` | Refactor Speculum.Api (`Sidecar__GrpcAddress`) |
+| `web` | Lab SPA (`web`) — **dev only** |
+
+Build contexts are relative to `` (`--root ..`).
+
+The API image installs `libmsquic` so Kestrel can serve HTTP/3 for WebTransport
+inside Linux containers.
+
+## Releases and image publish
+
+Hub images published by CI (not by local `dockup deploy` on a laptop):
+
+| Image | Tags on each GitHub Release |
+|-------|-----------------------------|
+| `websete/speculum-api` | `X.Y.Z` and `latest` |
+| `websete/speculum-sidecar` | `X.Y.Z` and `latest` |
+| `websete/speculum-web` | `X.Y.Z` and `latest` |
+
+Flow: Conventional Commits on `main` → Release Please **Release PR** → merge →
+Release Please creates tag/release `vX.Y.Z` → **dispatches** workflow
+**Publish images** (`workflow_dispatch` with that tag; bot `GITHUB_TOKEN`
+cannot chain a `release` event into another workflow) → waits for **CI** green
+on that SHA → `dockup deploy --env prod` with a runner-only tag patch to
+`X.Y.Z`, then retags `:latest`. Human-published GitHub Releases still trigger
+publish via `on: release`. Traefik stays on Docker Hub `traefik:…` (`imageRef`)
+and is not republished.
+
+**VPS:** pull/redeploy remains **manual**. After Hub publish finishes,
+regenerate compose (`dockup deploy --env prod …`, or pull `:latest` / a pinned
+version on the host) and restart the stack when you choose — no Watchtower /
+auto-update from CI.
+
+**Secrets (repo):** `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (`gh secret set …`).
+Branch protection should require CI + PR title; prefer squash merges. Actions
+must allow GITHUB_TOKEN to create PRs (Release Please). See
+[CONTRIBUTING.md](../../CONTRIBUTING.md).

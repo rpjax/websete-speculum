@@ -1,6 +1,6 @@
 # Implementation — `interaction.ts` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/interaction.ts`  
+**Future path:** `web/src/features/sessions/live/page/interaction.ts`  
 **LOC ceiling:** 400  
 **Contracts:** [10-interaction.md](../../contracts/10-interaction.md), [05-establish.md](../../contracts/05-establish.md), [08-surface.md](../../contracts/08-surface.md)  
 **Norm:** redesign §5.9.2–5.9.4, §5.11; sealed input as amended  

@@ -4,8 +4,8 @@
 **Date sealed:** 2026-08-21 (Rodrigo). **Shape cutover impl:** same day (factory + PP class + wire).  
 **Context:** PageProjection is primary; video streaming stays as **fallback**. Product still V1 → **breaking OK**, no compat shims.  
 **Scratchpad (non-normative):** [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md) — shape done; product leftovers listed.  
-**Impl ports:** `Refactor/sidecar/browser/contracts/` · `PageProjectionBrowserSession.ts` · `VideoStreamingBrowserSession.ts` · `createSealedBrowserSessionFactory.ts` · wire `Refactor/proto/browser_session.proto`  
-**Fat port (legacy callers mid-migrate):** `Refactor/sidecar/browser/BrowserSession.ts`  
+**Impl ports:** `sidecar/browser/contracts/` · `PageProjectionBrowserSession.ts` · `VideoStreamingBrowserSession.ts` · `createSealedBrowserSessionFactory.ts` · wire `proto/browser_session.proto`  
+**Fat port (legacy callers mid-migrate):** `sidecar/browser/BrowserSession.ts`  
 **Proposal provenance:** [../proposals/browser-session-mirror-contract.md](../proposals/browser-session-mirror-contract.md) (pointer only).
 
 **Naming (LOCKED):** .NET-style — interfaces `I…`, classes without `I`.  

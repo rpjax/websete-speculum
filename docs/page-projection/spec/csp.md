@@ -3,7 +3,7 @@
 **Status:** **SEALED 2026-08-20** — normative for V4 cutover session (`PageProjectionBrowserSession` → Live).  
 **Redesign — not a port of legado.** Legacy `Page.setBypassCSP` + `PERMISSIVE_*` CSP replace are **anti-models**.  
 **Index:** [README.md](README.md). Scratchpad: [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md).  
-**Code:** `Refactor/sidecar/browser/mirror/projection/session/csp/`.
+**Code:** `sidecar/browser/mirror/projection/session/csp/`.
 
 **Related:** runtime inject boot **SEALED** ([browser-session.md](browser-session.md)) · [virtual-assets.md](virtual-assets.md) · open.md E-03/E-08 (amended — see §8).
 
@@ -148,7 +148,7 @@ Aplicar como **merge** nas diretivas de script afetadas (e na `script-src` criad
 
 ## 9. Anti-modelos (legado)
 
-Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
+Em `sidecar/browser/patchright/Navigation.ts`:
 
 - `Page.setBypassCSP` como path preferido;
 - `PERMISSIVE_MAIN_FRAME_CSP` / `relaxMainFrameCspHeaders` / `injectPermissiveMainFrameCsp` (troca a policy inteira).

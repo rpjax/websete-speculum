@@ -38,7 +38,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | Web client (React) | `web/` | [README](../web/README.md) |
 | Browser sidecar (Node) | `sidecar/` | [README](../sidecar/README.md) |
 | Tests | `Speculum.Api.Tests/` | [README](../Speculum.Api.Tests/README.md) |
-| MotorAssert (CI Chrome) | `Speculum.MotorAssert.Tests/` | [README](../Speculum.MotorAssert.Tests/README.md) |
+| MotorAssert (CI Chrome) | `Speculum.Api.SessionsTest.Tests/` | [README](../Speculum.Api.SessionsTest.Tests/README.md) |
 | Motor fixture site | `tests/motor-fixture/` | [README](../tests/motor-fixture/README.md) |
 
 ## Archive
@@ -55,4 +55,4 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 - **Configuration:** infrastructure via environment variables; motor behaviour via SQLite + Admin API.
 - **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; `EdgeSynchronizer` materializes Traefik routes per **Hosting** profile.
 - **Naming:** see [naming.md](naming.md) (Speculum / Sessions / W7S vocabulary).
-- **MotorAssert matrix:** [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).
+- **MotorAssert matrix:** [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md).

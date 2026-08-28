@@ -1,0 +1,32 @@
+# Projection lab (PageProjection). PP input is sparse-cdp — does not need /dev/uinput.
+# From repo root: docker compose -f sidecar/docker-compose.lab.yml up --build
+services:
+  lab:
+    build:
+      context: ..
+      dockerfile: sidecar/Dockerfile
+    image: speculum-projection-lab
+    init: true
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    environment:
+      NODE_ENV: production
+      # Do not set SPECULUM_DIAG_CSP here — page probe is observe-only, but lab
+      # default must not inject diag into the product session path.
+      SPECULUM_LAB_HOST: 0.0.0.0
+      SPECULUM_LAB_PORT: "4103"
+      SPECULUM_LAB_HEADED: "1"
+      # Dual-boot / sequence diagnostics (Virtual console + sidecar lateBoot).
+      SPECULUM_DIAG_BOOT: "1"
+      # VideoStreaming OS path only — PageProjection uses sparse-cdp (CDP), not SPECULUM_INPUT_BACKEND.
+      SPECULUM_INPUT_BACKEND: os
+      CHROME_EXECUTABLE: /usr/bin/google-chrome
+      DISPLAY: ":99"
+    ports:
+      - "4103:4103"
+    volumes:
+      - ./lab-runs:/app/lab-runs
+    healthcheck:
+      disable: true
+    command: ["node", "dist/browser/mirror/projection/lab/host/index.js"]

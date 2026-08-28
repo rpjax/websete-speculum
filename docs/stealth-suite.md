@@ -174,7 +174,7 @@ From repo root, against a **dev** stack (not sessions-test):
 $env:STEALTH_SUITE="1"
 $env:SESSIONS_TEST_API_BASE="http://127.0.0.1:8080/w7s"
 $env:STEALTH_SUITE_OUT="<repo>/docs"
-dotnet test Refactor/Speculum.Api.SessionsTest.Tests --filter FullyQualifiedName~StealthSuiteCollect
+dotnet test Speculum.Api.SessionsTest.Tests --filter FullyQualifiedName~StealthSuiteCollect
 ```
 
 Writes/overwrites the results MD + raw JSON. Always **curate** the MD (auto findings can false-positive on marketing pages).

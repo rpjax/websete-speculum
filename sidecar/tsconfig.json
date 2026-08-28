@@ -4,15 +4,30 @@
     "module": "commonjs",
     "lib": ["ES2022"],
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@speculum/page-projection/core": ["../packages/page-projection/dist/core/index"],
+      "@speculum/page-projection/core/*": ["../packages/page-projection/dist/core/*"],
+      "@speculum/page-projection/projected": ["../packages/page-projection/dist/projected/index"],
+      "@speculum/page-projection/projected/*": ["../packages/page-projection/dist/projected/*"],
+      "@speculum/page-projection/virtual": ["../packages/page-projection/dist/virtual/bootstrap"],
+      "@speculum/page-projection/virtual/*": ["../packages/page-projection/dist/virtual/*"]
+    }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["./**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "browser/mirror/projection/lab/client",
+    "browser/mirror/projection/bus",
+    "browser/mirror/projection/runtime"
+  ]
 }

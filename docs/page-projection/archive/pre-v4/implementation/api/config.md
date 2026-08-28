@@ -1,6 +1,6 @@
 # Implementation — PageProjection configuration (API)
 
-**Future path:** `Refactor/Speculum.Api/Configurations/Models/Sessions/PageProjectionOptions.cs` (or equivalent Sessions→PageProjection options)  
+**Future path:** `Speculum.Api/Configurations/Models/Sessions/PageProjectionOptions.cs` (or equivalent Sessions→PageProjection options)  
 **Contracts:** [15-configuration.md](../../contracts/15-configuration.md)  
 **Norm:** redesign §5.16 — defaults MUST match **exactly**  
 **Decisions:** D-SPEC-0

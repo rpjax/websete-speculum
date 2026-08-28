@@ -1,6 +1,6 @@
 # Implementation — ClientState hub method (API)
 
-**Future path:** `Refactor/Speculum.Api/Presentation/Sessions/` (Session hub) + rate-policy consumer in Sessions domain  
+**Future path:** `Speculum.Api/Presentation/Sessions/` (Session hub) + rate-policy consumer in Sessions domain  
 **Contracts:** [10-interaction.md](../../contracts/10-interaction.md), [13-admission.md](../../contracts/13-admission.md)  
 **Norm:** redesign §5.9.5, §5.3.5  
 **Web peer:** [../web/clientState.md](../web/clientState.md)

@@ -3,7 +3,7 @@
 **Status:** **SEALED 2026-08-27** (Rodrigo) — normative bridge from Virtual main world to sidecar loopback WS via managed Chrome extension.  
 **Extends:** [loopback.md](loopback.md) (mux + establish LB-08…19 unchanged on the wire).  
 **Distinct from:** [context-bus.md](context-bus.md) — **separate channel**; do not multiplex loopback on ContextBus.  
-**Code:** `Refactor/sidecar/extensions/speculum-plane/` · `Refactor/packages/page-projection/src/core/extensionPlane/` · `Refactor/packages/page-projection/src/virtual/transport/extensionPlaneSocket.ts` · `Refactor/sidecar/browser/mirror/projection/inject/extensionPlaneMainShim.ts`.
+**Code:** `sidecar/extensions/speculum-plane/` · `packages/page-projection/src/core/extensionPlane/` · `packages/page-projection/src/virtual/transport/extensionPlaneSocket.ts` · `sidecar/browser/mirror/projection/inject/extensionPlaneMainShim.ts`.
 
 ---
 

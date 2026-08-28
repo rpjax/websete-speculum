@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/node/mirror.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/node/mirror.ts` |
 | **LOC ceiling** | 400 |
 | **Contracts implemented** | [07-recovery.md](../../contracts/07-recovery.md); redesign §5.7.3; E7 / `mirrorMaxBytes` |
 | **Invariants** | Flat decoded form (not heavy object graphs). Apply every rewritten frame relayed. Source for OOB resync HTML + O2. Budget ≤ 4 MiB default. `serializeHtml` emits `speculum-anchor` for registry bootstrap. Generation bump clears mirror. Resync MUST NOT advance live sequence. |

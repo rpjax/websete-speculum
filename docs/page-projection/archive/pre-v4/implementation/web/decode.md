@@ -1,6 +1,6 @@
 # Implementation — `decode.ts` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/decode.ts`  
+**Future path:** `web/src/features/sessions/live/page/decode.ts`  
 **LOC ceiling:** 300  
 **Contracts:** [04-wire.md](../../contracts/04-wire.md), [07-recovery.md](../../contracts/07-recovery.md), [16-errors.md](../../contracts/16-errors.md)  
 **Decisions:** D-SPEC-1 (`documentState=12`), D-SPEC-5 (`scrollViewport`), D-SPEC-8 (Cssom id range — decode accepts any u32; apply validates range)  

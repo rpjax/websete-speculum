@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/pierce.ts` (Node CDP) + in-page `pierceAdopt.frag.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/pierce.ts` (Node CDP) + in-page `pierceAdopt.frag.ts` |
 | **LOC ceiling** | 300 (Node) + 150 (in-page adopt fragment, counted under inpage) |
 | **Contracts implemented** | [02-f-map.md](../../contracts/02-f-map.md) pierce rules; D-SPEC-3; redesign §5.2.5; WP15 caution |
 | **Invariants** | Default identity remains in-page WeakMap (not CDP `backendNodeId` allocator). CDP MAY be used **only** to discover closed shadow roots / cross-origin frames and to inject host/root **references** into in-page WeakMaps / observation sets. Pierce flatten publishes one tree. Slot assignment = flattened rendered result. |

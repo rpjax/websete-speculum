@@ -1,107 +1,88 @@
-# syntax=docker/dockerfile:1.4
-# ── Sidecar: Chrome non-headless on Xvfb, Patchright, CDP screencast ──────────
+# Speculum sidecar — Patchright BrowserSession + gRPC host
+# Build from : docker build -f sidecar/Dockerfile .
 
-FROM node:22-slim
+FROM node:22-bookworm-slim
 
-# ── System dependencies ────────────────────────────────────────────────────────
-# Installs:
-#   ca-certificates, curl, gnupg       — for adding the Chrome apt repo
-#   xvfb                               — virtual X11 framebuffer (one per session)
-#   matchbox-window-manager            — kiosk WM (real focus + damage events for Chrome)
-#   xdotool                            — X11 native input injection (mouse + keyboard)
-#   mesa-utils, libgl1-mesa-dri, libgl1 — Mesa software renderer (llvmpipe / swiftshader fallback)
-#   fonts-liberation, fonts-noto, fonts-noto-cjk, fontconfig — broad font coverage
-#   remaining lib* packages            — Chrome runtime deps on Debian bookworm slim
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        gnupg \
-        xvfb \
-        matchbox-window-manager \
-        xdotool \
-        ffmpeg \
-        x11-xserver-utils \
-        mesa-utils \
-        libgl1-mesa-dri \
-        libgl1 \
-        fonts-liberation \
-        fonts-noto \
-        fonts-noto-cjk \
-        fontconfig \
-        libnss3 \
-        libnspr4 \
-        libdbus-1-3 \
-        libdbus-glib-1-2 \
-        libatk1.0-0 \
-        libatk-bridge2.0-0 \
-        libatspi2.0-0 \
-        libcups2 \
-        libdrm2 \
-        libgbm1 \
-        libgtk-3-0 \
-        libx11-6 \
-        libx11-xcb1 \
-        libxcb1 \
-        libxcb-shm0 \
-        libxcomposite1 \
-        libxcursor1 \
-        libxdamage1 \
-        libxext6 \
-        libxfixes3 \
-        libxi6 \
-        libxkbcommon0 \
-        libxrandr2 \
-        libxrender1 \
-        libxtst6 \
-        libasound2 \
-    && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive \
+    CHROME_EXECUTABLE=/usr/bin/google-chrome \
+    SPECULUM_GRPC_PORT=50051 \
+    SPECULUM_HEALTH_PORT=3001
 
-# ── Install Google Chrome stable ──────────────────────────────────────────────
-# google-chrome-stable installs to /usr/bin/google-chrome (symlink) and
-# /usr/bin/google-chrome-stable. CHROME_EXECUTABLE points to the symlink.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
-        | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
-        > /etc/apt/sources.list.d/google-chrome.list \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      gnupg \
+      fonts-liberation \
+      fonts-dejavu-core \
+      fonts-noto-core \
+      fonts-noto-color-emoji \
+      fonts-noto-cjk \
+      xserver-xorg-core \
+      xserver-xorg-video-dummy \
+      xserver-xorg-input-evdev \
+      xserver-xorg-input-libinput \
+      x11-xserver-utils \
+      xinput \
+      xdotool \
+      udev \
+      matchbox-window-manager \
+      mesa-utils \
+      libgl1 \
+      libgl1-mesa-dri \
+      libegl1 \
+      libgles2 \
+      libnss3 \
+      libatk-bridge2.0-0 \
+      libgtk-3-0 \
+      libgbm1 \
+      libasound2 \
+      libxshmfence1 \
+      libdrm2 \
+      libxkbcommon0 \
+      kmod \
+    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+      | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+      > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends google-chrome-stable \
+    && (apt-get install -y --no-install-recommends v4l2loopback-dkms || true) \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify Chrome is where we expect it (fails the build fast if the path is wrong).
-RUN google-chrome --version
-
-# ── Node app ───────────────────────────────────────────────────────────────────
 WORKDIR /app
 
-# Install devDependencies too so tsc is available for the build step.
-COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline
+# file: dep resolves to /packages/page-projection (sibling of /app)
+COPY packages/page-projection /packages/page-projection
+WORKDIR /packages/page-projection
+RUN npm install --no-save typescript@5.4.5 && npm run build
 
-# Install only Playwright system dependencies — NOT the Chromium browser binary.
-# We use the system google-chrome-stable installed above.
-# This ensures any library gaps in libnss3, libgbm1, etc. are covered by
-# Patchright's known dependency list without downloading a second Chromium.
-RUN npx patchright install-deps chromium
+WORKDIR /app
+COPY sidecar/package.json sidecar/package-lock.json ./
+RUN npm ci
 
-COPY . .
-RUN npm run build
+COPY sidecar/tsconfig.json ./
+COPY sidecar/browser ./browser
+COPY sidecar/grpc ./grpc
+COPY sidecar/host ./host
+COPY sidecar/telemetry ./telemetry
+COPY sidecar/extensions ./extensions
+COPY sidecar/index.ts sidecar/smoke.ts sidecar/smoke-remote.ts sidecar/unit.ts ./
+COPY sidecar/scripts ./scripts
+COPY sidecar/chrome-policies ./chrome-policies
+COPY sidecar/docker-entrypoint.sh /docker-entrypoint.sh
+COPY proto /proto
 
-# Prune devDependencies after build (tsc no longer needed at runtime).
-RUN npm prune --omit=dev
+RUN npm run build \
+ && sed -i 's/\r$//' /docker-entrypoint.sh \
+ && chmod +x /docker-entrypoint.sh \
+ && mkdir -p /etc/opt/chrome/policies/managed \
+ && cp -f /app/chrome-policies/managed/*.json /etc/opt/chrome/policies/managed/ \
+ && ls -la /etc/opt/chrome/policies/managed/
 
-# ── Runtime ───────────────────────────────────────────────────────────────────
-ENV NODE_ENV=production \
-    CHROME_EXECUTABLE=/usr/bin/google-chrome \
-    SIDECAR_PORT=3000
-
-EXPOSE 3000
+EXPOSE 50051 3001 4103
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -sf http://localhost:3000/health || exit 1
+  CMD curl -fsS http://127.0.0.1:3001/health || exit 1
 
+ENTRYPOINT ["/bin/sh", "/docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

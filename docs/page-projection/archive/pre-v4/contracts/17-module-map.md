@@ -2,7 +2,7 @@
 
 **Norm:** redesign §9. **No file > 600 LOC. Orchestration files contain no algorithm.**
 
-## Sidecar — `Refactor/sidecar/browser/patchright/mirror/page/`
+## Sidecar — `sidecar/browser/patchright/mirror/page/`
 
 | Future file | Ceiling | Contracts | Impl spec |
 |-------------|---------|-----------|-----------|
@@ -23,7 +23,7 @@
 | `node/mirror.ts` | 400 | 07 | [node-mirror.md](../implementation/sidecar/node-mirror.md) |
 | `node/rewrite.ts` | 300 | 02, 11 | [node-rewrite.md](../implementation/sidecar/node-rewrite.md) |
 
-## Web — `Refactor/web/src/features/sessions/live/page/`
+## Web — `web/src/features/sessions/live/page/`
 
 | Future file | Ceiling | Contracts | Impl spec |
 |-------------|---------|-----------|-----------|

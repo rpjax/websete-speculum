@@ -1,6 +1,6 @@
 # Implementation — `registry.ts` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/registry.ts`  
+**Future path:** `web/src/features/sessions/live/page/registry.ts`  
 **LOC ceiling:** 150  
 **Contracts:** [09-apply.md](../../contracts/09-apply.md), [05-establish.md](../../contracts/05-establish.md)  
 **Decisions:** D-SPEC-4 (checksum), D-SPEC-0 (redesign-only source)  

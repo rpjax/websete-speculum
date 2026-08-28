@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/establish.ts` **and** in-page fragment `inpage/establish.frag.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/establish.ts` **and** in-page fragment `inpage/establish.frag.ts` |
 | **LOC ceiling** | 350 |
 | **Contracts implemented** | [05-establish.md](../../contracts/05-establish.md); redesign §5.6; D-SPEC-4 (checksum); D-SPEC-9 (when to run); D-SPEC-1 documentState timing |
 | **Invariants** | Runs at emitter init: session start and real top-level Document swap only. Wire order: `cssomInstall` → `establishBegin` → `establishChunk`* → `establishEnd`. HTML carries `speculum-anchor` (establish only). Handoff: accumulate live before walk; drain after end; no mutation left in neither snapshot nor frame. Sequence: establish frame MAY use `sequence=0`; live starts at 1 after drain. |

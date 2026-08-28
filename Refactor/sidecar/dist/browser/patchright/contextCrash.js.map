@@ -1,1 +1,0 @@
-{"version":3,"file":"contextCrash.js","sourceRoot":"","sources":["../../../browser/patchright/contextCrash.ts"],"names":[],"mappings":";;AAIA,wDAQC;AAZD;;;GAGG;AACH,SAAgB,sBAAsB,CAAC,IAItC;IACC,IAAI,IAAI,CAAC,aAAa,KAAK,IAAI,CAAC,YAAY;QAAE,OAAO,KAAK,CAAC;IAC3D,IAAI,IAAI,CAAC,QAAQ;QAAE,OAAO,KAAK,CAAC;IAChC,OAAO,IAAI,CAAC;AACd,CAAC"}

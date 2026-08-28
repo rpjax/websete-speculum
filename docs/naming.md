@@ -30,7 +30,7 @@ introduce new `DomProjection` mode, stream, or catalog names. `Dom*` stays
 valid for **DOM-plane** types (`DomSelector`, `DomNode`, DOM-plane input).
 
 **PageProjection (algorithm vs lab).** The **algorithm** lives in the shared package
-`@speculum/page-projection` (`Refactor/packages/page-projection` — `core` / `virtual` /
+`@speculum/page-projection` (`packages/page-projection` — `core` / `virtual` /
 `projected`). Sidecar `lab/`, `session/`, and CDP `input/` are **callers**. Do not name the
 algorithm “lab”. Do not put lab harness code inside the package.
 
@@ -42,7 +42,7 @@ message kind (`Frame` / `Control` / `Telemetry`). The DataPlane does **not** tra
 
 **Motor is legacy vocabulary.** It remains only where an existing artifact
 still has that proper name (for example `MotorHub`,
-`Speculum.MotorAssert.Tests`, or `web/src/features/motor/`). Do not introduce
+`Legacy/web/` (pre-promotion SPA), or historical `web/src/features/motor/`). Do not introduce
 `Motor` in new domain types, folders, diagnostics domains, configuration, or
 client APIs. Structural migrations replace those identifiers with
 `Session`/`Sessions`; no compatibility aliases are added during V1.
@@ -92,7 +92,7 @@ The legacy React app still uses historical Motor folders:
 | `web/src/features/motor/live/` | How does the live SignalR session work in the browser? |
 | `web/src/features/motor/mapping/` | How does the client sync its address bar (not server HostMapper)? |
 
-New browser libraries use `Refactor/Speculum.Api/wwwroot/speculum/`; their
+New browser libraries use `Speculum.Api/wwwroot/speculum/`; their
 public types use `SessionClient` and `LiveSession`. W7S remains wire/UI boundary
 only (e.g. `_w7s_nso`, setup copy). Do not invent parallel virtualization
 vocabulary.

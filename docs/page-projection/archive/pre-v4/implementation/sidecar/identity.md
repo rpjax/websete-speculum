@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/identity.ts` (Node host API) **and** in-page fragment `inpage/identity.frag.ts` (authoritative allocator) |
+| **Future path** | `sidecar/browser/patchright/mirror/page/identity.ts` (Node host API) **and** in-page fragment `inpage/identity.frag.ts` (authoritative allocator) |
 | **LOC ceiling** | 250 (Node host shim ≤ 80; in-page fragment ≤ 170; total across both ≤ 250) |
 | **Contracts implemented** | [01-identity.md](../../contracts/01-identity.md); redesign §5.1; D-SPEC-2 (allocation in-page) |
 | **Invariants** | Per-session id space (K2). Ids `uint32` monotonic from 1; `0` = none. Never reuse an id (within or across generations — counter continues on bump). Forward `WeakMap` + reverse `WeakRef` + `FinalizationRegistry`. No identity attributes written into Virtual DOM. Elements, text, and comments all get ids. Id allocated only when F first publishes the node. |

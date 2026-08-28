@@ -443,7 +443,7 @@ stress question that matters for ≥100 sessions.
 **Status:** DECIDED (amended — models/contracts placement)  
 **Date:** 2026-08-12  
 **Amends parent:** module path — greenfield at
-`Refactor/sidecar/browser/mirror/projection/` (not `patchright/mirror/page/` §9);
+`sidecar/browser/mirror/projection/` (not `patchright/mirror/page/` §9);
 bundle mechanism is new
 
 **Decision**

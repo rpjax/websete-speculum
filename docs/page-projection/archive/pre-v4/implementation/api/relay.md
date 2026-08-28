@@ -1,6 +1,6 @@
 # Implementation — opaque frame relay (API)
 
-**Future path:** `Refactor/Speculum.Api/` Sessions hub + gRPC/fan-out DTO for PageProjection frames  
+**Future path:** `Speculum.Api/` Sessions hub + gRPC/fan-out DTO for PageProjection frames  
 **Suggested types:** `PageProjectionFrameRelay` (MessagePack hub) / protobuf sibling if sidecar→API uses gRPC  
 **LOC ceiling:** keep relay handlers thin (≤ ~150 LOC per type+handler file; no payload parsers)  
 **Contracts:** [04-wire.md](../../contracts/04-wire.md), [14-telemetry.md](../../contracts/14-telemetry.md)  

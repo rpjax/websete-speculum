@@ -144,7 +144,7 @@ Full comparison remains lab/CI only (O(n) — [oracles.md](oracles.md), E1).
 | 2026-08-17 | Inject ATTR / RULESET / EOF: client still synced → apply algorithm broken | Hostile lab frames used constructed `hostNode: 1` (phase 2 rejects ≠ 0); bundled client threw `desyncPhase is not defined` after a real apply fail; wait treated `sequence >= N` as applied; fold lowercased the reason then searched mixed-case tokens; `lastDesyncReason` stuck across Runs | Fix harness only (`lab/runner/hostileFrames.ts`, `labProjectionClient.ts`, inject wait until `desynced`, fold). Same decode/apply path — not a second algorithm. UI 4077 PASS the same day. Do not reopen `applyDom.ts` for these three. |
 | 2026-08-21 | Snapshot DTO carried oracle verdicts | Contract sealed: session returns raw planes; lab builds O2 / PP-FR-1 / etc. | [browser-session.md](browser-session.md); rename wave for method names |
 
-Code: `Refactor/sidecar/browser/mirror/projection/` (`session/PageProjectionBrowserSession.ts`, `lab/probes/isomorphism.ts`, `virtual/bootstrap.ts` `flushAndSnapshot`). Sealed method names: `haltClocks` / `resumeClocks` / `emitFrame` / `getStateSnapshot` / `requestResync`.
+Code: `sidecar/browser/mirror/projection/` (`session/PageProjectionBrowserSession.ts`, `lab/probes/isomorphism.ts`, `virtual/bootstrap.ts` `flushAndSnapshot`). Sealed method names: `haltClocks` / `resumeClocks` / `emitFrame` / `getStateSnapshot` / `requestResync`.
 
 ---
 

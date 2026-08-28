@@ -17,7 +17,7 @@ layout, test matrix and work packages.
 [virtual-assets.md](virtual-assets.md) · [telemetry.md](../../telemetry.md) ·
 [engineering-standards.md](../../engineering-standards.md) · [frontend-standards.md](../../frontend-standards.md)
 
-**Evidence base:** `Refactor/deploy/tmp-telemetry-run/pipehop-bugs-diagnosis.md`
+**Evidence base:** `deploy/tmp-telemetry-run/pipehop-bugs-diagnosis.md`
 (`parityhop-*`, `dommaphop-*`, `dommapfix-*`, `pipehop-*`) and `tmp-telemetry-run/bugs-observados.md`
 (BZ1–BZ10).
 
@@ -953,7 +953,7 @@ how the defects in §3 survived. **No file may exceed 600 LOC.** Orchestration f
 algorithm.
 
 ```
-Refactor/sidecar/browser/patchright/mirror/page/
+sidecar/browser/patchright/mirror/page/
   identity.ts       WeakMap + reverse map, id allocation (§5.1)     ≤ 250
   fmap.ts           F: publish rules, attrs, placeholders, URLs      ≤ 500
   observe.ts        MO install, pierce lifecycle, state sensors      ≤ 400
@@ -965,11 +965,11 @@ Refactor/sidecar/browser/patchright/mirror/page/
   channel.ts        page → Node push channel, chunking (§5.7)        ≤ 200
   PageProjection.ts orchestration only                               ≤ 300
 
-Refactor/sidecar/browser/patchright/mirror/page/node/
+sidecar/browser/patchright/mirror/page/node/
   mirror.ts         decoded mirror, frame apply, HTML serialize      ≤ 400
   rewrite.ts        URL rewriting on the Node side                   ≤ 300
 
-Refactor/web/src/features/sessions/live/page/
+web/src/features/sessions/live/page/
   registry.ts       Map<u32, Node>                                   ≤ 150
   decode.ts         binary reader + part assembly                    ≤ 300
   applyDom.ts       Dom apply (§5.4, §5.9.1)                         ≤ 400

@@ -5,7 +5,7 @@
 
 When a hardened assert fails, **fix the product or the harness**. Do not `[Skip]`, `[Ignore]`, soften, or “temporarily” mark green.
 
-Canonical constitution: [engineering-standards.md](engineering-standards.md) §3. Agents: [../AGENTS.md](../AGENTS.md). Coverage inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).
+Canonical constitution: [engineering-standards.md](engineering-standards.md) §3. Agents: [../AGENTS.md](../AGENTS.md). Coverage inventory: [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md).
 
 ---
 
@@ -70,5 +70,5 @@ These unit / contract suites must remain green and strict:
 
 - [engineering-standards.md](engineering-standards.md) — testing and CI constitution  
 - [diagnostics.md](diagnostics.md) — Act→Assert cookbook  
-- [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md) — coverage truth  
+- [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md) — coverage truth  
 - [../CONTRIBUTING.md](../CONTRIBUTING.md) — local gates and PR expectations  

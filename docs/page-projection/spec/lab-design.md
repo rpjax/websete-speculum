@@ -1,7 +1,7 @@
 # PageProjection lab — architecture
 
 **Status:** **shipped 2026-08-16.** This file is the architecture of the current lab (chassis, browse vs run, blueprints, dossier). The old lab was deleted the same day.  
-**Audience:** humans and agents working in `Refactor/sidecar/browser/mirror/projection/lab/`.  
+**Audience:** humans and agents working in `sidecar/browser/mirror/projection/lab/`.  
 **Does not change:** Virtual producer / frame protocol. Lab adapts to the sealed session contract ([browser-session.md](browser-session.md)); do not invent parallel session APIs.  
 **Does not replace:** [observability.md](observability.md) (probes vs events, state snapshot, I10). This file owns **lab product shape**.
 
@@ -216,9 +216,9 @@ Modes: **Browse** | **Run**. Fixture catalog from `fixtures/manifest.json` + `GE
 ```bash
 # Canonical lab Docker (PP does not require uinput for input — sparse-cdp):
 
-# From Refactor/: docker compose -f sidecar/docker-compose.lab.yml up --build
-# Or: npm run lab:docker  (in Refactor/sidecar)
-# See Refactor/sidecar/LAB-DOCKER.md
+# From : docker compose -f sidecar/docker-compose.lab.yml up --build
+# Or: npm run lab:docker  (in sidecar)
+# See sidecar/LAB-DOCKER.md
 
 npm run lab:projection          # bare Node — DOM/CSSOM/assets only; input E2E needs Docker
 npm run lab:run -- --blueprint soak --url fixtures/demo.html --duration 15s --cpu --iso

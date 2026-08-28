@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/dom/DomElementInput.ts` (ported) + thin adapter |
+| **Future path** | `sidecar/browser/patchright/mirror/dom/DomElementInput.ts` (ported) + thin adapter |
 | **LOC ceiling** | keep ported module focused; resolve path ≤150 LOC change surface |
 | **Contracts** | [10-interaction.md](../../contracts/10-interaction.md) §5.11 |
 | **Invariants** | Intents address `uint32` id. Resolve via in-page `IdentitySpace.resolve`. Retry then drop. Disarmed while desynced / unarmed. |

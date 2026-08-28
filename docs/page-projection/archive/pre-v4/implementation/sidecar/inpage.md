@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/inpage/` fragments + build concat → single injected script; orchestrated from `PageProjection.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/inpage/` fragments + build concat → single injected script; orchestrated from `PageProjection.ts` |
 | **LOC ceiling** | ≤600 LOC **per fragment**; concat is a build step, not a second algorithm (D-SPEC-6) |
 | **Contracts implemented** | 01–06 (algorithms live in fragments); D-SPEC-2, D-SPEC-6 |
 | **Invariants** | One injected classic/module script per Document generation. Fragments mirror sidecar module algorithms 1:1. MessageChannel (and/or setTimeout) drives clock — never rAF. Binary push via channel binding — never JSON tree ferry. |

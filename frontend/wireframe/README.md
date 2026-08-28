@@ -2,7 +2,7 @@
 
 This folder is the **build-contract** for the new Admin frontend. Implement from these files + Refactor APIs. Do **not** invent routes, copy, fields, flows, or pages.
 
-**Legacy Admin UI** (`Refactor/web` admin pages) is discarded for this rebuild. Motor (`/`) and Lab are separate surfaces.
+**Legacy Admin UI** (`web` admin pages) is discarded for this rebuild. Motor (`/`) and Lab are separate surfaces.
 
 ## Read first
 

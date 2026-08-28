@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/node/rewrite.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/node/rewrite.ts` |
 | **LOC ceiling** | 300 |
 | **Contracts implemented** | [02-f-map.md](../../contracts/02-f-map.md) URL fields; [11-assets.md](../../contracts/11-assets.md); [04-wire.md](../../contracts/04-wire.md); D-SPEC-7 |
 | **Invariants** | After receiving an encoded part from the page, Node **decodes ops + string table**, rewrites URL-bearing strings into `/w7s/virtual-*` forms, **re-encodes the part once** for outbound relay. Work is per-frame ops + string table only. Not API re-parse. Session-scoped rewrite (K2) — no shared rewrite memo across sessions. |

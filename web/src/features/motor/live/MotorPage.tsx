@@ -47,7 +47,7 @@ function MockMotorPage() {
               Use the Admin and Setup surfaces to develop UI with mocked data.
             </p>
           </div>
-          <Button variant="outline" onClick={() => { window.location.href = '/admin' }}>
+          <Button variant="outline" onClick={() => { window.location.href = '/w7s/admin' }}>
             Go to Admin
           </Button>
         </div>
@@ -155,7 +155,8 @@ function RealMotorPage() {
         <div ref={viewportRef} className="relative min-h-0 flex-1 touch-none">
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 block h-full w-full cursor-default touch-none"
+            className="absolute inset-0 block h-full w-full max-h-full max-w-full cursor-default touch-none"
+            style={{ width: '100%', height: '100%' }}
           />
           <textarea
             ref={imeRef}

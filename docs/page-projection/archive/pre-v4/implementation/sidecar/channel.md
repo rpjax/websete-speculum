@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/channel.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/channel.ts` |
 | **LOC ceiling** | 200 |
 | **Contracts implemented** | [04-wire.md](../../contracts/04-wire.md), [07-recovery.md](../../contracts/07-recovery.md) (delivery path); redesign §4 channel; D-SPEC-2 |
 | **Invariants** | Page pushes opaque binary parts to Node; never `page.evaluate` for bulk frame bodies. Control messages (rate, forceFlush) are small and separate from frame parts. Node receives → rewrite → mirror → relay. |

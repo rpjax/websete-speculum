@@ -1,51 +1,59 @@
 import { useEffect, useRef } from 'react'
-import { diagnosticsApi, type DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
+import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
+import { fetchTimeline, journalPageToNarrativeEvents } from '@/lib/timelineApi'
 import type { NarrativeScope } from '../model/narrativeTypes'
 
 interface UseNarrativeTailOptions {
   enabled: boolean
   scope: NarrativeScope
-  /** Latest event utc currently loaded — tail fetches since this. */
-  sinceUtc: string | null
+  /** Latest Journal sequence currently loaded — tail fetches after this. */
+  afterSequence: number | null
   onEvents: (events: DiagnosticsEventRecord[]) => void
   intervalMs?: number
 }
 
 /**
- * Polls for newer events and appends them. Dedup is the caller's responsibility (mergeById).
+ * Polls Journal for newer sequences and appends them.
+ * Dedup is the caller's responsibility (mergeById).
  */
 export function useNarrativeTail({
   enabled,
   scope,
-  sinceUtc,
+  afterSequence,
   onEvents,
-  intervalMs = 8_000,
+  intervalMs = 5_000,
 }: UseNarrativeTailOptions) {
-  const sinceRef = useRef(sinceUtc)
-  sinceRef.current = sinceUtc
+  const afterRef = useRef(afterSequence)
+  afterRef.current = afterSequence
 
   useEffect(() => {
     if (!enabled) return
 
     let cancelled = false
     const tick = async () => {
-      const since = sinceRef.current
-      if (!since) return
+      const after = afterRef.current
+      // Wait until the initial window has a sequence anchor — avoid replaying the full page.
+      if (after == null) return
       try {
-        const connectionId = scope.kind === 'session' ? scope.connectionId : undefined
-        const events = connectionId
-          ? await diagnosticsApi.getSessionEvents(connectionId, since)
-          : await diagnosticsApi.listEvents({ since, connectionId })
-        if (cancelled || events.length === 0) return
-        // Drop the boundary event that matches `since` exactly if already known
-        const fresh = events.filter((e) => e.utc > since)
-        if (fresh.length > 0) onEvents(fresh)
+        const sessionId = scope.kind === 'session' ? scope.connectionId : undefined
+        const result = await fetchTimeline({
+          sessionId,
+          afterSequence: after,
+          limit: 100,
+        })
+        if (cancelled || result.items.length === 0) return
+        const events = journalPageToNarrativeEvents(result.items).filter(
+          (e) => typeof e.seq === 'number' && e.seq > after,
+        )
+        if (events.length > 0) onEvents(events)
       } catch {
         /* tail is best-effort */
       }
     }
 
-    const id = window.setInterval(() => { void tick() }, intervalMs)
+    const id = window.setInterval(() => {
+      void tick()
+    }, intervalMs)
     return () => {
       cancelled = true
       window.clearInterval(id)

@@ -215,7 +215,7 @@ In-flight frames from a previous install of the same `C` are the existing recove
 
 ## 8. PP header (wire v2 + `contextId`)
 
-Shipped at **`FRAME_WIRE_VERSION` 2** — `contextId: u32` in the fixed prefix ([frame.ts](../../../Refactor/sidecar/browser/mirror/projection/models/frame.ts)). Not a separate v3 bump.
+Shipped at **`FRAME_WIRE_VERSION` 2** — `contextId: u32` in the fixed prefix ([frame.ts](../../../sidecar/browser/mirror/projection/models/frame.ts)). Not a separate v3 bump.
 
 ```text
 offset 0   magic        u16   0x5050

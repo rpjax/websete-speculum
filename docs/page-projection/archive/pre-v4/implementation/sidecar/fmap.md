@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/fmap.ts` **and** in-page fragment `inpage/fmap.frag.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/fmap.ts` **and** in-page fragment `inpage/fmap.frag.ts` |
 | **LOC ceiling** | 500 |
 | **Contracts implemented** | [02-f-map.md](../../contracts/02-f-map.md); redesign §5.2, §5.2.1; D-SPEC-1 (`documentState`); D-SPEC-3 (pierce flatten via pierce module) |
 | **Invariants** | Published tree `F(Virtual)` is structurally 1:1 with Virtual after placeholder rewrite and pierce flatten. Nodes never omitted. Adjacent text 1:1 (no collapse). Placeholders never execute on Projected. Deny-listed attrs stripped. Document-level state published via opcode 12. State without attributes rides as stamped attrs in snapshots. |

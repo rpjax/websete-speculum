@@ -1,7 +1,0 @@
-[
-  {
-    "site": "beleza",
-    "status": 401,
-    "url": "http://127.0.0.1:8080/w7s/api/sessions/55dd2f45-61a2-43af-bc01-a9be2b7115d0/page-projection/resync?sessionId=55dd2f45-61a2-43af-bc01-a9be2b7115d0&speculum-session-token=5add367886014e9a999cb1f413011e4e&generation=1&sequence=256"
-  }
-]

@@ -13,7 +13,7 @@
 
 **Input:** sparse-cdp only. Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
 
-**Lab UI:** `npm run lab:docker` in `Refactor/sidecar` → **http://127.0.0.1:4103/**. PP lab does **not** require `/dev/uinput` for input. Always name the full blueprint id + description + fixture when asking a human to run something.
+**Lab UI:** `npm run lab:docker` in `sidecar` → **http://127.0.0.1:4103/**. PP lab does **not** require `/dev/uinput` for input. Always name the full blueprint id + description + fixture when asking a human to run something.
 
 **Next product work (ordered):**
 1. ~~Re-prove Eneba / heavy CF on sparse-cdp~~ — done (Rodrigo 2026-08-27).
@@ -119,11 +119,11 @@ docs/page-projection/
   archive/                  DO NOT IMPLEMENT FROM
 ```
 
-Code that implements V4 algorithm: `@speculum/page-projection` (`Refactor/packages/page-projection` — `core` / `virtual` / `projected`).  
+Code that implements V4 algorithm: `@speculum/page-projection` (`packages/page-projection` — `core` / `virtual` / `projected`).  
 Sidecar callers: `lab/`, `session/`, `inject/`, CDP `input/` — [observability.md](observability.md), [lab-design.md](lab-design.md).  
 Lab UI: `npm run lab:projection`. Agent: `npm run lab:run -- --blueprint soak …` → dossier dir / `verdicts.json`.  
-Lab smoke: `Refactor/sidecar/scripts/smoke-projection-lab.js`.  
-Lab units: `Refactor/sidecar/unit.ts` (includes V4 session + lab scheduler tests).
+Lab smoke: `sidecar/scripts/smoke-projection-lab.js`.  
+Lab units: `sidecar/unit.ts` (includes V4 session + lab scheduler tests).
 
 ---
 

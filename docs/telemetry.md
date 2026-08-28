@@ -1,7 +1,7 @@
 # Refactor Telemetry
 
 The Refactor Telemetry runtime is an independent API module under
-`Refactor/Speculum.Api/Telemetry`. It owns two kinds of Journal facts:
+`Speculum.Api/Telemetry`. It owns two kinds of Journal facts:
 
 1. **Events** — hop/infra observations (capacity, URL resolve, input path, resize, …)
 2. **Sampling** — periodic composite resource snapshots
@@ -273,7 +273,7 @@ approximate `lagMsP50` over recently-applied Diffs.
 4. Build the story:
 
    ```bash
-   node Refactor/deploy/tmp-telemetry-run/build-page-epoch-story.cjs \
+   node deploy/tmp-telemetry-run/build-page-epoch-story.cjs \
      journal-export.json front-activity.jsonl page-epoch-story.json
    ```
 

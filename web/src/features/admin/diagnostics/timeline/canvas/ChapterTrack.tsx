@@ -1,30 +1,21 @@
 import { cn } from '@/lib/utils'
 import type { ScaleTime } from 'd3-scale'
-import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { detectStoryType, STORY_TYPES, formatDuration } from '@/lib/diagnosticsConstants'
 import type { NarrativeChapter, NarrativeGranularity, NarrativeSpan } from '../model/narrativeTypes'
 import { msToX } from './TimeRail'
 import { clampBar } from './viewDomain'
 
-const OUTCOME_BADGE: Record<string, 'success' | 'warning' | 'destructive' | 'muted'> = {
-  ok: 'success',
-  warning: 'warning',
-  failed: 'destructive',
-  open: 'muted',
-  unknown: 'muted',
-}
-
 const SPAN_STATUS: Record<NarrativeSpan['status'], string> = {
-  open: 'bg-sky-500 animate-pulse',
-  closed: 'bg-emerald-500',
+  open: 'bg-sky-400 animate-pulse',
+  closed: 'bg-emerald-400',
   abandoned: 'bg-destructive',
 }
 
-/** Vertical pitch for overlap packing (chapter chip + span rail). */
-export const CHAPTER_ROW_PITCH = 44
-const CHIP_MIN_W = 96
-const CHIP_MAX_W = 280
+/** Vertical pitch for overlap packing (full temporal bar + optional span hairs). */
+export const CHAPTER_ROW_PITCH = 42
+/** Below this width the label collapses to a marker + tooltip. */
+const LABEL_MIN_W = 88
 
 interface ChapterTrackProps {
   chapter: NarrativeChapter
@@ -40,6 +31,26 @@ interface ChapterTrackProps {
   onHover: (on: boolean) => void
 }
 
+const OUTCOME_BAR: Record<string, string> = {
+  failed: 'border-destructive/60 bg-destructive/30 hover:bg-destructive/40',
+  warning: 'border-amber-500/55 bg-amber-500/25 hover:bg-amber-500/35',
+  ok: 'border-emerald-500/50 bg-emerald-500/20 hover:bg-emerald-500/30',
+  open: 'border-sky-500/50 bg-sky-500/20 hover:bg-sky-500/30',
+  unknown: 'border-border bg-muted/50 hover:bg-muted/65',
+}
+
+const OUTCOME_DOT: Record<string, string> = {
+  failed: 'bg-destructive',
+  warning: 'bg-amber-500',
+  ok: 'bg-emerald-500',
+  open: 'bg-sky-500',
+  unknown: 'bg-muted-foreground',
+}
+
+/**
+ * Temporal bar is the primary visual (true duration). Label rides inside when
+ * there is room; otherwise a compact marker + tooltip preserves readability.
+ */
 export function ChapterTrack({
   chapter,
   scale,
@@ -56,15 +67,17 @@ export function ChapterTrack({
   const type = detectStoryType(chapter.beats.map((b) => b.event.name))
   const label = STORY_TYPES[type]?.label ?? 'Chapter'
 
+  const outcome = chapter.outcome
   const clampedStart = Math.max(chapter.startMs, viewStart)
   const clampedEnd = Math.min(Math.max(chapter.endMs, chapter.startMs), viewEnd)
   const rawLeft = msToX(scale, clampedStart)
   const rawRight = msToX(scale, clampedEnd)
-  const temporal = clampBar(rawLeft, Math.max(rawRight - rawLeft, 4), trackWidth)
-
-  const desiredChip = Math.min(CHIP_MAX_W, Math.max(CHIP_MIN_W, temporal.width))
-  const chip = clampBar(rawLeft, desiredChip, trackWidth)
+  // Short chapters (e.g. 57s in a 1h window) must stay clickable — floor by outcome urgency.
+  const minBar = outcome === 'failed' || outcome === 'warning' ? 18 : 10
+  const temporal = clampBar(rawLeft, Math.max(rawRight - rawLeft, minBar), trackWidth)
   const top = 6 + row * CHAPTER_ROW_PITCH
+  const showLabel = temporal.width >= LABEL_MIN_W
+  const duration = formatDuration(chapter.durationMs)
 
   return (
     <div
@@ -73,48 +86,46 @@ export function ChapterTrack({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
-      <div
-        className={cn(
-          'absolute top-[30px] h-1 rounded-full opacity-70',
-          chapter.outcome === 'failed' && 'bg-destructive/70',
-          chapter.outcome === 'warning' && 'bg-amber-500/70',
-          chapter.outcome === 'ok' && 'bg-emerald-500/60',
-          (chapter.outcome === 'open' || chapter.outcome === 'unknown') && 'bg-sky-500/60',
-        )}
-        style={{ left: temporal.left, width: temporal.width }}
-        aria-hidden
-      />
-
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
             onClick={onSelect}
             className={cn(
-              'pointer-events-auto absolute top-0 flex h-8 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-left shadow-sm transition-shadow',
-              chapter.outcome === 'failed' && 'border-destructive/45 bg-destructive/15',
-              chapter.outcome === 'warning' && 'border-amber-500/45 bg-amber-500/15',
-              chapter.outcome === 'ok' && 'border-emerald-500/35 bg-emerald-500/10',
-              (chapter.outcome === 'open' || chapter.outcome === 'unknown') && 'border-sky-500/35 bg-sky-500/10',
-              highlighted && 'ring-2 ring-primary/55',
+              'pointer-events-auto absolute top-1 flex h-8 items-center overflow-hidden rounded-md border text-left shadow-sm transition-colors',
+              OUTCOME_BAR[outcome] ?? OUTCOME_BAR.unknown,
+              highlighted && 'ring-2 ring-primary/60',
             )}
-            style={{ left: chip.left, width: chip.width }}
-            aria-label={`${label}, ${chapter.outcome}, ${formatDuration(chapter.durationMs)}`}
+            style={{ left: temporal.left, width: temporal.width }}
+            aria-label={`${label}, ${outcome}, ${duration}`}
           >
-            <span className="min-w-0 truncate text-[11px] font-semibold text-foreground">{label}</span>
-            <Badge
-              variant={OUTCOME_BADGE[chapter.outcome] ?? 'muted'}
-              className="shrink-0 px-1 py-0 text-[9px] capitalize"
-            >
-              {chapter.outcome}
-            </Badge>
-            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-              {formatDuration(chapter.durationMs)}
-            </span>
+            {showLabel ? (
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">
+                <span
+                  className={cn('h-2 w-2 shrink-0 rounded-full', OUTCOME_DOT[outcome] ?? OUTCOME_DOT.unknown)}
+                  aria-hidden
+                />
+                <span className="min-w-0 truncate text-[12px] font-semibold text-foreground">{label}</span>
+                <span className="shrink-0 rounded bg-background/50 px-1.5 py-px text-[10px] capitalize text-muted-foreground">
+                  {outcome}
+                </span>
+                <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">{duration}</span>
+              </span>
+            ) : (
+              <span className="flex h-full w-full items-center justify-center">
+                <span
+                  className={cn('h-2 w-2 rounded-full', OUTCOME_DOT[outcome] ?? OUTCOME_DOT.unknown)}
+                  aria-hidden
+                />
+              </span>
+            )}
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-sm text-xs leading-relaxed">
-          {chapter.proseHint}
+          <p className="font-medium text-foreground">
+            {label} · {outcome} · {duration}
+          </p>
+          <p className="mt-1 text-muted-foreground">{chapter.proseHint}</p>
         </TooltipContent>
       </Tooltip>
 
@@ -124,7 +135,7 @@ export function ChapterTrack({
           if (span.startMs > viewEnd) return null
           const sLeft = msToX(scale, Math.max(span.startMs, viewStart))
           const sRight = msToX(scale, Math.min(span.endMs ?? chapter.endMs, viewEnd))
-          const bar = clampBar(sLeft + span.depth * 3, Math.max(sRight - sLeft, 4), trackWidth)
+          const bar = clampBar(sLeft + span.depth * 2, Math.max(sRight - sLeft, 3), trackWidth)
           if (bar.width <= 0) return null
           const color =
             span.status === 'closed' && !span.ok ? 'bg-amber-500' : SPAN_STATUS[span.status]
@@ -132,7 +143,7 @@ export function ChapterTrack({
             <div
               key={span.spanId}
               className={cn(
-                'absolute top-[34px] h-1 rounded-full',
+                'absolute top-[32px] h-0.5 rounded-full',
                 color,
                 highlightSpanIds.has(span.spanId) && 'ring-1 ring-primary',
               )}

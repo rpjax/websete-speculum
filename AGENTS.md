@@ -7,8 +7,8 @@ You are working in the **Speculum** remote browser isolation repository.
 1. **[docs/engineering-standards.md](docs/engineering-standards.md)** — constitution (architecture, code, tests, CI, anti-patterns). **Always apply.**
 2. [docs/naming.md](docs/naming.md) — Speculum / Sessions / W7S vocabulary.
 3. [docs/architecture.md](docs/architecture.md) — domains and flows (if the change crosses boundaries).
-4. [docs/diagnostics.md](docs/diagnostics.md) — Act→Assert contracts (if the change touches observability or MotorAssert).
-5. [Speculum.MotorAssert.Tests/MATRIX.md](Speculum.MotorAssert.Tests/MATRIX.md) — coverage truth for session CI (legacy project name).
+4. [docs/diagnostics.md](docs/diagnostics.md) — Act→Assert contracts (if the change touches observability or session tests).
+5. [Speculum.Api.SessionsTest.Tests/MATRIX.md](Speculum.Api.SessionsTest.Tests/MATRIX.md) — coverage truth for SessionsTest CI.
 6. [docs/assert-failure-policy.md](docs/assert-failure-policy.md) — when asserts fail; do **not** weaken to get green.
 7. **When changing `web/`:** [docs/frontend-standards.md](docs/frontend-standards.md) + [docs/frontend-patterns.md](docs/frontend-patterns.md) — shadcn-only, revealing UI, complex-viz, anti-god-page. **Mandatory for frontend work.**
 
@@ -25,15 +25,11 @@ You are working in the **Speculum** remote browser isolation repository.
 - Minimal, convention-matched diffs; no drive-by renames.
 - **Frontend:** shadcn-only; revealing UI; no god pages/components; complex data visualized — not dumped ([docs/frontend-standards.md](docs/frontend-standards.md)).
 
-## MotorAssert harness (when touching CI tests)
+## SessionsTest harness (when touching CI tests)
 
-`MotorAssert` is the legacy proper name of the existing test project and
-category; it does not define vocabulary for new product code.
-
-- Serial shared stack — `MotorAssertTestBase` runs `EnsureBaselineAsync` before each test.
-- Clear **Diagnostics Degraded** (`POST /api/admin/diagnostics/v1/recover`) before BrowserQuery probes.
-- **Export:** `WaitStateExportCompletedAsync(connectionId, …)` — never match another test's export.
-- **ConfigApplied wait:** only Diagnostics / Hosting sections.
+- Stack: `deploy/compose/docker-compose.sessions-test.yml` + seed script + `Speculum.Api.SessionsTest.Tests`.
+- Prefer catalogued events + probes; never prove session truth with `200` / `ok: true` alone.
+- Extend [MATRIX.md](Speculum.Api.SessionsTest.Tests/MATRIX.md) when coverage depth changes. Never weaken asserts to get green ([docs/assert-failure-policy.md](docs/assert-failure-policy.md)).
 
 Cursor injects a short form of this as [`.cursor/rules/speculum-engineering-standards.mdc`](.cursor/rules/speculum-engineering-standards.mdc) (`alwaysApply: true`).
 
@@ -46,3 +42,7 @@ Talk to Rodrigo in **Portuguese, papo reto** — [`.cursor/rules/speculum-comuni
 PageProjection pickup: [docs/page-projection/spec/README.md](docs/page-projection/spec/README.md) **Now** box.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) — local gates, PR expectations, secrets.
+
+## Layout note
+
+Product code lives at repo root (`Speculum.Api/`, `web/`, `sidecar/`, `packages/`, `deploy/`, …). The pre-promotion SPA is kept only under `Legacy/web/`.

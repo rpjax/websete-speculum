@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/encode.ts` **and** in-page fragment `inpage/encode.frag.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/encode.ts` **and** in-page fragment `inpage/encode.frag.ts` |
 | **LOC ceiling** | 300 |
 | **Contracts implemented** | [04-wire.md](../../contracts/04-wire.md); redesign §5.4–5.5; D-SPEC-1 opcode 12; D-SPEC-2 produce-once in-page |
 | **Invariants** | Little-endian. Magic `0x5050`, version `1`. Per-part string table dedup. Write into preallocated reusable `ArrayBuffer`/`Uint8Array`. Part split when exceeding `maxFrameBytes` without splitting sequence. No JSON on this path. |

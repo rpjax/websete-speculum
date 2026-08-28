@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/clock.ts` **and** in-page fragment `inpage/clock.frag.ts`; Node watchdog lives in `channel.ts` / `PageProjection.ts` orchestration calling into page |
+| **Future path** | `sidecar/browser/patchright/mirror/page/clock.ts` **and** in-page fragment `inpage/clock.frag.ts`; Node watchdog lives in `channel.ts` / `PageProjection.ts` orchestration calling into page |
 | **LOC ceiling** | 200 |
 | **Contracts implemented** | [03-frame.md](../../contracts/03-frame.md) § clock / rate; redesign §5.3.4–5.3.5; config knobs in [15-configuration.md](../../contracts/15-configuration.md) |
 | **Invariants** | Boundary driven by in-page timer clock at `frameRateHz` (default 60). Drift corrected vs `performance.now()`. `requestAnimationFrame` MUST NOT drive the boundary. Rate messages from Node apply on next boundary (no per-frame RTT). Ladder 60→30→15→5; recover one step / ≥ `rateRecoverMs`. Hidden → `hiddenRateHz`. Backpressure never drops frames / never desyncs. |

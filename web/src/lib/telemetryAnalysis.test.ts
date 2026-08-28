@@ -76,7 +76,7 @@ describe('composeTelemetryAnalysis', () => {
   it('includes correlations and chronology', () => {
     const report = composeTelemetryAnalysis(input)
     expect(report.correlations.length).toBeGreaterThan(0)
-    expect(report.chronology.some((c) => c.title.includes('Degraded') || c.title === 'Diagnostics.Degraded')).toBe(true)
+    expect(report.chronology.some((c) => c.title.includes('Journal') || c.title === 'Diagnostics.Degraded')).toBe(true)
   })
 
   it('records substrate honesty when truncated', () => {
@@ -100,7 +100,7 @@ describe('composeTelemetryAnalysis', () => {
         values: {
           'apiProcess.cpu': 12 + i,
           'apiProcess.memory': 200 + i * 10,
-          'motor.live': 2,
+          'sessions.live': 2,
         },
       } satisfies ResourceSample
     })
@@ -125,5 +125,38 @@ describe('composeTelemetryAnalysis', () => {
     expect(efficiency.body.some((p) => /Machine CPU section was not present/i.test(p))).toBe(true)
     expect(report.metricAtlas.some((m) => m.key === 'apiProcess.cpu' && m.present)).toBe(true)
     expect(report.metricAtlas.some((m) => m.key === 'host.cpu' && m.present)).toBe(false)
+  })
+
+  it('treats an empty window as no-data instead of healthy', () => {
+    const report = composeTelemetryAnalysis({
+      samples: [],
+      events: [],
+      runtime: null,
+      overview: null,
+      host: null,
+      apiProcess: null,
+      window: {
+        since: new Date(Date.UTC(2026, 0, 1, 12, 0, 0)).toISOString(),
+        until: new Date(Date.UTC(2026, 0, 1, 13, 0, 0)).toISOString(),
+        spanMs: 60 * 60_000,
+      },
+      coverage: {
+        samples: 0,
+        bucketed: false,
+        truncated: false,
+        events: 0,
+        dataSources: ['telemetry.history'],
+      },
+    })
+    expect(report.executive.verdict).toBe('no_data')
+    expect(report.executive.healthScore).toBe(0)
+    expect(report.chapters[0]?.id).toBe('no-data')
+  })
+
+  it('describes journal degradation as telemetry write pressure, not diagnostics degradation', () => {
+    const report = composeTelemetryAnalysis(input)
+    expect(report.chronology.some((c) => /Journal entered degraded state/i.test(c.title))).toBe(true)
+    expect(report.chapters.find((c) => c.id === 'state')?.body.some((p) => /journal\.degraded|Journal degraded/i.test(p))).toBe(true)
+    expect(report.chapters.flatMap((c) => c.body).some((p) => /diagnostics circuit/i.test(p))).toBe(false)
   })
 })

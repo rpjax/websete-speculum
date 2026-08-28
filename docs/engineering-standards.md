@@ -16,7 +16,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 | 2 | [naming.md](naming.md) — Speculum / Sessions / W7S vocabulary |
 | 3 | [architecture.md](architecture.md) — domains and flows |
 | 4 | [diagnostics.md](diagnostics.md) — Act→Assert cookbook |
-| 5 | Before MotorAssert or CI matrix changes: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md) |
+| 5 | Before MotorAssert or CI matrix changes: [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md) |
 | 6 | Before changing a failing hardened assert: [assert-failure-policy.md](assert-failure-policy.md) |
 | 7 | Cursor injects a short always-on summary: [../.cursor/rules/speculum-engineering-standards.mdc](../.cursor/rules/speculum-engineering-standards.mdc) |
 | 8 | Before UI work under `web/`: [frontend-standards.md](frontend-standards.md) + [frontend-patterns.md](frontend-patterns.md); Cursor: [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) |
@@ -44,9 +44,9 @@ structural migration:
 
 | Domain | Folder | Question |
 |--------|--------|----------|
-| Sessions | `Refactor/Speculum.Api/Sessions/` | How does a live browsing session behave? |
-| Session edge | `Refactor/Speculum.Api/Presentation/Sessions/` | How do clients control and stream a session? |
-| Browser client | `Refactor/Speculum.Api/wwwroot/speculum/` | How does browser code open and use sessions? |
+| Sessions | `Speculum.Api/Sessions/` | How does a live browsing session behave? |
+| Session edge | `Speculum.Api/Presentation/Sessions/` | How do clients control and stream a session? |
+| Browser client | `Speculum.Api/wwwroot/speculum/` | How does browser code open and use sessions? |
 | Legacy live browsing | `Motor/`, `web/src/features/motor/` | Existing pre-refactor implementation only |
 | Edge | `Edge/` | How is Traefik/CORS materialized from Hosting? |
 | Browser persistence | `BrowserPersistence/` | How is Chrome state stored between visits? |
@@ -80,7 +80,7 @@ Domain types **must not** reference ASP.NET, SignalR, or `IServiceProvider`.
 
 - `LiveSession` (live control + transport) ≠ `BrowserSessionStore` (persisted snapshots).
 - `Motor` is allowed only in existing legacy proper names such as
-  `MotorHub` and `Speculum.MotorAssert.Tests`; do not introduce it in new code.
+  `MotorHub` and legacy MotorAssert; do not introduce Motor vocabulary in new code.
 - **W7S must not** appear in C# namespaces, internal class names, application log prefixes, or API folder names.
 
 Full rules: [naming.md](naming.md).
@@ -148,7 +148,7 @@ Pipeline: **Observe → Govern → Record → Query → Present**.
 ```text
 Fast gate (no Chrome)          Required CI Chrome              Informational
 ─────────────────────          ─────────────────────           ─────────────
-Api.Tests units                Speculum.MotorAssert.Tests      Speculum.MotorPerf.Tests
+Journal/Sessions/Telemetry units   Speculum.Api.SessionsTest.Tests   (perf.yml)
 sidecar npm test               Category=MotorAssertive         Category=MotorPerf
 web Vitest                     compose + Chromium              .github/workflows/perf.yml
 ```
@@ -295,7 +295,7 @@ Do **not** treat the legacy motor-assertive Docker+Chrome category as laptop QA 
 | Probes, events, cookbook | [diagnostics.md](diagnostics.md) |
 | Motor protocol / forwarding | [motor-reference.md](motor-reference.md) |
 | Sidecar wire | [w7s-sidecar-protocol.md](w7s-sidecar-protocol.md) |
-| Matrix A–O | [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md) |
+| Matrix A–O | [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md) |
 | Assert failure / triage | [assert-failure-policy.md](assert-failure-policy.md) |
 | Frontend UX constitution | [frontend-standards.md](frontend-standards.md) |
 | Frontend UX recipes | [frontend-patterns.md](frontend-patterns.md) |

@@ -1,6 +1,6 @@
 # Implementation — `clientState.ts` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/clientState.ts`  
+**Future path:** `web/src/features/sessions/live/page/clientState.ts`  
 **LOC ceiling:** 150  
 **Contracts:** [10-interaction.md](../../contracts/10-interaction.md), [13-admission.md](../../contracts/13-admission.md), [15-configuration.md](../../contracts/15-configuration.md)  
 **Norm:** redesign §5.9.5  

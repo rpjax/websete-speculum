@@ -270,6 +270,9 @@ export class MotorInput {
         urlBar.value = target
         urlBar.blur()
         canvas.focus()
+        // LEGACY Motor wire — absolute URL string. Not used by Refactor Sessions.
+        // Official path: @/lib/speculum LiveSession.navigate → NavigateAsync
+        // { sessionId, token, path, query } (see features/sessions/live/useLiveSession).
         this.deps.getConnection()?.invoke('NavigateAsync', target).catch(console.error)
       } else if (ev.key === 'Escape') {
         urlBar.value = this.deps.getCurrentUrl()

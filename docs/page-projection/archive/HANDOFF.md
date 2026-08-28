@@ -438,8 +438,8 @@ configured at surface creation.
 
 | Tree | State |
 |------|-------|
-| `Refactor/sidecar/browser/patchright/mirror/page/` | The spec'd core (`PageProjection.ts`, `frame.ts`, `clock.ts`, `channel.ts`, `node/mirror.ts`) — **imported only by unit tests**, i.e. dead. Plus the `*Live` path (`liveAttach.ts` 618 LOC, `establishLive`, `emitLive`, `cdpLive`, `assetsLive`, `cssomLive`, `inpageScript*`). |
-| `Refactor/sidecar/browser/mirror/projection/` | **Greenfield**, hand-driven, lab-only (`host/` is empty). Structure: `client/`, `host/`, `inject/`, `lab/`, `models/`, `plane/`, `virtual/`. |
+| `sidecar/browser/patchright/mirror/page/` | The spec'd core (`PageProjection.ts`, `frame.ts`, `clock.ts`, `channel.ts`, `node/mirror.ts`) — **imported only by unit tests**, i.e. dead. Plus the `*Live` path (`liveAttach.ts` 618 LOC, `establishLive`, `emitLive`, `cdpLive`, `assetsLive`, `cssomLive`, `inpageScript*`). |
+| `sidecar/browser/mirror/projection/` | **Greenfield**, hand-driven, lab-only (`host/` is empty). Structure: `client/`, `host/`, `inject/`, `lab/`, `models/`, `plane/`, `virtual/`. |
 | Production entry | `PatchrightBrowserSession.ts:50` still imports `LivePageProjection` from `./mirror/page/liveAttach`. |
 
 Critically: in the old production path, **`frame.ts` (the net-effect coalescing) is not imported by
@@ -449,7 +449,7 @@ neither the bug fixes nor the performance gain.
 
 **What exists and works:**
 
-- Oracles: `Refactor/page-projection-oracles/` — `o1-visual.cjs`, `o2-structural.cjs`, `o3-budgets.cjs`,
+- Oracles: `page-projection-oracles/` — `o1-visual.cjs`, `o2-structural.cjs`, `o3-budgets.cjs`,
   `o4-density.cjs`, `o5-interaction.cjs`, `budgets.cjs`, `dual-run-compare.cjs`, `MATRIX.md`.
 - Lab: `npm run lab:projection` and `npm run smoke:projection-lab`; fixtures `demo.html`,
   `static-dom.html`, `mutation-churn.html`, `forms-state.html`, `scroll.html`.

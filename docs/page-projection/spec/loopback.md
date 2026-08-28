@@ -5,7 +5,7 @@
 **Session law:** [browser-session.md](browser-session.md) — carrier = loopback WebSocket to sidecar (`projectionDataPlane: 'loopback'`). On managed Chrome the **canonical client** is the **Speculum Plane extension** ([extension-plane.md](extension-plane.md)); the page must not open `ws://127.0.0.1`.  
 **CSP / LNA:** [csp.md](csp.md) §8 — Document surgery + managed-Chrome LNA policy; **not** site-specific allowlists.  
 **Tracker:** [open.md](open.md) **PP-LOOPBACK-ESTABLISH** — **CLOSED 2026-08-27** (handshake + symmetric establish + tests §14).  
-**Code (impl map):** `Refactor/packages/page-projection/src/core/loopback/` · `Refactor/sidecar/browser/mirror/projection/session/nodeDataPlane.ts` · `projectionDataPlaneHost.ts` · `Refactor/packages/page-projection/src/virtual/transport/loopbackDataPlane.ts` · `bootstrap.ts`.
+**Code (impl map):** `packages/page-projection/src/core/loopback/` · `sidecar/browser/mirror/projection/session/nodeDataPlane.ts` · `projectionDataPlaneHost.ts` · `packages/page-projection/src/virtual/transport/loopbackDataPlane.ts` · `bootstrap.ts`.
 
 ---
 
@@ -307,13 +307,13 @@ Loopback URL is always `ws://127.0.0.1:<port>/` on the sidecar host.
 
 **Law LB-19b (defense-in-depth):** Enterprise LNA policy remains installed (does not authorize page-origin plane sockets):
 
-- [`Refactor/sidecar/chrome-policies/managed/speculum-lna.json`](../../../Refactor/sidecar/chrome-policies/managed/speculum-lna.json)
+- [`sidecar/chrome-policies/managed/speculum-lna.json`](../../../sidecar/chrome-policies/managed/speculum-lna.json)
 - `LoopbackNetworkAllowedForUrls: ["*"]`
 - `LocalNetworkAccessAllowedForUrls: ["*"]`
 
 **Forbidden:** per-site hostname entries in policy; `LocalNetworkAccessChecks` in `buildChromeArgs`; `--disable-features` LNA punch ([csp.md](csp.md) §8).
 
-Policy delivery: [`docker-entrypoint.sh`](../../../Refactor/sidecar/docker-entrypoint.sh) → `/etc/opt/chrome/policies/managed/`.
+Policy delivery: [`docker-entrypoint.sh`](../../../sidecar/docker-entrypoint.sh) → `/etc/opt/chrome/policies/managed/`.
 
 **Proof:** generic diag — HTTPS origin → loopback WS without `ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` (any fixture origin; Binance is stress only).
 

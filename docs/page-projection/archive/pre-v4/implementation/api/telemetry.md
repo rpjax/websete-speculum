@@ -1,6 +1,6 @@
 # Implementation — PageProjection telemetry (API)
 
-**Future path:** `Refactor/Speculum.Api/` Diagnostics / Sessions telemetry emitters for PageProjection  
+**Future path:** `Speculum.Api/` Diagnostics / Sessions telemetry emitters for PageProjection  
 **Contracts:** [14-telemetry.md](../../contracts/14-telemetry.md), [16-errors.md](../../contracts/16-errors.md)  
 **Norm:** redesign §5.15; engineering-standards failure shape  
 **Catalog prefix:** `Telemetry.Sessions.PageProjection.*`

@@ -32,7 +32,7 @@ No census fan-out. No ABS uinput. No `os-abs` adapter.
 # PageProjection — OS unified input (HISTORICAL)
 
 **Status:** **SEALED** 2026-08-26 (Rodrigo) — OS unified hot path; Phase A + lab resolve = loopback invoke only.  
-**Bar:** lab Docker `/dev/uinput` effect oracles ([LAB-DOCKER.md](../../Refactor/sidecar/LAB-DOCKER.md)). **PASS** — see §6.  
+**Bar:** lab Docker `/dev/uinput` effect oracles ([LAB-DOCKER.md](../../sidecar/LAB-DOCKER.md)). **PASS** — see §6.  
 **Design provenance:** [input-unified-design-draft.md](input-unified-design-draft.md).  
 **Superseded:** [input-v2.md](input-v2.md) Mode A/B/C CDP — purged.  
 **Index:** [README.md](README.md). Frame identity: [frame-protocol.md](frame-protocol.md). Loopback mux: draft §10.1c / D-UI-28.
@@ -77,15 +77,15 @@ ports, not a hardcoded stack and not one fat "everything an adapter might need" 
 rejected `InputAdapterLaunchProfile` draft that bundled precondition-check + display-device +
 construction-timing + click-wiring into a single interface.
 
-- **`kind`:** `'sparse-cdp'` (`Refactor/sidecar/browser/input/adapters/sparseCdpInputAdapter.ts`)
+- **`kind`:** `'sparse-cdp'` (`sidecar/browser/input/adapters/sparseCdpInputAdapter.ts`)
   is the **canonical default** (2026-08-27 Rodrigo explicit ruling — `PP-INPUT-VIRTUAL-MINT-GHOST`
   plus severe main-thread stalls on real sites made the census-coordinated `os-abs` path
   untenable as the default). `'os-abs'`
-  (`Refactor/sidecar/browser/input/adapters/osAbsInputAdapter.ts`) is **frozen legacy** — opt-in
+  (`sidecar/browser/input/adapters/osAbsInputAdapter.ts`) is **frozen legacy** — opt-in
   only via `BrowserLaunchOptions.pageProjectionInputAdapterKind: 'os-abs'` / lab CLI
   `--input-adapter os-abs`, kept for reference/rollback, not extended or perf-fixed. Never an
   env var, either direction.
-- `Refactor/sidecar/browser/input/ports.ts`:
+- `sidecar/browser/input/ports.ts`:
   - `IInputAdapter` — universal, both kinds implement it: `{ kind, pointer, keyboard,
     setLogicalSize(), dispose() }`. Nothing about scroll, click addressing, or display binding —
     those are separate contracts below (a dead `IScrollApplier`/`IFileUploadApplier`/`scroll?`
@@ -96,12 +96,12 @@ construction-timing + click-wiring into a single interface.
     you don't have is absent, not faked (a fake stub returning empty device paths used to live
     on `sparse-cdp` purely to satisfy the old fat `IInputAdapter`; deleted). Type guard:
     `hasDisplayInputDevices(adapter)`.
-- `Refactor/sidecar/browser/input/clickDelivery.ts` — `ClickDeliveryStrategy` (discriminated
+- `sidecar/browser/input/clickDelivery.ts` — `ClickDeliveryStrategy` (discriminated
   union: `'census-coordinated'` | `'live-node-resolve'`, see §2.1a/§4). Orthogonal to
   `IInputAdapter`: "how to move the pointer" and "how to decide where to click" are independent
   choices that happen to pair 1:1 with adapter kind today, composed by
   `PageProjectionBrowserSession.launch()`, not baked into either adapter.
-- `Refactor/sidecar/browser/input/createInputAdapter.ts` — `createInputAdapter(kind, opts): IInputAdapter`.
+- `sidecar/browser/input/createInputAdapter.ts` — `createInputAdapter(kind, opts): IInputAdapter`.
   Both kinds are built at the **same single call site** in `launch()`, before `Display.start()` —
   there is no adapter-specific "construct before/after Chrome" lifecycle hook. `sparse-cdp`'s
   `cdp.send` is a lazy closure through `currentCdpSession()`, invoked only on an actual
@@ -119,7 +119,7 @@ construction-timing + click-wiring into a single interface.
   latency/throughput percentiles, sustained-load or multi-session concurrency, resource
   (CPU/memory) behaviour — the lab blueprints above assert functional DOM correctness only,
   not performance; do not read "stress blueprint green" as a performance/capacity claim.
-- `Refactor/sidecar/browser/input/os/eventNodes.ts` — shared `listInputHandlers` /
+- `sidecar/browser/input/os/eventNodes.ts` — shared `listInputHandlers` /
   `ensureInputEventNodes` (dedupe of the identical helpers PP/ABS and Video/REL each carried).
 
 ### 2.1a `sparse-cdp` id-addressed click — canonical default's click delivery (2026-08-27)
@@ -261,14 +261,14 @@ Sealed on effect oracles above — producer RPC path is loopback only (no CDP MA
 
 ## 9. Related code
 
-- Capture: `Refactor/packages/page-projection/src/projected/input/projectedInputCapture.ts`
-- S6 census runtime: `Refactor/packages/page-projection/src/projected/input/projectedInputRuntime.ts`
-- Nested host install/drop (cancel pending load): `Refactor/packages/page-projection/src/projected/ProjectionClient.ts` (`cancelPendingNestedHost`)
-- Session: `Refactor/sidecar/browser/mirror/projection/session/PageProjectionBrowserSession.ts`
-- Applier: `Refactor/sidecar/browser/input/EventApplier.ts`
-- ABS stack: `Refactor/sidecar/browser/input/AbsOsInputStack.ts`
-- Lab ghost repro: `Refactor/sidecar/scripts/diag-click-ghost-context.js`
-- Loopback mux: `Refactor/packages/page-projection/src/core/loopback/envelope.ts`
+- Capture: `packages/page-projection/src/projected/input/projectedInputCapture.ts`
+- S6 census runtime: `packages/page-projection/src/projected/input/projectedInputRuntime.ts`
+- Nested host install/drop (cancel pending load): `packages/page-projection/src/projected/ProjectionClient.ts` (`cancelPendingNestedHost`)
+- Session: `sidecar/browser/mirror/projection/session/PageProjectionBrowserSession.ts`
+- Applier: `sidecar/browser/input/EventApplier.ts`
+- ABS stack: `sidecar/browser/input/AbsOsInputStack.ts`
+- Lab ghost repro: `sidecar/scripts/diag-click-ghost-context.js`
+- Loopback mux: `packages/page-projection/src/core/loopback/envelope.ts`
 - Loopback establish (normative): [loopback.md](loopback.md)
 
 </details>

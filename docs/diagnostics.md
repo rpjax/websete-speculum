@@ -4,7 +4,7 @@ Control plane for telemetry, operator debug, and Act→Assert contracts used by 
 
 Schema version: **`diagnosticsSchemaVersion: 2`** (v2 adds span correlation — `seq`/`spanId`/`spanKey`/`causationId` — stamped by the pipeline; additive, so v1 readers ignore the new fields).
 
-> Testing pyramid, Act→Assert rules, and CI splits: **[engineering-standards.md](engineering-standards.md)** §§3–4. Coverage inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md). Assert failures: [assert-failure-policy.md](assert-failure-policy.md).
+> Testing pyramid, Act→Assert rules, and CI splits: **[engineering-standards.md](engineering-standards.md)** §§3–4. Coverage inventory: [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md). Assert failures: [assert-failure-policy.md](assert-failure-policy.md).
 
 ## Concepts
 
@@ -64,7 +64,7 @@ Catalog Act→Assert events are **never** randomly sampled away. `StatusMirrorRa
 
 Each recipe: Act → poll events with `?since=` / `namePrefix=` → assert snapshot / `errorCode`.
 
-**Harness helpers** (`Speculum.MotorAssert.Tests`): prefer `WaitEvaluateContainsAsync`, `WaitCookieAsync`, `WaitLocalStorageAsync`, `WaitFixturePageAsync`, `WaitConfigAppliedAsync`, `WaitStateExportCompletedAsync`, `ExpectEvaluateAsync` / `ExpectCookieAsync` / `ExpectLocalStorageAsync` (poll), `WaitFrameSequenceAtLeastAsync`, `RequireSessionAsync` / `RequireSnapshot` / `RequireString` — missing JSON properties fail hard (no soft skip). Do **not** insert fixed `Task.Delay` before probes; poll or wait for catalog events instead.
+**Harness helpers** (`Speculum.Api.SessionsTest.Tests`): prefer catalogued waits and probes — missing JSON properties fail hard (no soft skip). Do **not** insert fixed `Task.Delay` before probes; poll or wait for catalog events instead.
 
 **Per-test baseline:** every MotorAssertive test inherits `MotorAssertTestBase` → `EnsureBaselineAsync` (MaxSessions, JsBridge, clear Degraded, Assertive Diagnostics when needed). See [engineering-standards.md](engineering-standards.md) §3.6.
 
@@ -287,9 +287,9 @@ When `telemetry.sessions.includePerSession` is on, each live session's slice is 
 ## CI: motor-assertive
 
 - **Fast gate (local + Actions):** unit/contract tests — no Chromium. Filter: `Category!=MotorAssertive&Category!=MotorPerf`.
-- **Required full gate (GitHub Actions):** job `motor-assertive` boots [`deploy/compose/docker-compose.motor-assert.yml`](../deploy/compose/docker-compose.motor-assert.yml) (fixture + evil-fixture + sidecar + API + Traefik), seeds Forwarding→`fixture.test`, then runs [`Speculum.MotorAssert.Tests`](../Speculum.MotorAssert.Tests/) with `MOTOR_ASSERT_API_BASE` set.
+- **Required full gate (GitHub Actions):** job `sessions-test` boots [`deploy/compose/docker-compose.sessions-test.yml`](../deploy/compose/docker-compose.sessions-test.yml) (fixture + sidecar + API), seeds Journal opt-in, then runs [`Speculum.Api.SessionsTest.Tests`](../Speculum.Api.SessionsTest.Tests/) with `SESSIONS_TEST_API_BASE` set.
 - Fixture contract: [`tests/motor-fixture/README.md`](../tests/motor-fixture/README.md).
-- Matrix inventory: [`Speculum.MotorAssert.Tests/MATRIX.md`](../Speculum.MotorAssert.Tests/MATRIX.md).
+- Matrix inventory: [`Speculum.Api.SessionsTest.Tests/MATRIX.md`](../Speculum.Api.SessionsTest.Tests/MATRIX.md).
 - Failure artifacts: compose logs + diagnostics dumps under the runner temp directory.
 
 MotorAssert matrix A–O is **required green** on PRs. When an assert fails, follow [assert-failure-policy.md](assert-failure-policy.md) — do not skip or soften.

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/PageProjection.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/PageProjection.ts` |
 | **LOC ceiling** | 300 |
 | **Contracts implemented** | Wiring only across contracts 01–07, 12; redesign §4 / §9 orchestration rule |
 | **Invariants** | This file contains **no algorithms** for identity, F, observe, flush, encode, checksum, Cssom coalesce, pierce discovery, mirror apply, or URL rewrite. It constructs modules, wires callbacks, owns session lifecycle hooks, and forwards. |

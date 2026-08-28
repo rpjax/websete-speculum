@@ -18,7 +18,7 @@ Vocabulary: **Speculum** = platform; **Sessions** = live browsing; **W7S** = wir
 ## Hard bans
 
 - **No ad-hoc / workaround code — carved in stone / strictly forbidden.** Never paper over a broken algorithm with a second path (e.g. cold full DomMap bootstrap after a “stream seed”) to get green hopdiag or a live surface. Fix the designed path (`AGENTS.md`, `docs/engineering-standards.md`, `docs/page-projection/spec/README.md`, `docs/page-projection/spec/acceptance.md`).
-- Never skip/ignore/soften MotorAssert asserts to get green — fix the product (`docs/assert-failure-policy.md`).
+- Never skip/ignore/soften SessionsTest asserts to get green — fix the product (`docs/assert-failure-policy.md`).
 - Never use missing-property soft skips (`if (TryGetProperty) continue`) as pass conditions.
 - Never prove session truth with `200` / `ok: true` alone — Act→Assert via events, snapshots, probes.
 - Never pass/fail PageProjection table/DOM isomorphism from event telemetry — use state snapshot dumps + lab oracles (`docs/page-projection/spec/observability.md`, `docs/page-projection/spec/browser-session.md`).
@@ -31,12 +31,10 @@ Vocabulary: **Speculum** = platform; **Sessions** = live browsing; **W7S** = wir
 
 ## Tests
 
-- Pyramid: fast units (Api/sidecar/web) → required legacy `motor-assertive` category → informational `perf.yml`.
-- MATRIX (`Speculum.MotorAssert.Tests/MATRIX.md`) is coverage truth; update depth when coverage changes.
+- Pyramid: fast units (Api/sidecar/web) → required `SessionsTest` category on CI Chrome → informational `perf.yml`.
+- MATRIX (`Speculum.Api.SessionsTest.Tests/MATRIX.md`) is coverage truth; update depth when coverage changes.
 - Prefer catalogued events + probes; `Task.Delay` only as a short beat after Act is confirmed.
-- MotorAssert: `MotorAssertTestBase` → `EnsureBaselineAsync` (MaxSessions, JsBridge, clear Degraded via `POST …/recover`, Assertive Diagnostics verify).
-- Export wait: `WaitStateExportCompletedAsync(connectionId, since-before-disconnect)` — not global `StateExport` on `since-at-test-start`.
-- `WaitConfigApplied` only after Diagnostics/Hosting PUT — not JsBridge/MaxSessions.
+- SessionsTest stack: `deploy/compose/docker-compose.sessions-test.yml` + seed script.
 
 ## Wire
 

@@ -5,38 +5,35 @@ on:
     branches: [main, master]
   pull_request:
 
-# Refactor-only gate until Refactor/ is promoted to repo root (post-1.0).
-# Legacy Speculum.sln / root sidecar|web|MotorAssert are intentionally out of CI.
-
 jobs:
   dotnet:
-    name: refactor-dotnet
+    name: dotnet
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Restore Refactor unit tests
+      - name: Restore unit tests
         run: |
-          dotnet restore Refactor/Speculum.Api.Journal.Tests/Speculum.Api.Journal.Tests.csproj
-          dotnet restore Refactor/Speculum.Api.Sessions.Tests/Speculum.Api.Sessions.Tests.csproj
-          dotnet restore Refactor/Speculum.Api.Telemetry.Tests/Speculum.Api.Telemetry.Tests.csproj
+          dotnet restore Speculum.Api.Journal.Tests/Speculum.Api.Journal.Tests.csproj
+          dotnet restore Speculum.Api.Sessions.Tests/Speculum.Api.Sessions.Tests.csproj
+          dotnet restore Speculum.Api.Telemetry.Tests/Speculum.Api.Telemetry.Tests.csproj
       - name: Test Journal
         run: >
-          dotnet test Refactor/Speculum.Api.Journal.Tests/Speculum.Api.Journal.Tests.csproj
+          dotnet test Speculum.Api.Journal.Tests/Speculum.Api.Journal.Tests.csproj
           -c Release --verbosity normal
       - name: Test Sessions
         run: >
-          dotnet test Refactor/Speculum.Api.Sessions.Tests/Speculum.Api.Sessions.Tests.csproj
+          dotnet test Speculum.Api.Sessions.Tests/Speculum.Api.Sessions.Tests.csproj
           -c Release --verbosity normal
       - name: Test Telemetry
         run: >
-          dotnet test Refactor/Speculum.Api.Telemetry.Tests/Speculum.Api.Telemetry.Tests.csproj
+          dotnet test Speculum.Api.Telemetry.Tests/Speculum.Api.Telemetry.Tests.csproj
           -c Release --verbosity normal
 
   sidecar:
-    name: refactor-sidecar
+    name: sidecar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,13 +41,13 @@ jobs:
         with:
           node-version: '22'
       - name: Install and test
-        working-directory: Refactor/sidecar
+        working-directory: sidecar
         run: |
           npm ci
           npm test
 
   web:
-    name: refactor-web
+    name: web
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +55,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install, lint, test, and build
-        working-directory: Refactor/web
+        working-directory: web
         run: |
           npm ci
           npm run lint
@@ -74,7 +71,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install and run O1–O5 fixture gates + PP-DEN-2 baseline
-        working-directory: Refactor/page-projection-oracles
+        working-directory: page-projection-oracles
         run: |
           npm ci
           npm test
@@ -83,25 +80,25 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pp-den-2-baseline
-          path: Refactor/page-projection-oracles/artifacts/pp-den-2-baseline.json
+          path: page-projection-oracles/artifacts/pp-den-2-baseline.json
           if-no-files-found: error
 
   compose:
-    name: refactor-compose
+    name: compose
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Validate sessions-test compose
-        run: docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml config
+        run: docker compose -f deploy/compose/docker-compose.sessions-test.yml config
       - name: Validate nouinput override file
         run: |
           set -euo pipefail
-          test -f Refactor/deploy/compose/docker-compose.dev.nouinput.yml
+          test -f deploy/compose/docker-compose.dev.nouinput.yml
           # Override is applied against generated out/dev compose locally; file presence is the CI check.
-          grep -q 'SPECULUM_INPUT_BACKEND' Refactor/deploy/compose/docker-compose.dev.nouinput.yml
+          grep -q 'SPECULUM_INPUT_BACKEND' deploy/compose/docker-compose.dev.nouinput.yml
 
   dockup:
-    name: refactor-dockup
+    name: dockup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,8 +107,8 @@ jobs:
           node-version: '22'
       - name: Install dockup
         run: npm install -g @rodrigopjax/dockup@2.0.2
-      - name: Validate Refactor dockup manifest
-        working-directory: Refactor/deploy
+      - name: Validate dockup manifest
+        working-directory: deploy
         run: dockup validate -c dockup.json --root ..
 
   sessions-test:
@@ -126,7 +123,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Build sessions-test stack
-        run: docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml up -d --build
+        run: docker compose -f deploy/compose/docker-compose.sessions-test.yml up -d --build
 
       - name: Wait for fixture + API health
         run: |
@@ -134,9 +131,9 @@ jobs:
           ok=0
           for i in $(seq 1 90); do
             if curl -sf http://127.0.0.1:18090/health/ready >/dev/null \
-              && docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml exec -T fixture \
+              && docker compose -f deploy/compose/docker-compose.sessions-test.yml exec -T fixture \
                    node -e "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
-              && docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml ps --status running | grep -q sidecar; then
+              && docker compose -f deploy/compose/docker-compose.sessions-test.yml ps --status running | grep -q sidecar; then
               ok=1
               break
             fi
@@ -144,28 +141,28 @@ jobs:
           done
           if [ "$ok" != "1" ]; then
             echo "stack did not become healthy in time" >&2
-            docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml ps >&2 || true
+            docker compose -f deploy/compose/docker-compose.sessions-test.yml ps >&2 || true
             exit 1
           fi
 
       - name: Seed opt-in Journal (explicit enable)
         run: |
-          chmod +x Refactor/deploy/compose/seed-sessions-test.sh
+          chmod +x deploy/compose/seed-sessions-test.sh
           SESSIONS_TEST_API_BASE=http://127.0.0.1:18090 \
-            ./Refactor/deploy/compose/seed-sessions-test.sh
+            ./deploy/compose/seed-sessions-test.sh
 
       - name: Run SessionsTest tests
         env:
           SESSIONS_TEST_API_BASE: http://127.0.0.1:18090
         run: >
-          dotnet test Refactor/Speculum.Api.SessionsTest.Tests/Speculum.Api.SessionsTest.Tests.csproj
+          dotnet test Speculum.Api.SessionsTest.Tests/Speculum.Api.SessionsTest.Tests.csproj
           -c Release --filter "Category=SessionsTest" --verbosity normal
 
       - name: Collect compose logs on failure
         if: failure()
         run: |
           mkdir -p "${{ runner.temp }}/sessions-test-logs"
-          docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml logs --no-color > "${{ runner.temp }}/sessions-test-logs/compose.log" || true
+          docker compose -f deploy/compose/docker-compose.sessions-test.yml logs --no-color > "${{ runner.temp }}/sessions-test-logs/compose.log" || true
 
       - name: Upload failure artefacts
         if: failure()
@@ -177,4 +174,4 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: docker compose -f Refactor/deploy/compose/docker-compose.sessions-test.yml down -v --remove-orphans
+        run: docker compose -f deploy/compose/docker-compose.sessions-test.yml down -v --remove-orphans

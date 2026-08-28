@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/frame.ts` **and** in-page fragment `inpage/frame.frag.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/frame.ts` **and** in-page fragment `inpage/frame.frag.ts` |
 | **LOC ceiling** | 500 |
 | **Contracts implemented** | [03-frame.md](../../contracts/03-frame.md); redesign §5.3; D-SPEC-1 ordering for `documentState`; D-SPEC-5 viewport scroll |
 | **Invariants** | Frame = net effect since previous boundary; one ordered op list; one `sequence` if non-empty; empty ⇒ no emit, no sequence. Flush order fixed. Declarative `childList` (FULL/APPEND). Moves preserve identity. Cssom ops coalesce in same window via cssom module. |

@@ -43,7 +43,7 @@ Status response nests: `host`, `sidecar`, `lastApply`, `hostError`. Preview retu
 - [Parameters](preview-apply-flow/01-params.md) → [Review](preview-apply-flow/02-review.md) → [Apply](preview-apply-flow/03-apply.md)
 
 ## Implementation notes (web)
-- Feature folder: `Refactor/web/src/features/admin/host-resources/`
+- Feature folder: `web/src/features/admin/host-resources/`
 - Helpers (`hostResourcesHelpers.ts`) mirror `HostResourceCalculator` for live estimate only; Review always uses POST preview.
 - Presets merge memory knobs without wiping ulimits.
 - Related admission config: `/admin/configurations/ResourceManagement`

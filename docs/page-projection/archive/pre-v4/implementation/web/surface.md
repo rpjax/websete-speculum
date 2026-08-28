@@ -1,6 +1,6 @@
 # Implementation — `surface.tsx` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/surface.tsx`  
+**Future path:** `web/src/features/sessions/live/page/surface.tsx`  
 **LOC ceiling:** 350  
 **Contracts:** [08-surface.md](../../contracts/08-surface.md), [05-establish.md](../../contracts/05-establish.md), [07-recovery.md](../../contracts/07-recovery.md)  
 **Norm:** redesign §5.8  

@@ -27,7 +27,7 @@ V4 lab (DOM table, single document, no production)
 |-------|--------|
 | V4 protocol spec | **In force** — [frame-protocol.md](frame-protocol.md) |
 | Session / mirror contracts | **SEALED + shape cutover** — [browser-session.md](browser-session.md); factory + PP class on Live |
-| V4 algorithm `Refactor/packages/page-projection` + sidecar callers | **Lab + Live session path:** DOM table, shadow, CSSOM poll+apply (**same instance loop** in root + nested SO), form `PROP_SET`, nested iframe (OPEN-6), observability, resync, **OS unified input** ([input.md](input.md); [input-v2.md](input-v2.md) superseded). **Not** canvas, XO/NIT flavours. **`web/` on `@speculum/page-projection/projected`** (gate 10 surface). |
+| V4 algorithm `packages/page-projection` + sidecar callers | **Lab + Live session path:** DOM table, shadow, CSSOM poll+apply (**same instance loop** in root + nested SO), form `PROP_SET`, nested iframe (OPEN-6), observability, resync, **OS unified input** ([input.md](input.md); [input-v2.md](input-v2.md) superseded). **Not** canvas, XO/NIT flavours. **`web/` on `@speculum/page-projection/projected`** (gate 10 surface). |
 | Lab host/UI | **Shipped** 2026-08-16 — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. Stream tab: per-`contextId` metrics. |
 | Production session path | **PP sealed factory** — `mirrorMode=pageProjection` → `PageProjectionBrowserSession`. Video = `VideoStreamingBrowserSession` (Patchright lift). Legado `LivePageProjection` **gone**. |
 | M1 overall | **Blocked** on canvas + `web/` Integration (session **path** flipped; product-complete law still applies) |
@@ -71,7 +71,7 @@ Lab DOM-table core is **not** a cutover license. Close the **product** before sw
 | 4 | **Shadow DOM** | Product | **DONE** open/named | Feature 1 of [subtrees.md](subtrees.md). Lab `shadow-open`. Closed/manual NIT. Spec: [shadow.md](shadow.md). **Before** OPEN-6. |
 | 5 | **OPEN-6 nested browsing contexts** | Product | **PARTIAL** | Lab same-origin iframe + observability + resync shipped. **CSSOM = same algorithm per nested instance** — not a separate build. XO / srcdoc / sandbox / fenced NIT. Optional: nested `cssomO2` lab assert ([seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`). |
 | 6 | **Input redesign** | Product | **sparse-cdp only 2026-08-27** | Hot path: UnifiedIntent → EventApplier → CDP (id-addressed click) + scrollSet. OS ABS/S6 removed from codebase ([input.md](input.md) historical). Mode A/B CDP **purged**. Live MotorAssert intents = cutover / gate 10. |
-| 6.5 | **Shared `@speculum/page-projection` package** | Hygiene | **DONE 2026-08-20** | Extract `core`/`virtual`/`projected` to `Refactor/packages/page-projection`. Lab/session stay callers. Amends E-11 ([decision-log.md](decision-log.md) §J). **Not** Integration — gate 10 consumes the package. |
+| 6.5 | **Shared `@speculum/page-projection` package** | Hygiene | **DONE 2026-08-20** | Extract `core`/`virtual`/`projected` to `packages/page-projection`. Lab/session stay callers. Amends E-11 ([decision-log.md](decision-log.md) §J). **Not** Integration — gate 10 consumes the package. |
 | 6.6 | **Sealed BrowserSession path** | Hygiene / path | **DONE 2026-08-21** | `PageProjectionBrowserSession` + sealed factory; `LivePageProjection` deleted; `RequestResync` only. Scratchpad: [../CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md). |
 | 7 | **`<canvas>` projection** | Product | **YES** — **last feature before Integration** | Project canvas **bitmap/content** (not element-only / not placeholder-forever). Design + implement + effect asserts before gate 10. Ships **into** the shared package after 6.5. Until then: box + `CANVAS_PLACEHOLDER` only ([support-matrix.md](support-matrix.md)). **Not** a [seal-gaps.md](seal-gaps.md) row. |
 | 8 | Rule E-03 / E-08 | RULING | **REVISED 2026-08-26** | Sole PP data plane = page loopback WS (`projectionDataPlane: 'loopback'` only). CDP exposeBinding plane purged. Surgical CSP Document surgery stays ([csp.md](csp.md)). |
@@ -133,4 +133,4 @@ Do not run M3 to hide an M2 bug.
 | Lab-as-caller | PP session owns Patchright/inject/dataplane/probes ([browser-session.md](browser-session.md)); `LabSession` + `lab:run` compose `report.json` |
 | Coherent iso | `flushAndSnapshot` one JS turn; O2 + table digest + tree bound to sequence S; events not used as table asserts |
 
-Code: `Refactor/sidecar/browser/mirror/projection/`. Observability rules: [observability.md](observability.md).
+Code: `sidecar/browser/mirror/projection/`. Observability rules: [observability.md](observability.md).

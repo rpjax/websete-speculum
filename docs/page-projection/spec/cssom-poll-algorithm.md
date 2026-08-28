@@ -4,7 +4,7 @@
 2026-08-18). Phase 1 table applies `SHEET_*`/`RULE_*` so `CHECK` /
 `preTableHash` stay honest. **Lab C6 apply is shipped** for constructed / `adoptedStyleSheets` +
 `CSSStyleRule` (`client/applyDom.ts`); pierce CSSOM waits OPEN-6 — [seal-gaps.md](seal-gaps.md).
-**Code (poll):** `Refactor/sidecar/browser/mirror/projection/virtual/cssom/` + attach at
+**Code (poll):** `sidecar/browser/mirror/projection/virtual/cssom/` + attach at
 `virtual/frame/frameEmitter.ts`. **No CSSOM in `virtual/dom/` builders.** Idle hashes the **copy** in
 batches (`timeRemaining`); it does not iterate the live `cssRules` list across a yield.  
 **Observability of the pass:** [observability.md](observability.md) §9 (`cssomPoll`).  
@@ -268,7 +268,7 @@ I2 (this file) still means a full readable scan of the **copy**, not “nested a
 
 ## Code map
 
-`Refactor/sidecar/browser/mirror/projection/virtual/` — checklist [COMPONENTS.md](../../../Refactor/sidecar/browser/mirror/projection/virtual/COMPONENTS.md).
+`sidecar/browser/mirror/projection/virtual/` — checklist [COMPONENTS.md](../../../sidecar/browser/mirror/projection/virtual/COMPONENTS.md).
 
 | Symbol | Role |
 |--------|------|

@@ -2,7 +2,7 @@
 > **RECONCILIATION NOTE.** The normative frame / state / wire / construction / recovery model is
 > now [`frame-protocol.md`](frame-protocol.md) — **not** the `contracts/` + `implementation/`
 > "buildable pack", which is historical for those layers. A table-based engine implementing
-> `frame-protocol.md` now exists under `Refactor/sidecar/browser/mirror/projection/` and passes its
+> `frame-protocol.md` now exists under `sidecar/browser/mirror/projection/` and passes its
 > own lab unit + smoke gates (Stages 1-4). **Production still runs the older
 > `mirror/page/liveAttach` path** (`PatchrightBrowserSession.ts`) — the cutover has not started. The
 > concrete, ordered path from here to a 100%-complete production launch is
@@ -19,7 +19,7 @@
 | Engine (constraints) | [engine-redesign.md](engine-redesign.md) |
 | **Buildable spec pack** | [README.md](README.md) — contracts + impl specs (1:1 with future code) |
 | Gaps (product support) | [support-matrix.md](support-matrix.md) |
-| Lab / oracles | [Refactor/page-projection-oracles/MATRIX.md](../../../Refactor/page-projection-oracles/MATRIX.md) |
+| Lab / oracles | [page-projection-oracles/MATRIX.md](../../../page-projection-oracles/MATRIX.md) |
 
 **Hard ban (every milestone):** no ad-hoc, no DomMap bootstrap, no host-`if`, no soft-skip to paint green ([acceptance](acceptance.md), [AGENTS.md](../../../AGENTS.md)). Fix the designed path. **Code must match the spec pack**; any behaviour change updates the MD in the same change set.
 
@@ -81,7 +81,7 @@ Spec pack (done) → M1 lab engine (done) → M1 production cutover → M2 Debug
 | Item | State |
 |------|--------|
 | Spec pack | **DONE** |
-| Code from spec pack — **lab tree** (`Refactor/sidecar/browser/mirror/projection/`) | **DONE** for the single-document core: identity/frame/wire/two-phase-apply (`frame-protocol.md` §1–§6, Stage 1), Stage 2 hardening (corrupted/hostile-frame rejection before DOM touch), Stage 3 (`EPOCH_RESET`/`NODE_DROP` GC/limits), Stage 4 (client-initiated resync recovery + real double-buffer surface). All exercised by `unit.js` + `smoke-projection-lab.js` (10/10 gates green, 2026-08-14). |
+| Code from spec pack — **lab tree** (`sidecar/browser/mirror/projection/`) | **DONE** for the single-document core: identity/frame/wire/two-phase-apply (`frame-protocol.md` §1–§6, Stage 1), Stage 2 hardening (corrupted/hostile-frame rejection before DOM touch), Stage 3 (`EPOCH_RESET`/`NODE_DROP` GC/limits), Stage 4 (client-initiated resync recovery + real double-buffer surface). All exercised by `unit.js` + `smoke-projection-lab.js` (10/10 gates green, 2026-08-14). |
 | Code wired on the **live/production path** (`PatchrightBrowserSession.ts`) | **NOT STARTED** — production still starts the legacy `LivePageProjection` (`mirror/page/liveAttach`); the lab-tree engine above is not reachable from a real session yet. This is the actual remaining M1 work, not "write the engine" (already done in lab). |
 | **M1 overall** | **BLOCKED on the cutover gate list below**, not on a from-scratch code plan |
 
@@ -168,7 +168,7 @@ Under the normal lab stack, for that site:
 | **M2** Debug | Blocked on M1 cutover |
 | **M3** Optimization → accept | Blocked on M2 |
 
-**One-paragraph summary for anyone jumping in:** the frame/replicated-state/wire/recovery redesign in `frame-protocol.md` is implemented and self-consistent — a full lab engine (identity table, binary frames, two-phase apply, `EPOCH_RESET`, `NODE_DROP` GC, client-initiated resync with a real double-buffer surface) exists under `Refactor/sidecar/browser/mirror/projection/` and passes its own unit + smoke gates. **None of it is live yet** — `PatchrightBrowserSession.ts` still runs the old `LivePageProjection` path. The road to "100% production launch" is the 8-item gate list above, then M2 (make it work on real sites) and M3 (push to honest 1:1 parity on the baseline set) exactly as already scoped below.
+**One-paragraph summary for anyone jumping in:** the frame/replicated-state/wire/recovery redesign in `frame-protocol.md` is implemented and self-consistent — a full lab engine (identity table, binary frames, two-phase apply, `EPOCH_RESET`, `NODE_DROP` GC, client-initiated resync with a real double-buffer surface) exists under `sidecar/browser/mirror/projection/` and passes its own unit + smoke gates. **None of it is live yet** — `PatchrightBrowserSession.ts` still runs the old `LivePageProjection` path. The road to "100% production launch" is the 8-item gate list above, then M2 (make it work on real sites) and M3 (push to honest 1:1 parity on the baseline set) exactly as already scoped below.
 
 ---
 
@@ -180,4 +180,4 @@ Under the normal lab stack, for that site:
 | [engine-redesign.md](engine-redesign.md) | Normative engine constraints (§5–§10) |
 | [spec pack](README.md) | **Buildable** contracts + impl specs |
 | [support-matrix.md](support-matrix.md) | Accepted gaps (K1/K5) |
-| [MATRIX.md](../../../Refactor/page-projection-oracles/MATRIX.md) | Lab coverage truth |
+| [MATRIX.md](../../../page-projection-oracles/MATRIX.md) | Lab coverage truth |

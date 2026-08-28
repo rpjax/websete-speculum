@@ -1,37 +1,57 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_VIEWPORT_POLICY,
   deviceProfilesEqual,
   isTouchPrimaryProfile,
   normalizeSessionViewport,
-  SESSION_VIEWPORT,
   validateResizeViewport,
 } from './deviceProfile'
 
 describe('normalizeSessionViewport', () => {
-  it('defaults non-positive to 1280×720', () => {
-    expect(normalizeSessionViewport(0, 0)).toEqual({ w: 1280, h: 720 })
-    expect(normalizeSessionViewport(-1, 800)).toEqual({ w: 1280, h: 800 })
+  it('defaults non-positive to policy default', () => {
+    expect(normalizeSessionViewport(0, 0, DEFAULT_VIEWPORT_POLICY)).toEqual({ w: 1280, h: 720 })
+    expect(normalizeSessionViewport(-1, 800, DEFAULT_VIEWPORT_POLICY)).toEqual({ w: 1280, h: 800 })
   })
 
-  it('clamps to API/Xvfb ceiling so coords match remote', () => {
-    expect(normalizeSessionViewport(9000, 5000)).toEqual({
-      w: SESSION_VIEWPORT.maxWidth,
-      h: SESSION_VIEWPORT.maxHeight,
+  it('clamps to policy maximum so coords match remote', () => {
+    expect(normalizeSessionViewport(9000, 5000, DEFAULT_VIEWPORT_POLICY)).toEqual({
+      w: DEFAULT_VIEWPORT_POLICY.maxWidth,
+      h: DEFAULT_VIEWPORT_POLICY.maxHeight,
     })
   })
 
   it('passes through normal sizes', () => {
-    expect(normalizeSessionViewport(1440, 900)).toEqual({ w: 1440, h: 900 })
+    expect(normalizeSessionViewport(1440, 900, DEFAULT_VIEWPORT_POLICY)).toEqual({
+      w: 1440,
+      h: 900,
+    })
+  })
+
+  it('uses configured policy, not a hardcoded constant', () => {
+    const tight = {
+      minWidth: 200,
+      minHeight: 200,
+      maxWidth: 1600,
+      maxHeight: 900,
+      defaultWidth: 800,
+      defaultHeight: 600,
+    }
+    expect(normalizeSessionViewport(0, 0, tight)).toEqual({ w: 800, h: 600 })
+    expect(normalizeSessionViewport(2000, 1000, tight)).toEqual({ w: 1600, h: 900 })
   })
 })
 
 describe('validateResizeViewport', () => {
   it('rejects below minimum without snapping', () => {
-    expect(validateResizeViewport(50, 50).ok).toBe(false)
+    expect(validateResizeViewport(50, 50, DEFAULT_VIEWPORT_POLICY).ok).toBe(false)
   })
 
   it('accepts exact odd geometry', () => {
-    expect(validateResizeViewport(757, 715)).toEqual({ ok: true, w: 757, h: 715 })
+    expect(validateResizeViewport(757, 715, DEFAULT_VIEWPORT_POLICY)).toEqual({
+      ok: true,
+      w: 757,
+      h: 715,
+    })
   })
 })
 
@@ -58,5 +78,21 @@ describe('isTouchPrimaryProfile', () => {
 
   it('is true only for mobile profiles', () => {
     expect(isTouchPrimaryProfile({ mobile: true })).toBe(true)
+  })
+})
+
+describe('hybrid desktop device profile shape', () => {
+  it('documents capability vs primary: touch can be true while mobile is false', () => {
+    // Galaxy Book / Surface class — mirrors detectDeviceProfile on hybrid PCs.
+    const hybrid = {
+      mobile: false,
+      touch: true,
+      deviceScaleFactor: 1,
+      maxTouchPoints: 10,
+      userAgentProfile: 'desktop' as const,
+      deviceCategory: 'pc' as const,
+    }
+    expect(isTouchPrimaryProfile(hybrid)).toBe(false)
+    expect(hybrid.touch).toBe(true)
   })
 })

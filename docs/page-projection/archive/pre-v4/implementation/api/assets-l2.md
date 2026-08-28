@@ -1,6 +1,6 @@
 # Implementation — Asset L2 cache (API)
 
-**Future path:** `Refactor/Speculum.Api/` virtual-assets serve plane (host-wide shared tier)  
+**Future path:** `Speculum.Api/` virtual-assets serve plane (host-wide shared tier)  
 **Suggested type:** `IPageProjectionAssetL2Cache` / `PageProjectionAssetL2Cache`  
 **Contracts:** [11-assets.md](../../contracts/11-assets.md), [15-configuration.md](../../contracts/15-configuration.md)  
 **Norm:** redesign §5.12.2  

@@ -6,4 +6,4 @@
 
 **Completeness (2026-08-20):** ~**92%** core algorithm · ~**42%** cutover — [spec/roadmap.md](spec/roadmap.md). ISA lacre: [frame-protocol.md](spec/frame-protocol.md) §4 = `opcodes.ts`.
 
-Do not implement from `archive/` or from `Refactor/sidecar/.../mirror/page/**` / `Refactor/web/.../live/page/**` (legacy live path).
+Do not implement from `archive/` or from `sidecar/.../mirror/page/**` / `web/.../live/page/**` (legacy live path).

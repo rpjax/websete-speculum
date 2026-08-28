@@ -12,7 +12,9 @@ import {
   isTouchPrimaryProfile,
   normalizeSessionViewport,
   validateResizeViewport,
+  DEFAULT_VIEWPORT_POLICY,
 } from './deviceProfile'
+import { viewportSizesClose } from '@/features/sessions/live/CanvasViewportSync'
 import type {
   ConsoleOutputPayload,
   DeviceProfilePayload,
@@ -22,6 +24,10 @@ import type {
   SessionStatusPayload,
   StateListener,
 } from './types'
+
+function hasSubdomainMirroring(config: ClientConfig | null | undefined): boolean {
+  return !!config?.hosting.domains.some((d) => d.subdomainMirroringEnabled)
+}
 
 export type { MotorStatus, MotorUiState } from './types'
 
@@ -131,13 +137,12 @@ export class MotorEngine {
     this.screencast.attach(elements, (fps) => this.emit({ fps }))
     if (elements.ime) this.input.setImeElement(elements.ime)
     this.input.bind(elements)
-    this.resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (!entry) return
-      this.scheduleRemoteViewportSync(
-        Math.round(entry.contentRect.width),
-        Math.round(entry.contentRect.height),
-      )
+    this.resizeObserver = new ResizeObserver(() => {
+      const el = this.elements?.viewport
+      if (!el) return
+      // Always clientWidth/Height — contentRect can disagree by a few px and trigger
+      // a needless ResizeAsync right after StartSession.
+      this.scheduleRemoteViewportSync(el.clientWidth, el.clientHeight)
     })
     this.resizeObserver.observe(elements.viewport)
     const onOrientation = () => {
@@ -171,7 +176,7 @@ export class MotorEngine {
     this.elements = null
   }
 
-  /** Debounced ResizeAsync — candidate size; canvas commits only after hub ack. */
+  /** Debounced ResizeAsync — CSS host owns size; remote adapts. */
   private scheduleRemoteViewportSync(rawW: number, rawH: number) {
     // Do not resize the remote device when the local virtual keyboard shrinks the SPA.
     if (this.keyboardShellOpen) {
@@ -183,28 +188,41 @@ export class MotorEngine {
       this.viewportSyncPending = true
       return
     }
-    const validated = validateResizeViewport(rawW, rawH)
+    const validated = validateResizeViewport(rawW, rawH, DEFAULT_VIEWPORT_POLICY)
     if (!validated.ok) return
     const { w, h } = validated
     const nextProfile = detectDeviceProfile()
-    if (w === this.remoteViewportW && h === this.remoteViewportH
-      && deviceProfilesEqual(this.deviceProfile, nextProfile)) {
+    if (
+      viewportSizesClose(w, h, this.remoteViewportW, this.remoteViewportH)
+      && deviceProfilesEqual(this.deviceProfile, nextProfile)
+    ) {
       return
     }
     this.input.invalidateRect()
     if (this.resizeTimer) clearTimeout(this.resizeTimer)
     this.resizeTimer = setTimeout(async () => {
+      const el = this.elements?.viewport
+      if (!this.connection.hub || this.resizeInFlight || !el) return
+      // Re-measure at fire time so layout settle can cancel a needless resize.
+      const latest = validateResizeViewport(el.clientWidth, el.clientHeight, DEFAULT_VIEWPORT_POLICY)
+      if (!latest.ok) return
       const profile = detectDeviceProfile()
-      if (!this.connection.hub || this.resizeInFlight) return
+      if (
+        viewportSizesClose(latest.w, latest.h, this.remoteViewportW, this.remoteViewportH)
+        && deviceProfilesEqual(this.deviceProfile, profile)
+      ) {
+        return
+      }
       this.resizeInFlight = true
       try {
         const result = await this.connection.hub.invoke<ResizeResultPayload>(
-          'ResizeAsync', w, h, profile,
+          'ResizeAsync', latest.w, latest.h, profile,
         )
         if (result?.applied) {
-          this.syncCanvasSize(result.width, result.height)
-          this.remoteViewportW = result.width
-          this.remoteViewportH = result.height
+          // Confirm CSS-requested size — never chase ack/chrome deltas into another resize.
+          this.syncCanvasSize(latest.w, latest.h)
+          this.remoteViewportW = latest.w
+          this.remoteViewportH = latest.h
           this.deviceProfile = profile
           this.emit({ resizeWarning: null })
         } else {
@@ -220,7 +238,7 @@ export class MotorEngine {
           this.flushPendingViewportSync()
         }
       }
-    }, 250)
+    }, 320)
   }
 
   /** After IME closes, apply any orientation/size changes deferred while the shell was open. */
@@ -269,10 +287,10 @@ export class MotorEngine {
     this.emit({ status: 'connecting', statusText: 'Connecting...', showOverlay: true })
 
     try {
-      const readyRes = await fetch(`${API_URL}/ready`, { credentials: 'include' })
+      const readyRes = await fetch(`${API_URL}/health/ready`, { credentials: 'include' })
       if (!this.isActive()) return
       if (!readyRes.ok) {
-        window.location.replace('/setup')
+        window.location.replace('/w7s/setup')
         return
       }
       this.clientConfig = await fetchClientConfig(API_URL, true)
@@ -313,7 +331,7 @@ export class MotorEngine {
 
     const rawW = elements.viewport.clientWidth || 1280
     const rawH = elements.viewport.clientHeight || 720
-    const { w: initW, h: initH } = normalizeSessionViewport(rawW, rawH)
+    const { w: initW, h: initH } = normalizeSessionViewport(rawW, rawH, DEFAULT_VIEWPORT_POLICY)
     this.syncCanvasSize(initW, initH)
     this.remoteViewportW = initW
     this.remoteViewportH = initH
@@ -368,7 +386,7 @@ export class MotorEngine {
 
   private syncCanvasSize(w: number, h: number) {
     if (!this.elements) return
-    const clamped = normalizeSessionViewport(w, h)
+    const clamped = normalizeSessionViewport(w, h, DEFAULT_VIEWPORT_POLICY)
     this.sessionW = clamped.w
     this.sessionH = clamped.h
     this.elements.canvas.width = clamped.w
@@ -388,7 +406,7 @@ export class MotorEngine {
       this.elements.urlBar.value = mapped
       this.emit({ url: mapped })
     }
-    syncClientLocation(mapped, !!this.clientConfig?.mirroringEnabled)
+    syncClientLocation(mapped, hasSubdomainMirroring(this.clientConfig))
   }
 
   private onSessionStatus(s: SessionStatusPayload) {
@@ -403,17 +421,11 @@ export class MotorEngine {
       this.currentUrl = s.url
       this.elements.urlBar.value = s.url
       this.emit({ url: s.url })
-      syncClientLocation(s.url, !!this.clientConfig?.mirroringEnabled)
+      syncClientLocation(s.url, hasSubdomainMirroring(this.clientConfig))
     }
 
-    // Confirmed geometry only — never while a ResizeAsync ack is pending (candidate vs confirmed).
-    if (!this.resizeInFlight
-      && s.width > 0 && s.height > 0
-      && (s.width !== this.sessionW || s.height !== this.sessionH)) {
-      this.syncCanvasSize(s.width, s.height)
-      this.remoteViewportW = this.sessionW
-      this.remoteViewportH = this.sessionH
-    }
+    // Status geometry must never drive CSS or remote resize targets.
+    // CSS host → ResizeAsync is the only size authority.
 
     const editing = s.editing?.focused ? s.editing : null
 

@@ -29,7 +29,7 @@
 ## DNA pages
 - [Hub](hub.md)
 - [Section editor flow](section-edit-flow/section-editor.md) — primary inventories: Navigation (`defaultTargetHost`, allowlisted main-frame URLs), Sessions (detached timeout, JavaScript bridge, viewport), ResourceManagement (session concurrency, storage budget); Hosting, Journal, and Telemetry have advanced inventories.
-- Scripting primarily deep-links to [`/admin/scripts?tab=injections`](../../../../Refactor/web/src/App.tsx); advanced JSON stays secondary.
+- Scripting primarily deep-links to [`/admin/scripts?tab=injections`](../../../../web/src/App.tsx); advanced JSON stays secondary.
 
 ## Nav placement
 Admin nav item **Configurations**.

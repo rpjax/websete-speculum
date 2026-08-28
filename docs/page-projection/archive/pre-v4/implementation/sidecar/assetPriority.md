@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/assetPriority.ts` (≤200 LOC) + hooks from rewrite/mirror |
+| **Future path** | `sidecar/browser/patchright/mirror/page/assetPriority.ts` (≤200 LOC) + hooks from rewrite/mirror |
 | **LOC ceiling** | 200 |
 | **Contracts** | [11-assets.md](../../contracts/11-assets.md) § priority |
 | **Invariants** | CSS and in-viewport images fetched ahead of below-fold/decorative. Margin = `assetPriorityViewportPx` (default 200). Never block establish paint on asset await. |

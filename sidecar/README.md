@@ -1,160 +1,184 @@
-# Speculum sidecar
+# Speculum sidecar (Refactor) — BrowserSession over gRPC
 
-Node.js service that runs **real Chromium** (via [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)) on a virtual framebuffer (Xvfb). The API connects over WebSocket; the sidecar manages browser lifecycle, CDP screencast, input injection, navigation guarding, and **Tier 4 browser state** export/import (cookies, localStorage, IndexedDB, history).
+Two ways to run this tree:
 
-This container is **never exposed** to the public internet in production stacks — only `Speculum.Api` talks to it on the Docker network.
+| Path | What it is | Ports | Chrome |
+|------|------------|-------|--------|
+| **gRPC host** (`npm start`) | Production-shaped sidecar for Api | `50051` gRPC, `3001` health | mock or sealed factory (PP / video) |
+| **PageProjection lab** (`npm run lab:projection`) | Dev-only V4 engine as a `BrowserSession` caller. No gRPC, no .NET. | `4077` HTTP + WS | Patchright (one Virtual per client session) |
 
----
+Live composition uses `createSealedBrowserSessionFactory`: Launch `mirrorMode=pageProjection` → `PageProjectionBrowserSession`; otherwise `VideoStreamingBrowserSession`. `LivePageProjection` is deleted. Lab detail: [browser/mirror/projection/lab/README.md](browser/mirror/projection/lab/README.md). Lab **target design**: [docs/page-projection/spec/lab-design.md](../../docs/page-projection/spec/lab-design.md). Spec index: [docs/page-projection/spec/README.md](../../docs/page-projection/spec/README.md).
 
-## Table of contents
+## PageProjection lab (local)
 
-- [Role in the stack](#role-in-the-stack)
-- [Project layout](#project-layout)
-- [Prerequisites](#prerequisites)
-- [Run locally](#run-locally)
-- [Environment](#environment)
-- [WebSocket protocol](#websocket-protocol)
-- [Binary messages to clients](#binary-messages-to-clients)
-- [Tests](#tests)
-- [Docker](#docker)
-- [Operational notes](#operational-notes)
+Dev surface for Projected Live. The lab process **does not** launch Chromium or call CDP itself — `PageProjectionBrowserSession` owns Patchright, inject, dataplane, and probes. HTTP serves the client shell + fixtures; frames are relayed on the lab WebSocket for apply.
 
----
+### Prerequisites
 
-## Role in the stack
-
-```
-Speculum.Api  ──ws://sidecar:3000──►  sidecar
-                                         ├─ WsSessionHost (WebSocket transport)
-                                         ├─ RemoteBrowserSession (Chrome + CDP)
-                                         ├─ SessionViewport (sole confirmed W×H owner)
-                                         ├─ VirtualDisplay (exact Xvfb geometry)
-                                         ├─ ScreencastPipeline → JPEG (idle screenshots match confirmed size)
-                                         └─ BrowserState (CDP export/import on shutdown/create)
-```
-
-Each API session maps to one `RemoteBrowserSession` with its own display number, **confirmed** viewport (`SessionViewport`), navigation allowlist, and optional browser state restore. Runtime size changes recreate Xvfb at the exact requested geometry (this image does not honour `xrandr --newmode`) and acknowledge via correlated `resize` / `resizeResult`.
-
----
-
-## Project layout
-
-```
-sidecar/
-├── src/
-│   ├── index.ts                    HTTP /health + WebSocket server
-│   ├── transport/WsSessionHost.ts  WS handshake + session routing
-│   ├── browser/
-│   │   ├── RemoteBrowserSession.ts Chrome lifecycle orchestrator
-│   │   ├── SessionViewport.ts      Confirmed viewport + resize outcomes
-│   │   ├── viewport-bounds.ts      Start normalize / resize validate
-│   │   ├── BrowserLauncher.ts      Patchright launch and CDP
-│   │   ├── ScreencastPipeline.ts   JPEG frame pipeline
-│   │   ├── VirtualDisplay.ts       Exact Xvfb lifecycle + recreate
-│   │   ├── JsBridgeSetup.ts        evaljs + console bridge
-│   │   └── UrlSyncBridge.ts        URL/status sync
-│   ├── navigation/NavigationGuard.ts
-│   ├── input/InputPipeline.ts
-│   ├── protocol/wire-protocol.ts   Binary + JSON wire contracts
-│   ├── BrowserState.ts             CDP export/import (cookies, LS, IDB, history)
-│   └── test/                       Node built-in test runner
-├── extensions/webgl-spoof/   Optional extension payload
-├── Dockerfile                Production image (Chrome + Xvfb + deps)
-└── package.json
-```
-
----
-
-## Prerequisites
-
-- Node.js **22.x**
-- Linux or Docker (Chrome + Xvfb are Linux-oriented; local Windows dev typically uses Docker for the sidecar)
-
----
-
-## Run locally
+- Node 20+ (Docker image uses 22). From this directory: `sidecar`.
+- `npm ci` (or `npm install`) once.
+- Chrome/Chromium that Patchright can launch (same machine). Headless by default.
 
 ```bash
 cd sidecar
 npm ci
-npm run build
-npm start
 ```
 
-Health check: `curl http://localhost:3000/health` → `ok`
-
-For interactive debugging without Docker, you need Xvfb and Chromium dependencies matching the `Dockerfile`.
-
----
-
-## Environment
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SIDECAR_PORT` | `3000` | HTTP + WebSocket listen port |
-| `NODE_ENV` | — | Set to `production` in composed stacks |
-
----
-
-## WebSocket protocol
-
-Control plane uses **JSON** messages (see `protocol/wire-protocol.ts`). Key inbound types:
-
-| Type | Purpose |
-|------|---------|
-| `create` | Start session: `sessionId`, `width`, `height`, `url`, optional `browserState`, `scripts`, `allowedNavigationDomains` |
-| `input` | Pointer/keyboard events from motor client |
-| `navigate` | Programmatic navigation |
-| `eval` | JavaScript evaluation in page context |
-| `destroy` | Tear down session and capture browser state |
-| `exportState` | On-demand CDP export (cookies, localStorage, IndexedDB, history) |
-
----
-
-## Binary messages to clients
-
-Relayed through API SignalR to the web motor (see [../docs/motor-reference.md](../docs/motor-reference.md)):
-
-| Type | Name | Payload |
-|------|------|---------|
-| `0x04` | URL update | UTF-8 URL |
-| `0x05` | Console | level + message |
-| `0x06` | Eval result | id + ok + value |
-| `0x08` | Screencast | JPEG bytes |
-| `0x09` | Status | JSON snapshot (~1 s) |
-| `0x0A` | Redirect | UTF-8 URL (leave virtual browser) |
-
----
-
-## Tests
+### Human UI (deploy the lab)
 
 ```bash
-npm test
+npm run lab:projection
+# Windows PowerShell, visible Chrome:
+# $env:SPECULUM_LAB_HEADED='1'; npm run lab:projection
+# Unix:
+# SPECULUM_LAB_HEADED=1 npm run lab:projection
 ```
 
-Runs `session-coherence.test.ts` after TypeScript compile — validates session state transitions without launching full Chrome where mocked.
+That script builds `virtual.js`, the lab client, the snapshot bundle, runs `tsc`, then starts the server.
 
----
+Open **http://127.0.0.1:4077/** → **Connect**.
+
+| Control | Effect |
+|---------|--------|
+| **Browse → Start Virtual** | Free navigation; stays up until Stop |
+| **Browse → Stop** | Stops Virtual; exports dossier |
+| **Run → Start run** | Cold blueprint run; progress + verdicts; stops Virtual when done |
+| **Clear surface** | Empties the projected iframe |
+
+Bind: `SPECULUM_LAB_HOST` (default `127.0.0.1`), `SPECULUM_LAB_PORT` (default `4077`). Fixtures: `http://127.0.0.1:4077/fixtures/demo.html`.
+
+This is **not** the gRPC sidecar. Do not point `Sidecar:GrpcAddress` at 4077.
+
+### Agent CLI
+
+```bash
+npm run lab:run -- --blueprint soak fixtures/demo.html 15s --cpu --iso --out lab-runs
+```
+
+Prints the dossier directory (last line). Start at `report.json` (pointer) → `verdicts.json` / `manifest.json`. Exit `0` if no `fail`.
+
+On Windows, prefer positional / bare words (`iso`, `cpu`, `headed`) — npm may swallow dashed flags.
+
+| Flag | Meaning |
+|------|---------|
+| `--blueprint` / `-b` | Blueprint id (`soak`, `cssom-foundation`, `cssom-heavy`) |
+| `--url` or positional | `http(s)://…` or `fixtures/<file>` |
+| `--duration` or positional | `15000` / `15s` / `1m` |
+| `--cpu` / `cpu` | CDP CPU probe |
+| `--iso` / `iso` | Coherent snapshot iso |
+| `--no-invariants` | Skip wire invariants in fold |
+| `--headed` | Visible Chrome |
+| `--out` | Report root (default `lab-runs/`) |
+
+```bash
+npm run lab:cssom-foundation
+npm run lab:cssom-heavy
+```
+
+Sugar only — same runner. Foundation suite then runs small `cssom-scale` soak `--iso` children.
+
+### Lab env
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `SPECULUM_LAB_HOST` | `127.0.0.1` | HTTP/WS bind |
+| `SPECULUM_LAB_PORT` | `4077` | HTTP/WS port |
+| `SPECULUM_LAB_HEADED` | unset | `1` = visible Chrome |
+
+Smoke: `npm run smoke:projection-lab`. Units: `npm run unit` (includes V4 session tests).
+
+## Run (gRPC host)
+
+```bash
+# interactive harness (no Chrome) — ~60 fps JPEG scene + full input feedback
+SPECULUM_BROWSER=mock SPECULUM_GRPC_PORT=50051 SPECULUM_HEALTH_PORT=3001 npm start
+
+# mock smoke (asserts a real JPEG frame)
+SPECULUM_BROWSER=mock npm run smoke
+
+# units (domain allowlist + viewport bounds)
+npm run unit
+
+# production host (Chrome + Xorg+dummy; input: set SPECULUM_INPUT_BACKEND=patchright until OS path works)
+SPECULUM_BROWSER=patchright SPECULUM_INPUT_BACKEND=patchright SPECULUM_GRPC_PORT=50051 SPECULUM_HEALTH_PORT=3001 npm start
+```
+
+### Mock harness
+
+When `SPECULUM_BROWSER=mock`, the sidecar does **not** launch Chrome. It runs an
+interactive in-process scene (`MockBrowserSession` + `HarnessScene`) that:
+
+- Emits real JPEG frames at ~60 fps (16 ms target; quality auto-drops if encode is slow)
+- Visualizes all `BrowserInput` types (mouse, wheel, keys, type/text, touch, goback/goforward)
+- Emits location / editable-focus / navigation-blocked events like a real session
+
+Use with the Api demo (`Speculum.Api/wwwroot`) for daily stream + input feel testing.
 
 ## Docker
 
+Build from ``:
+
 ```bash
-docker build -t speculum-sidecar .
+docker build -f sidecar/Dockerfile -t speculum-sidecar-grpc .
+docker run --rm -p 50051:50051 -p 3001:3001 --shm-size=2g --cap-add=SYS_ADMIN speculum-sidecar-grpc
+# then: SPECULUM_SMOKE_TARGET=127.0.0.1:50051 npm run smoke:remote
 ```
 
-Required capabilities in compose:
+`--shm-size=2g` is the create-time floor. Admins can remount a larger `/dev/shm`
+at runtime via API `ApplyHostResources` (requires `SYS_ADMIN`, already set in
+dockup). Restart returns to the floor until Apply is run again.
 
-- `cap_add: [SYS_ADMIN]` — Chrome sandbox / namespace needs
-- `shm_size: 2gb` — avoid Chromium shared-memory crashes
+Compose (Api + sidecar, gRPC only — no WS):
 
-Image is referenced as `speculum-sidecar` in [dockup config](../deploy/speculum.dockup.example.json).
+```bash
+# from 
+docker compose up --build
 
----
+# or from repo root
+docker compose -f deploy/compose/docker-compose.refactor-grpc.yml up --build
+```
 
-## Operational notes
+## Env
 
-- **Memory:** each session runs a full Chromium instance; size `MaxSessions` accordingly.
-- **Navigation guard:** only main-frame document URLs are checked against `allowedNavigationDomains` from API config.
-- **Build output:** `dist/` is gitignored; Docker and CI always compile inside the image or test pipeline.
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `SPECULUM_BROWSER` | _(required)_ | `mock` (interactive harness) or `patchright` |
+| `SPECULUM_GRPC_PORT` | `50051` | gRPC listen port |
+| `SPECULUM_HEALTH_PORT` | `3001` | `GET /health`, `GET /ready` |
+| `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Chrome binary (patchright only) |
+| `SPECULUM_V4L2_DEVICE` | unset | Reserved — media ingress not implemented |
+| `SPECULUM_INPUT_BACKEND` | `os` | `os` (uinput / X11 — Linux lab) or `patchright` (CDP). **Prod/test dockup force `patchright`** until OS→Chrome delivery is proven. |
 
-Parent docs: [../readme.md](../readme.md) · [../docs/architecture.md](../docs/architecture.md)
+## Multi-session input isolation (manual)
+
+When running **multiple live sessions on the same sidecar** (`MaxSessions` > 1), verify OS input stays per-session:
+
+1. Deploy with `SPECULUM_INPUT_BACKEND=os` on Linux with `/dev/uinput` (not Docker Desktop WSL2).
+2. Open two sessions in parallel (two browser tabs / clients).
+3. Click, type, and touch in session A — session B must not move cursor, receive keys, or see touch contacts.
+4. Repeat after starting session B while A is already live (hotplug path).
+5. Stop one session — the other must keep accepting input normally.
+
+Unit coverage: `npm run unit` (`xorg input isolation flags`, `display isolation registry`).
+
+## Input telemetry
+
+The sidecar exposes input pressure through pull/sample telemetry, not per-input events:
+
+- `sidecar.queues.inputDepth`: admitted input still in flight inside the sidecar
+  (coalesced pending move/touch flushes + serialized inject backlog)
+- `sidecar.queues.inputChainDepth`: just the serialized inject-chain backlog
+- `sidecar.queues.droppedTotal`: cumulative DropOldest loss on bounded sidecar bridge queues
+
+This is sampled by `CollectTelemetry`; it is outside the input hot path.
+
+## Media ingress (TODO)
+
+`pushCameraFrame` / `pushMicrophoneAudio` fail closed (`FAILED_PRECONDITION` / `media_ingress_not_implemented`).
+Per-session v4l2loopback + Chrome `getUserMedia` binding is not implemented yet.
+
+## Api surface (Refactor)
+
+- `Sidecar:GrpcAddress` / `Sidecar__GrpcAddress` (e.g. `http://sidecar:50051`) — no WS live path.
+- `ISessionConnection.GetNotificationReader()` — location, navigation blocked, editable focus, crash.
+- `SetCameraPermissionHandler` / `SetMicrophonePermissionHandler` — async hooks; default deny.

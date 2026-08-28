@@ -274,7 +274,7 @@ and must fail immediately rather than decode as valid. An opcode in a **reserved
 ## 4. Instruction set — DECIDED (shipped ISA)
 
 **Lacre rule (2026-08-20):** §4 lists **only** opcodes the lab producer emits and the client
-materializes on the happy path. Source of truth: `Refactor/packages/page-projection/src/core/opcodes.ts` (`@speculum/page-projection/core`).
+materializes on the happy path. Source of truth: `packages/page-projection/src/core/opcodes.ts` (`@speculum/page-projection/core`).
 Reserved ranges (§3) stay for future append-only extension. An opcode byte in `ops` that is **not**
 listed here ⇒ **`version_skew`** if it falls in a reserved range, else **desync** — never
 best-effort apply. Early design drafts (`NODE_META`, `DOC_STATE`, `SCROLL_*`, `NODE_SNAPSHOT`,
@@ -909,7 +909,7 @@ Unknown kind remains `malformed`.
 | **OPEN-4** | ~~Establish: `EST_CHUNK_HTML` or `EST_TABLE`?~~ | **CLOSED — moot.** Establish does not exist (§4.7). There is nothing left to choose between. |
 | **OPEN-5** | ~~Recovery flow: mid-session attach + desync resync~~ | **CLOSED — see §5.8.** One mechanism (identity-map two-pass reconstruction, existing opcodes, existing double-buffer surface) covers both triggers. Residual non-blocking follow-ups listed at the end of §5.8 (old contract rewrites, a synchronous-walk budget number, test-matrix rows). |
 | **OPEN-6** | Multi-document | **Lab same-origin iframe 2026-08-19** — [multi-document.md](multi-document.md). `contextId` on the header, child-scope indexer, blank Projected host, bus/`emitFrame`/resync-request. Effect: lab `iframe-open` `iso.nested` + `iso.nested.blank` (DOM client). |
-| **OPEN-7** | ~~`ReplicatedTable.insertBatch` reverse `nextSiblingOf` on insert-before-existing~~ | **CLOSED 2026-08-14.** `insertBatch` now sets `nextSiblingOf.set(prev, before)` when `before !== NONE` (same reverse write `linkAfter` already did). Falsifier: `INSERT(P, before=X, [A,L]); REMOVE(P,[L])` ⇒ `getRow(X).prevSibling === id(A)` — `testReplicatedTableInsertBeforeNextSiblingRepair` in `Refactor/sidecar/unit.ts`. Historical defect write-up remains in the 2026-08-14 “not fixed this pass” decision-log row below. **Does not cover prepend+tail-evict** — that is OPEN-8. |
+| **OPEN-7** | ~~`ReplicatedTable.insertBatch` reverse `nextSiblingOf` on insert-before-existing~~ | **CLOSED 2026-08-14.** `insertBatch` now sets `nextSiblingOf.set(prev, before)` when `before !== NONE` (same reverse write `linkAfter` already did). Falsifier: `INSERT(P, before=X, [A,L]); REMOVE(P,[L])` ⇒ `getRow(X).prevSibling === id(A)` — `testReplicatedTableInsertBeforeNextSiblingRepair` in `sidecar/unit.ts`. Historical defect write-up remains in the 2026-08-14 “not fixed this pass” decision-log row below. **Does not cover prepend+tail-evict** — that is OPEN-8. |
 | **OPEN-8** | ~~`unlink` of the last child leaves `nextSiblingOf[prev]` → id~~ | **CLOSED 2026-08-14.** Derived `nextSiblingOf[prevLast]` still pointed at the removed last child. The next tail `REMOVE` took the “has next” branch (the next row still exists, now detached) and skipped `lastChildOf`. `orderedChildIds` then started at a detached id with `prevSibling=0` → walk length 1 vs hundreds hashed/live. O2 on `prepend-stress.html` (2026-08-14T19-30, seq 695, `#19 child_order_mismatch`). Wire `preTableHash` green (derived links not hashed — P0). Falsifier: `testReplicatedTablePrependEvictDerivedLinks` in `unit.ts`. Fix: `nextSiblingOf.delete(prev)` when unlinking the last child. Sibling of OPEN-7, not a reopen. |
 
 ---

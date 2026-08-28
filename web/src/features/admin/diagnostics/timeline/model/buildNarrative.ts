@@ -2,6 +2,8 @@ import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
 import { detectStoryType, STORY_TYPES } from '@/lib/diagnosticsConstants'
 import { narrateStory } from '@/lib/diagnosticsDescriptions'
 import type { CorrelationStory } from '@/lib/hooks/useCorrelationStories'
+import { isFaultEvent, isNaturalLifecycleClose } from './eventSemantics'
+import { eventMatchesAnyJournalSource } from './journalSources'
 import type {
   BeatCluster,
   ChapterOutcome,
@@ -100,9 +102,8 @@ function spanDepth(span: NarrativeSpan, byId: Map<string, NarrativeSpan>, seen: 
 }
 
 function chapterOutcome(events: DiagnosticsEventRecord[], spans: NarrativeSpan[]): ChapterOutcome {
-  if (events.some((e) => e.severity === 'Error' || /Failed|Rejected|TimedOut|Refused|Blocked/.test(e.name)))
-    return 'failed'
-  if (events.some((e) => e.severity === 'Warning') || spans.some((s) => s.status === 'abandoned' || !s.ok))
+  if (events.some((e) => isFaultEvent(e))) return 'failed'
+  if (events.some((e) => e.severity === 'Warning' && !isNaturalLifecycleClose(e.name)) || spans.some((s) => s.status === 'abandoned' || !s.ok))
     return 'warning'
   if (spans.some((s) => s.status === 'open')) return 'open'
   if (events.length > 0) return 'ok'
@@ -237,10 +238,14 @@ export function resolvePeriodBounds(period: NarrativePeriod, nowMs = Date.now())
     return { fromMs: period.fromMs, toMs: period.toMs ?? nowMs }
   }
   const map: Record<string, number> = {
+    '5m': 5 * 60_000,
     '15m': 15 * 60_000,
+    '30m': 30 * 60_000,
     '1h': 3600_000,
+    '2h': 2 * 3600_000,
     '6h': 6 * 3600_000,
     '24h': 86400_000,
+    '7d': 7 * 86400_000,
   }
   if (period.preset === 'all') {
     return { fromMs: period.fromMs ?? 0, toMs }
@@ -268,11 +273,20 @@ export function applyReadingFilters(
   filters: ReadingFilters,
 ): DiagnosticsEventRecord[] {
   return events.filter((e) => {
-    if (filters.domains.length > 0 && !filters.domains.includes(e.domain)) return false
+    // `domains` holds Journal source ids (Sessions / Profiles / Telemetry.Sessions / …),
+    // not legacy diagnostics domain names.
+    if (filters.domains.length > 0 && !eventMatchesAnyJournalSource(e, filters.domains)) return false
     if (filters.severities.length > 0 && !filters.severities.includes(e.severity)) return false
     if (filters.search.trim()) {
       const terms = filters.search.toLowerCase().split(/\s+/).filter(Boolean)
-      const text = `${e.name} ${e.domain} ${e.severity} ${e.connectionId ?? ''} ${e.correlationId ?? ''}`.toLowerCase()
+      let payload = ''
+      try {
+        payload = JSON.stringify(e.payload ?? '')
+      } catch {
+        payload = String(e.payload ?? '')
+      }
+      const text =
+        `${e.name} ${e.domain} ${e.severity} ${e.connectionId ?? ''} ${e.correlationId ?? ''} ${payload}`.toLowerCase()
       if (!terms.every((t) => text.includes(t))) return false
     }
     return true

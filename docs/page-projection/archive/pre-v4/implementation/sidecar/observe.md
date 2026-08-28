@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/observe.ts` **and** in-page fragment `inpage/observe.frag.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/observe.ts` **and** in-page fragment `inpage/observe.frag.ts` |
 | **LOC ceiling** | 400 |
 | **Contracts implemented** | [02-f-map.md](../../contracts/02-f-map.md), [03-frame.md](../../contracts/03-frame.md); redesign §5.2.1 sensors, §5.3.2; pierce lifecycle hooks |
 | **Invariants** | MutationObserver + state sensors record **dirtiness only** — zero string/payload work in handlers. Non-published records discarded at callback top before identity (PP-FR-5). Pierce attach/detach updates observation roots. Scroll sensors update `scrollDirty` with last-sample wins; viewport uses sentinel id `0` (D-SPEC-5). |

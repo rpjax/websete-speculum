@@ -1,6 +1,6 @@
 # Implementation — `ProjectionClient.ts` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/ProjectionClient.ts`  
+**Future path:** `web/src/features/sessions/live/page/ProjectionClient.ts`  
 **LOC ceiling:** 300  
 **Contracts:** orchestration across 04, 05, 07, 08, 09, 10  
 **Norm:** redesign §5.6–5.9, §5.7; module map: **orchestration only — no algorithm**  

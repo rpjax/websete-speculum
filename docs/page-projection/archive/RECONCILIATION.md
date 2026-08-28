@@ -82,7 +82,7 @@ These are design/lifecycle decisions, not mechanical cleanup — recorded, not e
 Recorded here so the doc and code observations live in one place. **No code was changed.**
 
 - **Two implementations coexist.** The new table engine lives under
-  `Refactor/sidecar/browser/mirror/projection/` and is exercised only by its lab. Production
+  `sidecar/browser/mirror/projection/` and is exercised only by its lab. Production
   (`PatchrightBrowserSession.ts:305`) still starts `LivePageProjection` from the old
   `mirror/page/liveAttach` path. The cutover is the real M1 item; "never two live paths" applies on
   cutover day (delete the loser, do not flag it).

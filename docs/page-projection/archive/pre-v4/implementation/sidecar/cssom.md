@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Future path** | `Refactor/sidecar/browser/patchright/mirror/page/cssom.ts` **and** in-page fragment `inpage/cssom.frag.ts` |
+| **Future path** | `sidecar/browser/patchright/mirror/page/cssom.ts` **and** in-page fragment `inpage/cssom.frag.ts` |
 | **LOC ceiling** | 400 |
 | **Contracts implemented** | [06-cssom.md](../../contracts/06-cssom.md); redesign §5.10; D-SPEC-8 (id range); sealed C1–C9 as amended |
 | **Invariants** | Dom/Cssom plane split; shared `generation`/`sequence`; one pipe. Cssom ids in `[0x80000001 .. 0xFFFFFFFF]`; `0x80000000` reserved; Dom ids never enter this range. Opcode disambiguates sheet vs rule. `cssomInstall` before any `establishChunk`. Live Cssom after Dom patch/documentState, before scrolls. Owned CSSOM on client (not URL reload authority). Scope `main \| pierceHost`. |

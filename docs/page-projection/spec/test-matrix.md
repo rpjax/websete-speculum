@@ -9,7 +9,7 @@
 # PageProjection — test matrix
 
 **Status:** coverage truth for V4. Canon: [frame-protocol.md](frame-protocol.md) + [budgets.md](budgets.md).
-Style: `Speculum.MotorAssert.Tests/MATRIX.md`. WP column is historical packaging, not a second spec.
+Style: `Speculum.Api.SessionsTest.Tests/MATRIX.md`. WP column is historical packaging, not a second spec.
 
 Every row below MUST be an effect assert. `200` / `ok: true` / a delivered frame count never proves a
 row — see [assert-failure-policy.md](../../assert-failure-policy.md) and the always-applied workspace rules.

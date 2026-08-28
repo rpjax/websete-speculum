@@ -1,6 +1,6 @@
 # Implementation — `applyDom.ts` (web)
 
-**Future path:** `Refactor/web/src/features/sessions/live/page/applyDom.ts`  
+**Future path:** `web/src/features/sessions/live/page/applyDom.ts`  
 **LOC ceiling:** 400  
 **Contracts:** [09-apply.md](../../contracts/09-apply.md), [02-f-map.md](../../contracts/02-f-map.md), [04-wire.md](../../contracts/04-wire.md), [10-interaction.md](../../contracts/10-interaction.md)  
 **Decisions:** D-SPEC-1 (`documentState`), D-SPEC-5 (viewport scroll sentinel / `scrollViewport`)  

@@ -6,7 +6,7 @@
  * / `_new` must become a **same-tab redirect** (`location` change on the primary page).
  * Never two tabs alive in one session — not even briefly as a “real” surface.
  *
- * Primary path: {@link SINGLE_TAB_INIT_SCRIPT} (init + every freshPage) rewrites open/_blank
+ * Primary path: single-tab body in the unified CDP inject bundle rewrites open/_blank
  * before the browser allocates a new top-level browsing context.
  *
  * Safety net: if Chromium still creates a page (`context.on('page')`), **close it

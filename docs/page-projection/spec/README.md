@@ -17,7 +17,7 @@
 
 **Next product work (ordered):**
 1. ~~Re-prove Eneba / heavy CF on sparse-cdp~~ — done (Rodrigo 2026-08-27).
-2. **Loopback establish protocol** — [loopback.md](loopback.md) SEALED; impl **PP-LOOPBACK-ESTABLISH** ([open.md](open.md)). Symmetric `establishConnection` / `waitEstablished`; handshake; no ghost WS. **cutover-blocker** for live input on nav-churn sites.
+2. **Extension plane loopback** — [extension-plane.md](extension-plane.md) SEALED; impl **PP-EXTENSION-PLANE** ([open.md](open.md)). Binance stress: zero LNA no console da página + establish bilateral.
 3. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`.
 4. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
 5. MotorAssert compose seed `MirrorMode.PageProjection`.

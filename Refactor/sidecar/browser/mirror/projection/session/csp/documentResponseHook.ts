@@ -1,18 +1,13 @@
 /**
- * CDP Fetch hook: Document **Response** stage (+ stored-script Request fulfill).
+ * CDP Fetch hook: Document **Response** stage (CSP surgery only).
  *
  * Chromium already completed TLS/HTTP for the request — we only mutate the arrived
  * response. Never pause Document at Request / never fulfill Document from Node bytes
  * that were not obtained via Fetch.getResponseBody.
  *
- * Mutators run in order (CSP first; script-tag inject later). If nothing changes,
- * continueResponse — do not re-fulfill.
- *
  * Scope (csp.md §3): every browsing context that loads HTML — main **and** iframes,
- * including cross-site OOPIF. Page CDP alone can miss OOPIF Script requests (Eneba /
- * Cloudflare Turnstile). Child targets get the same Fetch patterns via
- * `context.newCDPSession(frame)` (Patchright public API). Browser-level
- * `Target.setAutoAttach` with `flatten:false` is rejected by Chromium; do not use it.
+ * including cross-site OOPIF. Page CDP alone can miss OOPIF Document requests.
+ * Child targets get the same Fetch patterns via `context.newCDPSession(frame)`.
  */
 
 import type { BrowserContext, CDPSession, Frame, Page } from 'patchright';
@@ -22,6 +17,12 @@ import {
   type CspHeader,
 } from './relaxCsp';
 import { cspDiagLog } from './cspDiag';
+import {
+  attachFrameCdp,
+  createFrameCdpAttachState,
+  wireFrameCdpLifecycle,
+  type FrameCdpAttachState,
+} from '../frameCdpSession';
 
 export type DocumentResponseContext = {
   url: string;
@@ -54,11 +55,6 @@ export function cspDocumentMutator(ctx: DocumentResponseContext): {
 export type InstallDocumentResponseHookOptions = {
   mutators?: DocumentResponseMutator[];
   /**
-   * Stored launch scripts (`file` + `content`, no remoteUrl).
-   * Adds Request-stage Fetch patterns and fulfills matched pathnames.
-   */
-  storedScripts?: readonly { file: string; content: string }[];
-  /**
    * When set with {@link page}, attach the same Fetch hook to OOPIF frames via
    * `context.newCDPSession(frame)`.
    */
@@ -73,27 +69,15 @@ type HookState = {
   // CDP RequestPattern — kept loose (Patchright typings vary by version).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   patterns: any[];
-  scriptMap: Map<string, { file: string; content: string }>;
   mutators: DocumentResponseMutator[];
-  /** frame → CDP session (OOPIF / nested). */
-  frameSessions: WeakMap<Frame, CDPSession>;
+  frameState: FrameCdpAttachState;
   /** Sessions that already have a Fetch.requestPaused listener (no stacking). */
   pausedBound: WeakSet<CDPSession>;
 };
 
 const byPageCdp = new WeakMap<CDPSession, HookState>();
 
-function buildFetchPatterns(
-  storedScripts: readonly { file: string; content: string }[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): any[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const patterns: any[] = [{ requestStage: 'Response', resourceType: 'Document' }];
-  for (const s of storedScripts) {
-    patterns.push({ requestStage: 'Request', urlPattern: `*${s.file}*` });
-  }
-  return patterns;
-}
+const DOCUMENT_RESPONSE_PATTERNS = [{ requestStage: 'Response', resourceType: 'Document' }];
 
 /** @internal Exported for unit tests — Document Response paused handler. */
 export async function handleDocumentResponsePausedForTest(
@@ -104,10 +88,9 @@ export async function handleDocumentResponsePausedForTest(
     responseHeaders?: Array<{ name?: string; value?: string }>;
     request?: { url?: string };
   },
-  scriptMap: Map<string, { file: string; content: string }>,
   mutators: DocumentResponseMutator[],
 ): Promise<void> {
-  return handleRequestPaused(send, event, scriptMap, mutators);
+  return handleRequestPaused(send, event, mutators);
 }
 
 async function handleRequestPaused(
@@ -118,7 +101,6 @@ async function handleRequestPaused(
     responseHeaders?: Array<{ name?: string; value?: string }>;
     request?: { url?: string };
   },
-  scriptMap: Map<string, { file: string; content: string }>,
   mutators: DocumentResponseMutator[],
 ): Promise<void> {
   const requestId = event?.requestId;
@@ -126,27 +108,6 @@ async function handleRequestPaused(
 
   const responseStatusCode = event?.responseStatusCode;
   if (responseStatusCode === undefined) {
-    const url = event?.request?.url ?? '';
-    if (scriptMap.size > 0 && url) {
-      try {
-        const { pathname } = new URL(url);
-        const script = scriptMap.get(pathname);
-        if (script) {
-          await send('Fetch.fulfillRequest', {
-            requestId,
-            responseCode: 200,
-            responseHeaders: [
-              { name: 'content-type', value: 'text/javascript; charset=utf-8' },
-              { name: 'cache-control', value: 'no-store' },
-            ],
-            body: Buffer.from(script.content, 'utf-8').toString('base64'),
-          });
-          return;
-        }
-      } catch {
-        /* fall through */
-      }
-    }
     try {
       await send('Fetch.continueRequest', { requestId });
     } catch {
@@ -240,7 +201,6 @@ async function handleRequestPaused(
         err: fulfillErr instanceof Error ? fulfillErr.message : String(fulfillErr),
         headerFallback: headerOnly.cspChanged,
       });
-      // Body rewrite failed — still apply enforcing CSP header surgery (csp.md §4/§5).
       if (headerOnly.cspChanged) {
         await continueWithHeaders(headerOnly.headers);
       } else {
@@ -253,7 +213,6 @@ async function handleRequestPaused(
       err: bodyErr instanceof Error ? bodyErr.message : String(bodyErr),
       headerFallback: headerOnly.cspChanged,
     });
-    // getResponseBody failed — header surgery still applies when CSP was present.
     if (headerOnly.cspChanged) {
       await continueWithHeaders(headerOnly.headers);
     } else {
@@ -262,10 +221,7 @@ async function handleRequestPaused(
   }
 }
 
-async function enableFetchOnSession(
-  session: CDPSession,
-  state: HookState,
-): Promise<void> {
+async function enableFetchOnSession(session: CDPSession, state: HookState): Promise<void> {
   await session.send('Fetch.enable', { patterns: state.patterns });
   if (state.pausedBound.has(session)) return;
   state.pausedBound.add(session);
@@ -274,78 +230,54 @@ async function enableFetchOnSession(
     const send: CdpSender = (method, params) =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (session as any).send(method, params);
-    await handleRequestPaused(send, event, state.scriptMap, state.mutators);
+    await handleRequestPaused(send, event, state.mutators);
   });
 }
 
-async function attachFrameSession(
+async function attachFrameFetch(
   frame: Frame,
   page: Page,
   context: BrowserContext,
   state: HookState,
 ): Promise<void> {
-  if (frame === page.mainFrame()) return;
-  if (state.frameSessions.has(frame)) return;
-  try {
-    const frameCdp = await context.newCDPSession(frame);
-    state.frameSessions.set(frame, frameCdp);
-    await enableFetchOnSession(frameCdp, state);
-  } catch {
-    /* same-process iframe / detached — page session may already see its network */
-  }
+  const frameCdp = await attachFrameCdp(frame, page, context, state.frameState);
+  if (frameCdp) await enableFetchOnSession(frameCdp, state);
 }
 
 /**
- * Enable Fetch on Document Response (+ optional stored-script Requests) and attach mutators.
+ * Enable Fetch on Document Response and attach CSP mutators.
  * Also attaches the same Fetch hook to OOPIF frames when `page` + `context` are provided.
- *
- * Idempotent per page CDPSession for the root session — caller owns lifecycle with the page.
  */
 export async function installDocumentResponseHook(
   cdp: CDPSession,
   opts?: InstallDocumentResponseHookOptions,
 ): Promise<void> {
   const mutators = opts?.mutators ?? [cspDocumentMutator];
-  const storedScripts = opts?.storedScripts ?? [];
-  const scriptMap = new Map(storedScripts.map((s) => [s.file, s] as const));
-  const patterns = buildFetchPatterns(storedScripts);
   const context = opts?.context ?? null;
   const page = opts?.page ?? null;
 
   let state = byPageCdp.get(cdp);
   if (!state) {
     state = {
-      patterns,
-      scriptMap,
+      patterns: DOCUMENT_RESPONSE_PATTERNS,
       mutators,
-      frameSessions: new WeakMap(),
+      frameState: createFrameCdpAttachState(),
       pausedBound: new WeakSet(),
     };
     byPageCdp.set(cdp, state);
   } else {
-    state.patterns = patterns;
-    state.scriptMap = scriptMap;
     state.mutators = mutators;
   }
 
   await enableFetchOnSession(cdp, state);
 
   if (page && context) {
-    for (const frame of page.frames()) {
-      await attachFrameSession(frame, page, context, state);
-    }
-    page.on('frameattached', (frame) => {
-      void attachFrameSession(frame, page, context, state!);
-    });
-    // OOPIF can swap network target on navigation — re-bind Fetch.
-    // Main frame: re-Fetch.enable after cross-process nav (session may keep object, patterns drop).
-    page.on('framenavigated', (frame) => {
-      if (frame === page.mainFrame()) {
-        void enableFetchOnSession(cdp, state!);
-        return;
-      }
-      if (state!.frameSessions.has(frame)) return;
-      void attachFrameSession(frame, page, context, state!);
+    await wireFrameCdpLifecycle({
+      page,
+      context,
+      state: state.frameState,
+      onFrameSession: (frame) => attachFrameFetch(frame, page, context, state!),
+      onMainFrameNavigated: () => enableFetchOnSession(cdp, state!),
     });
   }
 }

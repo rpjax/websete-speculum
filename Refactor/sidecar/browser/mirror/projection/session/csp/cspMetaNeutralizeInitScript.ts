@@ -7,7 +7,7 @@
  * bypass CSP globally; it prevents meta chokepoints the hook could not rewrite in-body.
  */
 
-/** Runs on every frame / navigation via addInitScript — must register before first goto. */
+/** @deprecated Use {@link META_CSP_NEUTRALIZE_BODY} in inject/injectScriptBodies — CDP bundle only. */
 export const CSP_META_NEUTRALIZE_INIT_SCRIPT = `
 (function speculum_csp_meta_neutralize() {
   'use strict';

@@ -263,6 +263,7 @@
   var PROJECTION_CONFIG_GLOBAL = "__SPECULUM_PROJECTION__";
   var DEFAULTS2 = {
     transport: "loopback",
+    loopbackCarrier: "extension",
     frameRateHz: 60,
     bufferedAmountWatermark: 256 * 1024,
     maxFrameBytes: 1 << 20,
@@ -284,6 +285,13 @@
       throw new Error(`ProjectionConfig.${label} must be >= 0 (got ${String(value)})`);
     }
     return n;
+  }
+  function asLoopbackCarrier(value) {
+    if (value === void 0 || value === null) return DEFAULTS2.loopbackCarrier;
+    if (value === "page-ws" || value === "extension") return value;
+    throw new Error(
+      `ProjectionConfig.loopbackCarrier must be "page-ws" | "extension" (got ${String(value)})`
+    );
   }
   function asTransport(value) {
     if (value === void 0 || value === null) return DEFAULTS2.transport;
@@ -335,10 +343,20 @@
     if (transport === "loopback" && sessionId.length === 0) {
       throw new Error('ProjectionConfig.sessionId is required when transport is "loopback"');
     }
+    const loopbackCarrier = asLoopbackCarrier(bag.loopbackCarrier);
+    const planeBridgeTokenRaw = bag.planeBridgeToken;
+    const planeBridgeToken = typeof planeBridgeTokenRaw === "string" ? planeBridgeTokenRaw.trim() : "";
+    if (transport === "loopback" && loopbackCarrier === "extension" && planeBridgeToken.length === 0) {
+      throw new Error(
+        'ProjectionConfig.planeBridgeToken is required when loopbackCarrier is "extension"'
+      );
+    }
     const resolved = {
       transport,
       sessionId,
       dataPlaneUrl,
+      loopbackCarrier,
+      planeBridgeToken,
       frameRateHz: asPositiveNumber(bag.frameRateHz, DEFAULTS2.frameRateHz, "frameRateHz"),
       bufferedAmountWatermark: asPositiveNumber(
         bag.bufferedAmountWatermark,
@@ -4782,6 +4800,46 @@
     }
   };
 
+  // ../packages/page-projection/src/core/loopback/socket.ts
+  var LOOPBACK_SOCKET_OPEN = 1;
+  var LOOPBACK_SOCKET_CLOSED = 3;
+
+  // ../packages/page-projection/src/virtual/transport/pageWebSocketLoopbackSocket.ts
+  var PageWebSocketLoopbackSocket = class {
+    ws;
+    constructor(url) {
+      this.ws = new WebSocket(url);
+      this.ws.binaryType = "arraybuffer";
+    }
+    get bufferedAmount() {
+      return this.ws.bufferedAmount;
+    }
+    get readyState() {
+      return this.ws.readyState;
+    }
+    get binaryType() {
+      return "arraybuffer";
+    }
+    set binaryType(_value) {
+      this.ws.binaryType = "arraybuffer";
+    }
+    send(data) {
+      this.ws.send(data);
+    }
+    close(code, reason) {
+      this.ws.close(code, reason);
+    }
+    addEventListener(type, listener, options) {
+      this.ws.addEventListener(type, listener, options);
+    }
+    removeEventListener(type, listener, options) {
+      this.ws.removeEventListener(type, listener, options);
+    }
+  };
+  function createPageWebSocketLoopbackSocket(url) {
+    return new PageWebSocketLoopbackSocket(url);
+  }
+
   // ../packages/page-projection/src/virtual/transport/loopbackDataPlane.ts
   var DEFAULT_WATERMARK = 256 * 1024;
   var RECONNECT_BACKOFF_MS = [50, 100, 200];
@@ -4792,6 +4850,7 @@
     socket = null;
     url = null;
     watermark;
+    createSocket;
     handler = null;
     invokeHandler = null;
     sessionId = "";
@@ -4804,13 +4863,14 @@
     helloAckWaiter = null;
     constructor(opts = {}) {
       this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
+      this.createSocket = opts.createSocket ?? createPageWebSocketLoopbackSocket;
     }
     get destinationUrl() {
       return this.url;
     }
     /** TCP OPEN only — do not use as product gate (LB-10). */
     get isOpen() {
-      return this.socket?.readyState === WebSocket.OPEN;
+      return this.socket?.readyState === LOOPBACK_SOCKET_OPEN;
     }
     get isEstablished() {
       return this.state === "established" && this.isOpen;
@@ -4832,7 +4892,7 @@
     open(url) {
       this.tearDownSocket(true);
       this.url = url;
-      const socket = new WebSocket(url);
+      const socket = this.createSocket(url);
       socket.binaryType = "arraybuffer";
       socket.addEventListener("message", (ev) => this.onSocketMessage(ev));
       socket.addEventListener("close", () => this.onSocketClose(socket));
@@ -4853,31 +4913,34 @@
     }
     /** @deprecated Prefer {@link establishConnection}. */
     whenOpen(timeoutMs = LOOPBACK_WS_OPEN_TIMEOUT_MS) {
-      if (this.isOpen) return Promise.resolve();
       const socket = this.socket;
       if (socket === null) {
         return Promise.reject(new Error("LoopbackDataPlane.whenOpen: not opened"));
       }
+      if (this.isOpen) return Promise.resolve();
       return new Promise((resolve, reject) => {
+        let settled = false;
+        let poll;
+        const finish = (fn) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (poll !== void 0) clearInterval(poll);
+          fn();
+        };
         const timer = setTimeout(() => {
-          reject(new Error("LoopbackDataPlane.whenOpen: timeout"));
+          finish(() => reject(new Error("LoopbackDataPlane.whenOpen: timeout")));
         }, timeoutMs);
-        socket.addEventListener(
-          "open",
-          () => {
-            clearTimeout(timer);
-            resolve();
-          },
-          { once: true }
-        );
-        socket.addEventListener(
-          "error",
-          () => {
-            clearTimeout(timer);
-            reject(new Error("LoopbackDataPlane.whenOpen: error"));
-          },
-          { once: true }
-        );
+        const onOpen = () => finish(() => resolve());
+        const onError = () => finish(() => reject(new Error("LoopbackDataPlane.whenOpen: error")));
+        const onClose = () => finish(() => reject(new Error("LoopbackDataPlane.whenOpen: closed")));
+        socket.addEventListener("open", onOpen, { once: true });
+        socket.addEventListener("error", onError, { once: true });
+        socket.addEventListener("close", onClose, { once: true });
+        poll = setInterval(() => {
+          if (this.isOpen) finish(() => resolve());
+        }, 10);
+        if (this.isOpen) finish(() => resolve());
       });
     }
     close() {
@@ -4902,7 +4965,7 @@
         return "deferred";
       }
       const socket = this.socket;
-      if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      if (socket === null || socket.readyState !== LOOPBACK_SOCKET_OPEN) {
         return "deferred";
       }
       if (socket.bufferedAmount > this.watermark) {
@@ -4915,18 +4978,19 @@
       if (!this.url) {
         throw new Error("LoopbackDataPlane.establishConnection: no url");
       }
-      if (this.socket === null || this.socket.readyState === WebSocket.CLOSED) {
+      if (this.socket === null || this.socket.readyState === LOOPBACK_SOCKET_CLOSED) {
         this.open(this.url);
       }
       this.setState("connecting");
       await this.whenOpen(LOOPBACK_WS_OPEN_TIMEOUT_MS);
+      const ackWait = this.waitHelloAck(LOOPBACK_HELLO_ACK_TIMEOUT_MS);
       this.sendHello();
-      await this.waitHelloAck(LOOPBACK_HELLO_ACK_TIMEOUT_MS);
+      await ackWait;
       this.setState("established");
     }
     sendHello() {
       const socket = this.socket;
-      if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      if (socket === null || socket.readyState !== LOOPBACK_SOCKET_OPEN) {
         throw new Error("LoopbackDataPlane: socket not open for hello");
       }
       socket.send(encodeLoopbackHello(this.sessionId, this.generation));
@@ -5068,7 +5132,7 @@
     async dispatchInvoke(correlationId, name, args) {
       const sendProgress = (encode) => {
         const socket2 = this.socket;
-        if (socket2 === null || socket2.readyState !== WebSocket.OPEN) return;
+        if (socket2 === null || socket2.readyState !== LOOPBACK_SOCKET_OPEN) return;
         try {
           socket2.send(encode(correlationId));
         } catch {
@@ -5119,7 +5183,7 @@
         clearInterval(heartbeat);
       }
       const socket = this.socket;
-      if (socket === null || socket.readyState !== WebSocket.OPEN) return;
+      if (socket === null || socket.readyState !== LOOPBACK_SOCKET_OPEN) return;
       try {
         socket.send(encodeLoopbackInvokeResult(correlationId, result));
       } catch {
@@ -5202,6 +5266,25 @@
     }
   };
 
+  // ../packages/page-projection/src/virtual/transport/extensionPlaneSocket.ts
+  function createExtensionPlaneLoopbackSocket(url) {
+    const factory = globalThis.__SPECULUM_EXTENSION_PLANE_SOCKET_FACTORY__;
+    if (typeof factory !== "function") {
+      throw new Error(
+        "Extension plane factory missing \u2014 inject extensionPlaneMainShim before virtual.js"
+      );
+    }
+    return factory(url);
+  }
+
+  // ../packages/page-projection/src/virtual/transport/loopbackSocketFactory.ts
+  function createLoopbackSocketFactory(carrier) {
+    if (carrier === "extension") {
+      return (url) => createExtensionPlaneLoopbackSocket(url);
+    }
+    return (url) => createPageWebSocketLoopbackSocket(url);
+  }
+
   // ../packages/page-projection/src/virtual/runtime/rootRuntime.ts
   var RootRuntime = class {
     mintAllocator = new ContextIdMint();
@@ -5223,9 +5306,9 @@
         frameTransport = new NullFrameTransport();
       } else {
         loopback = new LoopbackFrameTransport({
-          bufferedAmountWatermark: config.bufferedAmountWatermark
+          bufferedAmountWatermark: config.bufferedAmountWatermark,
+          createSocket: createLoopbackSocketFactory(config.loopbackCarrier)
         });
-        loopback.open(config.dataPlaneUrl);
         frameTransport = loopback;
         dataPlane = loopback.dataPlane;
       }
@@ -5248,6 +5331,9 @@
     }
     async establishConnection() {
       if (!this.loopback) return;
+      if (!this.loopback.destinationUrl) {
+        this.loopback.open(this.config.dataPlaneUrl);
+      }
       await this.loopback.establishConnection({
         sessionId: this.config.sessionId,
         generation: this.config.generation
@@ -5463,6 +5549,17 @@
   }
 
   // ../packages/page-projection/src/virtual/bootstrap.ts
+  function scrubSpeculumInjectScripts() {
+    const cur = document.currentScript;
+    const marker = "__SPECULUM_PP_INJECT_V1__";
+    const list = document.querySelectorAll("script");
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      if (s === cur) continue;
+      if (!s.src && s.textContent?.includes(marker)) s.remove();
+    }
+  }
+  scrubSpeculumInjectScripts();
   document.currentScript?.remove();
   void (async () => {
     if (globalThis.__speculumProjection) return;

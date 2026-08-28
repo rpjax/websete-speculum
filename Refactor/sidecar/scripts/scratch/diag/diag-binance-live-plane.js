@@ -75,6 +75,8 @@ async function main() {
           hasConfig: !!(cfg && cfg.dataPlaneUrl && cfg.sessionId),
           sessionId: cfg?.sessionId ?? null,
           dataPlaneUrl: cfg?.dataPlaneUrl ?? null,
+          loopbackCarrier: cfg?.loopbackCarrier ?? null,
+          hasExtensionFactory: typeof globalThis.__SPECULUM_EXTENSION_PLANE_SOCKET_FACTORY__ === 'function',
           hasRuntime: !!rt,
           virtualEstablished: ft ? ft.isEstablished === true : null,
           metaCspLen: meta?.content?.length ?? 0,

@@ -1,5 +1,8 @@
 'use strict';
 /**
+ * OBSOLETE (2026-08-27): PP inject is CDP-only — no /__speculum/virtual.js network path.
+ * Use inject/projectionRuntimeInstaller.unit.ts.
+ *
  * Force challenges.cloudflare.com iframe under the same Fetch hook as PP session.
  * Logs whether /__speculum/virtual.js is paused+fulfilled on that origin.
  */

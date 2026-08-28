@@ -1,12 +1,12 @@
 import assert from 'assert';
-import { CSP_META_NEUTRALIZE_INIT_SCRIPT } from './cspMetaNeutralizeInitScript';
+import { META_CSP_NEUTRALIZE_BODY } from '../../inject/injectScriptBodies';
 
 export async function runCspMetaNeutralizeInitScriptUnitTests(): Promise<void> {
-  assert.ok(CSP_META_NEUTRALIZE_INIT_SCRIPT.includes('speculum_csp_meta_neutralize'));
-  assert.ok(CSP_META_NEUTRALIZE_INIT_SCRIPT.includes('appendChild'));
-  assert.ok(CSP_META_NEUTRALIZE_INIT_SCRIPT.includes('insertBefore'));
-  assert.ok(CSP_META_NEUTRALIZE_INIT_SCRIPT.includes('setAttribute'));
-  assert.ok(CSP_META_NEUTRALIZE_INIT_SCRIPT.includes('content-security-policy'));
-  assert.ok(CSP_META_NEUTRALIZE_INIT_SCRIPT.includes('isCspMeta'));
-  console.log('[unit] cspMetaNeutralize init script contract ok');
+  assert.ok(META_CSP_NEUTRALIZE_BODY.includes('speculum_setAttribute'));
+  assert.ok(META_CSP_NEUTRALIZE_BODY.includes('appendChild'));
+  assert.ok(META_CSP_NEUTRALIZE_BODY.includes('insertBefore'));
+  assert.ok(META_CSP_NEUTRALIZE_BODY.includes('setAttribute'));
+  assert.ok(META_CSP_NEUTRALIZE_BODY.includes('content-security-policy'));
+  assert.ok(META_CSP_NEUTRALIZE_BODY.includes('isCspMeta'));
+  console.log('[unit] cspMetaNeutralizeInitScript ok');
 }

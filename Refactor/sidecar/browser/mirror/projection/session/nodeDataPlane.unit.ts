@@ -79,6 +79,7 @@ export async function runNodeDataPlaneUnitTests(): Promise<void> {
   await testGenerationMismatchReject();
   await testStaleCloseDoesNotKillSuccessor();
   await testInvokeOnlyWhenEstablished();
+  await testWaitEstablishedSurvivesIntermediateClose();
   console.log('[unit] nodeDataPlane establish protocol ok');
 }
 
@@ -187,6 +188,30 @@ async function testInvokeOnlyWhenEstablished(): Promise<void> {
 
     const ok = await plane.invoke('applyScrollSet', { scrollX: 0, scrollY: 1 });
     assert.strictEqual(ok.ok, true);
+    client.close();
+  });
+}
+
+/** Doc churn: first socket dies before hello; waiter must survive until successor establishes. */
+async function testWaitEstablishedSurvivesIntermediateClose(): Promise<void> {
+  await withServer(async (url, wss) => {
+    const plane = new NodeDataPlane();
+    plane.setExpectedSession({ sessionId: SESSION, generation: GENERATION });
+
+    const waitPromise = plane.waitEstablished({ generation: GENERATION, timeoutMs: 5_000 });
+
+    wss.once('connection', (ws) => plane.attach(ws));
+    const ghost = await connectClient(url);
+    await wait(20);
+    ghost.close();
+    await wait(30);
+    assert.strictEqual(plane.isEstablished, false);
+
+    wss.once('connection', (ws) => plane.attach(ws));
+    const client = await connectClient(url);
+    client.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION)), { binary: true });
+    await waitPromise;
+    assert.strictEqual(plane.isEstablished, true);
     client.close();
   });
 }

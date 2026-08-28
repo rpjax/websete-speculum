@@ -136,6 +136,18 @@ declare global {
     | undefined;
 }
 
+function scrubSpeculumInjectScripts(): void {
+  const cur = document.currentScript;
+  const marker = '__SPECULUM_PP_INJECT_V1__';
+  const list = document.querySelectorAll('script');
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    if (s === cur) continue;
+    if (!s.src && s.textContent?.includes(marker)) s.remove();
+  }
+}
+
+scrubSpeculumInjectScripts();
 document.currentScript?.remove();
 
 void (async () => {

@@ -9,7 +9,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CSP_META_NEUTRALIZE_INIT_SCRIPT = void 0;
-/** Runs on every frame / navigation via addInitScript — must register before first goto. */
+/** @deprecated Use {@link META_CSP_NEUTRALIZE_BODY} in inject/injectScriptBodies — CDP bundle only. */
 exports.CSP_META_NEUTRALIZE_INIT_SCRIPT = `
 (function speculum_csp_meta_neutralize() {
   'use strict';

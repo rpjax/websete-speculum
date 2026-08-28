@@ -189,7 +189,11 @@ export class NodeDataPlane implements DataPlane {
         this.state = 'closed';
         cspDiagLog('data plane socket close');
         this.failAllPending('data plane closed');
-        this.failEstablishedWaiters(new Error('data plane closed'));
+        // LB-18: waitEstablished waits for hello-ack or timeout — intermediate closes
+        // during doc churn (202→200, content Port reconnect) must not abort the waiter.
+        if (this.shuttingDown) {
+          this.failEstablishedWaiters(new Error('data plane closed'));
+        }
       }
     });
   }
@@ -321,10 +325,20 @@ export class NodeDataPlane implements DataPlane {
       return;
     }
     if (!this.sessionId || env.sessionId !== this.sessionId) {
+      cspDiagLog('data plane hello reject', {
+        reason: 'session_mismatch',
+        got: env.sessionId,
+        expected: this.sessionId,
+      });
       reject('session_mismatch');
       return;
     }
     if (env.generation !== this.expectedGeneration) {
+      cspDiagLog('data plane hello reject', {
+        reason: 'generation_mismatch',
+        got: env.generation,
+        expected: this.expectedGeneration,
+      });
       reject('generation_mismatch');
       return;
     }

@@ -11,16 +11,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PageProjectionBrowserSession = void 0;
 exports.createPageProjectionBrowserSessionFactory = createPageProjectionBrowserSessionFactory;
-const buildConfigPreScript_1 = require("../inject/buildConfigPreScript");
-const loadInpageScript_1 = require("../inject/loadInpageScript");
+const node_crypto_1 = require("node:crypto");
+const inject_1 = require("../inject");
 const telemetry_1 = require("@speculum/page-projection/core/telemetry");
 const plane_1 = require("@speculum/page-projection/core/plane");
 const decode_1 = require("@speculum/page-projection/core/decode");
 const projectionDataPlaneHost_1 = require("./projectionDataPlaneHost");
 const documentResponseHook_1 = require("./csp/documentResponseHook");
-const scriptInjectMutator_1 = require("./csp/scriptInjectMutator");
-const projectionProducerDocumentMutator_1 = require("./csp/projectionProducerDocumentMutator");
-const cspMetaNeutralizeInitScript_1 = require("./csp/cspMetaNeutralizeInitScript");
 const cspDiag_1 = require("./csp/cspDiag");
 const singleTab_1 = require("./singleTab");
 const EditableFocus_1 = require("../../../patchright/EditableFocus");
@@ -66,11 +63,13 @@ class PageProjectionBrowserSession {
     assets = new AssetStore_1.AssetStore();
     rewriteHop = new rewritePart_1.FrameRewriteHop();
     probes;
+    planeBridgeToken;
     constructor(sessionId, events, factoryOpts) {
         this.sessionId = sessionId;
         this.events = events;
         void factoryOpts.headless;
         this.probes = factoryOpts.probes ?? {};
+        this.planeBridgeToken = (0, node_crypto_1.randomUUID)();
         this.editableFocus = new EditableFocus_1.EditableFocus(events);
         const onPlane = (channel, payload) => {
             if (channel === plane_1.PlaneChannel.Frame) {
@@ -130,7 +129,7 @@ class PageProjectionBrowserSession {
                 phase: 'launch',
             });
         }
-        (0, loadInpageScript_1.loadInpageScript)();
+        (0, inject_1.loadInpageScript)();
         await this.dataPlane.listen();
         this.dataPlane.configureSession(this.sessionId, this.generation);
         // Display capacity = policy max R; logical viewport soft-resizes within R (D-UI-05/11).
@@ -304,11 +303,9 @@ class PageProjectionBrowserSession {
     async navigate(url) {
         const opts = this.requireLaunch();
         const dataPlaneUrl = this.dataPlane.listenUrl;
-        if (this.page) {
-            this.generation += 1;
-            await this.page.close();
-            this.cdpSession = null;
-        }
+        // Do not close the live page before freshPage — see freshPage ordering.
+        this.generation += 1;
+        this.cdpSession = null;
         this.dataPlane.configureSession(this.sessionId, this.generation);
         this.page = await this.freshPage(dataPlaneUrl, opts);
         this.assets.clear();
@@ -839,7 +836,19 @@ class PageProjectionBrowserSession {
         const context = this.context;
         if (!context)
             throw new Error('context not open');
+        // Create the replacement tab BEFORE closing the old one. After CDP
+        // Extensions.loadUnpacked, Chrome 152 can fail Target.createTarget when no
+        // page target remains (session navigate used to close-then-open).
         const p = await context.newPage();
+        const stale = context.pages().filter((x) => x !== p);
+        for (const old of stale) {
+            try {
+                await old.close();
+            }
+            catch {
+                /* best-effort */
+            }
+        }
         p.on('console', (msg) => this.events.onConsole(consoleLevel(msg.type()), msg.text()));
         p.on('pageerror', (err) => this.events.onConsole(3, err.message));
         p.on('crash', () => {
@@ -870,43 +879,31 @@ class PageProjectionBrowserSession {
             this.editableFocus.stop();
         });
         const telemetry = (options.projectionTelemetry ?? telemetry_1.LAB_TELEMETRY_DEFAULTS);
-        const configPre = (0, buildConfigPreScript_1.buildConfigPreScript)({
-            sessionId: this.sessionId,
-            transport: 'loopback',
-            dataPlaneUrl,
-            frameRateHz: options.frameRateHz ?? 60,
-            telemetry,
-            generation: this.generation,
-            cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
-        });
-        const virtualScript = (0, loadInpageScript_1.loadInpageScript)();
-        // Main frame: init scripts run before parsed document scripts (reliable cold boot).
-        // Meta CSP neutralizer first — before parser can apply unreadable meta policies (huge Document).
-        // Document mutator + stored-script fulfill cover same-origin iframes in HTML responses.
-        await p.addInitScript({ content: cspMetaNeutralizeInitScript_1.CSP_META_NEUTRALIZE_INIT_SCRIPT });
-        await p.addInitScript({ content: configPre });
-        if ((0, cspDiag_1.isCspDiagEnabled)()) {
-            await p.addInitScript({ content: cspDiag_1.CSP_DIAG_PROBE_INIT_SCRIPT });
-        }
-        await p.addInitScript({ content: virtualScript });
-        await p.addInitScript({ content: singleTab_1.SINGLE_TAB_INIT_SCRIPT });
-        // Document Response-stage hook before any navigation — CSP + optional launch scripts.
-        // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
         this.cdpSession = await context.newCDPSession(p);
-        const launchScripts = options.scripts ?? [];
-        const storedScripts = [
-            ...launchScripts
-                .filter((s) => !s.remoteUrl && s.file && s.content != null)
-                .map((s) => ({ file: s.file, content: s.content })),
-            { file: projectionProducerDocumentMutator_1.PROJECTION_VIRTUAL_SCRIPT_PATH, content: virtualScript },
-        ];
+        const resolvedLaunch = await (0, inject_1.resolveLaunchScripts)(options.scripts ?? []);
+        const installer = new inject_1.ProjectionRuntimeInstaller({
+            context,
+            page: p,
+            rootCdp: this.cdpSession,
+            config: {
+                sessionId: this.sessionId,
+                transport: 'loopback',
+                dataPlaneUrl,
+                loopbackCarrier: (process.env.SPECULUM_LOOPBACK_CARRIER === 'page-ws'
+                    ? 'page-ws'
+                    : 'extension'),
+                planeBridgeToken: this.planeBridgeToken,
+                frameRateHz: options.frameRateHz ?? 60,
+                telemetry,
+                generation: this.generation,
+                cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
+            },
+            launchScripts: resolvedLaunch,
+            includeCspDiag: (0, cspDiag_1.isCspDiagEnabled)(),
+        });
+        await installer.install();
         await (0, documentResponseHook_1.installDocumentResponseHook)(this.cdpSession, {
-            mutators: [
-                documentResponseHook_1.cspDocumentMutator,
-                (0, projectionProducerDocumentMutator_1.createProjectionProducerDocumentMutator)({ configPreScript: configPre }),
-                (0, scriptInjectMutator_1.createScriptInjectMutator)(launchScripts),
-            ],
-            storedScripts,
+            mutators: [documentResponseHook_1.cspDocumentMutator],
             context,
             page: p,
         });

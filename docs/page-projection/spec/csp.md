@@ -141,7 +141,8 @@ Aplicar como **merge** nas diretivas de script afetadas (e na `script-src` criad
 
 - **2026-08-14:** rejeitou punch bruto de CSP / `connect-src *` / disable-PNA como enablement antibot-visível.
 - **2026-08-20:** cirurgia CSP Response-stage §§3–7 é normativa para Virtual (script + `connect-src` + nonce).
-- **2026-08-26:** o **carrier** Virtual↔sidecar é **só** page loopback WebSocket (`ws://127.0.0.1` no sidecar). Plano CDP `exposeBinding` foi removido. Cirurgia CSP e carrier loopback coexistem: CSP afrouxa o mínimo para o runtime; o plano de dados é loopback.
+- **2026-08-26:** o **carrier** Virtual↔sidecar é loopback WebSocket (`ws://127.0.0.1` no sidecar). Plano CDP `exposeBinding` foi removido.
+- **2026-08-27:** on managed Chrome the loopback socket is opened by the **Speculum Plane extension** ([extension-plane.md](extension-plane.md)) — the page does **not** need `connect-src` for `127.0.0.1` for the data plane. CSP surgery for `connect-src` remains for other runtime fetches; extension carrier decouples plane from page CSP/LNA.
 
 ---
 
@@ -162,10 +163,13 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 |------|------|
 | Parse / merge / compensação | `session/csp/relaxCsp.ts` |
 | Hook Fetch Document Response | `session/csp/documentResponseHook.ts` |
-| Wire | `PageProjectionBrowserSession.freshPage` → `installDocumentResponseHook` before any `goto`; **meta neutralizer** init first; **single-tab** folds `window.open`/`target=_blank` into the primary page so surgery still runs |
-| Units | `relaxCsp.unit.ts` + e2e nonce/meta + single-tab locale CSP plane in `pageProjectionSession.unit.ts` |
+| Runtime inject (CDP-only) | `inject/projectionRuntimeInstaller.ts` + `inject/buildProjectionInjectBundle.ts` |
+| Wire | `PageProjectionBrowserSession.freshPage` → `ProjectionRuntimeInstaller.install` + `installDocumentResponseHook` (CSP only) before any `goto`; prelude includes meta neutralizer + single-tab |
+| Units | `relaxCsp.unit.ts` + inject installer units + e2e nonce/meta + single-tab locale CSP plane in `pageProjectionSession.unit.ts` |
 
-**Status (2026-08-20):** **SEALED** — Response-stage hook + `connect-src` + strip nonce/hash/`strict-dynamic` + compensação `'unsafe-inline'` / `*` / `blob:` / `data:` (delta). Do **not** reopen §§3–7 without a decision-log row. Inject de script tags = próximo passo cutover (mutator no mesmo hook).
+**Status (2026-08-20):** **SEALED** — Response-stage hook + `connect-src` + strip nonce/hash/`strict-dynamic` + compensação `'unsafe-inline'` / `*` / `blob:` / `data:` (delta). Do **not** reopen §§3–7 without a decision-log row.
+
+**Inject (2026-08-27):** **CLOSED** — HTML `<script>` tag inject removed. Runtime + launch scripts = single CDP bundle per target (`Page.addScriptToEvaluateOnNewDocument`); OOPIF via `frameCdpSession`. Document hook **does not** fulfill stored scripts.
 
 ---
 
@@ -177,7 +181,7 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 - [x] `img-src` / `style-src` / demais diretivas intactas quando presentes.
 - [x] Site noncado: após strip + compensação §7, scripts que dependiam de nonce/strict-dynamic de rede continuam; nosso inline/inject passa.
 - [x] Report-Only intacto (salvo ruling futuro).
-- [x] Não declarar “CSP done” só porque o producer conectou — cirurgia §§3–7 lacrada com units/e2e; inject de tags é passo cutover **seguinte**, não buraco desta spec.
+- [x] Não declarar “CSP done” só porque o producer conectou — cirurgia §§3–7 lacrada com units/e2e; runtime inject CDP-only (2026-08-27) separado desta spec.
 
 ---
 
@@ -195,7 +199,8 @@ Em `Refactor/sidecar/browser/patchright/Navigation.ts`:
 | 2026-08-20 | E-03/E-08 amended: cirurgia CSP ok (carrier plane ruled separately). |
 | 2026-08-20 | **SEALED** — §§3–7 + impl `session/csp/*` + units/e2e. Não reabrir sem decision-log. |
 | 2026-08-26 | E-03 revised: loopback WS = sole Virtual↔sidecar carrier; CDP binding plane purged. |
-| 2026-08-27 | OOPIF: mesmo Fetch/stored-script fulfill via `context.newCDPSession(frame)` (não `Target.setAutoAttach` flatten:false no browser CDP — Chromium rejeita). |
+| 2026-08-27 | OOPIF: mesmo Fetch Document Response via `context.newCDPSession(frame)` (não `Target.setAutoAttach` flatten:false no browser CDP — Chromium rejeita). |
+| 2026-08-27 | **PP inject CDP-only:** tag mutators + stored-script fulfill **removed**; `ProjectionRuntimeInstaller` + unified bundle; sentinel scrub in prelude + `bootstrap.ts`. |
 | 2026-08-27 | **Single-tab (PP, LOCKED):** one Chromium page per session — **never** two tabs. Site `window.open` / `_blank` → same-tab `location` redirect (init script); auxiliary pages closed immediately + URL adopted on primary. | `session/singleTab.ts` · [browser-session.md](browser-session.md) |
 | 2026-08-27 | **Meta CSP neutralize init:** when Document body is unreadable (huge HTML / CDP limits) and enforcing CSP is meta-only, `CSP_META_NEUTRALIZE_INIT_SCRIPT` drops `<meta http-equiv=Content-Security-Policy>` before parse — same intent as `rewriteCspMetasInHtml`, not a bypass reopen. | `session/csp/cspMetaNeutralizeInitScript.ts` · PP-CSP-META-HUGE |
 | 2026-08-27 | **LNA managed Chrome = enterprise policy only** — generic `["*"]` in `speculum-lna.json`; **reject** `LocalNetworkAccessChecks` launch disable and per-site policy URL lists. Residual plane desync → [loopback.md](loopback.md) PP-LOOPBACK-ESTABLISH. | [loopback.md](loopback.md) §11 |

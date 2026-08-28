@@ -8,6 +8,7 @@
  * a cutover license.
  */
 
+import { randomUUID } from 'node:crypto';
 import { type Browser, type BrowserContext, type CDPSession, type Page } from 'patchright';
 import {
   type BrowserDeviceProfile,
@@ -26,8 +27,7 @@ import {
   type BrowserStatus,
   type CookieNormalizeStats,
 } from '../../../BrowserSession';
-import { buildConfigPreScript } from '../inject/buildConfigPreScript';
-import { loadInpageScript } from '../inject/loadInpageScript';
+import { ProjectionRuntimeInstaller, resolveLaunchScripts, loadInpageScript } from '../inject';
 import {
   isProjectionTelemetryMessage,
   LAB_TELEMETRY_DEFAULTS,
@@ -41,11 +41,8 @@ import { PlaneChannel } from '@speculum/page-projection/core/plane';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
-import { createScriptInjectMutator } from './csp/scriptInjectMutator';
-import { createProjectionProducerDocumentMutator, PROJECTION_VIRTUAL_SCRIPT_PATH } from './csp/projectionProducerDocumentMutator';
-import { CSP_META_NEUTRALIZE_INIT_SCRIPT } from './csp/cspMetaNeutralizeInitScript';
-import { CSP_DIAG_PROBE_INIT_SCRIPT, cspDiagLog, isCspDiagEnabled } from './csp/cspDiag';
-import { SINGLE_TAB_INIT_SCRIPT, installSingleTabAdoption } from './singleTab';
+import { cspDiagLog, isCspDiagEnabled } from './csp/cspDiag';
+import { installSingleTabAdoption } from './singleTab';
 import { EditableFocus } from '../../../patchright/EditableFocus';
 import { matchesAllowedDomain } from '../../../patchright/Navigation';
 import {
@@ -126,6 +123,7 @@ export class PageProjectionBrowserSession {
   private readonly assets = new AssetStore();
   private readonly rewriteHop = new FrameRewriteHop();
   private readonly probes: PageProjectionProbes;
+  private readonly planeBridgeToken: string;
 
   constructor(
     readonly sessionId: string,
@@ -134,6 +132,7 @@ export class PageProjectionBrowserSession {
   ) {
     void factoryOpts.headless;
     this.probes = factoryOpts.probes ?? {};
+    this.planeBridgeToken = randomUUID();
     this.editableFocus = new EditableFocus(events);
     const onPlane = (channel: number, payload: Uint8Array) => {
       if (channel === PlaneChannel.Frame) {
@@ -377,11 +376,9 @@ export class PageProjectionBrowserSession {
   async navigate(url: string): Promise<void> {
     const opts = this.requireLaunch();
     const dataPlaneUrl = this.dataPlane.listenUrl;
-    if (this.page) {
-      this.generation += 1;
-      await this.page.close();
-      this.cdpSession = null;
-    }
+    // Do not close the live page before freshPage — see freshPage ordering.
+    this.generation += 1;
+    this.cdpSession = null;
     this.dataPlane.configureSession(this.sessionId, this.generation);
     this.page = await this.freshPage(dataPlaneUrl, opts);
     this.assets.clear();
@@ -1076,7 +1073,18 @@ export class PageProjectionBrowserSession {
   private async freshPage(dataPlaneUrl: string, options: BrowserLaunchOptions): Promise<Page> {
     const context = this.context;
     if (!context) throw new Error('context not open');
+    // Create the replacement tab BEFORE closing the old one. After CDP
+    // Extensions.loadUnpacked, Chrome 152 can fail Target.createTarget when no
+    // page target remains (session navigate used to close-then-open).
     const p = await context.newPage();
+    const stale = context.pages().filter((x) => x !== p);
+    for (const old of stale) {
+      try {
+        await old.close();
+      } catch {
+        /* best-effort */
+      }
+    }
     p.on('console', (msg) => this.events.onConsole(consoleLevel(msg.type()), msg.text()));
     p.on('pageerror', (err) => this.events.onConsole(3, err.message));
     p.on('crash', () => {
@@ -1103,43 +1111,31 @@ export class PageProjectionBrowserSession {
       this.editableFocus.stop();
     });
     const telemetry = (options.projectionTelemetry ?? LAB_TELEMETRY_DEFAULTS) as Partial<ProjectionTelemetryConfig>;
-    const configPre = buildConfigPreScript({
-      sessionId: this.sessionId,
-      transport: 'loopback',
-      dataPlaneUrl,
-      frameRateHz: options.frameRateHz ?? 60,
-      telemetry,
-      generation: this.generation,
-      cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
-    });
-    const virtualScript = loadInpageScript();
-    // Main frame: init scripts run before parsed document scripts (reliable cold boot).
-    // Meta CSP neutralizer first — before parser can apply unreadable meta policies (huge Document).
-    // Document mutator + stored-script fulfill cover same-origin iframes in HTML responses.
-    await p.addInitScript({ content: CSP_META_NEUTRALIZE_INIT_SCRIPT });
-    await p.addInitScript({ content: configPre });
-    if (isCspDiagEnabled()) {
-      await p.addInitScript({ content: CSP_DIAG_PROBE_INIT_SCRIPT });
-    }
-    await p.addInitScript({ content: virtualScript });
-    await p.addInitScript({ content: SINGLE_TAB_INIT_SCRIPT });
-    // Document Response-stage hook before any navigation — CSP + optional launch scripts.
-    // TLS/HTTP stay on Chromium; never fulfill Document from Node-originated bytes.
     this.cdpSession = await context.newCDPSession(p);
-    const launchScripts = options.scripts ?? [];
-    const storedScripts = [
-      ...launchScripts
-        .filter((s) => !s.remoteUrl && s.file && s.content != null)
-        .map((s) => ({ file: s.file, content: s.content })),
-      { file: PROJECTION_VIRTUAL_SCRIPT_PATH, content: virtualScript },
-    ];
+    const resolvedLaunch = await resolveLaunchScripts(options.scripts ?? []);
+    const installer = new ProjectionRuntimeInstaller({
+      context,
+      page: p,
+      rootCdp: this.cdpSession,
+      config: {
+        sessionId: this.sessionId,
+        transport: 'loopback',
+        dataPlaneUrl,
+        loopbackCarrier: (process.env.SPECULUM_LOOPBACK_CARRIER === 'page-ws'
+          ? 'page-ws'
+          : 'extension') as 'page-ws' | 'extension',
+        planeBridgeToken: this.planeBridgeToken,
+        frameRateHz: options.frameRateHz ?? 60,
+        telemetry,
+        generation: this.generation,
+        cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
+      },
+      launchScripts: resolvedLaunch,
+      includeCspDiag: isCspDiagEnabled(),
+    });
+    await installer.install();
     await installDocumentResponseHook(this.cdpSession, {
-      mutators: [
-        cspDocumentMutator,
-        createProjectionProducerDocumentMutator({ configPreScript: configPre }),
-        createScriptInjectMutator(launchScripts),
-      ],
-      storedScripts,
+      mutators: [cspDocumentMutator],
       context,
       page: p,
     });

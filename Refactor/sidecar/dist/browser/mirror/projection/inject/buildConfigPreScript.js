@@ -17,13 +17,21 @@ function buildConfigPayload(opts) {
     if (transport === 'loopback' && sessionId.length === 0) {
         throw new Error('buildConfigPayload: sessionId is required when transport is "loopback"');
     }
+    const loopbackCarrier = opts.loopbackCarrier ?? 'extension';
+    const planeBridgeToken = (opts.planeBridgeToken ?? '').trim();
+    if (transport === 'loopback' && loopbackCarrier === 'extension' && planeBridgeToken.length === 0) {
+        throw new Error('buildConfigPayload: planeBridgeToken is required when loopbackCarrier is "extension"');
+    }
     const payload = {
         transport,
+        loopbackCarrier,
     };
     if (sessionId.length > 0)
         payload.sessionId = sessionId;
     if (dataPlaneUrl.length > 0)
         payload.dataPlaneUrl = dataPlaneUrl;
+    if (planeBridgeToken.length > 0)
+        payload.planeBridgeToken = planeBridgeToken;
     if (opts.frameRateHz !== undefined)
         payload.frameRateHz = opts.frameRateHz;
     if (opts.bufferedAmountWatermark !== undefined) {
@@ -45,10 +53,6 @@ function buildConfigPayload(opts) {
  */
 function buildConfigPreScript(opts) {
     const payload = buildConfigPayload(opts);
-    // This runs as its own separate injected `<script>` tag (Patchright leaves it attached to
-    // the document — see bootstrap.ts's matching `currentScript.remove()` for why that matters);
-    // clean up after itself the same way, or `virtual.js`'s own removal of *its* tag still leaves
-    // this smaller one behind for the observer to mirror as page content.
-    return `globalThis.${projectionConfig_1.PROJECTION_CONFIG_GLOBAL}=${JSON.stringify(payload)};document.currentScript?.remove();`;
+    return `globalThis.${projectionConfig_1.PROJECTION_CONFIG_GLOBAL}=${JSON.stringify(payload)};`;
 }
 //# sourceMappingURL=buildConfigPreScript.js.map

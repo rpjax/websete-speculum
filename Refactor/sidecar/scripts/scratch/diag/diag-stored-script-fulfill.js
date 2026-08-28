@@ -1,5 +1,8 @@
 'use strict';
 /**
+ * OBSOLETE (2026-08-27): PP inject is CDP-only — no stored-script Fetch fulfill.
+ * Use inject/projectionRuntimeInstaller.unit.ts + projectionRuntimeInstaller.
+ *
  * Prove whether installDocumentResponseHook fulfills /__speculum/virtual.js
  * when injected into a cross-origin iframe Document (CF-shaped).
  */

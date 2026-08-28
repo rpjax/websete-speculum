@@ -7,8 +7,7 @@ exports.runDocumentResponseHookUnitTests = runDocumentResponseHookUnitTests;
 const assert_1 = __importDefault(require("assert"));
 const documentResponseHook_1 = require("./documentResponseHook");
 /**
- * Unit: root Fetch.enable + OOPIF frame gets its own CDPSession Fetch.enable
- * (option A via context.newCDPSession(frame)).
+ * Unit: root Fetch.enable + OOPIF frame gets its own CDPSession Fetch.enable.
  */
 async function runDocumentResponseHookUnitTests() {
     const calls = [];
@@ -52,7 +51,6 @@ async function runDocumentResponseHookUnitTests() {
         },
     };
     await (0, documentResponseHook_1.installDocumentResponseHook)(root, {
-        storedScripts: [{ file: '/__speculum/virtual.js', content: 'window.__OK=1' }],
         mutators: [(ctx) => ({ headers: ctx.headers, bodyHtml: ctx.bodyHtml, changed: false })],
         page,
         context,
@@ -61,17 +59,7 @@ async function runDocumentResponseHookUnitTests() {
     assert_1.default.ok(frameSession.sessionCalls.some((c) => c.method === 'Fetch.enable'), 'must Fetch.enable on OOPIF frame session');
     assert_1.default.ok(handlers.has('root:Fetch.requestPaused'), 'must listen Fetch.requestPaused on root');
     assert_1.default.ok(handlers.has('frame:Fetch.requestPaused'), 'must listen Fetch.requestPaused on frame');
-    // Script fulfill on frame session.
-    const onPaused = handlers.get('frame:Fetch.requestPaused')[0];
-    const pausedP = onPaused({
-        requestId: 'req-1',
-        request: { url: 'https://challenges.cloudflare.com/__speculum/virtual.js' },
-        resourceType: 'Script',
-    });
-    await pausedP;
-    assert_1.default.ok(frameSession.sessionCalls.some((c) => c.method === 'Fetch.fulfillRequest' &&
-        c.params.responseCode === 200), 'frame Script /__speculum/virtual.js must be fulfilled');
-    console.log('[unit] documentResponseHook OOPIF frame CDPSession fulfill ok');
+    console.log('[unit] documentResponseHook OOPIF frame CDPSession ok');
     await runDocumentResponseHookHeaderFallbackUnitTests();
 }
 /** getResponseBody failure must still continue with relaxed enforcing CSP headers. */
@@ -93,7 +81,7 @@ async function runDocumentResponseHookHeaderFallbackUnitTests() {
             { name: 'Content-Security-Policy', value: strictCsp },
         ],
         request: { url: 'https://www.binance.com/' },
-    }, new Map(), [documentResponseHook_1.cspDocumentMutator]);
+    }, [documentResponseHook_1.cspDocumentMutator]);
     const continued = calls.filter((c) => c.method === 'Fetch.continueResponse');
     assert_1.default.strictEqual(continued.length, 1, JSON.stringify(calls.map((c) => c.method)));
     const hdrs = (continued[0].params?.responseHeaders ?? []);

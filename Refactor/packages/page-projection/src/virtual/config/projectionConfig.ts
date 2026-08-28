@@ -15,6 +15,8 @@ export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
 
 export type ProjectionTransportKind = 'console' | 'loopback' | 'discard';
 
+export type LoopbackCarrier = 'page-ws' | 'extension';
+
 export type ProjectionConfigBag = {
   sessionId?: unknown;
   dataPlaneUrl?: unknown;
@@ -22,6 +24,8 @@ export type ProjectionConfigBag = {
   bufferedAmountWatermark?: unknown;
   maxFrameBytes?: unknown;
   transport?: unknown;
+  loopbackCarrier?: unknown;
+  planeBridgeToken?: unknown;
   telemetry?: unknown;
   generation?: unknown;
   /** CSSOM poll rate. `0` disables. Lab default 5. Independent of DOM `frameRateHz`. */
@@ -35,6 +39,10 @@ export type ProjectionConfig = {
   sessionId: string;
   /** Required when transport is `loopback`. Empty string for console. */
   dataPlaneUrl: string;
+  /** Loopback socket carrier when transport is `loopback`. */
+  loopbackCarrier: LoopbackCarrier;
+  /** Bridge auth token when loopbackCarrier is `extension`. */
+  planeBridgeToken: string;
   frameRateHz: number;
   bufferedAmountWatermark: number;
   maxFrameBytes: number;
@@ -52,6 +60,7 @@ export type ProjectionConfig = {
 
 const DEFAULTS = {
   transport: 'loopback' as ProjectionTransportKind,
+  loopbackCarrier: 'extension' as LoopbackCarrier,
   frameRateHz: 60,
   bufferedAmountWatermark: 256 * 1024,
   maxFrameBytes: 1 << 20,
@@ -81,6 +90,14 @@ function asNonNegativeNumber(value: unknown, fallback: number, label: string): n
     throw new Error(`ProjectionConfig.${label} must be >= 0 (got ${String(value)})`);
   }
   return n;
+}
+
+function asLoopbackCarrier(value: unknown): LoopbackCarrier {
+  if (value === undefined || value === null) return DEFAULTS.loopbackCarrier;
+  if (value === 'page-ws' || value === 'extension') return value;
+  throw new Error(
+    `ProjectionConfig.loopbackCarrier must be "page-ws" | "extension" (got ${String(value)})`,
+  );
 }
 
 function asTransport(value: unknown): ProjectionTransportKind {
@@ -150,10 +167,22 @@ export function readProjectionConfig(): Readonly<ProjectionConfig> {
     throw new Error('ProjectionConfig.sessionId is required when transport is "loopback"');
   }
 
+  const loopbackCarrier = asLoopbackCarrier(bag.loopbackCarrier);
+  const planeBridgeTokenRaw = bag.planeBridgeToken;
+  const planeBridgeToken =
+    typeof planeBridgeTokenRaw === 'string' ? planeBridgeTokenRaw.trim() : '';
+  if (transport === 'loopback' && loopbackCarrier === 'extension' && planeBridgeToken.length === 0) {
+    throw new Error(
+      'ProjectionConfig.planeBridgeToken is required when loopbackCarrier is "extension"',
+    );
+  }
+
   const resolved: ProjectionConfig = {
     transport,
     sessionId,
     dataPlaneUrl,
+    loopbackCarrier,
+    planeBridgeToken,
     frameRateHz: asPositiveNumber(bag.frameRateHz, DEFAULTS.frameRateHz, 'frameRateHz'),
     bufferedAmountWatermark: asPositiveNumber(
       bag.bufferedAmountWatermark,

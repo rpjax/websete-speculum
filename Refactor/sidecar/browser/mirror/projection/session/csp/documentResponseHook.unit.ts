@@ -1,5 +1,4 @@
 import assert from 'assert';
-import type { BrowserContext, CDPSession, Frame, Page } from 'patchright';
 import {
   cspDocumentMutator,
   handleDocumentResponsePausedForTest,
@@ -7,8 +6,7 @@ import {
 } from './documentResponseHook';
 
 /**
- * Unit: root Fetch.enable + OOPIF frame gets its own CDPSession Fetch.enable
- * (option A via context.newCDPSession(frame)).
+ * Unit: root Fetch.enable + OOPIF frame gets its own CDPSession Fetch.enable.
  */
 export async function runDocumentResponseHookUnitTests(): Promise<void> {
   const calls: Array<{ method: string; params?: unknown }> = [];
@@ -36,29 +34,28 @@ export async function runDocumentResponseHookUnitTests(): Promise<void> {
   const root = makeSession('root');
   const frameSession = makeSession('frame');
 
-  const childFrame = { url: () => 'https://challenges.cloudflare.com/turnstile' } as unknown as Frame;
-  const mainFrame = { url: () => 'https://www.eneba.com/' } as unknown as Frame;
+  const childFrame = { url: () => 'https://challenges.cloudflare.com/turnstile' } as unknown as import('patchright').Frame;
+  const mainFrame = { url: () => 'https://www.eneba.com/' } as unknown as import('patchright').Frame;
 
-  const frameListeners: Array<(f: Frame) => void> = [];
+  const frameListeners: Array<(f: import('patchright').Frame) => void> = [];
   const page = {
     mainFrame: () => mainFrame,
     frames: () => [mainFrame, childFrame],
-    on: (event: string, fn: (f: Frame) => void) => {
+    on: (event: string, fn: (f: import('patchright').Frame) => void) => {
       if (event === 'frameattached' || event === 'framenavigated') {
         frameListeners.push(fn);
       }
     },
-  } as unknown as Page;
+  } as unknown as import('patchright').Page;
 
   const context = {
-    newCDPSession: async (target: Frame) => {
+    newCDPSession: async (target: import('patchright').Frame) => {
       assert.strictEqual(target, childFrame);
-      return frameSession as unknown as CDPSession;
+      return frameSession as unknown as import('patchright').CDPSession;
     },
-  } as unknown as BrowserContext;
+  } as unknown as import('patchright').BrowserContext;
 
-  await installDocumentResponseHook(root as unknown as CDPSession, {
-    storedScripts: [{ file: '/__speculum/virtual.js', content: 'window.__OK=1' }],
+  await installDocumentResponseHook(root as unknown as import('patchright').CDPSession, {
     mutators: [(ctx) => ({ headers: ctx.headers, bodyHtml: ctx.bodyHtml, changed: false })],
     page,
     context,
@@ -81,25 +78,7 @@ export async function runDocumentResponseHookUnitTests(): Promise<void> {
     'must listen Fetch.requestPaused on frame',
   );
 
-  // Script fulfill on frame session.
-  const onPaused = handlers.get('frame:Fetch.requestPaused')![0]!;
-  const pausedP = onPaused({
-    requestId: 'req-1',
-    request: { url: 'https://challenges.cloudflare.com/__speculum/virtual.js' },
-    resourceType: 'Script',
-  });
-  await pausedP;
-
-  assert.ok(
-    frameSession.sessionCalls.some(
-      (c) =>
-        c.method === 'Fetch.fulfillRequest' &&
-        (c.params as { responseCode?: number }).responseCode === 200,
-    ),
-    'frame Script /__speculum/virtual.js must be fulfilled',
-  );
-
-  console.log('[unit] documentResponseHook OOPIF frame CDPSession fulfill ok');
+  console.log('[unit] documentResponseHook OOPIF frame CDPSession ok');
 
   await runDocumentResponseHookHeaderFallbackUnitTests();
 }
@@ -129,7 +108,6 @@ async function runDocumentResponseHookHeaderFallbackUnitTests(): Promise<void> {
       ],
       request: { url: 'https://www.binance.com/' },
     },
-    new Map(),
     [cspDocumentMutator],
   );
 

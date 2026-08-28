@@ -110,6 +110,21 @@ export {
   type LoopbackConnectionStatus,
 } from './loopback/envelope';
 export {
+  LOOPBACK_SOCKET_CONNECTING,
+  LOOPBACK_SOCKET_OPEN,
+  LOOPBACK_SOCKET_CLOSING,
+  LOOPBACK_SOCKET_CLOSED,
+  type LoopbackSocket,
+  type LoopbackSocketFactory,
+} from './loopback/socket';
+export {
+  EXTENSION_PLANE_CHANNEL,
+  decodeExtensionPlaneEnvelope,
+  isExtensionPlaneWireMessage,
+  type ExtensionPlaneEnvelope,
+  type ExtensionPlaneKind,
+} from './extensionPlane/envelope';
+export {
   INTENT_SCHEMA_VERSION,
   type DomInputIngress,
 } from './input/intentTypes';

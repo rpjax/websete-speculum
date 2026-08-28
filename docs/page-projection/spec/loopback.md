@@ -2,7 +2,7 @@
 
 **Status:** **SEALED 2026-08-27** (Rodrigo) — normative for Virtual↔sidecar loopback WebSocket **establishment**, health, and mux.  
 **Extends:** [input-unified-design-draft.md](input-unified-design-draft.md) §10.1c (LB-01…LB-07, **LOCKED** — envelope kinds for frame/telemetry/invoke).  
-**Session law:** [browser-session.md](browser-session.md) — carrier = page loopback WS only (`projectionDataPlane: 'loopback'`).  
+**Session law:** [browser-session.md](browser-session.md) — carrier = loopback WebSocket to sidecar (`projectionDataPlane: 'loopback'`). On managed Chrome the **canonical client** is the **Speculum Plane extension** ([extension-plane.md](extension-plane.md)); page-origin WS (`page-ws`) is test-only fallback.  
 **CSP / LNA:** [csp.md](csp.md) §8 — Document surgery + managed-Chrome LNA policy; **not** site-specific allowlists.  
 **Tracker:** [open.md](open.md) **PP-LOOPBACK-ESTABLISH** — **CLOSED 2026-08-27** (handshake + symmetric establish + tests §14).  
 **Code (impl map):** `Refactor/packages/page-projection/src/core/loopback/` · `Refactor/sidecar/browser/mirror/projection/session/nodeDataPlane.ts` · `projectionDataPlaneHost.ts` · `Refactor/packages/page-projection/src/virtual/transport/loopbackDataPlane.ts` · `bootstrap.ts`.
@@ -303,7 +303,9 @@ New handshake kinds are **establishment plane only**; they do not carry DOM/fram
 
 Loopback URL is always `ws://127.0.0.1:<port>/` on the sidecar host.
 
-**Law LB-19:** On Speculum managed Chromium (lab Docker + Live isolation VM), LNA exemption is **only** via enterprise policy:
+**Law LB-19a (primary):** On managed Chromium, Virtual root reaches the loopback URL via the **extension plane** ([extension-plane.md](extension-plane.md)) — the page never opens the WebSocket. This bypasses page LNA/CSP without site allowlists.
+
+**Law LB-19b (fallback):** Enterprise policy remains installed for environments that still use `page-ws` carrier or defense-in-depth:
 
 - [`Refactor/sidecar/chrome-policies/managed/speculum-lna.json`](../../../Refactor/sidecar/chrome-policies/managed/speculum-lna.json)
 - `LoopbackNetworkAllowedForUrls: ["*"]`
@@ -343,7 +345,8 @@ Policy delivery: [`docker-entrypoint.sh`](../../../Refactor/sidecar/docker-entry
 | Config inject | `inject/buildConfigPreScript.ts` | `sessionId` in `__SPECULUM_PROJECTION__` |
 | Session | `PageProjectionBrowserSession.ts` | sessionId, `waitEstablished` after goto |
 | Bootstrap | `virtual/bootstrap.ts` | `await establishConnection()`; fail boot |
-| Tests | `nodeDataPlane.unit.ts`, `pageProjectionSession.unit.ts` | §14 |
+| Extension carrier | `extension-plane.md`, `extensions/speculum-plane/`, `extensionPlaneSocket.ts` | byte tunnel; LB-08…19 on Virtual unchanged |
+| Tests | `nodeDataPlane.unit.ts`, `pageProjectionSession.unit.ts`, `extensionPlane/envelope.unit.ts` | §14 |
 
 ---
 

@@ -24,7 +24,7 @@
 
 **OPEN-8** is closed at the table. `takeRecords` before drain is closed. CLI `--iso` proves Virtual O2 + Node table×table; tree×tree needs lab UI DOM apply. **Production cutover is not licensed** by that — see [roadmap.md](roadmap.md) cutover law.
 
-No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18**. Same-origin nested iframe **lab shipped 2026-08-19** (`iframe-open`). **OPEN-6 observability shipped 2026-08-19**. CSSOM in nested contexts = **same algorithm instance** (not a separate feature). Remaining OPEN-6: XO / srcdoc / sandbox / fenced (NIT). Optional QA: nested `cssomO2` assert — [seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`.
+DOM-table path was green through seal lab. **PP-TABLE-SUBTREE-WALK** (recursive `collectSubtreeIds` SO under Binance) → iterative stack+visited **fixed 2026-08-28**; residual = find who corrupts derived links if cycle throw fires live. Stress-churn stacked digits = PP-FR-1 ([observability.md](observability.md) §8). Prepend `child_order` = green at seq 799 (`2026-08-15T00-32-28`). Lab tracker (QA → gaps → features): [seal-gaps.md](seal-gaps.md) — not table OPEN-*. Apply honesty P0 is closed (UI desync attr/ruleset/eof 2026-08-17). SVG namespace **closed 2026-08-17**. Form `PROP_SET` **closed 2026-08-18**. Open named shadow **closed 2026-08-18**. Same-origin nested iframe **lab shipped 2026-08-19** (`iframe-open`). **OPEN-6 observability shipped 2026-08-19**. CSSOM in nested contexts = **same algorithm instance** (not a separate feature). Remaining OPEN-6: XO / srcdoc / sandbox / fenced (NIT). Optional QA: nested `cssomO2` assert — [seal-gaps.md](seal-gaps.md) `SEAL-CSSOM-P2-NESTED-QA`.
 
 ### BUG — locale popup / `_blank` skips CSP surgery (**CLOSED 2026-08-27**)
 
@@ -37,6 +37,18 @@ No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md
 | Id | Symptom | Notes |
 |----|---------|-------|
 | **PP-CSP-META-HUGE** | Binance-class live: `ws://127.0.0.1` violates strict `connect-src`; `data plane not open` on cold load or post-nav. HTML huge; CSP enforcing only via `<meta http-equiv>` when `Fetch.getResponseBody` fails. | Fix: `cspMetaNeutralizeInitScript.ts` (drop meta CSP before parse) + `continueWithHeaders` no silent fallback · unit `runMetaOnlyHugeCspPlaneUnitTests` · diag `diag-csp-huge-nav.js` (`meta-only`). Related: **PP-CSP-SINGLE-TAB** (popup path). **Residual plane desync** → **PP-LOOPBACK-ESTABLISH** (not CSP). |
+
+### BUG — loopback via extension plane / LNA on page WS (**OPEN 2026-08-28** — establish green; accept not closed)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-EXTENSION-PLANE** | Binance-class: page `ws://127.0.0.1` blocked by LNA/CSP → `data plane not established`. | **Impl:** [extension-plane.md](extension-plane.md) — CDP `Extensions.loadUnpacked` + Speculum Plane tunnel. Fixture establish + Binance hello/ack **green**. Accept = zero page LNA + bilateral establish + usable input. Units: envelope / bridge / loopbackDataPlane / chromeLnaPolicy. Stress: `diag-binance-live-plane.js`. |
+
+### BUG — recursive subtree walk stack overflow (**CLOSED 2026-08-28**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-TABLE-SUBTREE-WALK** | Binance stress after plane establish: Node `RangeError: Maximum call stack size exceeded` in `ReplicatedTable.collectSubtreeIds` (rewrite hop / table apply). | **Fix:** iterative DFS (`walkStack` + `walkVisited`); revisit → `ReplicatedTable: subtree walk cycle`. Units: deep 15k chain; lastChild cycle; shadow→host cycle. Residual: who corrupts `lastChildOf`/shadow links if cycle fires live. |
 
 ### BUG — loopback establishment / ghost socket (**CLOSED 2026-08-27**)
 
@@ -52,11 +64,11 @@ No open DOM-table bugs. Stress-churn stacked digits = PP-FR-1 ([observability.md
 
 Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **working** — stress/harden separately; this row is the Unico/XFO pin only.
 
-### BUG — injected `virtual.js` on third-party origin (OPEN 2026-08-27)
+### BUG — injected `virtual.js` on third-party origin (**CLOSED 2026-08-27**)
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-INJECT-THIRD-PARTY-MIME** | Lab console: `Refused to execute script from 'https://widget.trustpilot.com/__speculum/virtual.js' because its MIME type ('text/html') is not executable` | Document inject writes `/__speculum/virtual.js` (or relative). On third-party nested docs (Trustpilot widget, etc.) the browser resolves against **that** origin; request hits the real host → HTML 404/SPA shell → strict MIME refuse. Stored-script Fetch fulfill is supposed to catch this (unit already covers CF-shaped URL); Trustpilot path still leaks. **Not** input pipeline. Related: OOPIF/frame CDP Fetch attach ([csp.md](csp.md) 2026-08-27). Do **not** “fix” by punching MIME or serving JS from Trustpilot. Observed lab 2026-08-27. |
+| **PP-INJECT-THIRD-PARTY-MIME** | (was) third-party `*/__speculum/virtual.js` MIME/CSP console noise | **Fixed:** CDP-only inject — no HTML `<script src>` path; `ProjectionRuntimeInstaller` per target. Document hook CSP-only. |
 
 ### BUG — Projected nested load-after-drop census ghost (**CLOSED 2026-08-27**)
 
@@ -108,7 +120,7 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 |----|-------|---------------|-------|
 | **CUTOVER-FULL** | Production cutover completeness | Live switch when V4 is the **only** path with **CSSOM + shadow + OPEN-6 + OS unified input + canvas** on Live — then Integration. Nested CSSOM is not a second algorithm. DOM-only lab is not M1. Input hot path = EventApplier + registered v0 adapter (`os-abs`) ([input.md](input.md)); Mode A/B CDP purged 2026-08-26. | [roadmap.md](roadmap.md) |
 | **CUTOVER-SESSION** | Session sealed mirror contracts on Live | **DONE (shape 2026-08-21)** — `PageProjectionBrowserSession` + sealed factory; product gaps remain (antibot/assets/…). | [browser-session.md](browser-session.md); [roadmap.md](roadmap.md) gate 6.6 |
-| **E-03 / E-08** | Loopback WS data plane (canonical) | **REVISED 2026-08-26 — loopback WS is the sole Virtual↔sidecar carrier** (lab and Live). CDP `exposeBinding` data plane **purged**. Surgical Document CSP Response-stage surgery remains normative for Virtual script/`connect-src`/nonce — see [csp.md](csp.md). **Still rejected:** blunt CSP/`connect-src *` / disable-PNA *punch* as an antibot-visible enablement hack — surgery is surgical, carrier is still page loopback WS. Inject = Playwright `addInitScript` + Document producer mutator. | [csp.md](csp.md) · [roadmap.md](roadmap.md) gate 8 · [browser-session.md](browser-session.md) |
+| **E-03 / E-08** | Loopback WS data plane (canonical) | **REVISED 2026-08-26 — loopback WS is the sole Virtual↔sidecar carrier** (lab and Live). CDP `exposeBinding` data plane **purged**. Surgical Document CSP Response-stage surgery remains normative for Virtual `connect-src`/nonce — see [csp.md](csp.md). **Still rejected:** blunt CSP/`connect-src *` / disable-PNA *punch* as an antibot-visible enablement hack. **Inject (2026-08-27):** CDP-only unified bundle via `ProjectionRuntimeInstaller` — no HTML script tags. | [csp.md](csp.md) · [roadmap.md](roadmap.md) gate 8 · [browser-session.md](browser-session.md) |
 | **Contracts pack fate** | Archive vs delete historical `contracts/` + `implementation/` | Already moved to `archive/`. Confirm deletion vs keep-for-provenance. | Default this pass: **keep in archive**, never implement from. |
 
 ---
@@ -140,7 +152,8 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 |------|------|
 | 2026-08-13 | Establish deleted; cold start = resync frame |
 | 2026-08-13 | OPEN-5 recovery design |
-| 2026-08-13 | 48 KB first-frame = injected `<script>` leak; `currentScript.remove()` |
+| 2026-08-27 | PP inject CDP-only cutover — tag mutators removed; `inject/projectionRuntimeInstaller.ts` |
+| 2026-08-13 | 48 KB first-frame = injected `<script>` leak; scrub sentinel + single bundle (2026-08-27) |
 | 2026-08-13 | `resolvedBefore` O(N²) → `walkSiblingRun` |
 | 2026-08-14 | NODE_DROP subtree resurrection + same-tick reattach race |
 | 2026-08-14 | Stage 4 lab: client resync + real double buffer; `everArmed` cold-start vs mid-session |

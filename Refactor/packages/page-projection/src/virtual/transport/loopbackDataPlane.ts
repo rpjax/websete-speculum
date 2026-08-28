@@ -25,10 +25,19 @@ import {
   type LoopbackInvokeHandler,
   type LoopbackInvokeResult,
 } from '../../core/loopback/envelope';
+import {
+  LOOPBACK_SOCKET_CLOSED,
+  LOOPBACK_SOCKET_OPEN,
+  type LoopbackSocket,
+  type LoopbackSocketFactory,
+} from '../../core/loopback/socket';
+import { createPageWebSocketLoopbackSocket } from './pageWebSocketLoopbackSocket';
 
 export type LoopbackDataPlaneOptions = {
   /** Deferred when socket.bufferedAmount exceeds this (default 256 KiB). */
   bufferedAmountWatermark?: number;
+  /** Socket factory — defaults to page WebSocket. */
+  createSocket?: LoopbackSocketFactory;
 };
 
 const DEFAULT_WATERMARK = 256 * 1024;
@@ -39,9 +48,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 export class LoopbackDataPlane implements DataPlane {
-  private socket: WebSocket | null = null;
+  private socket: LoopbackSocket | null = null;
   private url: string | null = null;
   private readonly watermark: number;
+  private readonly createSocket: LoopbackSocketFactory;
   private handler: DataPlaneMessageHandler | null = null;
   private invokeHandler: LoopbackInvokeHandler | null = null;
 
@@ -60,6 +70,7 @@ export class LoopbackDataPlane implements DataPlane {
 
   constructor(opts: LoopbackDataPlaneOptions = {}) {
     this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
+    this.createSocket = opts.createSocket ?? createPageWebSocketLoopbackSocket;
   }
 
   get destinationUrl(): string | null {
@@ -68,7 +79,7 @@ export class LoopbackDataPlane implements DataPlane {
 
   /** TCP OPEN only — do not use as product gate (LB-10). */
   get isOpen(): boolean {
-    return this.socket?.readyState === WebSocket.OPEN;
+    return this.socket?.readyState === LOOPBACK_SOCKET_OPEN;
   }
 
   get isEstablished(): boolean {
@@ -94,7 +105,7 @@ export class LoopbackDataPlane implements DataPlane {
   open(url: string): void {
     this.tearDownSocket(true);
     this.url = url;
-    const socket = new WebSocket(url);
+    const socket = this.createSocket(url);
     socket.binaryType = 'arraybuffer';
     socket.addEventListener('message', (ev) => this.onSocketMessage(ev));
     socket.addEventListener('close', () => this.onSocketClose(socket));
@@ -121,31 +132,37 @@ export class LoopbackDataPlane implements DataPlane {
 
   /** @deprecated Prefer {@link establishConnection}. */
   whenOpen(timeoutMs = LOOPBACK_WS_OPEN_TIMEOUT_MS): Promise<void> {
-    if (this.isOpen) return Promise.resolve();
     const socket = this.socket;
     if (socket === null) {
       return Promise.reject(new Error('LoopbackDataPlane.whenOpen: not opened'));
     }
+    if (this.isOpen) return Promise.resolve();
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let poll: ReturnType<typeof setInterval> | undefined;
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (poll !== undefined) clearInterval(poll);
+        fn();
+      };
       const timer = setTimeout(() => {
-        reject(new Error('LoopbackDataPlane.whenOpen: timeout'));
+        finish(() => reject(new Error('LoopbackDataPlane.whenOpen: timeout')));
       }, timeoutMs);
-      socket.addEventListener(
-        'open',
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
-      socket.addEventListener(
-        'error',
-        () => {
-          clearTimeout(timer);
-          reject(new Error('LoopbackDataPlane.whenOpen: error'));
-        },
-        { once: true },
-      );
+      const onOpen = (): void => finish(() => resolve());
+      const onError = (): void =>
+        finish(() => reject(new Error('LoopbackDataPlane.whenOpen: error')));
+      const onClose = (): void =>
+        finish(() => reject(new Error('LoopbackDataPlane.whenOpen: closed')));
+      socket.addEventListener('open', onOpen, { once: true });
+      socket.addEventListener('error', onError, { once: true });
+      socket.addEventListener('close', onClose, { once: true });
+      // Poll: extension open-ok can land in the gap after isOpen check / before listeners.
+      poll = setInterval(() => {
+        if (this.isOpen) finish(() => resolve());
+      }, 10);
+      if (this.isOpen) finish(() => resolve());
     });
   }
 
@@ -179,7 +196,7 @@ export class LoopbackDataPlane implements DataPlane {
       return 'deferred';
     }
     const socket = this.socket;
-    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+    if (socket === null || socket.readyState !== LOOPBACK_SOCKET_OPEN) {
       return 'deferred';
     }
     if (socket.bufferedAmount > this.watermark) {
@@ -193,19 +210,22 @@ export class LoopbackDataPlane implements DataPlane {
     if (!this.url) {
       throw new Error('LoopbackDataPlane.establishConnection: no url');
     }
-    if (this.socket === null || this.socket.readyState === WebSocket.CLOSED) {
+    // Arm whenOpen before createSocket begins connecting when possible: open() is
+    // sync until the factory returns; extension bind/open is async via postMessage.
+    if (this.socket === null || this.socket.readyState === LOOPBACK_SOCKET_CLOSED) {
       this.open(this.url);
     }
     this.setState('connecting');
     await this.whenOpen(LOOPBACK_WS_OPEN_TIMEOUT_MS);
+    const ackWait = this.waitHelloAck(LOOPBACK_HELLO_ACK_TIMEOUT_MS);
     this.sendHello();
-    await this.waitHelloAck(LOOPBACK_HELLO_ACK_TIMEOUT_MS);
+    await ackWait;
     this.setState('established');
   }
 
   private sendHello(): void {
     const socket = this.socket;
-    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+    if (socket === null || socket.readyState !== LOOPBACK_SOCKET_OPEN) {
       throw new Error('LoopbackDataPlane: socket not open for hello');
     }
     socket.send(encodeLoopbackHello(this.sessionId, this.generation));
@@ -258,7 +278,7 @@ export class LoopbackDataPlane implements DataPlane {
     }
   }
 
-  private onSocketClose(closedSocket: WebSocket): void {
+  private onSocketClose(closedSocket: LoopbackSocket): void {
     if (this.socket !== closedSocket) return;
     this.socket = null;
     this.failHelloWaiter(new Error('socket closed'));
@@ -375,7 +395,7 @@ export class LoopbackDataPlane implements DataPlane {
   ): Promise<void> {
     const sendProgress = (encode: (id: number) => Uint8Array): void => {
       const socket = this.socket;
-      if (socket === null || socket.readyState !== WebSocket.OPEN) return;
+      if (socket === null || socket.readyState !== LOOPBACK_SOCKET_OPEN) return;
       try {
         socket.send(encode(correlationId));
       } catch {
@@ -436,7 +456,7 @@ export class LoopbackDataPlane implements DataPlane {
     }
 
     const socket = this.socket;
-    if (socket === null || socket.readyState !== WebSocket.OPEN) return;
+    if (socket === null || socket.readyState !== LOOPBACK_SOCKET_OPEN) return;
     try {
       socket.send(encodeLoopbackInvokeResult(correlationId, result));
     } catch {

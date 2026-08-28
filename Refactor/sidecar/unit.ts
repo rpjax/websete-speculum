@@ -15,7 +15,7 @@ import {
   ensureWorkerTargetStealth,
   isWorkerLikeTargetType,
 } from './browser/patchright/worker-target-stealth';
-import { buildChromeArgs, webglSpoofExtensionPath } from './browser/patchright/ChromeRuntime';
+import { buildChromeArgs, webglSpoofExtensionPath, speculumPlaneExtensionPath } from './browser/patchright/ChromeRuntime';
 import { validateLaunchViewport, validateResizeViewport, requireViewportPolicy } from './browser/patchright/viewport-bounds';
 import { shouldEmitContextCrash } from './browser/patchright/contextCrash';
 import { toLaunchOptions } from './grpc/mappers';
@@ -44,8 +44,17 @@ import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/re
 import { runDocumentResponseHookUnitTests } from './browser/mirror/projection/session/csp/documentResponseHook.unit';
 import { runCspMetaNeutralizeInitScriptUnitTests } from './browser/mirror/projection/session/csp/cspMetaNeutralizeInitScript.unit';
 import { runSingleTabUnitTests } from './browser/mirror/projection/session/singleTab.unit';
+import { runBuildProjectionInjectBundleUnitTests } from './browser/mirror/projection/inject/buildProjectionInjectBundle.unit';
+import { runResolveLaunchScriptsUnitTests } from './browser/mirror/projection/inject/resolveLaunchScripts.unit';
+import { runProjectionRuntimeInstallerUnitTests } from './browser/mirror/projection/inject/projectionRuntimeInstaller.unit';
+import { runFrameCdpSessionUnitTests } from './browser/mirror/projection/inject/frameCdpSession.unit';
+import { runInjectScriptBodiesUnitTests } from './browser/mirror/projection/inject/injectScriptBodies.unit';
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runNodeDataPlaneUnitTests } from './browser/mirror/projection/session/nodeDataPlane.unit';
+import { runExtensionPlaneEnvelopeUnitTests } from './browser/mirror/projection/session/extensionPlaneEnvelope.unit';
+import { runExtensionPlaneBridgeEdgeUnitTests } from './browser/mirror/projection/session/extensionPlaneBridge.unit';
+import { runExtensionPlanePerfSmokeUnitTests } from './browser/mirror/projection/session/extensionPlanePerf.unit';
+import { runLoopbackDataPlaneUnitTests } from './browser/mirror/projection/session/loopbackDataPlane.unit';
 import { runChromeLnaPolicyUnitTests } from './browser/patchright/chromeLnaPolicy.unit';
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
@@ -553,8 +562,10 @@ async function testProveLogicalViewportUsesCssLayoutMetrics(): Promise<void> {
 }
 
 function testBuildChromeArgsIncludesWebglSpoof(): void {
-  const extensionPath = webglSpoofExtensionPath();
-  assert.ok(fs.existsSync(extensionPath), `extension must exist at ${extensionPath}`);
+  const webglPath = webglSpoofExtensionPath();
+  const planePath = speculumPlaneExtensionPath();
+  assert.ok(fs.existsSync(webglPath), `extension must exist at ${webglPath}`);
+  assert.ok(fs.existsSync(planePath), `extension must exist at ${planePath}`);
   const args = buildChromeArgs(1280, 720);
   assert.ok(args.includes('--use-gl=angle'), 'ANGLE required for HW-or-software path');
   assert.ok(args.includes('--enable-webgl'), 'webgl must be enabled');
@@ -569,12 +580,12 @@ function testBuildChromeArgsIncludesWebglSpoof(): void {
     'must not force angle=swiftshader (blocks real GPU)',
   );
   assert.ok(
-    args.some((a) => a.startsWith('--load-extension=') && a.includes('webgl-spoof')),
-    'load-extension webgl-spoof required',
+    args.includes('--enable-unsafe-extension-debugging'),
+    'branded Chrome requires --enable-unsafe-extension-debugging for CDP Extensions.loadUnpacked',
   );
   assert.ok(
-    args.some((a) => a.includes('DisableLoadExtensionCommandLineSwitch')),
-    'Chrome ≥137 load-extension feature flag required',
+    !args.some((a) => a.startsWith('--load-extension=')),
+    'CLI --load-extension is dead on Chrome ≥137 — extensions install via CDP',
   );
   assert.ok(
     args.includes('--disable-background-timer-throttling'),
@@ -3111,6 +3122,51 @@ function testNodeDropRemovesSubtreeAndDescendants(): void {
   console.log('[unit] NODE_DROP dropSubtree removes root + all descendants, tableHash exact ok');
 }
 
+const SUBTREE_WALK_CYCLE = 'ReplicatedTable: subtree walk cycle';
+
+function tableLastChildOf(table: ReplicatedTable): Map<number, number> {
+  return (table as unknown as { lastChildOf: Map<number, number> }).lastChildOf;
+}
+
+/** Iterative subtree walk must not blow the call stack on deep chains (former recursive SO). */
+function testDropSubtreeDeepChainNoStackOverflow(): void {
+  const depth = 15_000;
+  const table = new ReplicatedTable();
+  table.setSequence(1);
+  for (let i = 0; i < depth; i++) table.createElementRow(10 + i, 'div', []);
+  table.insertBatch(1, 0, [10]);
+  for (let i = 0; i < depth - 1; i++) table.insertBatch(10 + i, 0, [11 + i]);
+  const dropped = table.dropSubtree(10);
+  assert.strictEqual(dropped.length, depth);
+  assert.strictEqual(table.size, 0);
+  console.log('[unit] dropSubtree deep chain (15k) no stack overflow ok');
+}
+
+/** Corrupt lastChild cycle must fail closed — not hang or RangeError. */
+function testSubtreeWalkCycleLastChildThrows(): void {
+  const table = new ReplicatedTable();
+  table.setSequence(1);
+  table.createElementRow(10, 'div', []);
+  table.createElementRow(11, 'div', []);
+  table.insertBatch(1, 0, [10]);
+  table.insertBatch(10, 0, [11]);
+  tableLastChildOf(table).set(11, 10);
+  assert.throws(() => table.dropSubtree(10), (e: unknown) => e instanceof Error && e.message === SUBTREE_WALK_CYCLE);
+  console.log('[unit] subtree walk lastChild cycle throws ok');
+}
+
+/** Shadow light-link back to host must fail closed. */
+function testSubtreeWalkCycleShadowHostThrows(): void {
+  const table = new ReplicatedTable();
+  table.setSequence(1);
+  table.createElementRow(10, 'div', []);
+  table.createShadowRootRow(20, 10, SHADOW_MODE_OPEN, 0);
+  table.insertBatch(1, 0, [10]);
+  tableLastChildOf(table).set(20, 10);
+  assert.throws(() => table.dropSubtree(10), (e: unknown) => e instanceof Error && e.message === SUBTREE_WALK_CYCLE);
+  console.log('[unit] subtree walk shadow→host cycle throws ok');
+}
+
 /**
  * frame-protocol.md §1.6/OPEN-2 Stage 3 GATE — `collectDroppableIds` must select only detached
  * (`parent === 0`) subtree roots whose `lms` is at least `maxAge` sequences stale, must never
@@ -4186,6 +4242,9 @@ async function main(): Promise<void> {
   testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
   testEpochResetClearsReplicatedTable();
   testNodeDropRemovesSubtreeAndDescendants();
+  testDropSubtreeDeepChainNoStackOverflow();
+  testSubtreeWalkCycleLastChildThrows();
+  testSubtreeWalkCycleShadowHostThrows();
   testCollectDroppableIdsAgeAndLimitBound();
   testCollectDroppableIdsExcludesSameTickReattach();
   testApplyFrameToTableCheckedRejectsNodeDropAbsentId();
@@ -4218,10 +4277,19 @@ async function main(): Promise<void> {
   await runSparseCdpInputAdapterUnitTests();
   await runProjectedInputCaptureUnitTests();
   await runRelaxCspUnitTests();
+  await runInjectScriptBodiesUnitTests();
+  await runBuildProjectionInjectBundleUnitTests();
+  await runResolveLaunchScriptsUnitTests();
+  await runProjectionRuntimeInstallerUnitTests();
+  await runFrameCdpSessionUnitTests();
   await runCspMetaNeutralizeInitScriptUnitTests();
   await runDocumentResponseHookUnitTests();
   await runSingleTabUnitTests();
   await runNodeDataPlaneUnitTests();
+  runExtensionPlaneEnvelopeUnitTests();
+  await runExtensionPlaneBridgeEdgeUnitTests();
+  await runExtensionPlanePerfSmokeUnitTests();
+  await runLoopbackDataPlaneUnitTests();
   runChromeLnaPolicyUnitTests();
   await runPageProjectionSessionUnitTests();
   await runPageProjectionInputClickUnitTests();

@@ -12,6 +12,7 @@ import { NullFrameTransport } from '../transport/nullFrameTransport';
 import { VirtualDomainBus } from '../bus/virtualDomainBus';
 import { ContextIdMint } from '../../core/contextIdMint';
 import type { ProjectionConfig } from '../config/projectionConfig';
+import { createLoopbackSocketFactory } from '../transport/loopbackSocketFactory';
 
 export class RootRuntime {
   readonly mintAllocator = new ContextIdMint();
@@ -35,8 +36,10 @@ export class RootRuntime {
     } else {
       loopback = new LoopbackFrameTransport({
         bufferedAmountWatermark: config.bufferedAmountWatermark,
+        createSocket: createLoopbackSocketFactory(config.loopbackCarrier),
       });
-      loopback.open(config.dataPlaneUrl);
+      // Do not open() here — establishConnection arms whenOpen before the socket
+      // starts connecting (extension plane open-ok can otherwise beat the listener).
       frameTransport = loopback;
       dataPlane = loopback.dataPlane;
     }
@@ -61,6 +64,9 @@ export class RootRuntime {
 
   async establishConnection(): Promise<void> {
     if (!this.loopback) return;
+    if (!this.loopback.destinationUrl) {
+      this.loopback.open(this.config.dataPlaneUrl);
+    }
     await this.loopback.establishConnection({
       sessionId: this.config.sessionId,
       generation: this.config.generation,

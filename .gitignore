@@ -12,6 +12,13 @@
 # Sidecar build output (built in Docker only)
 sidecar/dist/
 
+# PageProjection extension build + per-session C2 endpoint (never commit)
+sidecar/extensions/speculum-pp/main/virtual.js
+sidecar/extensions/speculum-pp/c2-endpoint.json
+
+# Ad-hoc local unit capture
+_test-results-unit.txt
+
 # PageProjection lab benchmark run exports (report.json + .cpuprofile per run)
 sidecar/lab-runs/
 

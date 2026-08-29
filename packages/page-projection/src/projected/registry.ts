@@ -77,10 +77,10 @@ export class PageProjectionRegistry {
   }
 
   /**
-   * Drops every `id → node` entry — `EPOCH_RESET`'s `DOM` effect (§4.1, Stage 3 of
-   * frame-protocol-production-completeness): `applyDom.ts`'s `applyEpochReset` calls this, then
-   * immediately re-registers `DOCUMENT_ID`, before any `NODE_NEW`/`INSERT` in the same frame
-   * repopulates the rest. Leaves the reverse `idsByNode` `WeakMap` alone — its entries key off
+   * Drops every `id → node` entry. A new document install gets a brand-new registry instead
+   * (runtime-redesign.md §7); this stays for callers that reuse one registry across a wholesale
+   * replace, which re-register `DOCUMENT_ID` before any `NODE_NEW`/`INSERT` repopulates the rest.
+   * Leaves the reverse `idsByNode` `WeakMap` alone — its entries key off
    * now-discarded nodes and fall out of scope for GC on their own; nothing reads a stale id back
    * out of it without first missing on `nodesById.get`, which this already empties.
    */

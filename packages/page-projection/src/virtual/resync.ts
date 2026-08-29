@@ -36,13 +36,19 @@ export type ResyncPlanes = {
 export type ResyncFrameResult = {
   frame: Frame;
   cssom: CssomPollStats;
+  /**
+   * A nested host is still waiting for its `contextId` (§0 #4). The frame is complete for
+   * everything else, but the caller must **not** emit it — re-build once the mint RPC settles
+   * (`MintPort.whenSettled`) so the host ships with a real id instead of being omitted.
+   */
+  mintPending: boolean;
 };
 
 /** Maps trusted: describe live identity, blocking CSSOM scan, wholesale replace. */
 export function emitResyncFrame(planes: ResyncPlanes, sequence: number): ResyncFrameResult {
   const { domNodes, table, cssom, formIndex, childScopes, contextId } = planes;
   const generation = domNodes.generation;
-  const domOps = describeDomResync(domNodes, formIndex, {
+  const { ops: domOps, mintPending } = describeDomResync(domNodes, formIndex, {
     childScopes,
     notePendingNestedHost: planes.notePendingNestedHost,
   });
@@ -73,6 +79,7 @@ export function emitResyncFrame(planes: ResyncPlanes, sequence: number): ResyncF
       contextId: contextId ?? CONTEXT_ID_ROOT,
     }),
     cssom: stampCssomPoll(cssomScan.stats, { source: 'resync', sequence }),
+    mintPending,
   };
 }
 

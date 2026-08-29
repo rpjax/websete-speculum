@@ -12,6 +12,15 @@ export type ChildScopeAdmit =
 
 type HostWithWindow = Node & { contentWindow?: Window | null };
 
+/**
+ * Lifecycle edges the carrier needs. Admission is the moment a queued `initContext` becomes
+ * answerable; a drop is the moment a child's port must die (runtime-redesign.md §8).
+ */
+export type ChildScopeHooks = {
+  onAdmit?: (contextId: number, nodeId: number) => void;
+  onDrop?: (contextId: number, nodeId: number) => void;
+};
+
 export class ChildScopeIndex {
   /** nodeId → contextId */
   private readonly map = new Map<number, number>();
@@ -20,7 +29,10 @@ export class ChildScopeIndex {
   /** contentWindow → contextId (O(1) getScopeId) */
   private readonly byWindow = new WeakMap<object, number>();
 
-  constructor(private readonly mint: () => number | null) {}
+  constructor(
+    private readonly mint: () => number | null,
+    private readonly hooks: ChildScopeHooks = {},
+  ) {}
 
   get(nodeId: number): number | undefined {
     return this.map.get(nodeId);
@@ -69,6 +81,7 @@ export class ChildScopeIndex {
     this.byContext.delete(contextId);
     // WeakMap entry drops when the Window is GC'd; cannot delete by contextId alone.
     // Re-admit / windowOf / forEachLive rebind the live contentWindow key.
+    this.hooks.onDrop?.(contextId, nodeId);
   }
 
   admit(nodeId: number, node: Node): ChildScopeAdmit {
@@ -83,6 +96,7 @@ export class ChildScopeIndex {
     this.map.set(nodeId, minted);
     this.byContext.set(minted, nodeId);
     this.bindWindow(node as HostWithWindow, minted);
+    this.hooks.onAdmit?.(minted, nodeId);
     return { kind: 'host', contextId: minted };
   }
 
@@ -117,24 +131,78 @@ export class ChildScopeIndex {
   }
 }
 
+/**
+ * Mint port — **exactly one id per RPC** (runtime-redesign.md §0 #4 / §6). Block allocation is
+ * rejected: an id the parent never issued is not an address. The port answers `null` while its
+ * single RPC is in flight, and the algorithm's job is then to *wait* — see
+ * `TableFrameBuilder`'s frame hold — not to emit a frame with a hole where the host should be.
+ *
+ * `whenSettled()` is the re-drive edge for a caller that must rebuild rather than tick (cold
+ * resync): it resolves when the in-flight RPC answers *or* fails, so the caller retries instead
+ * of polling. `onMinted` is the same edge for the tick-driven path.
+ */
+export type MintPort = {
+  (): number | null;
+  /** Resolves when the in-flight RPC answers *or* fails — the retry edge for a rebuild caller. */
+  whenSettled(): Promise<void>;
+  /** Re-drive edge for the tick-driven caller: fires once per settled RPC. */
+  onSettled(cb: () => void): void;
+};
+
 export function createMintPort(opts: {
   mintSync?: () => number;
   requestMint?: () => Promise<number | undefined>;
-}): () => number | null {
-  if (opts.mintSync) return () => opts.mintSync!();
-  const cache: number[] = [];
-  let inflight = false;
-  const kick = (): void => {
-    if (inflight || !opts.requestMint) return;
-    inflight = true;
-    void opts.requestMint().then((c) => {
-      inflight = false;
-      if (typeof c === 'number' && c >= 2) cache.push(c);
-    });
+}): MintPort {
+  const listeners: (() => void)[] = [];
+  const settled = (): void => {
+    for (let i = 0; i < listeners.length; i++) listeners[i]!();
   };
-  return () => {
-    if (cache.length > 0) return cache.shift()!;
-    kick();
+
+  if (opts.mintSync) {
+    // Root: the allocator is in this realm, so nothing is ever pending and nothing is ever held.
+    const sync = (): number | null => opts.mintSync!();
+    return Object.assign(sync, {
+      whenSettled: (): Promise<void> => Promise.resolve(),
+      onSettled: (): void => {},
+    });
+  }
+
+  let granted: number | null = null;
+  let inflight: Promise<void> | null = null;
+
+  const request = (): Promise<void> => {
+    if (inflight !== null) return inflight;
+    if (!opts.requestMint) return Promise.resolve();
+    const pending = opts
+      .requestMint()
+      .then((id) => {
+        if (typeof id === 'number' && id >= 2) granted = id;
+      })
+      .catch(() => {
+        /* an unanswered mint leaves the frame held — waiting is the protocol */
+      })
+      .then(() => {
+        inflight = null;
+        settled();
+      });
+    inflight = pending;
+    return pending;
+  };
+
+  const take = (): number | null => {
+    if (granted !== null) {
+      const id = granted;
+      granted = null;
+      return id;
+    }
+    void request();
     return null;
   };
+
+  return Object.assign(take, {
+    whenSettled: (): Promise<void> => (granted !== null ? Promise.resolve() : request()),
+    onSettled: (cb: () => void): void => {
+      listeners.push(cb);
+    },
+  });
 }

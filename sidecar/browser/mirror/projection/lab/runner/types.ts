@@ -19,7 +19,8 @@ export type ActionKind =
   | 'fold'
   | 'writeDossier'
   | 'injectFrame'
-  | 'pushInput';
+  | 'pushInput'
+  | 'probe.turnstile';
 
 export type LabAction = {
   id: string;

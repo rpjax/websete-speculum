@@ -5,7 +5,10 @@
 import assert from 'assert';
 import { ChildScopeIndex } from '@speculum/page-projection/virtual/dom/childScopes';
 import { VirtualDomainBus } from '@speculum/page-projection/virtual/bus/virtualDomainBus';
-import type { BusEnvelope } from '@speculum/page-projection/virtual/bus/types';
+import {
+  CONTEXT_BUS_CHANNEL,
+  type BusEnvelope,
+} from '@speculum/page-projection/virtual/bus/types';
 
 export async function runChildScopeBusRouteUnitTests(): Promise<void> {
   testChildScopeIndexReverseAndWindowLookup();
@@ -73,17 +76,30 @@ function testChildScopeRebindsWindowAfterReplace(): void {
   assert.strictEqual(index.lookupByContentWindow(winOld, (id) => nodes.get(id) as never), undefined);
 }
 
+/**
+ * Unicast resolves the target through the live child fabric, never a DOM scan — and lands on that
+ * child's MessagePort (`portCarrier.unit.ts` covers the handshake itself).
+ */
 async function testBusUnicastUsesFabricNotQuerySelector(): Promise<void> {
   let queryCalls = 0;
   const received: BusEnvelope[] = [];
+  const listeners = new Set<(event: unknown) => void>();
   const childWin = {
-    postMessage: (env: BusEnvelope) => {
-      received.push(env);
+    postMessage: (_data: unknown, _origin: string, transfer?: unknown[]) => {
+      const port = (transfer?.[0] ?? null) as { onmessage: unknown } | null;
+      if (port === null) return;
+      port.onmessage = (event: { data: unknown }) => {
+        received.push(event.data as BusEnvelope);
+      };
     },
   };
   const win = {
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
+    addEventListener: (type: string, fn: (event: unknown) => void) => {
+      if (type === 'message') listeners.add(fn);
+    },
+    removeEventListener: (_type: string, fn: (event: unknown) => void) => {
+      listeners.delete(fn);
+    },
     document: {
       querySelectorAll: () => {
         queryCalls += 1;
@@ -103,7 +119,14 @@ async function testBusUnicastUsesFabricNotQuerySelector(): Promise<void> {
   } as never);
   bus.setDeliverableCheck((id) => id === 1 || id === 7);
 
+  // The child opens its channel; the parent transfers the port back through postMessage.
+  for (const fn of [...listeners]) {
+    fn({ data: { channel: CONTEXT_BUS_CHANNEL, kind: 'port-setup' }, source: childWin });
+  }
+
   bus.emit('telemetry', { kind: 'ping' }, { destination: 7 });
+  for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 1));
+
   assert.strictEqual(queryCalls, 0, 'must not scan DOM');
   assert.strictEqual(received.length, 1);
   assert.strictEqual(received[0]!.destination, 7);

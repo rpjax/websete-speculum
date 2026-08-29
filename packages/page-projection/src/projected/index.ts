@@ -10,6 +10,17 @@ export {
 export { DomFrameApplier } from './applyDom';
 export { PageProjectionRegistry } from './registry';
 export { createSurfaceHost, type SurfaceHost } from './surface';
+export {
+  PROJECTED_STANDARDS_SRCDOC,
+  PROJECTED_STANDARDS_READY_TIMEOUT_MS,
+  stampProjectedStandardsSrcdoc,
+  stripProjectedSkeleton,
+  isProjectedStandardsDocument,
+  whenProjectedStandardsReady,
+  type ProjectedStandardsReadyError,
+  type ProjectedStandardsReadyErrorCode,
+  type WhenProjectedStandardsReadyOpts,
+} from './projectedBlankIframe';
 export { NestedProjectedApply } from './nestedProjectedApply';
 export { attachProjectedInputCapture } from './input/projectedInputCapture';
 export {

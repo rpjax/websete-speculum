@@ -31,7 +31,7 @@ const MAX_FAILURES_PER_CHECK = 20;
 const CHECK_DEFINITIONS: { id: string; description: string }[] = [
   { id: 'frame_decodable', description: 'Every frame/part received from Virtual decodes and assembles cleanly (no malformed bytes, no missing parts)' },
   { id: 'sequence_monotonic', description: 'Frame sequence is previous+1 for every frame' },
-  { id: 'generation_stable', description: 'Frame generation only changes when that frame carries an EPOCH_RESET op' },
+  { id: 'generation_stable', description: 'Frame generation only changes on a resync frame (a new install ships a complete surface)' },
   { id: 'no_dangling_reference', description: 'Every op referencing an id targets an id already allocated via NODE_NEW / SHEET_NEW / RULE_NEW (or root id 1)' },
   { id: 'no_duplicate_id', description: 'NODE_NEW / SHEET_NEW / RULE_NEW never reallocates a currently-live id' },
   { id: 'topology_consistency', description: 'INSERT never makes an id its own parent or creates a topology cycle' },
@@ -99,13 +99,15 @@ export class FrameInvariantMonitor {
     }
     this.prevSequence = frame.sequence;
 
-    const sawEpochReset = frame.ops.some((op) => op.op === OpCode.EpochReset);
-    if (this.prevGeneration !== null && frame.generation !== this.prevGeneration && !sawEpochReset) {
+    // A generation change is stated by the header alone (runtime-redesign.md §7) and means a new
+    // install: the client rebuilds its applier, so the frame carrying it must be a complete
+    // surface, not a patch. Announcing a new generation on an incremental frame is the defect.
+    if (this.prevGeneration !== null && frame.generation !== this.prevGeneration && !frame.resync) {
       this.record(
         'generation_stable',
         'fail',
         frame.sequence,
-        `generation changed ${this.prevGeneration}->${frame.generation} without an EPOCH_RESET op`,
+        `generation changed ${this.prevGeneration}->${frame.generation} on a non-resync frame`,
       );
     } else {
       this.record('generation_stable', 'pass', frame.sequence);
@@ -126,8 +128,6 @@ export class FrameInvariantMonitor {
 
   private processOp(op: FrameOp, sequence: number): void {
     switch (op.op) {
-      case OpCode.EpochReset:
-        return; // no id semantics
       case OpCode.NodeNew: {
         if (this.liveIds.has(op.id)) {
           this.record('no_duplicate_id', 'fail', sequence, `NODE_NEW reallocated live id ${op.id}`);

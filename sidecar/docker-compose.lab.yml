@@ -19,7 +19,7 @@ services:
       SPECULUM_LAB_HEADED: "1"
       # Dual-boot / sequence diagnostics (Virtual console + sidecar lateBoot).
       SPECULUM_DIAG_BOOT: "1"
-      # VideoStreaming OS path only — PageProjection uses sparse-cdp (CDP), not SPECULUM_INPUT_BACKEND.
+      # VideoStreaming OS path only — PageProjection sparse-cdp does not use SPECULUM_INPUT_BACKEND / Xorg.
       SPECULUM_INPUT_BACKEND: os
       CHROME_EXECUTABLE: /usr/bin/google-chrome
       DISPLAY: ":99"

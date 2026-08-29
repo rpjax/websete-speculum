@@ -1,48 +1,21 @@
-import type { ConsoleMessage, Page } from 'patchright';
+import type { CDPSession, Page } from 'patchright';
 import type { BrowserEvalResult, BrowserSessionEvents } from '../BrowserSession';
-
-const LEVEL: Record<string, number> = {
-  log: 0,
-  warning: 1,
-  warn: 1,
-  error: 2,
-  assert: 2,
-  info: 3,
-  debug: 4,
-  dir: 0,
-  dirxml: 0,
-  table: 0,
-  trace: 4,
-  clear: 0,
-  startGroup: 0,
-  startGroupCollapsed: 0,
-  endGroup: 0,
-  count: 3,
-  timeEnd: 3,
-};
+import { attachCdpConsoleRelay } from './cdpConsoleRelay';
 
 /**
- * Evaluate via Patchright page.evaluate (no Runtime.enable).
- * Console via page.on('console') — no CDP Runtime domain.
+ * Evaluate via Patchright page.evaluate.
+ * Console relay via CDP Runtime (Patchright `page.on('console')` is silent).
  */
 export class Evaluate {
-  private handler: ((msg: ConsoleMessage) => void) | null = null;
   private page: Page | null = null;
+  private cdp: CDPSession | null = null;
 
   constructor(private readonly events: BrowserSessionEvents) {}
 
-  attachConsole(page: Page): void {
-    if (this.page && this.handler) {
-      this.page.off('console', this.handler);
-    }
+  async attachConsole(page: Page, cdp: CDPSession): Promise<void> {
     this.page = page;
-    this.handler = (msg: ConsoleMessage) => {
-      const level = LEVEL[msg.type()] ?? 0;
-      let text = msg.text();
-      if (text.length > 65_536) text = text.slice(0, 65_536) + ' … [truncated]';
-      this.events.onConsole(level, text);
-    };
-    page.on('console', this.handler);
+    this.cdp = cdp;
+    await attachCdpConsoleRelay(cdp, (level, text) => this.events.onConsole(level, text));
   }
 
   async run(page: Page, code: string): Promise<BrowserEvalResult> {

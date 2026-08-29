@@ -66,7 +66,7 @@ export class FrameEmitter {
   private pendingParts: Uint8Array[] | null = null;
   private pendingPartIndex = 0;
   private pendingRecords: MutationRecord[] | null = null;
-  private pendingResyncBuild: ((nextSequence: number) => Frame) | null = null;
+  private pendingResyncBuild: ((nextSequence: number) => Frame | null) | null = null;
   /** Ops of the last frame that fully left the transport (PP-FR-1 probe). */
   private lastEmittedOps: Frame['ops'] = [];
 
@@ -145,7 +145,12 @@ export class FrameEmitter {
     this.sequence = frame.sequence;
   }
 
-  requestResync(build: (nextSequence: number) => Frame): void {
+  /**
+   * `build` may answer `null` — "not emittable this tick" (a nested-host mint is still pending,
+   * §0 #4). The request stays armed and is retried on the next boundary rather than shipping a
+   * resync frame with a hole where the host belongs.
+   */
+  requestResync(build: (nextSequence: number) => Frame | null): void {
     this.pendingResyncBuild = build;
   }
 
@@ -162,7 +167,12 @@ export class FrameEmitter {
       this.pendingResyncBuild = null;
       this.idleTicks = 0;
       this.builder.takeBuildStats?.();
-      const frame = this.stamp(build(this.sequence + 1));
+      const built = build(this.sequence + 1);
+      if (built === null) {
+        this.pendingResyncBuild = build;
+        return;
+      }
+      const frame = this.stamp(built);
       const parts = this.encoder.encode(frame);
       if (parts.length === 0) return;
       this.pendingFrame = frame;
@@ -176,7 +186,7 @@ export class FrameEmitter {
     const cssom = this.takePendingCssom?.() ?? null;
     const cssomOps = cssom?.ops ?? [];
 
-    const hasDomWork = this.buffer.hasWork();
+    const hasDomWork = this.buffer.hasWork() || (this.builder.hasHeldWork?.() ?? false);
     if (!hasDomWork && cssomOps.length === 0) {
       this.idleTicks += 1;
       if (this.idleTicks < IDLE_SWEEP_INTERVAL_TICKS) {

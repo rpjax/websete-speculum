@@ -5,12 +5,16 @@
  * / `_new` must become a **same-tab redirect** (`location` change on the primary page).
  * Never two tabs alive in one session — not even briefly as a “real” surface.
  *
- * Primary path: single-tab body in the unified CDP inject bundle rewrites open/_blank
- * before the browser allocates a new top-level browsing context.
+ * Primary path: single-tab body in the unified CDP inject bundle / extension MAIN rewrites
+ * open/_blank before the browser allocates a new top-level browsing context.
  *
  * Safety net: if Chromium still creates a page (`context.on('page')`), **close it
  * immediately** and adopt its http(s) URL onto the primary via `page.goto` (not `freshPage`).
  * That net is for paths the init script cannot see; it is not a second supported tab.
+ *
+ * **`freshPage` must suspend the net** while it creates the replacement primary — otherwise
+ * the handler closes the new tab, then closes the old one, Chrome ends with zero pages and
+ * the context disconnects (`browser_disconnected` on lab browse.navigate).
  *
  * Provenance: legacy `patchright/Navigation.ts` — V4 has no PERMISSIVE CSP coupling.
  */
@@ -60,6 +64,8 @@ export const SINGLE_TAB_INIT_SCRIPT = `
 type AdoptionState = {
   primary: Page;
   adoptUrlOnPrimary: (url: string) => Promise<void>;
+  /** True while {@link beginPrimaryPageReplace} … {@link commitPrimaryPageReplace}. */
+  replacing: boolean;
 };
 
 const adoptionByContext = new WeakMap<BrowserContext, AdoptionState>();
@@ -85,6 +91,36 @@ function readHttpUrl(page: Page): string | null {
 }
 
 /**
+ * Suspend the orphan-tab closer while session code creates a replacement primary
+ * (`PageProjectionBrowserSession.freshPage`).
+ */
+export function beginPrimaryPageReplace(context: BrowserContext): void {
+  const s = adoptionByContext.get(context);
+  if (s) s.replacing = true;
+}
+
+/**
+ * Point the net at the new primary and re-arm orphan close.
+ */
+export function commitPrimaryPageReplace(
+  context: BrowserContext,
+  page: Page,
+  adoptUrlOnPrimary: (url: string) => Promise<void>,
+): void {
+  const s = adoptionByContext.get(context);
+  if (!s) return;
+  s.primary = page;
+  s.adoptUrlOnPrimary = adoptUrlOnPrimary;
+  s.replacing = false;
+}
+
+/** Clear the replace suspend without changing primary (error path in `freshPage`). */
+export function abortPrimaryPageReplace(context: BrowserContext): void {
+  const s = adoptionByContext.get(context);
+  if (s) s.replacing = false;
+}
+
+/**
  * Safety net when init rewrite did not run or site bypassed it.
  * Closes auxiliary pages immediately; never leaves two tabs in the context.
  */
@@ -94,15 +130,16 @@ export function installSingleTabAdoption(opts: InstallSingleTabAdoptionOptions):
   if (existing) {
     existing.primary = page;
     existing.adoptUrlOnPrimary = adoptUrlOnPrimary;
+    existing.replacing = false;
     return;
   }
 
-  const state: AdoptionState = { primary: page, adoptUrlOnPrimary };
+  const state: AdoptionState = { primary: page, adoptUrlOnPrimary, replacing: false };
   adoptionByContext.set(context, state);
 
   context.on('page', (newPage) => {
     const s = adoptionByContext.get(context);
-    if (!s || newPage === s.primary) return;
+    if (!s || s.replacing || newPage === s.primary) return;
 
     void (async () => {
       // Capture intended URL in parallel; close immediately — never two session tabs.

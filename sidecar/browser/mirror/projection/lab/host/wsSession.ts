@@ -152,7 +152,11 @@ export class WsLabConnection {
     return `${this.opts.publicOrigin}/${rel}`;
   }
 
-  async requestClientSnapshot(contextId: number, timeoutMs = 5000): Promise<ClientStateSnapshot | null> {
+  async requestClientSnapshot(
+    contextId: number,
+    timeoutMs = 5000,
+    options?: { includeNestedPeek?: boolean },
+  ): Promise<ClientStateSnapshot | null> {
     if (this.client === null || this.client.readyState !== this.client.OPEN) return null;
     if (this.pendingSnapshot !== null) return null;
     return new Promise<ClientStateSnapshot | null>((resolve) => {
@@ -161,7 +165,11 @@ export class WsLabConnection {
         resolve(null);
       }, timeoutMs);
       this.pendingSnapshot = { resolve, timer };
-      this.send({ type: 'requestSnapshot', contextId });
+      this.send({
+        type: 'requestSnapshot',
+        contextId,
+        includeNestedPeek: options?.includeNestedPeek === true,
+      });
     });
   }
 
@@ -337,7 +345,8 @@ export class WsLabConnection {
           const result = await executeBlueprint(bp, {
             chassis: this.chassis,
             resolveUrl: (u) => this.resolveUrl(u),
-            requestClientSnapshot: (contextId) => this.requestClientSnapshot(contextId),
+            requestClientSnapshot: (contextId, options) =>
+              this.requestClientSnapshot(contextId, 5000, options),
             requestTamper: () => this.requestTamper(),
             injectClientFrame: (bytes) => this.injectClientFrame(bytes),
             overrides,
@@ -532,6 +541,10 @@ export class WsLabConnection {
             formProps: Array.isArray(msg.formProps)
               ? (msg.formProps as ClientStateSnapshot['formProps'])
               : null,
+            nestedPeek:
+              typeof msg.nestedPeek === 'object' && msg.nestedPeek !== null
+                ? (msg.nestedPeek as ClientStateSnapshot['nestedPeek'])
+                : null,
           });
         }
         return;

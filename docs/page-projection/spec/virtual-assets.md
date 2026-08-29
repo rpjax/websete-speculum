@@ -4,7 +4,7 @@
 > a hop on the production path (D-SPEC-7), not a second DOM algorithm. Do not implement from
 > `diff-pipeline.md` (archived). Index: [README.md](README.md).
 
-**Status:** implementing (V1 feature-complete path landed in sidecar + Projected stamp + Lab/Live HTTP).
+**Status:** **V1 proven 2026-08-28** — path landed (sidecar rewrite + L1 + stamp + Lab/Live HTTP); lab stress `npm run lab:assets-stress` **4/4** (assets-matrix, demo, Superbet, Eneba; desync 0). Residual third-party frame policy: **PP-ASSET-XFO** ([open.md](open.md)).
 
 **Scope:** how Speculum **serves** bytes for URLs the producer rewrote.
 

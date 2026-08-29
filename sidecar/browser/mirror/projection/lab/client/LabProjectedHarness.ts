@@ -16,8 +16,13 @@ export type LabProjectedHarnessOptions = ProjectionClientOptions;
 export class LabProjectedHarness {
   readonly client: ProjectionClient;
 
-  constructor(opts: LabProjectedHarnessOptions) {
-    this.client = createProjectionClient(opts);
+  private constructor(client: ProjectionClient) {
+    this.client = client;
+  }
+
+  static async create(opts: LabProjectedHarnessOptions): Promise<LabProjectedHarness> {
+    const client = await createProjectionClient(opts);
+    return new LabProjectedHarness(client);
   }
 
   ingest(bytes: Uint8Array): void {
@@ -33,13 +38,13 @@ export class LabProjectedHarness {
     this.client.flush();
   }
 
-  reset(): void {
-    this.client.reset();
+  async reset(): Promise<void> {
+    await this.client.reset();
   }
 
   /** @deprecated alias — prefer {@link reset} */
-  resetSurface(): void {
-    this.client.reset();
+  async resetSurface(): Promise<void> {
+    await this.client.reset();
   }
 
   get isArmed(): boolean {
@@ -80,14 +85,68 @@ export class LabProjectedHarness {
   peekNestedHosts(): {
     nested: number[];
     awaiting: number[];
+    pendingFrames: Record<string, number>;
+    sessions: Array<{
+      contextId: number;
+      armed: boolean;
+      desynced: boolean;
+      applyError: string | null;
+      generation: number;
+      compat: string | null;
+      bodyLen: number;
+      docIsLive: boolean | null;
+    }>;
   } {
     const c = this.client as unknown as {
-      nested: Map<number, unknown>;
+      nested: Map<
+        number,
+        {
+          isArmed: boolean;
+          desynced: boolean;
+          applyError: string | null;
+          getGeneration(): number;
+          hostIframe: HTMLIFrameElement;
+          document: Document;
+          registry: { get(id: number): Node | undefined };
+        }
+      >;
       nestedHostAwaitingLoad: Map<number, unknown>;
+      pendingNestedFrames: Map<number, Uint8Array[]>;
     };
+    const pendingFrames: Record<string, number> = {};
+    for (const [id, q] of c.pendingNestedFrames) pendingFrames[String(id)] = q.length;
+    const sessions = [...c.nested.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([contextId, s]) => {
+        let compat: string | null = null;
+        let bodyLen = 0;
+        let docIsLive: boolean | null = null;
+        try {
+          const live = s.hostIframe.contentDocument;
+          compat = live?.compatMode ?? null;
+          bodyLen = live?.body?.innerHTML?.length ?? 0;
+          // Applier's document node (id 1) vs the iframe's current contentDocument.
+          const regDoc = s.registry.get(1) ?? null;
+          docIsLive = live != null && regDoc === live;
+        } catch {
+          compat = 'xo';
+        }
+        return {
+          contextId,
+          armed: s.isArmed,
+          desynced: s.desynced,
+          applyError: s.applyError,
+          generation: s.getGeneration(),
+          compat,
+          bodyLen,
+          docIsLive,
+        };
+      });
     return {
       nested: [...c.nested.keys()].sort((a, b) => a - b),
       awaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b),
+      pendingFrames,
+      sessions,
     };
   }
 

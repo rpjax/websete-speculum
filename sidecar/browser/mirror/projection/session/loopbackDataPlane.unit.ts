@@ -192,5 +192,31 @@ export async function runLoopbackDataPlaneUnitTests(): Promise<void> {
     plane.close();
   });
 
+  // LB-16: socket closed mid-hello (extension plane replace) retries with a fresh socket.
+  await withMockServer(async (url, reply) => {
+    let helloCount = 0;
+    const holder: { sock: MockEstablishSocket | null } = { sock: null };
+    const plane = new LoopbackDataPlane({
+      createSocket: (socketUrl) => {
+        holder.sock = new MockEstablishSocket(socketUrl, (bytes) => {
+          const env = decodeLoopbackEnvelope(bytes);
+          if (env?.kind !== 'hello') return;
+          helloCount += 1;
+          if (helloCount === 1) {
+            holder.sock?.close();
+            return;
+          }
+          if (holder.sock) reply(holder.sock, bytes);
+        });
+        return holder.sock;
+      },
+    });
+    plane.open(url);
+    await plane.establishConnection({ sessionId: SESSION, generation: GENERATION });
+    assert.strictEqual(plane.isEstablished, true);
+    assert.ok(helloCount >= 2, `expected establish retry after socket closed, hellos=${helloCount}`);
+    plane.close();
+  });
+
   console.log('[unit] loopbackDataPlane mock socket ok');
 }

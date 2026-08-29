@@ -15,7 +15,7 @@ import {
   ensureWorkerTargetStealth,
   isWorkerLikeTargetType,
 } from './browser/patchright/worker-target-stealth';
-import { buildChromeArgs, webglSpoofExtensionPath, speculumPlaneExtensionPath } from './browser/patchright/ChromeRuntime';
+import { buildChromeArgs, speculumPpExtensionPath } from './browser/patchright/ChromeRuntime';
 import { validateLaunchViewport, validateResizeViewport, requireViewportPolicy } from './browser/patchright/viewport-bounds';
 import { shouldEmitContextCrash } from './browser/patchright/contextCrash';
 import { toLaunchOptions } from './grpc/mappers';
@@ -44,11 +44,10 @@ import { runRelaxCspUnitTests } from './browser/mirror/projection/session/csp/re
 import { runDocumentResponseHookUnitTests } from './browser/mirror/projection/session/csp/documentResponseHook.unit';
 import { runCspMetaNeutralizeInitScriptUnitTests } from './browser/mirror/projection/session/csp/cspMetaNeutralizeInitScript.unit';
 import { runSingleTabUnitTests } from './browser/mirror/projection/session/singleTab.unit';
-import { runBuildProjectionInjectBundleUnitTests } from './browser/mirror/projection/inject/buildProjectionInjectBundle.unit';
 import { runResolveLaunchScriptsUnitTests } from './browser/mirror/projection/inject/resolveLaunchScripts.unit';
-import { runProjectionRuntimeInstallerUnitTests } from './browser/mirror/projection/inject/projectionRuntimeInstaller.unit';
 import { runFrameCdpSessionUnitTests } from './browser/mirror/projection/inject/frameCdpSession.unit';
 import { runInjectScriptBodiesUnitTests } from './browser/mirror/projection/inject/injectScriptBodies.unit';
+import { runExtensionC2HostUnitTests } from './browser/mirror/projection/session/extensionC2Host.unit';
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
 import { runNodeDataPlaneUnitTests } from './browser/mirror/projection/session/nodeDataPlane.unit';
 import { runExtensionPlaneEnvelopeUnitTests } from './browser/mirror/projection/session/extensionPlaneEnvelope.unit';
@@ -60,7 +59,10 @@ import { runPageProjectionInputClickUnitTests } from './browser/mirror/projectio
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
 import { runChildScopeBusRouteUnitTests } from './browser/mirror/projection/bus/childScopeBusRoute.unit';
+import { runPortCarrierUnitTests } from './browser/mirror/projection/bus/portCarrier.unit';
+import { runMintHoldUnitTests } from './browser/mirror/projection/bus/mintHold.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
+import { runCdpConsoleRelayUnitTests } from './browser/patchright/cdpConsoleRelay.unit';
 import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
 import { runSparseCdpInputAdapterUnitTests } from './browser/input/adapters/sparseCdpInputAdapter.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
@@ -560,10 +562,12 @@ async function testProveLogicalViewportUsesCssLayoutMetrics(): Promise<void> {
 }
 
 function testBuildChromeArgsIncludesWebglSpoof(): void {
-  const webglPath = webglSpoofExtensionPath();
-  const planePath = speculumPlaneExtensionPath();
-  assert.ok(fs.existsSync(webglPath), `extension must exist at ${webglPath}`);
-  assert.ok(fs.existsSync(planePath), `extension must exist at ${planePath}`);
+  const ppPath = speculumPpExtensionPath();
+  assert.ok(fs.existsSync(ppPath), `extension must exist at ${ppPath}`);
+  assert.ok(
+    fs.existsSync(require('path').join(ppPath, 'main', 'virtual.js')),
+    'speculum-pp must ship main/virtual.js',
+  );
   const args = buildChromeArgs(1280, 720);
   assert.ok(args.includes('--use-gl=angle'), 'ANGLE required for HW-or-software path');
   assert.ok(args.includes('--enable-webgl'), 'webgl must be enabled');
@@ -636,7 +640,7 @@ function testKitStealthInitSource(): void {
   assert.ok(pcSrc.includes('Linux x86_64'), 'pc platform');
   assert.ok(!pcSrc.includes('Direct3D'), 'pc never D3D11/Windows');
   const extJs = fs.readFileSync(
-    require('path').join(webglSpoofExtensionPath(), 'content.js'),
+    require('path').join(speculumPpExtensionPath(), 'main', 'webgl.js'),
     'utf8',
   );
   assert.ok(extJs.includes('WebKit WebGL'), 'extension masked RENDERER');
@@ -3065,27 +3069,27 @@ function testApplyFrameToTableCheckedDoesNotRollBackPriorOps(): void {
 }
 
 /**
- * frame-protocol.md §4.1 `EPOCH_RESET` Stage 3 GATE — its `Table` effect ("clear the table,
- * restart id allocation") must actually clear every row and derived index, not just report
- * `size === 0` — `tableHash` must also return to the fresh-table value (`0n`), proving the
- * `TableHashTracker` itself was cleared, not merely emptied of live rows one at a time.
+ * A wholesale replace (resync, or a new install adopting a fresh table) must actually clear every
+ * row and derived index, not just report `size === 0` — `tableHash` must also return to the
+ * fresh-table value (`0n`), proving the `TableHashTracker` itself was cleared, not merely emptied
+ * of live rows one at a time. There is no `EPOCH_RESET` op any more (runtime-redesign.md §7): the
+ * only reset entry points are `table.reset()` and a brand-new table for a new generation.
  */
-function testEpochResetClearsReplicatedTable(): void {
+function testTableResetClearsReplicatedTable(): void {
   const table = new ReplicatedTable();
   applyOpsToTable(table, STAGE2_OPS);
-  assert.ok(table.size > 0, 'sanity: STAGE2_OPS must populate rows before EPOCH_RESET');
+  assert.ok(table.size > 0, 'sanity: STAGE2_OPS must populate rows before reset');
   assert.notStrictEqual(table.tableHash, 0n, 'sanity: a populated table must have a non-zero tableHash');
 
-  applyOpToTable(table, { op: OpCode.EpochReset, generation: 2 });
-  assert.strictEqual(table.size, 0, 'EPOCH_RESET must clear every row (frame-protocol.md §4.1)');
-  assert.strictEqual(table.tableHash, 0n, 'EPOCH_RESET must reset tableHash to the fresh-table value');
+  table.reset();
+  assert.strictEqual(table.size, 0, 'reset must clear every row');
+  assert.strictEqual(table.tableHash, 0n, 'reset must return tableHash to the fresh-table value');
   assert.strictEqual(table.has(10), false);
 
-  // The table must still be fully usable afterwards — EPOCH_RESET is "restart id allocation",
-  // not "table is now unusable".
+  // The table must still be fully usable afterwards — reset is "start over", not "unusable".
   applyOpsToTable(table, STAGE2_OPS);
-  assert.strictEqual(table.size, 2, 'table must accept new rows after EPOCH_RESET');
-  console.log('[unit] EPOCH_RESET clears ReplicatedTable (rows + tableHash) ok');
+  assert.strictEqual(table.size, 2, 'table must accept new rows after reset');
+  console.log('[unit] ReplicatedTable.reset clears rows + tableHash ok');
 }
 
 /**
@@ -4238,7 +4242,7 @@ async function main(): Promise<void> {
   testPropSetTableAndCheck();
   testFormPropDirtyDoesNotBlockTable();
   testApplyFrameToTableCheckedDoesNotRollBackPriorOps();
-  testEpochResetClearsReplicatedTable();
+  testTableResetClearsReplicatedTable();
   testNodeDropRemovesSubtreeAndDescendants();
   testDropSubtreeDeepChainNoStackOverflow();
   testSubtreeWalkCycleLastChildThrows();
@@ -4270,16 +4274,18 @@ async function main(): Promise<void> {
   testLabContextIndex();
   await runContextBusUnitTests();
   await runChildScopeBusRouteUnitTests();
+  await runPortCarrierUnitTests();
+  await runMintHoldUnitTests();
   runScriptingOnPaintParityUnitTests();
+  runCdpConsoleRelayUnitTests();
   await runEventApplierUnitTests();
   await runSparseCdpInputAdapterUnitTests();
   await runProjectedInputCaptureUnitTests();
   await runRelaxCspUnitTests();
   await runInjectScriptBodiesUnitTests();
-  await runBuildProjectionInjectBundleUnitTests();
   await runResolveLaunchScriptsUnitTests();
-  await runProjectionRuntimeInstallerUnitTests();
   await runFrameCdpSessionUnitTests();
+  await runExtensionC2HostUnitTests();
   await runCspMetaNeutralizeInitScriptUnitTests();
   await runDocumentResponseHookUnitTests();
   await runSingleTabUnitTests();

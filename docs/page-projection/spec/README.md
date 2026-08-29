@@ -7,23 +7,28 @@
 
 ---
 
-## Now (2026-08-28) — start a new chat here
+## Now (2026-08-29) — start a new chat here
 
-**Shipped (recent):** **PP inject boot SEALED** (2026-08-28) — `onNewDocument` + main-world + arm + lateBoot miss-detect; [browser-session.md](browser-session.md). Virtual assets V1 path. **Input = sparse-cdp V1 SEALED** (2026-08-27). Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
+**Shipped (recent):** Extension plane EP-15 · Virtual assets V1 · Input sparse-cdp V1 (local % click) · nested iframe click. Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
 
-**Input:** sparse-cdp only. Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
+**Runtime inject:** Cutover landed — unified `speculum-pp` extension + C2 SessionConfig/ACK + MessagePort ContextBus + `initContext`. Normative: [runtime-redesign.md](runtime-redesign.md) §0. Stealth spike on real antibot still required before calling accept (V3).
+
+**Input:** sparse-cdp only — click = `nodeId` + **local %** in target box (`localX`/`localY`), not absolute CSS hit. Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
 
 **Lab UI:** `npm run lab:docker` in `sidecar` → **http://127.0.0.1:4103/**. PP lab does **not** require `/dev/uinput` for input. Always name the full blueprint id + description + fixture when asking a human to run something.
 
 **Next product work (ordered):**
 1. ~~Re-prove Eneba / heavy CF on sparse-cdp~~ — done (Rodrigo 2026-08-27).
-2. **Extension plane loopback** — [extension-plane.md](extension-plane.md) SEALED; impl **PP-EXTENSION-PLANE** ([open.md](open.md)). Binance stress: zero LNA no console da página + establish bilateral.
-3. Prove virtual assets on real sites (Eneba/lab) — imgs/CSS/fonts via `/w7s/virtual-*`.
-4. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
-5. MotorAssert compose seed `MirrorMode.PageProjection`.
-6. Input fine-tuning (nested iframe click oracle, touch, IME) — after assets unlock visual parity.
+2. ~~Extension plane accept (EP-15)~~ — closed 2026-08-28 ([extension-plane.md](extension-plane.md) · [open.md](open.md)).
+3. ~~Virtual assets on real sites~~ — closed 2026-08-28 (`npm run lab:assets-stress`; [virtual-assets.md](virtual-assets.md)). Residual: **PP-ASSET-XFO** pinned in [open.md](open.md).
+4. **Runtime redesign impl** — [runtime-redesign.md](runtime-redesign.md) §12 (P0 catch → C2 extension → MessagePort / `initContext` → kill `EPOCH_RESET`).
+5. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
+6. MotorAssert compose seed `MirrorMode.PageProjection`.
+7. Input fine-tuning (touch, IME) — after canvas unlocks more visual parity.
 
-Open named shadow / form PROP / SVG / session shape / **gate 10 surface** / **inject boot** — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+Open named shadow / form PROP / SVG / session shape / **gate 10 surface** / **nested iframe click** — closed. **Inject boot** = redesign in progress (CDP seal superseded). Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+
+
 
 If you are an agent with limited context: **read this file (including Now), then `acceptance.md`, then `open.md`, then `seal-gaps.md`, then `roadmap.md`, then only the protocol sections you are changing.** Do not open `../archive/`.
 
@@ -109,6 +114,7 @@ docs/page-projection/
     csp.md                  Virtual Document CSP surgery (cutover)
     loopback.md             Loopback WS establish + health + mux (LB-08…19)
     browser-session.md      Session / mirror-mode contracts (SEALED)
+    runtime-redesign.md     Runtime carrier redesign (SEALED 2026-08-29; cutover in tree)
     virtual-assets.md       URL serve plane
     support-matrix.md       accepted product gaps
     test-matrix.md          PP-* coverage (some rows pending V4 re-author)

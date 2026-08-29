@@ -1,8 +1,7 @@
 /**
- * Main-world extension plane shim — injected before virtual.js for loopback transport.
- *
- * CONNECTING sockets ignore premature `error`/`close` from Port/WS churn (superseded
- * attempt) until `open-ok` or `open-fail` — otherwise establish loses the race to open-ok.
+ * Main-world extension plane shim source — used by bridge edge units.
+ * Product delivery is the static file `extensions/speculum-pp/main/plane-shim.js`
+ * (async SessionConfig gate). This builder keeps the sync-config shape for Node harnesses.
  */
 
 import { EXTENSION_PLANE_CHANNEL } from '@speculum/page-projection/core/extensionPlane/envelope';
@@ -11,7 +10,7 @@ import { PROJECTION_CONFIG_GLOBAL } from '@speculum/page-projection/virtual/conf
 
 const BIND_TIMEOUT_MS = 5_000;
 
-/** Returns IIFE source for CDP inject bundle. */
+/** Returns IIFE source for tests / harnesses that pre-assign SessionConfig on globalThis. */
 export function buildExtensionPlaneMainShimJs(): string {
   const channel = EXTENSION_PLANE_CHANNEL;
   const factoryGlobal = EXTENSION_PLANE_SOCKET_FACTORY_GLOBAL;

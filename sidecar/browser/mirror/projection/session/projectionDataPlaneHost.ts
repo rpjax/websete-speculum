@@ -18,12 +18,20 @@ export class ProjectionDataPlaneHost {
     return this.url;
   }
 
-  configureSession(sessionId: string, generation: number): void {
-    this.dataPlane.setExpectedSession({ sessionId, generation });
+  configureSession(sessionId: string, generation?: number): void {
+    this.dataPlane.setExpectedSession(
+      generation !== undefined ? { sessionId, generation } : { sessionId },
+    );
   }
 
-  waitEstablished(opts: { generation: number; timeoutMs?: number }): Promise<void> {
+  waitEstablished(
+    opts: { generation?: number; afterGeneration?: number; timeoutMs?: number } = {},
+  ): Promise<void> {
     return this.dataPlane.waitEstablished(opts);
+  }
+
+  get establishedGeneration(): number {
+    return this.dataPlane.status.generation;
   }
 
   get isEstablished(): boolean {

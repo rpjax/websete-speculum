@@ -20,6 +20,8 @@ import { foldShadowOpen, foldShadowClosed, foldShadowManual } from '../blueprint
 import { foldIframeOpen } from '../blueprints/fold/iframeOpen';
 import { foldApplyHonestyDesync } from '../blueprints/fold/applyHonestyDesync';
 import { foldCspNavLocale } from '../blueprints/fold/cspNavLocale';
+import { foldTurnstile } from '../blueprints/fold/turnstile';
+import { runTurnstileDiagnostic } from '../probes/turnstileDiagnostic';
 import type { HostileKind } from './hostileFrames';
 import {
   encodeAttrDesyncFrame,
@@ -42,6 +44,7 @@ export type ExecuteHooks = {
   resolveUrl: (url: string) => string;
   requestClientSnapshot?: (
     contextId: number,
+    options?: { includeNestedPeek?: boolean },
   ) => Promise<import('../probes/isomorphism').ClientStateSnapshot | null>;
   requestTamper?: () => Promise<{ ok: boolean; reason?: string } | null>;
   injectClientFrame?: (bytes: Uint8Array) => Promise<InjectAck | null>;
@@ -568,6 +571,28 @@ export async function executeBlueprint(
         }
         return finish(true);
       }
+      case 'probe.turnstile': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const diagnostic = await runTurnstileDiagnostic({
+          chassis,
+          session,
+          getClientSnapshot: hooks.requestClientSnapshot
+            ? (contextId, options) => hooks.requestClientSnapshot!(contextId, options)
+            : undefined,
+        });
+        (chassis.journal as { turnstileDiagnostic?: unknown }).turnstileDiagnostic = diagnostic;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            'probes/turnstile-diagnostic.json',
+            diagnostic,
+            'probes.turnstile',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.turnstile', ok: true });
+        return finish(true, `contexts=${diagnostic.contextIds.join(',')}`);
+      }
       case 'collect.enable':
         return finish(true, 'collectors always on chassis');
       case 'injectFrame': {
@@ -761,6 +786,8 @@ export async function executeBlueprint(
           verdicts = foldApplyHonestyDesync(chassis, kind);
         } else if (ruleset === 'csp-nav-locale' || ruleset === 'fold/cspNavLocale') {
           verdicts = foldCspNavLocale(chassis);
+        } else if (ruleset === 'turnstile' || ruleset === 'fold/turnstile') {
+          verdicts = foldTurnstile(chassis);
         } else return finish(false, `unknown fold ruleset ${ruleset}`);
         return finish(true, `verdicts=${verdicts.length}`);
       }

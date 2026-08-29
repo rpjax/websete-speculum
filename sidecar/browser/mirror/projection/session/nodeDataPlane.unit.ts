@@ -77,6 +77,7 @@ export async function runNodeDataPlaneUnitTests(): Promise<void> {
   await testReplaceClosesPredecessor();
   await testHelloHandshakeEstablished();
   await testGenerationMismatchReject();
+  await testNewerGenerationSupersedesEstablished();
   await testStaleCloseDoesNotKillSuccessor();
   await testInvokeOnlyWhenEstablished();
   await testWaitEstablishedSurvivesIntermediateClose();
@@ -113,16 +114,46 @@ async function testHelloHandshakeEstablished(): Promise<void> {
 }
 
 async function testGenerationMismatchReject(): Promise<void> {
+  // Invalid generation (< 1) is still rejected; a different positive generation is adopted
+  // (sidecar observes initContext — does not predict).
+  await withServer(async (url, wss) => {
+    const plane = new NodeDataPlane();
+    plane.setExpectedSession({ sessionId: SESSION });
+    wss.once('connection', (ws) => plane.attach(ws));
+    const bad = await connectClient(url);
+    bad.send(Buffer.from(encodeLoopbackHello(SESSION, 0)), { binary: true });
+    await wait(50);
+    assert.strictEqual(plane.isEstablished, false);
+    assert.strictEqual(bad.readyState, WebSocket.CLOSED);
+
+    wss.once('connection', (ws) => plane.attach(ws));
+    const good = await connectClient(url);
+    good.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION + 5)), { binary: true });
+    await wait(50);
+    assert.strictEqual(plane.isEstablished, true);
+    assert.strictEqual(plane.status.generation, GENERATION + 5);
+    good.close();
+  });
+}
+
+async function testNewerGenerationSupersedesEstablished(): Promise<void> {
   await withServer(async (url, wss) => {
     const plane = new NodeDataPlane();
     plane.setExpectedSession({ sessionId: SESSION, generation: GENERATION });
+
+    const clientA = await helloHandshake(plane, url, wss);
+    assert.strictEqual(plane.isEstablished, true);
+    assert.strictEqual(plane.status.generation, GENERATION);
+
     wss.once('connection', (ws) => plane.attach(ws));
-    const client = await connectClient(url);
-    client.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION + 1)), { binary: true });
+    const clientB = await connectClient(url);
+    clientB.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION + 1)), { binary: true });
     await wait(50);
-    assert.strictEqual(plane.isEstablished, false);
-    assert.strictEqual(client.readyState, WebSocket.CLOSED);
-    client.close();
+    assert.strictEqual(plane.isEstablished, true);
+    assert.strictEqual(plane.status.generation, GENERATION + 1);
+    assert.strictEqual(clientB.readyState, WebSocket.OPEN);
+    assert.strictEqual(clientA.readyState, WebSocket.CLOSED, 'predecessor closes on gen supersede');
+    clientB.close();
   });
 }
 

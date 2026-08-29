@@ -296,12 +296,21 @@ export function bootLabClient(): void {
         payload.viewportW = intent.viewportW;
         payload.viewportH = intent.viewportH;
         payload.button = intent.button;
-        // Sparse-cdp id-addressed click — hit-test nodeId/contextId on down/up.
+        // Sparse-cdp id-addressed click — nodeId + local % in target box.
         if (intent.type !== 'move') {
           if (intent.contextId != null) payload.contextId = intent.contextId;
           if (intent.nodeId !== undefined) payload.nodeId = intent.nodeId;
+          if (intent.localX != null) payload.localX = intent.localX;
+          if (intent.localY != null) payload.localY = intent.localY;
         }
-        payload.payload = JSON.stringify({ x: intent.x, y: intent.y, button: intent.button });
+        payload.payload = JSON.stringify({
+          x: intent.x,
+          y: intent.y,
+          button: intent.button,
+          ...(intent.type !== 'move' && intent.localX != null && intent.localY != null
+            ? { localX: intent.localX, localY: intent.localY }
+            : {}),
+        });
       } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
         payload.key = intent.key;
         payload.code = intent.code;
@@ -777,9 +786,9 @@ export function bootLabClient(): void {
     updateStream();
   }
 
-  function ensureProjection(): LabProjectedHarness {
+  async function ensureProjection(): Promise<LabProjectedHarness> {
     if (projection) return projection;
-    projection = new LabProjectedHarness({
+    projection = await LabProjectedHarness.create({
       surfaceHost,
       width: canonicalViewport.width,
       height: canonicalViewport.height,
@@ -958,13 +967,14 @@ export function bootLabClient(): void {
     });
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') {
-        const p = ensureProjection();
-        const bytes = new Uint8Array(ev.data as ArrayBuffer);
-        const hdr = peekFrameHeader(bytes);
-        const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : CONTEXT_ID_ROOT;
-        ctxStats(ctxId).wireFrames += 1;
-        p.ingest(bytes);
-        updateStream();
+        void ensureProjection().then((p) => {
+          const bytes = new Uint8Array(ev.data as ArrayBuffer);
+          const hdr = peekFrameHeader(bytes);
+          const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : CONTEXT_ID_ROOT;
+          ctxStats(ctxId).wireFrames += 1;
+          p.ingest(bytes);
+          updateStream();
+        });
         return;
       }
       let msg: { type?: string; [k: string]: unknown };
@@ -983,68 +993,75 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'requestSnapshot') {
         const contextId = typeof msg.contextId === 'number' && msg.contextId >= 1 ? msg.contextId : 1;
-        const p = ensureProjection();
-        const ctx = p.snapshotContext(contextId);
-        const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
-        const tree = doc ? snapshotTree(doc) : null;
-        const cascade = doc ? probeCssomPaintBoundary(doc) : null;
-        const formProps = doc ? snapshotFormControls(doc) : null;
-        ws?.send(
-          JSON.stringify({
-            type: 'client.snapshotResult',
-            contextId,
-            tree,
-            table: ctx.table,
-            sequence: ctx.sequence,
-            generation: ctx.generation,
-            desynced: ctx.desynced,
-            applyError: ctx.applyError,
-            armed: ctx.armed,
-            resyncInFlight: ctx.resyncInFlight,
-            cascade,
-            formProps,
-          }),
-        );
+        const includeNestedPeek = msg.includeNestedPeek === true;
+        void ensureProjection().then((p) => {
+          const ctx = p.snapshotContext(contextId);
+          const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+          const tree = doc ? snapshotTree(doc) : null;
+          const cascade = doc ? probeCssomPaintBoundary(doc) : null;
+          const formProps = doc ? snapshotFormControls(doc) : null;
+          const nestedPeek =
+            includeNestedPeek && contextId === 1 ? p.peekNestedHosts() : undefined;
+          ws?.send(
+            JSON.stringify({
+              type: 'client.snapshotResult',
+              contextId,
+              tree,
+              table: ctx.table,
+              sequence: ctx.sequence,
+              generation: ctx.generation,
+              desynced: ctx.desynced,
+              applyError: ctx.applyError,
+              armed: ctx.armed,
+              resyncInFlight: ctx.resyncInFlight,
+              cascade,
+              formProps,
+              ...(nestedPeek !== undefined ? { nestedPeek } : {}),
+            }),
+          );
+        });
         return;
       }
       if (msg.type === 'lab.injectFrame') {
-        const p = ensureProjection();
-        const b64 = typeof msg.bytes === 'string' ? msg.bytes : '';
-        try {
-          const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-          p.ingest(bin);
-          p.flushNow();
-        } catch (err) {
-          logActivity(`lab.injectFrame failed ${err instanceof Error ? err.message : String(err)}`);
-        }
-        const tableSnap = p.snapshotTable();
-        logActivity(
-          `lab.injectFrame seq=${tableSnap.sequence} desynced=${p.desynced} err=${p.applyError ?? 'null'}`,
-        );
-        ws?.send(
-          JSON.stringify({
-            type: 'client.injectResult',
-            sequence: tableSnap.sequence,
-            generation: tableSnap.generation,
-            desynced: p.desynced,
-            applyError: p.applyError,
-            tableHash: tableSnap.table.tableHash,
-          }),
-        );
+        void ensureProjection().then((p) => {
+          const b64 = typeof msg.bytes === 'string' ? msg.bytes : '';
+          try {
+            const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            p.ingest(bin);
+            p.flushNow();
+          } catch (err) {
+            logActivity(`lab.injectFrame failed ${err instanceof Error ? err.message : String(err)}`);
+          }
+          const tableSnap = p.snapshotTable();
+          logActivity(
+            `lab.injectFrame seq=${tableSnap.sequence} desynced=${p.desynced} err=${p.applyError ?? 'null'}`,
+          );
+          ws?.send(
+            JSON.stringify({
+              type: 'client.injectResult',
+              sequence: tableSnap.sequence,
+              generation: tableSnap.generation,
+              desynced: p.desynced,
+              applyError: p.applyError,
+              tableHash: tableSnap.table.tableHash,
+            }),
+          );
+        });
         return;
       }
       if (msg.type === 'lab.tamper') {
-        const p = ensureProjection();
-        p.flushNow();
-        const r = p.tamperGhostCssRule();
-        logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ''}`);
-        ws?.send(
-          JSON.stringify({
-            type: 'client.tamperResult',
-            ok: r.ok,
-            reason: r.reason ?? null,
-          }),
-        );
+        void ensureProjection().then((p) => {
+          p.flushNow();
+          const r = p.tamperGhostCssRule();
+          logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ''}`);
+          ws?.send(
+            JSON.stringify({
+              type: 'client.tamperResult',
+              ok: r.ok,
+              reason: r.reason ?? null,
+            }),
+          );
+        });
         return;
       }
       if (msg.type === 'session.resized') {
@@ -1247,25 +1264,27 @@ export function bootLabClient(): void {
     disposeViewportSync();
     canonicalViewport = measureAndNormalizeViewport();
     bootDeviceProfile = detectViewportDeviceProfile();
-    const p = ensureProjection();
-    p.resetSurface();
-    p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-    resetStreamCounters();
-    logActivity(
-      `browse.start viewport ${canonicalViewport.width}×${canonicalViewport.height}`,
-    );
-    ws?.send(
-      JSON.stringify({
-        type: 'browse.start',
-        url: urlInput.value,
-        width: canonicalViewport.width,
-        height: canonicalViewport.height,
-        device: bootDeviceProfile,
-        frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
-        telemetry: readTelemetryFromUi(),
-        cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
-      }),
-    );
+    void (async () => {
+      const p = await ensureProjection();
+      await p.resetSurface();
+      p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+      resetStreamCounters();
+      logActivity(
+        `browse.start viewport ${canonicalViewport.width}×${canonicalViewport.height}`,
+      );
+      ws?.send(
+        JSON.stringify({
+          type: 'browse.start',
+          url: urlInput.value,
+          width: canonicalViewport.width,
+          height: canonicalViewport.height,
+          device: bootDeviceProfile,
+          frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
+          telemetry: readTelemetryFromUi(),
+          cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
+        }),
+      );
+    })();
   });
   $('browseNavigate').addEventListener('click', () => {
     if (!sessionLive) return;
@@ -1297,7 +1316,7 @@ export function bootLabClient(): void {
     clearCrashOverlay();
     disposeViewportSync();
     if (projection) {
-      projection.resetSurface();
+      void projection.resetSurface();
     } else {
       surfaceHost.innerHTML = '';
     }
@@ -1307,36 +1326,37 @@ export function bootLabClient(): void {
   });
   $('runStart').addEventListener('click', () => {
     clearCrashOverlay();
-    const p = ensureProjection();
-    p.resetSurface();
-    runInFlight = true;
-    sessionLive = false;
-    phase = 'running';
-    $('runTimeline').innerHTML = '';
-    $('runVerdicts').innerHTML = '';
-    $('runDossier').textContent = '';
-    $('progressHint').textContent = 'Run in flight…';
-    showTab('Progress');
-    resetStreamCounters();
-    syncButtons();
-    const bp = selectedBlueprint();
-    const overrides: Record<string, unknown> = {
-      telemetry: readTelemetryFromUi(),
-    };
-    if (bp?.acceptsSoakOverrides) {
-      overrides.durationMs = Number((document.getElementById('runDurationMs') as HTMLInputElement)?.value) || 15000;
-      overrides.cpu = (document.getElementById('runCpu') as HTMLInputElement)?.checked === true;
-      overrides.iso = (document.getElementById('runIso') as HTMLInputElement)?.checked === true;
-    }
-    ws?.send(
-      JSON.stringify({
-        type: 'run.start',
-        blueprintId: blueprintSelect.value || 'soak',
-        overrides,
-      }),
-    );
+    void (async () => {
+      const p = await ensureProjection();
+      await p.resetSurface();
+      runInFlight = true;
+      sessionLive = false;
+      phase = 'running';
+      $('runTimeline').innerHTML = '';
+      $('runVerdicts').innerHTML = '';
+      $('runDossier').textContent = '';
+      $('progressHint').textContent = 'Run in flight…';
+      showTab('Progress');
+      resetStreamCounters();
+      syncButtons();
+      const bp = selectedBlueprint();
+      const overrides: Record<string, unknown> = {
+        telemetry: readTelemetryFromUi(),
+      };
+      if (bp?.acceptsSoakOverrides) {
+        overrides.durationMs = Number((document.getElementById('runDurationMs') as HTMLInputElement)?.value) || 15000;
+        overrides.cpu = (document.getElementById('runCpu') as HTMLInputElement)?.checked === true;
+        overrides.iso = (document.getElementById('runIso') as HTMLInputElement)?.checked === true;
+      }
+      ws?.send(
+        JSON.stringify({
+          type: 'run.start',
+          blueprintId: blueprintSelect.value || 'soak',
+          overrides,
+        }),
+      );
+    })();
   });
-
   window.addEventListener('resize', measureHeader);
   $('enterFullscreen').addEventListener('click', () => {
     void enterLabFullscreen();

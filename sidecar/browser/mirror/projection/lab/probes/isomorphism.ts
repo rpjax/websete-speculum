@@ -191,6 +191,22 @@ export type ClientStateSnapshot = {
     doublePaint: boolean;
   } | null;
   formProps?: FormControlSnap[] | null;
+  /** Lab-only nested host bookkeeping (`LabProjectedHarness.peekNestedHosts`). */
+  nestedPeek?: {
+    nested: number[];
+    awaiting: number[];
+    pendingFrames: Record<string, number>;
+    sessions: Array<{
+      contextId: number;
+      armed: boolean;
+      desynced: boolean;
+      applyError: string | null;
+      generation: number;
+      compat: string | null;
+      bodyLen: number;
+      docIsLive: boolean | null;
+    }>;
+  } | null;
 };
 
 export type IsomorphismResult = {

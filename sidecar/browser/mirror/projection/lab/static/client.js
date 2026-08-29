@@ -138,7 +138,6 @@
       var OpCode;
       (function(OpCode2) {
         OpCode2[OpCode2["Check"] = 1] = "Check";
-        OpCode2[OpCode2["EpochReset"] = 2] = "EpochReset";
         OpCode2[OpCode2["NodeNew"] = 32] = "NodeNew";
         OpCode2[OpCode2["NodeDrop"] = 33] = "NodeDrop";
         OpCode2[OpCode2["Insert"] = 64] = "Insert";
@@ -156,7 +155,6 @@
       })(OpCode || (exports.OpCode = OpCode = {}));
       var NAMES = {
         [OpCode.Check]: "check",
-        [OpCode.EpochReset]: "epochReset",
         [OpCode.NodeNew]: "nodeNew",
         [OpCode.NodeDrop]: "nodeDrop",
         [OpCode.Insert]: "insert",
@@ -470,8 +468,6 @@
               return null;
             return { op: opcodes_1.OpCode.Check, scope, lo, hi, hash };
           }
-          case opcodes_1.OpCode.EpochReset:
-            return { op: opcodes_1.OpCode.EpochReset, generation: r.u32() };
           case opcodes_1.OpCode.NodeDrop: {
             const count = r.u16();
             checkChildCount(count);
@@ -1112,7 +1108,7 @@
           for (const [id, row] of this.rows)
             fn(id, row);
         }
-        /** Drops every row and derived index — `EPOCH_RESET` (§4.1) and resync's wholesale replace (§5.8). */
+        /** Drops every row and derived index — resync's wholesale replace (§5.8). */
         reset() {
           this.rows.clear();
           this.attrHashes.clear();
@@ -1415,9 +1411,6 @@
       function applyOpToTable(table, op) {
         switch (op.op) {
           case opcodes_1.OpCode.Check:
-            return;
-          case opcodes_1.OpCode.EpochReset:
-            table.reset();
             return;
           case opcodes_1.OpCode.NodeNew:
             if (op.kind === opcodes_1.NodeKind.Element)
@@ -1879,48 +1872,79 @@
     }
   });
 
-  // ../packages/page-projection/dist/projected/standardsMarginParity.js
-  var require_standardsMarginParity = __commonJS({
-    "../packages/page-projection/dist/projected/standardsMarginParity.js"(exports) {
+  // ../packages/page-projection/dist/projected/projectedBlankIframe.js
+  var require_projectedBlankIframe = __commonJS({
+    "../packages/page-projection/dist/projected/projectedBlankIframe.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.installStandardsMarginParity = exports.MARGIN_PARITY_ATTR = exports.STANDARDS_MARGIN_PARITY_CSS = void 0;
-      exports.STANDARDS_MARGIN_PARITY_CSS = [
-        "body{margin-top:0!important}",
-        /* Quirks collapses first-heading margin-top through body; standards keeps ~0.67*2em. */
-        "body:has(> :is(h1,h2,h3,h4,h5,h6):first-child){padding-top:1.34em!important}",
-        "body:has(> :is(h1,h2,h3,h4,h5,h6):first-child)>:is(h1,h2,h3,h4,h5,h6):first-child{margin-top:0!important}"
-      ].join("");
-      exports.MARGIN_PARITY_ATTR = "data-speculum-standards-margin-parity";
-      function installStandardsMarginParity(doc) {
-        if (doc.compatMode === "CSS1Compat")
-          return;
-        if (doc.querySelector(`style[${exports.MARGIN_PARITY_ATTR}]`))
-          return;
-        const host = doc.head ?? doc.documentElement;
-        if (!host)
-          return;
-        const el = doc.createElement("style");
-        el.setAttribute(exports.MARGIN_PARITY_ATTR, "");
-        el.textContent = exports.STANDARDS_MARGIN_PARITY_CSS;
-        if (doc.head)
-          doc.head.appendChild(el);
-        else
-          host.insertBefore(el, host.firstChild);
+      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = void 0;
+      exports.PROJECTED_STANDARDS_SRCDOC = "<!DOCTYPE html><html><head></head><body></body></html>";
+      exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = 5e3;
+      function fault(errorCode, message) {
+        const err = new Error(message);
+        err.errorCode = errorCode;
+        err.phase = "establish";
+        return err;
       }
-      exports.installStandardsMarginParity = installStandardsMarginParity;
-    }
-  });
-
-  // ../packages/page-projection/dist/projected/standardsBlankDocument.js
-  var require_standardsBlankDocument = __commonJS({
-    "../packages/page-projection/dist/projected/standardsBlankDocument.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.ensureStandardsBlankDocument = void 0;
-      function ensureStandardsBlankDocument(_doc) {
+      function stampProjectedStandardsSrcdoc(iframe) {
+        iframe.srcdoc = exports.PROJECTED_STANDARDS_SRCDOC;
       }
-      exports.ensureStandardsBlankDocument = ensureStandardsBlankDocument;
+      exports.stampProjectedStandardsSrcdoc = stampProjectedStandardsSrcdoc;
+      function stripProjectedSkeleton(doc) {
+        while (doc.firstChild)
+          doc.removeChild(doc.firstChild);
+      }
+      exports.stripProjectedSkeleton = stripProjectedSkeleton;
+      function isProjectedStandardsDocument(doc) {
+        return doc != null && doc.defaultView != null && doc.compatMode === "CSS1Compat";
+      }
+      exports.isProjectedStandardsDocument = isProjectedStandardsDocument;
+      function whenProjectedStandardsReady(iframe, opts = {}) {
+        const timeoutMs = opts.timeoutMs ?? exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS;
+        const signal = opts.signal;
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          let timer;
+          const settle = (fn) => {
+            if (settled)
+              return;
+            settled = true;
+            if (timer !== void 0)
+              clearTimeout(timer);
+            iframe.removeEventListener("load", onLoad);
+            signal?.removeEventListener("abort", onAbort);
+            fn();
+          };
+          const adopt = () => {
+            const doc = iframe.contentDocument;
+            if (!isProjectedStandardsDocument(doc))
+              return false;
+            stripProjectedSkeleton(doc);
+            settle(() => resolve(doc));
+            return true;
+          };
+          const onLoad = () => {
+            if (adopt())
+              return;
+            settle(() => reject(fault("projected_standards_ready_invalid", "projected blank: load without live CSS1Compat document")));
+          };
+          const onAbort = () => {
+            settle(() => reject(fault("projected_standards_ready_aborted", "projected blank: standards ready wait aborted")));
+          };
+          if (signal?.aborted) {
+            onAbort();
+            return;
+          }
+          if (adopt())
+            return;
+          iframe.addEventListener("load", onLoad);
+          signal?.addEventListener("abort", onAbort, { once: true });
+          timer = setTimeout(() => {
+            settle(() => reject(fault("projected_standards_ready_timeout", `projected blank: standards document not ready within ${timeoutMs}ms`)));
+          }, timeoutMs);
+        });
+      }
+      exports.whenProjectedStandardsReady = whenProjectedStandardsReady;
     }
   });
 
@@ -1943,8 +1967,7 @@
       var replicatedTableApply_1 = require_replicatedTableApply();
       var nestedNav_1 = require_nestedNav();
       var scriptingOnPaintParity_1 = require_scriptingOnPaintParity();
-      var standardsMarginParity_1 = require_standardsMarginParity();
-      var standardsBlankDocument_1 = require_standardsBlankDocument();
+      var projectedBlankIframe_1 = require_projectedBlankIframe();
       var DomFrameApplier = class {
         queued = [];
         raf = null;
@@ -2010,6 +2033,24 @@
           this.nestedHostIds.clear();
           this.clearCssom();
         }
+        /**
+         * End of this document install (runtime-redesign.md §7): a generation change destroys the
+         * instance instead of enumerating what to clear. Everything the `tableHash` does not cover —
+         * sheets, rules, parity sheet, prop-dirty, child scopes — dies with the object; only the
+         * nested appliers the parent installed on our behalf need an explicit goodbye.
+         */
+        dispose() {
+          if (this.raf != null) {
+            cancelAnimationFrame(this.raf);
+            this.raf = null;
+          }
+          this.queued = [];
+          for (const childScopeId of this.childScopes.values()) {
+            this.options.onNestedHostDrop?.(childScopeId);
+          }
+          this.childScopes.clear();
+          this.nestedHostIds.clear();
+        }
         /** Input plane marks this when the user is editing the control (§7.2). Unused in lab. */
         markPropDirty(id) {
           this.propDirty.mark(id);
@@ -2028,11 +2069,13 @@
             return this.failOp(result.reason, result.opName, result.id, result.message);
           }
           for (let i = 0; i < frame.ops.length; i++) {
+            const op = frame.ops[i];
             try {
-              if (!this.applyOp(frame.ops[i]))
+              if (!this.applyOp(op))
                 return false;
-            } catch {
-              return this.fail("malformed", "apply", 0);
+            } catch (err) {
+              const message = err instanceof Error ? `${err.name}: ${err.message} @op[${i}]=${op.op}` : `throw @op[${i}]=${op.op}`;
+              return this.failOp("malformed", "apply", "id" in op && typeof op.id === "number" ? op.id : 0, message);
             }
           }
           if (!this.cssomHandlesMatchTable())
@@ -2059,8 +2102,6 @@
             case opcodes_1.OpCode.Check:
               return true;
             // §4.1 — no DOM effect; already evaluated in phase 1
-            case opcodes_1.OpCode.EpochReset:
-              return this.applyEpochReset();
             case opcodes_1.OpCode.NodeNew:
               return this.applyNodeNew(op);
             case opcodes_1.OpCode.NodeDrop:
@@ -2093,28 +2134,6 @@
               return true;
           }
         }
-        /**
-         * §4.1 `EPOCH_RESET` `DOM` effect: "the surface is discarded (a new document buffer is
-         * prepared — §6)." No double-buffer surface exists yet (Stage 4) — discards in place, which is
-         * safe here specifically because phase 1 already validated the *whole* frame (§P3: "if phase
-         * 1 fails, the DOM was never touched") and `EPOCH_RESET` is ordering-guaranteed first (§7 rule
-         * 1), so every `NODE_NEW`/`INSERT` immediately following in this same frame rebuilds the
-         * surface before Phase 2 returns — there is no observable empty-document frame.
-         */
-        applyEpochReset() {
-          for (const childScopeId of this.childScopes.values()) {
-            this.options.onNestedHostDrop?.(childScopeId);
-          }
-          this.childScopes.clear();
-          this.nestedHostIds.clear();
-          this.doc.replaceChildren();
-          (0, standardsBlankDocument_1.ensureStandardsBlankDocument)(this.doc);
-          this.registry.clear();
-          this.registry.register(frame_1.DOCUMENT_ID, this.doc);
-          this.propDirty.reset();
-          this.clearCssom();
-          return true;
-        }
         clearCssom() {
           this.sheets.clear();
           this.rules.clear();
@@ -2122,7 +2141,6 @@
           this.paritySheet = null;
           try {
             (0, scriptingOnPaintParity_1.installScriptingOnPaintParity)(this.doc);
-            (0, standardsMarginParity_1.installStandardsMarginParity)(this.doc);
             const sheet = (0, scriptingOnPaintParity_1.paritySheetForDocument)(this.doc);
             this.paritySheet = sheet ?? null;
             this.doc.adoptedStyleSheets = sheet != null ? [sheet] : [];
@@ -2133,11 +2151,10 @@
         }
         /**
          * K5 sandbox has no `allow-scripts`; hide `<noscript>` like Chromium with JS on.
-         * Call after phase-2 materialize — EPOCH_RESET may run while `defaultView`/head are gone.
+         * Call after phase-2 materialize — `defaultView`/head can be gone mid-apply.
          */
         ensurePaintParity() {
           (0, scriptingOnPaintParity_1.installScriptingOnPaintParity)(this.doc);
-          (0, standardsMarginParity_1.installStandardsMarginParity)(this.doc);
           const sheet = (0, scriptingOnPaintParity_1.paritySheetForDocument)(this.doc);
           if (sheet != null)
             this.paritySheet = sheet;
@@ -2455,6 +2472,9 @@
             }
             const uri = (0, elementNs_1.elementNsUri)(op.ns, op.uri);
             node = this.doc.createElementNS(uri, op.name);
+            if (op.nestedHost === true) {
+              (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(node);
+            }
             const attrs = op.nestedHost === true ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name)) : op.attrs;
             if (!applyAttrs(node, attrs, this.options.stampUrl)) {
               return this.fail("malformed", "nodeNew", op.id);
@@ -2475,7 +2495,11 @@
             } else {
               if (existing)
                 existing.remove();
-              node = this.doc.implementation.createDocumentType(want, "", "");
+              const created = this.doc.implementation.createDocumentType(want, "", "");
+              if (created == null) {
+                return this.failOp("malformed", "nodeNew", op.id, "createDocumentType returned null (document has no browsing context)");
+              }
+              node = created;
             }
           } else if (op.kind === opcodes_1.NodeKind.ShadowRoot) {
             const host = this.registry.get(op.host);
@@ -2694,15 +2718,23 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.createNestedResyncSurface = void 0;
       var projectedNativeGuard_1 = require_projectedNativeGuard();
-      function stripBareDocument(doc) {
-        while (doc.firstChild)
-          doc.removeChild(doc.firstChild);
-        (0, projectedNativeGuard_1.attachProjectedNativeGuard)(doc);
-      }
+      var projectedBlankIframe_1 = require_projectedBlankIframe();
       function docOf(iframe) {
         const doc = iframe.contentDocument;
         if (!doc)
           throw new Error("nested surface: no contentDocument");
+        return doc;
+      }
+      async function reseedHostDocument(iframe) {
+        const live = iframe.contentDocument;
+        if ((0, projectedBlankIframe_1.isProjectedStandardsDocument)(live)) {
+          (0, projectedBlankIframe_1.stripProjectedSkeleton)(live);
+          (0, projectedNativeGuard_1.attachProjectedNativeGuard)(live);
+          return live;
+        }
+        (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
+        const doc = await (0, projectedBlankIframe_1.whenProjectedStandardsReady)(iframe);
+        (0, projectedNativeGuard_1.attachProjectedNativeGuard)(doc);
         return doc;
       }
       function createNestedResyncSurface(primaryHost) {
@@ -2711,7 +2743,7 @@
           (0, projectedNativeGuard_1.attachProjectedNativeGuard)(primaryDoc);
         let activeIframe = primaryHost;
         let standbyIframe = null;
-        function attachStandbySibling() {
+        async function attachStandbySibling() {
           const parent = activeIframe.parentElement;
           if (!parent)
             throw new Error("nested surface: host has no parent");
@@ -2720,18 +2752,20 @@
           iframe.sandbox.add("allow-same-origin");
           iframe.style.cssText = activeIframe.style.cssText;
           iframe.style.visibility = "hidden";
+          (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
           parent.insertBefore(iframe, activeIframe.nextSibling);
-          stripBareDocument(docOf(iframe));
+          const doc = await (0, projectedBlankIframe_1.whenProjectedStandardsReady)(iframe);
+          (0, projectedNativeGuard_1.attachProjectedNativeGuard)(doc);
           return iframe;
         }
         return {
           get document() {
             return docOf(activeIframe);
           },
-          beginResyncBuild() {
+          async beginResyncBuild() {
             if (standbyIframe !== null)
               standbyIframe.remove();
-            standbyIframe = attachStandbySibling();
+            standbyIframe = await attachStandbySibling();
             return docOf(standbyIframe);
           },
           commitSwap() {
@@ -2753,7 +2787,7 @@
             standbyIframe.remove();
             standbyIframe = null;
           },
-          reset() {
+          async reset() {
             if (standbyIframe !== null) {
               standbyIframe.remove();
               standbyIframe = null;
@@ -2762,7 +2796,7 @@
               activeIframe.remove();
               activeIframe = primaryHost;
             }
-            stripBareDocument(docOf(activeIframe));
+            await reseedHostDocument(activeIframe);
             activeIframe.style.visibility = "";
           }
         };
@@ -2841,10 +2875,10 @@
           return this.nodesById.size;
         }
         /**
-         * Drops every `id → node` entry — `EPOCH_RESET`'s `DOM` effect (§4.1, Stage 3 of
-         * frame-protocol-production-completeness): `applyDom.ts`'s `applyEpochReset` calls this, then
-         * immediately re-registers `DOCUMENT_ID`, before any `NODE_NEW`/`INSERT` in the same frame
-         * repopulates the rest. Leaves the reverse `idsByNode` `WeakMap` alone — its entries key off
+         * Drops every `id → node` entry. A new document install gets a brand-new registry instead
+         * (runtime-redesign.md §7); this stays for callers that reuse one registry across a wholesale
+         * replace, which re-register `DOCUMENT_ID` before any `NODE_NEW`/`INSERT` repopulates the rest.
+         * Leaves the reverse `idsByNode` `WeakMap` alone — its entries key off
          * now-discarded nodes and fall out of scope for GC on their own; nothing reads a stale id back
          * out of it without first missing on `nodesById.get`, which this already empties.
          */
@@ -3234,7 +3268,6 @@
       var nestedResyncSurface_1 = require_nestedResyncSurface();
       var registry_1 = require_registry();
       var frame_1 = require_frame();
-      var opcodes_1 = require_opcodes();
       var tableDigest_1 = require_tableDigest();
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
@@ -3258,6 +3291,8 @@
         armed = false;
         everArmed = false;
         lastDesyncReason = null;
+        lastDesyncMessage = null;
+        surfaceEpoch = 0;
         onArmedCb;
         onNestedHostCb;
         onNestedHostDropCb;
@@ -3287,7 +3322,9 @@
           return this.lastDesyncReason !== null;
         }
         get applyError() {
-          return this.lastDesyncReason;
+          if (this.lastDesyncReason === null)
+            return null;
+          return this.lastDesyncMessage ? `${this.lastDesyncReason} | ${this.lastDesyncMessage}` : this.lastDesyncReason;
         }
         get resyncInFlight() {
           return this.resync !== null;
@@ -3336,8 +3373,8 @@
         }
         dispose() {
           this.abandonResyncAttempt();
-          this.surface.reset();
-          this.live.applier.reset();
+          void this.surface.reset();
+          this.live.applier.dispose();
         }
         createApplier(doc, registry, initiallyLive) {
           const state = { swapped: initiallyLive };
@@ -3407,22 +3444,16 @@
         }
         applyAssembled(frame) {
           if (frame.generation !== this.generation) {
-            const firstOp = frame.ops[0];
-            const isEpochReset = firstOp !== void 0 && firstOp.op === opcodes_1.OpCode.EpochReset;
-            if (!isEpochReset || firstOp.generation !== frame.generation) {
-              this.desync("generation_mismatch", { message: `got ${frame.generation} have ${this.generation}` });
-              return;
-            }
-            this.generation = frame.generation;
             this.lastSequence = frame.sequence - 1;
-            this.abandonResyncAttempt();
-            this.resyncAttempts = 0;
-            this.resyncExhausted = false;
+            void this.recreateForGenerationAsync(frame);
+            return;
           }
           if (frame.resync) {
             this.lastSequence = frame.sequence - 1;
-            if (this.everArmed)
-              this.beginResyncTarget();
+            if (this.everArmed) {
+              void this.beginResyncTargetAsync(frame);
+              return;
+            }
           }
           if (frame.sequence !== this.lastSequence + 1) {
             this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
@@ -3432,7 +3463,30 @@
           const target = this.resync ?? this.live;
           target.applier.enqueue(frame);
         }
-        beginResyncTarget() {
+        async recreateForGenerationAsync(frame) {
+          this.abandonResyncAttempt();
+          this.resyncAttempts = 0;
+          this.resyncExhausted = false;
+          this.generation = frame.generation;
+          this.armed = false;
+          this.everArmed = false;
+          this.live.applier.dispose();
+          const epoch = ++this.surfaceEpoch;
+          await this.surface.reset();
+          if (epoch !== this.surfaceEpoch)
+            return;
+          const registry = new registry_1.PageProjectionRegistry();
+          registry.register(frame_1.DOCUMENT_ID, this.surface.document);
+          this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+          if (frame.sequence !== this.lastSequence + 1) {
+            this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+            return;
+          }
+          this.lastSequence = frame.sequence;
+          this.live.applier.enqueue(frame);
+          this.live.applier.flush();
+        }
+        async beginResyncTargetAsync(frame) {
           if (this.resyncTimeoutTimer !== null) {
             clearTimeout(this.resyncTimeoutTimer);
             this.resyncTimeoutTimer = null;
@@ -3441,11 +3495,21 @@
             this.surface.discardBuild();
             this.resync = null;
           }
-          const doc = this.surface.beginResyncBuild();
+          const epoch = ++this.surfaceEpoch;
+          const doc = await this.surface.beginResyncBuild();
+          if (epoch !== this.surfaceEpoch)
+            return;
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, doc);
           const applier = this.createApplier(doc, registry, false);
           this.resync = { applier, registry, attempt: this.resyncAttempts };
+          if (frame.sequence !== this.lastSequence + 1) {
+            this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+            return;
+          }
+          this.lastSequence = frame.sequence;
+          applier.enqueue(frame);
+          applier.flush();
         }
         commitResyncSwap(frame, applyMs) {
           const built = this.resync;
@@ -3570,6 +3634,7 @@
         desync(reason, extra) {
           if (this.lastDesyncReason === null) {
             this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+            this.lastDesyncMessage = extra?.message ?? null;
           }
           this.armed = false;
           this.assembler.reset();
@@ -3603,17 +3668,15 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.createSurfaceHost = void 0;
-      function attachBareIframe(container) {
+      var projectedBlankIframe_1 = require_projectedBlankIframe();
+      async function attachBareIframe(container) {
         const iframe = document.createElement("iframe");
         iframe.title = "Projected surface";
         iframe.sandbox.add("allow-same-origin");
         iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff";
+        (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
         container.appendChild(iframe);
-        const doc = iframe.contentDocument;
-        if (!doc)
-          throw new Error("surface: no contentDocument");
-        while (doc.firstChild)
-          doc.removeChild(doc.firstChild);
+        await (0, projectedBlankIframe_1.whenProjectedStandardsReady)(iframe);
         return iframe;
       }
       function docOf(iframe) {
@@ -3622,7 +3685,7 @@
           throw new Error("surface: no contentDocument");
         return doc;
       }
-      function createSurfaceHost(container, opts = { width: 1280, height: 720 }) {
+      async function createSurfaceHost(container, opts = { width: 1280, height: 720 }) {
         container.style.position = "relative";
         container.style.width = "100%";
         container.style.height = "100%";
@@ -3634,16 +3697,16 @@
         let cssH = Math.max(1, Math.round(opts.height));
         stage.style.cssText = `position:absolute;left:0;top:0;overflow:hidden;width:${cssW}px;height:${cssH}px`;
         container.appendChild(stage);
-        let activeIframe = attachBareIframe(stage);
+        let activeIframe = await attachBareIframe(stage);
         let standbyIframe = null;
         return {
           get document() {
             return docOf(activeIframe);
           },
-          beginResyncBuild() {
+          async beginResyncBuild() {
             if (standbyIframe !== null)
               standbyIframe.remove();
-            standbyIframe = attachBareIframe(stage);
+            standbyIframe = await attachBareIframe(stage);
             standbyIframe.style.visibility = "hidden";
             return docOf(standbyIframe);
           },
@@ -3665,13 +3728,13 @@
             standbyIframe.remove();
             standbyIframe = null;
           },
-          reset() {
+          async reset() {
             if (standbyIframe !== null) {
               standbyIframe.remove();
               standbyIframe = null;
             }
             stage.replaceChildren();
-            activeIframe = attachBareIframe(stage);
+            activeIframe = await attachBareIframe(stage);
           },
           setCssSize(width, height) {
             cssW = Math.max(1, Math.round(width));
@@ -3701,13 +3764,13 @@
       var surface_1 = require_surface();
       var tableDigest_1 = require_tableDigest();
       var frame_1 = require_frame();
-      var opcodes_1 = require_opcodes();
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
+      var projectedBlankIframe_1 = require_projectedBlankIframe();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
-      var ProjectionClient = class {
+      var ProjectionClient = class _ProjectionClient {
         persistentStrings = new decode_1.PersistentStringTable();
         assembler = new decode_1.FramePartAssembler();
         surface;
@@ -3746,11 +3809,10 @@
         pendingNestedFrames = /* @__PURE__ */ new Map();
         /** contextId → host waiting for initial about:blank `load` before apply binds. */
         nestedHostAwaitingLoad = /* @__PURE__ */ new Map();
-        constructor(opts) {
-          this.surface = (0, surface_1.createSurfaceHost)(opts.surfaceHost, {
-            width: opts.width ?? 1280,
-            height: opts.height ?? 720
-          });
+        /** Supersedes in-flight async surface reset / resync standby birth. */
+        surfaceEpoch = 0;
+        constructor(opts, surface) {
+          this.surface = surface;
           this.onTelemetry = opts.onTelemetry;
           this.onArmedCb = opts.onArmed;
           this.onDesyncCb = opts.onDesync;
@@ -3763,27 +3825,67 @@
           registry.register(frame_1.DOCUMENT_ID, this.surface.document);
           this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
         }
+        /** Composition-root entry — surface iframe is born with standards srcdoc before use. */
+        static async create(opts) {
+          const surface = await (0, surface_1.createSurfaceHost)(opts.surfaceHost, {
+            width: opts.width ?? 1280,
+            height: opts.height ?? 720
+          });
+          return new _ProjectionClient(opts, surface);
+        }
         installNestedHost(iframe, contextId) {
-          if (this.nested.has(contextId))
+          const existing = this.nested.get(contextId);
+          if (existing) {
+            try {
+              if (existing.hostIframe === iframe && iframe.contentDocument != null && existing.registry.get(frame_1.DOCUMENT_ID) === iframe.contentDocument && iframe.contentDocument.defaultView != null) {
+                return;
+              }
+            } catch {
+            }
+            this.cancelPendingNestedHost(contextId);
+            existing.dispose();
+            this.nested.delete(contextId);
+          }
+          const existingPending = this.nestedHostAwaitingLoad.get(contextId);
+          if (existingPending) {
+            existingPending.iframe = iframe;
+            existingPending.bind();
             return;
-          if (this.nestedHostAwaitingLoad.has(contextId))
-            return;
+          }
           const pending = { iframe, bind: () => void 0, cancelled: false };
+          let scheduled = false;
           const bind = () => {
             if (pending.cancelled)
               return;
-            this.nestedHostAwaitingLoad.delete(contextId);
-            if (this.nested.has(contextId))
+            if (this.nested.has(contextId)) {
+              this.nestedHostAwaitingLoad.delete(contextId);
               return;
-            const doc = iframe.contentDocument;
-            const win = iframe.contentWindow;
-            if (!doc || !win)
+            }
+            if (!iframe.isConnected) {
+              scheduled = false;
               return;
-            while (doc.firstChild)
-              doc.removeChild(doc.firstChild);
+            }
+            const liveDoc = iframe.contentDocument;
+            if (!(0, projectedBlankIframe_1.isProjectedStandardsDocument)(liveDoc)) {
+              scheduled = false;
+              iframe.addEventListener("load", scheduleBind, { once: true });
+              return;
+            }
+            (0, projectedBlankIframe_1.stripProjectedSkeleton)(liveDoc);
+            if (iframe.contentDocument !== liveDoc || liveDoc.defaultView == null) {
+              scheduled = false;
+              iframe.addEventListener("load", scheduleBind, { once: true });
+              return;
+            }
+            const liveWin = iframe.contentWindow;
+            if (!liveWin) {
+              scheduled = false;
+              iframe.addEventListener("load", scheduleBind, { once: true });
+              return;
+            }
             const session = new nestedProjectedApply_1.NestedProjectedApply({
               hostIframe: iframe,
-              document: doc,
+              document: liveDoc,
               contextId,
               getToken: () => this.resolveToken(),
               getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
@@ -3792,7 +3894,7 @@
               onTelemetry: (msg) => this.onTelemetry?.(msg),
               onArmed: () => {
                 try {
-                  win.__speculumNestedApplyArmed = true;
+                  liveWin.__speculumNestedApplyArmed = true;
                 } catch {
                 }
               },
@@ -3804,6 +3906,7 @@
               })
             });
             this.nested.set(contextId, session);
+            this.nestedHostAwaitingLoad.delete(contextId);
             const queued = this.pendingNestedFrames.get(contextId);
             if (queued) {
               this.pendingNestedFrames.delete(contextId);
@@ -3812,9 +3915,19 @@
             }
             session.flush();
           };
-          pending.bind = bind;
+          const scheduleBind = () => {
+            if (pending.cancelled || scheduled)
+              return;
+            scheduled = true;
+            setTimeout(() => {
+              scheduled = false;
+              bind();
+            }, 0);
+          };
+          pending.bind = scheduleBind;
           this.nestedHostAwaitingLoad.set(contextId, pending);
-          iframe.addEventListener("load", bind, { once: true });
+          iframe.addEventListener("load", scheduleBind, { once: true });
+          scheduleBind();
         }
         cancelPendingNestedHost(contextId) {
           const pending = this.nestedHostAwaitingLoad.get(contextId);
@@ -3905,7 +4018,7 @@
           return this.resync !== null;
         }
         /** Empty the projected iframe and reset apply state. Does not touch Virtual. */
-        reset() {
+        async reset() {
           this.abandonResyncAttempt();
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
@@ -3923,7 +4036,10 @@
           for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
             this.cancelPendingNestedHost(contextId);
           }
-          this.surface.reset();
+          const epoch = ++this.surfaceEpoch;
+          await this.surface.reset();
+          if (epoch !== this.surfaceEpoch)
+            return;
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, this.surface.document);
           this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
@@ -3957,22 +4073,16 @@
         }
         applyAssembled(frame) {
           if (frame.generation !== this.generation) {
-            const firstOp = frame.ops[0];
-            const isEpochReset = firstOp !== void 0 && firstOp.op === opcodes_1.OpCode.EpochReset;
-            if (!isEpochReset || firstOp.generation !== frame.generation) {
-              this.desync("generation_mismatch", { message: `got ${frame.generation} have ${this.generation}` });
-              return;
-            }
-            this.generation = frame.generation;
             this.lastSequence = frame.sequence - 1;
-            this.abandonResyncAttempt();
-            this.resyncAttempts = 0;
-            this.resyncExhausted = false;
+            void this.recreateForGenerationAsync(frame);
+            return;
           }
           if (frame.resync) {
             this.lastSequence = frame.sequence - 1;
-            if (this.everArmed)
-              this.beginResyncTarget();
+            if (this.everArmed) {
+              void this.beginResyncTargetAsync(frame);
+              return;
+            }
           }
           if (frame.sequence !== this.lastSequence + 1) {
             this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
@@ -3981,6 +4091,43 @@
           this.lastSequence = frame.sequence;
           const target = this.resync ?? this.live;
           target.applier.enqueue(frame);
+        }
+        /**
+         * New document install (runtime-redesign.md §7): teardown by object lifetime. The previous
+         * install's applier, registry, surface document and nested children are discarded, and the
+         * client returns to its cold-start posture — the resync frame that carries the new generation
+         * then builds the fresh live surface exactly like a first frame, instead of a standby build
+         * racing a surface that no longer describes anything.
+         */
+        async recreateForGenerationAsync(frame) {
+          this.abandonResyncAttempt();
+          this.resyncAttempts = 0;
+          this.resyncExhausted = false;
+          this.generation = frame.generation;
+          this.armed = false;
+          this.everArmed = false;
+          for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
+            this.cancelPendingNestedHost(contextId);
+          }
+          this.pendingNestedFrames.clear();
+          this.live.applier.dispose();
+          for (const n of this.nested.values())
+            n.dispose();
+          this.nested.clear();
+          const epoch = ++this.surfaceEpoch;
+          await this.surface.reset();
+          if (epoch !== this.surfaceEpoch)
+            return;
+          const registry = new registry_1.PageProjectionRegistry();
+          registry.register(frame_1.DOCUMENT_ID, this.surface.document);
+          this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+          if (frame.sequence !== this.lastSequence + 1) {
+            this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+            return;
+          }
+          this.lastSequence = frame.sequence;
+          this.live.applier.enqueue(frame);
+          this.live.applier.flush();
         }
         /**
          * Stage 4 — one independent `DomFrameApplier` per target (live or standby-under-resync), never
@@ -4054,7 +4201,7 @@
           return applier;
         }
         /** Begins (or restarts) a standby build the moment a `resync`-flagged frame is first seen. */
-        beginResyncTarget() {
+        async beginResyncTargetAsync(frame) {
           if (this.resyncTimeoutTimer !== null) {
             clearTimeout(this.resyncTimeoutTimer);
             this.resyncTimeoutTimer = null;
@@ -4063,11 +4210,24 @@
             this.surface.discardBuild();
             this.resync = null;
           }
-          const doc = this.surface.beginResyncBuild();
+          const epoch = ++this.surfaceEpoch;
+          const doc = await this.surface.beginResyncBuild();
+          if (epoch !== this.surfaceEpoch)
+            return;
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, doc);
           const applier = this.createApplier(doc, registry, false);
           this.resync = { applier, registry, attempt: this.resyncAttempts };
+          if (frame.sequence !== this.lastSequence + 1) {
+            this.desync("sequence_gap", {
+              expectedSequence: this.lastSequence + 1,
+              gotSequence: frame.sequence
+            });
+            return;
+          }
+          this.lastSequence = frame.sequence;
+          applier.enqueue(frame);
+          applier.flush();
         }
         /** Stage 4, §5.8: closing `CHECK` verified OK (this is what `DomFrameApplier`'s `onApplied` already gates on) — swap. */
         commitResyncSwap(frame, applyMs) {
@@ -4236,8 +4396,8 @@
         }
       };
       exports.ProjectionClient = ProjectionClient;
-      function createProjectionClient2(opts) {
-        return new ProjectionClient(opts);
+      async function createProjectionClient2(opts) {
+        return ProjectionClient.create(opts);
       }
       exports.createProjectionClient = createProjectionClient2;
     }
@@ -4452,22 +4612,36 @@
             opts.metrics?.noteSkip("disarmed");
             return;
           }
+          const target = event.target;
+          if (!target || typeof target !== "object" || !("nodeType" in target)) {
+            opts.metrics?.noteSkip("no_node");
+            return;
+          }
+          const el = target;
+          if (el.nodeType !== 1) {
+            opts.metrics?.noteSkip("no_node");
+            return;
+          }
+          const nodeId = registry.idOf(el);
+          if (nodeId == null) {
+            opts.metrics?.noteSkip("no_node");
+            return;
+          }
+          const box = el.getBoundingClientRect();
+          if (box.width <= 0 || box.height <= 0) {
+            opts.metrics?.noteSkip("no_coords");
+            return;
+          }
+          const rawLocalX = (event.clientX - box.left) / box.width;
+          const rawLocalY = (event.clientY - box.top) / box.height;
+          const localX = Math.min(1, Math.max(0, rawLocalX));
+          const localY = Math.min(1, Math.max(0, rawLocalY));
           const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
           if (!coords) {
             opts.metrics?.noteSkip("no_coords");
             return;
           }
           const stamp = viewportStamp();
-          const target = event.target;
-          if (!target || typeof target !== "object" || !("nodeType" in target)) {
-            opts.metrics?.noteSkip("no_node");
-            return;
-          }
-          const nodeId = registry.idOf(target);
-          if (nodeId == null) {
-            opts.metrics?.noteSkip("no_node");
-            return;
-          }
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type,
@@ -4475,6 +4649,8 @@
             ...stamp,
             x: coords.x,
             y: coords.y,
+            localX,
+            localY,
             button: buttonFromEvent(event.button),
             contextId: opts.contextId,
             nodeId
@@ -5214,7 +5390,7 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
@@ -5233,6 +5409,25 @@
       var surface_1 = require_surface();
       Object.defineProperty(exports, "createSurfaceHost", { enumerable: true, get: function() {
         return surface_1.createSurfaceHost;
+      } });
+      var projectedBlankIframe_1 = require_projectedBlankIframe();
+      Object.defineProperty(exports, "PROJECTED_STANDARDS_SRCDOC", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.PROJECTED_STANDARDS_SRCDOC;
+      } });
+      Object.defineProperty(exports, "PROJECTED_STANDARDS_READY_TIMEOUT_MS", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.PROJECTED_STANDARDS_READY_TIMEOUT_MS;
+      } });
+      Object.defineProperty(exports, "stampProjectedStandardsSrcdoc", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.stampProjectedStandardsSrcdoc;
+      } });
+      Object.defineProperty(exports, "stripProjectedSkeleton", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.stripProjectedSkeleton;
+      } });
+      Object.defineProperty(exports, "isProjectedStandardsDocument", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.isProjectedStandardsDocument;
+      } });
+      Object.defineProperty(exports, "whenProjectedStandardsReady", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.whenProjectedStandardsReady;
       } });
       var nestedProjectedApply_1 = require_nestedProjectedApply();
       Object.defineProperty(exports, "NestedProjectedApply", { enumerable: true, get: function() {
@@ -5401,10 +5596,14 @@
   var import_ProjectionClient = __toESM(require_ProjectionClient());
   var import_frame = __toESM(require_frame());
   var import_tableDigest = __toESM(require_tableDigest());
-  var LabProjectedHarness = class {
+  var LabProjectedHarness = class _LabProjectedHarness {
     client;
-    constructor(opts) {
-      this.client = (0, import_ProjectionClient.createProjectionClient)(opts);
+    constructor(client) {
+      this.client = client;
+    }
+    static async create(opts) {
+      const client = await (0, import_ProjectionClient.createProjectionClient)(opts);
+      return new _LabProjectedHarness(client);
     }
     ingest(bytes) {
       this.client.ingest(bytes);
@@ -5416,12 +5615,12 @@
     flushNow() {
       this.client.flush();
     }
-    reset() {
-      this.client.reset();
+    async reset() {
+      await this.client.reset();
     }
     /** @deprecated alias — prefer {@link reset} */
-    resetSurface() {
-      this.client.reset();
+    async resetSurface() {
+      await this.client.reset();
     }
     get isArmed() {
       return this.client.isArmed;
@@ -5452,9 +5651,37 @@
      */
     peekNestedHosts() {
       const c = this.client;
+      const pendingFrames = {};
+      for (const [id, q] of c.pendingNestedFrames) pendingFrames[String(id)] = q.length;
+      const sessions = [...c.nested.entries()].sort((a, b) => a[0] - b[0]).map(([contextId, s]) => {
+        let compat = null;
+        let bodyLen = 0;
+        let docIsLive = null;
+        try {
+          const live = s.hostIframe.contentDocument;
+          compat = live?.compatMode ?? null;
+          bodyLen = live?.body?.innerHTML?.length ?? 0;
+          const regDoc = s.registry.get(1) ?? null;
+          docIsLive = live != null && regDoc === live;
+        } catch {
+          compat = "xo";
+        }
+        return {
+          contextId,
+          armed: s.isArmed,
+          desynced: s.desynced,
+          applyError: s.applyError,
+          generation: s.getGeneration(),
+          compat,
+          bodyLen,
+          docIsLive
+        };
+      });
       return {
         nested: [...c.nested.keys()].sort((a, b) => a - b),
-        awaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b)
+        awaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b),
+        pendingFrames,
+        sessions
       };
     }
     /**
@@ -5765,8 +5992,15 @@
           if (intent.type !== "move") {
             if (intent.contextId != null) payload.contextId = intent.contextId;
             if (intent.nodeId !== void 0) payload.nodeId = intent.nodeId;
+            if (intent.localX != null) payload.localX = intent.localX;
+            if (intent.localY != null) payload.localY = intent.localY;
           }
-          payload.payload = JSON.stringify({ x: intent.x, y: intent.y, button: intent.button });
+          payload.payload = JSON.stringify({
+            x: intent.x,
+            y: intent.y,
+            button: intent.button,
+            ...intent.type !== "move" && intent.localX != null && intent.localY != null ? { localX: intent.localX, localY: intent.localY } : {}
+          });
         } else if (intent.type === "keyDown" || intent.type === "keyUp") {
           payload.key = intent.key;
           payload.code = intent.code;
@@ -6165,9 +6399,9 @@
       $("streamSnaps").textContent = "0";
       updateStream();
     }
-    function ensureProjection() {
+    async function ensureProjection() {
       if (projection) return projection;
-      projection = new LabProjectedHarness({
+      projection = await LabProjectedHarness.create({
         surfaceHost,
         width: canonicalViewport.width,
         height: canonicalViewport.height,
@@ -6332,13 +6566,14 @@
       });
       ws.addEventListener("message", (ev) => {
         if (typeof ev.data !== "string") {
-          const p = ensureProjection();
-          const bytes = new Uint8Array(ev.data);
-          const hdr = (0, import_decode.peekFrameHeader)(bytes);
-          const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : import_frame2.CONTEXT_ID_ROOT;
-          ctxStats(ctxId).wireFrames += 1;
-          p.ingest(bytes);
-          updateStream();
+          void ensureProjection().then((p) => {
+            const bytes = new Uint8Array(ev.data);
+            const hdr = (0, import_decode.peekFrameHeader)(bytes);
+            const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : import_frame2.CONTEXT_ID_ROOT;
+            ctxStats(ctxId).wireFrames += 1;
+            p.ingest(bytes);
+            updateStream();
+          });
           return;
         }
         let msg;
@@ -6357,68 +6592,74 @@
         }
         if (msg.type === "requestSnapshot") {
           const contextId = typeof msg.contextId === "number" && msg.contextId >= 1 ? msg.contextId : 1;
-          const p = ensureProjection();
-          const ctx = p.snapshotContext(contextId);
-          const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
-          const tree = doc ? (0, import_domTreeSnapshot.snapshotTree)(doc) : null;
-          const cascade = doc ? probeCssomPaintBoundary(doc) : null;
-          const formProps = doc ? (0, import_formControlSnapshot.snapshotFormControls)(doc) : null;
-          ws?.send(
-            JSON.stringify({
-              type: "client.snapshotResult",
-              contextId,
-              tree,
-              table: ctx.table,
-              sequence: ctx.sequence,
-              generation: ctx.generation,
-              desynced: ctx.desynced,
-              applyError: ctx.applyError,
-              armed: ctx.armed,
-              resyncInFlight: ctx.resyncInFlight,
-              cascade,
-              formProps
-            })
-          );
+          const includeNestedPeek = msg.includeNestedPeek === true;
+          void ensureProjection().then((p) => {
+            const ctx = p.snapshotContext(contextId);
+            const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+            const tree = doc ? (0, import_domTreeSnapshot.snapshotTree)(doc) : null;
+            const cascade = doc ? probeCssomPaintBoundary(doc) : null;
+            const formProps = doc ? (0, import_formControlSnapshot.snapshotFormControls)(doc) : null;
+            const nestedPeek = includeNestedPeek && contextId === 1 ? p.peekNestedHosts() : void 0;
+            ws?.send(
+              JSON.stringify({
+                type: "client.snapshotResult",
+                contextId,
+                tree,
+                table: ctx.table,
+                sequence: ctx.sequence,
+                generation: ctx.generation,
+                desynced: ctx.desynced,
+                applyError: ctx.applyError,
+                armed: ctx.armed,
+                resyncInFlight: ctx.resyncInFlight,
+                cascade,
+                formProps,
+                ...nestedPeek !== void 0 ? { nestedPeek } : {}
+              })
+            );
+          });
           return;
         }
         if (msg.type === "lab.injectFrame") {
-          const p = ensureProjection();
-          const b64 = typeof msg.bytes === "string" ? msg.bytes : "";
-          try {
-            const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-            p.ingest(bin);
-            p.flushNow();
-          } catch (err) {
-            logActivity(`lab.injectFrame failed ${err instanceof Error ? err.message : String(err)}`);
-          }
-          const tableSnap = p.snapshotTable();
-          logActivity(
-            `lab.injectFrame seq=${tableSnap.sequence} desynced=${p.desynced} err=${p.applyError ?? "null"}`
-          );
-          ws?.send(
-            JSON.stringify({
-              type: "client.injectResult",
-              sequence: tableSnap.sequence,
-              generation: tableSnap.generation,
-              desynced: p.desynced,
-              applyError: p.applyError,
-              tableHash: tableSnap.table.tableHash
-            })
-          );
+          void ensureProjection().then((p) => {
+            const b64 = typeof msg.bytes === "string" ? msg.bytes : "";
+            try {
+              const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+              p.ingest(bin);
+              p.flushNow();
+            } catch (err) {
+              logActivity(`lab.injectFrame failed ${err instanceof Error ? err.message : String(err)}`);
+            }
+            const tableSnap = p.snapshotTable();
+            logActivity(
+              `lab.injectFrame seq=${tableSnap.sequence} desynced=${p.desynced} err=${p.applyError ?? "null"}`
+            );
+            ws?.send(
+              JSON.stringify({
+                type: "client.injectResult",
+                sequence: tableSnap.sequence,
+                generation: tableSnap.generation,
+                desynced: p.desynced,
+                applyError: p.applyError,
+                tableHash: tableSnap.table.tableHash
+              })
+            );
+          });
           return;
         }
         if (msg.type === "lab.tamper") {
-          const p = ensureProjection();
-          p.flushNow();
-          const r = p.tamperGhostCssRule();
-          logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ""}`);
-          ws?.send(
-            JSON.stringify({
-              type: "client.tamperResult",
-              ok: r.ok,
-              reason: r.reason ?? null
-            })
-          );
+          void ensureProjection().then((p) => {
+            p.flushNow();
+            const r = p.tamperGhostCssRule();
+            logActivity(`lab.tamper ghostRule ok=${r.ok}${r.reason ? ` ${r.reason}` : ""}`);
+            ws?.send(
+              JSON.stringify({
+                type: "client.tamperResult",
+                ok: r.ok,
+                reason: r.reason ?? null
+              })
+            );
+          });
           return;
         }
         if (msg.type === "session.resized") {
@@ -6611,25 +6852,27 @@
       disposeViewportSync();
       canonicalViewport = measureAndNormalizeViewport();
       bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
-      const p = ensureProjection();
-      p.resetSurface();
-      p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-      resetStreamCounters();
-      logActivity(
-        `browse.start viewport ${canonicalViewport.width}\xD7${canonicalViewport.height}`
-      );
-      ws?.send(
-        JSON.stringify({
-          type: "browse.start",
-          url: urlInput.value,
-          width: canonicalViewport.width,
-          height: canonicalViewport.height,
-          device: bootDeviceProfile,
-          frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
-          telemetry: readTelemetryFromUi(),
-          cpuProfiling: document.getElementById("browseCpu")?.checked === true
-        })
-      );
+      void (async () => {
+        const p = await ensureProjection();
+        await p.resetSurface();
+        p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+        resetStreamCounters();
+        logActivity(
+          `browse.start viewport ${canonicalViewport.width}\xD7${canonicalViewport.height}`
+        );
+        ws?.send(
+          JSON.stringify({
+            type: "browse.start",
+            url: urlInput.value,
+            width: canonicalViewport.width,
+            height: canonicalViewport.height,
+            device: bootDeviceProfile,
+            frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
+            telemetry: readTelemetryFromUi(),
+            cpuProfiling: document.getElementById("browseCpu")?.checked === true
+          })
+        );
+      })();
     });
     $("browseNavigate").addEventListener("click", () => {
       if (!sessionLive) return;
@@ -6661,7 +6904,7 @@
       clearCrashOverlay();
       disposeViewportSync();
       if (projection) {
-        projection.resetSurface();
+        void projection.resetSurface();
       } else {
         surfaceHost.innerHTML = "";
       }
@@ -6671,34 +6914,36 @@
     });
     $("runStart").addEventListener("click", () => {
       clearCrashOverlay();
-      const p = ensureProjection();
-      p.resetSurface();
-      runInFlight = true;
-      sessionLive = false;
-      phase = "running";
-      $("runTimeline").innerHTML = "";
-      $("runVerdicts").innerHTML = "";
-      $("runDossier").textContent = "";
-      $("progressHint").textContent = "Run in flight\u2026";
-      showTab("Progress");
-      resetStreamCounters();
-      syncButtons();
-      const bp = selectedBlueprint();
-      const overrides = {
-        telemetry: readTelemetryFromUi()
-      };
-      if (bp?.acceptsSoakOverrides) {
-        overrides.durationMs = Number(document.getElementById("runDurationMs")?.value) || 15e3;
-        overrides.cpu = document.getElementById("runCpu")?.checked === true;
-        overrides.iso = document.getElementById("runIso")?.checked === true;
-      }
-      ws?.send(
-        JSON.stringify({
-          type: "run.start",
-          blueprintId: blueprintSelect.value || "soak",
-          overrides
-        })
-      );
+      void (async () => {
+        const p = await ensureProjection();
+        await p.resetSurface();
+        runInFlight = true;
+        sessionLive = false;
+        phase = "running";
+        $("runTimeline").innerHTML = "";
+        $("runVerdicts").innerHTML = "";
+        $("runDossier").textContent = "";
+        $("progressHint").textContent = "Run in flight\u2026";
+        showTab("Progress");
+        resetStreamCounters();
+        syncButtons();
+        const bp = selectedBlueprint();
+        const overrides = {
+          telemetry: readTelemetryFromUi()
+        };
+        if (bp?.acceptsSoakOverrides) {
+          overrides.durationMs = Number(document.getElementById("runDurationMs")?.value) || 15e3;
+          overrides.cpu = document.getElementById("runCpu")?.checked === true;
+          overrides.iso = document.getElementById("runIso")?.checked === true;
+        }
+        ws?.send(
+          JSON.stringify({
+            type: "run.start",
+            blueprintId: blueprintSelect.value || "soak",
+            overrides
+          })
+        );
+      })();
     });
     window.addEventListener("resize", measureHeader);
     $("enterFullscreen").addEventListener("click", () => {

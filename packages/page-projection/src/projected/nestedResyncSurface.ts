@@ -1,27 +1,44 @@
 /**
  * Double buffer for nested projected hosts — standby iframe is client-only (not in the
  * producer table). The table-owned host iframe stays in the DOM; visibility swaps on commit.
+ *
+ * Standby birth matches root surface: {@link stampProjectedStandardsSrcdoc} before insert,
+ * then {@link whenProjectedStandardsReady}. No `document.open`/`write`.
  */
 
 export type NestedResyncSurface = {
   readonly document: Document;
-  beginResyncBuild(): Document;
+  beginResyncBuild(): Promise<Document>;
   commitSwap(): Document;
   discardBuild(): void;
   /** Tear down client-only iframes; restore visibility on the table-owned host. */
-  reset(): void;
+  reset(): Promise<void>;
 };
 
 import { attachProjectedNativeGuard } from './input/projectedNativeGuard';
-
-function stripBareDocument(doc: Document): void {
-  while (doc.firstChild) doc.removeChild(doc.firstChild);
-  attachProjectedNativeGuard(doc);
-}
+import {
+  isProjectedStandardsDocument,
+  stampProjectedStandardsSrcdoc,
+  stripProjectedSkeleton,
+  whenProjectedStandardsReady,
+} from './projectedBlankIframe';
 
 function docOf(iframe: HTMLIFrameElement): Document {
   const doc = iframe.contentDocument;
   if (!doc) throw new Error('nested surface: no contentDocument');
+  return doc;
+}
+
+async function reseedHostDocument(iframe: HTMLIFrameElement): Promise<Document> {
+  const live = iframe.contentDocument;
+  if (isProjectedStandardsDocument(live)) {
+    stripProjectedSkeleton(live);
+    attachProjectedNativeGuard(live);
+    return live;
+  }
+  stampProjectedStandardsSrcdoc(iframe);
+  const doc = await whenProjectedStandardsReady(iframe);
+  attachProjectedNativeGuard(doc);
   return doc;
 }
 
@@ -32,7 +49,7 @@ export function createNestedResyncSurface(primaryHost: HTMLIFrameElement): Neste
   let activeIframe: HTMLIFrameElement = primaryHost;
   let standbyIframe: HTMLIFrameElement | null = null;
 
-  function attachStandbySibling(): HTMLIFrameElement {
+  async function attachStandbySibling(): Promise<HTMLIFrameElement> {
     const parent = activeIframe.parentElement;
     if (!parent) throw new Error('nested surface: host has no parent');
     const iframe = document.createElement('iframe');
@@ -40,8 +57,10 @@ export function createNestedResyncSurface(primaryHost: HTMLIFrameElement): Neste
     iframe.sandbox.add('allow-same-origin');
     iframe.style.cssText = activeIframe.style.cssText;
     iframe.style.visibility = 'hidden';
+    stampProjectedStandardsSrcdoc(iframe);
     parent.insertBefore(iframe, activeIframe.nextSibling);
-    stripBareDocument(docOf(iframe));
+    const doc = await whenProjectedStandardsReady(iframe);
+    attachProjectedNativeGuard(doc);
     return iframe;
   }
 
@@ -49,9 +68,9 @@ export function createNestedResyncSurface(primaryHost: HTMLIFrameElement): Neste
     get document(): Document {
       return docOf(activeIframe);
     },
-    beginResyncBuild(): Document {
+    async beginResyncBuild(): Promise<Document> {
       if (standbyIframe !== null) standbyIframe.remove();
-      standbyIframe = attachStandbySibling();
+      standbyIframe = await attachStandbySibling();
       return docOf(standbyIframe);
     },
     commitSwap(): Document {
@@ -70,7 +89,7 @@ export function createNestedResyncSurface(primaryHost: HTMLIFrameElement): Neste
       standbyIframe.remove();
       standbyIframe = null;
     },
-    reset(): void {
+    async reset(): Promise<void> {
       if (standbyIframe !== null) {
         standbyIframe.remove();
         standbyIframe = null;
@@ -79,7 +98,7 @@ export function createNestedResyncSurface(primaryHost: HTMLIFrameElement): Neste
         activeIframe.remove();
         activeIframe = primaryHost;
       }
-      stripBareDocument(docOf(activeIframe));
+      await reseedHostDocument(activeIframe);
       activeIframe.style.visibility = '';
     },
   };

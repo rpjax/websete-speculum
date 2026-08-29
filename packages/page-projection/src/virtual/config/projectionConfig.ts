@@ -1,8 +1,8 @@
 /**
- * Virtual runtime config — read once from the pre-script global, then frozen.
+ * Virtual runtime config — read once from SessionConfig (extension C2), then frozen.
  *
- * Sidecar injects `buildConfigPreScript(...)` *before* `virtual.js`, which assigns
- * `globalThis.__SPECULUM_PROJECTION__`. This module does not read Node env.
+ * Extension MAIN sets `globalThis.__SPECULUM_PROJECTION__` after the async config gate
+ * (runtime-redesign.md §0 #3). Bootstrap awaits {@link awaitProjectionConfig} before freeze.
  */
 
 import {
@@ -10,8 +10,13 @@ import {
   TELEMETRY_BOOL_CAPS,
   type ProjectionTelemetryConfig,
 } from '../../core/telemetry';
+import { resolveRootUpwardPeer, UPWARD_PEER_GLOBAL } from '../runtime/initContext';
 
 export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
+export const PROJECTION_CONFIG_READY_GLOBAL = '__SPECULUM_PROJECTION_READY__' as const;
+
+/** Config gate timeout — root crash / nested dormant (runtime-redesign.md §0 #3). */
+export const CONFIG_GATE_TIMEOUT_MS = 2_000;
 
 export type ProjectionTransportKind = 'console' | 'loopback' | 'discard';
 
@@ -28,12 +33,11 @@ export type ProjectionConfigBag = {
   loopbackCarrier?: unknown;
   planeBridgeToken?: unknown;
   telemetry?: unknown;
-  generation?: unknown;
   /** CSSOM poll rate. `0` disables. Lab default 5. Independent of DOM `frameRateHz`. */
   cssomPollHz?: unknown;
 };
 
-/** Resolved config available to Virtual modules after {@link readProjectionConfig}. */
+/** Resolved config available to Virtual modules after {@link awaitProjectionConfig}. */
 export type ProjectionConfig = {
   transport: ProjectionTransportKind;
   /** Loopback hello identity (LB-08). */
@@ -48,13 +52,10 @@ export type ProjectionConfig = {
   bufferedAmountWatermark: number;
   maxFrameBytes: number;
   telemetry: ProjectionTelemetryConfig;
-  /**
-   * §1.2/§4.1 `EPOCH_RESET` trigger (Stage 3): which generation *this* script injection is.
-   * `1` for a session's first navigation (the client's own default — no `EPOCH_RESET` needed);
-   * `> 1` means the orchestrator (`PageProjectionBrowserSession.navigate`) re-injected this bundle
-   * for a hard navigation within the same session, and `bootstrap.ts` must announce it.
-   */
-  generation: number;
+  // No `generation` here on purpose (runtime-redesign.md §6): one config injection covers many
+  // document installs (a link click replaces the document without the sidecar bumping anything),
+  // so a config-sourced generation is stale for exactly the case that needs it. `generation` is
+  // stated per install by `initContext()`.
   /** `0` = CSSOM poller off. */
   cssomPollHz: number;
 };
@@ -71,6 +72,8 @@ const DEFAULTS = {
 declare global {
   // eslint-disable-next-line no-var
   var __SPECULUM_PROJECTION__: ProjectionConfigBag | undefined;
+  // eslint-disable-next-line no-var
+  var __SPECULUM_PROJECTION_READY__: Promise<ProjectionConfigBag | null> | undefined;
 }
 
 let cached: Readonly<ProjectionConfig> | undefined;
@@ -135,22 +138,8 @@ function resolveTelemetry(raw: unknown): ProjectionTelemetryConfig {
   return resolved;
 }
 
-/**
- * Reads `globalThis.__SPECULUM_PROJECTION__` once, validates, freezes.
- * Call from bootstrap before wiring collaborators.
- */
-export function readProjectionConfig(): Readonly<ProjectionConfig> {
-  if (cached !== undefined) return cached;
-
-  const raw = globalThis.__SPECULUM_PROJECTION__;
-  if (raw === undefined || raw === null || typeof raw !== 'object') {
-    throw new Error(
-      `ProjectionConfig missing: inject buildConfigPreScript() before virtual.js ` +
-        `(expected globalThis.${PROJECTION_CONFIG_GLOBAL})`,
-    );
-  }
-
-  const bag = raw as ProjectionConfigBag;
+function freezeBag(raw: ProjectionConfigBag): Readonly<ProjectionConfig> {
+  const bag = raw;
   const transport = asTransport(bag.transport);
   const dataPlaneUrl =
     typeof bag.dataPlaneUrl === 'string' ? bag.dataPlaneUrl.trim() : '';
@@ -192,7 +181,6 @@ export function readProjectionConfig(): Readonly<ProjectionConfig> {
     ),
     maxFrameBytes: asPositiveNumber(bag.maxFrameBytes, DEFAULTS.maxFrameBytes, 'maxFrameBytes'),
     telemetry: Object.freeze(resolveTelemetry(bag.telemetry)),
-    generation: asPositiveNumber(bag.generation, 1, 'generation'),
     cssomPollHz: asNonNegativeNumber(bag.cssomPollHz, DEFAULTS.cssomPollHz, 'cssomPollHz'),
   };
 
@@ -200,10 +188,93 @@ export function readProjectionConfig(): Readonly<ProjectionConfig> {
   return cached;
 }
 
-/** After {@link readProjectionConfig}; throws if not initialized. */
+/**
+ * Async config gate (E-11 amended): wait for the extension bridge to publish SessionConfig,
+ * then freeze once. Nested timeout → `null` (dormant). Root timeout / missing → throw.
+ *
+ * Root also requires {@link UPWARD_PEER_GLOBAL} from `runtime-bridge.js` before freeze — a bare
+ * `__SPECULUM_PROJECTION__` (stale CDP inject / old image) must not pass the gate and then die
+ * at `initContext` with a less obvious error.
+ */
+export async function awaitProjectionConfig(opts?: {
+  role?: 'root' | 'nested';
+  timeoutMs?: number;
+}): Promise<Readonly<ProjectionConfig> | null> {
+  if (cached !== undefined) return cached;
+
+  const role =
+    opts?.role ??
+    (typeof window !== 'undefined' && window.parent === window ? 'root' : 'nested');
+  const timeoutMs = opts?.timeoutMs ?? CONFIG_GATE_TIMEOUT_MS;
+
+  const requireRootUpwardPeer = (): void => {
+    if (role !== 'root') return;
+    if (resolveRootUpwardPeer() !== null) return;
+    throw new Error(
+      `[speculumProjection] SessionConfig without upward peer — ` +
+        `globalThis.${UPWARD_PEER_GLOBAL} missing. ` +
+        `runtime-bridge.js did not install (extension MAIN order / stale lab image / CONFIG without bridge). ` +
+        `Root cannot proceed.`,
+    );
+  };
+
+  const ready = globalThis.__SPECULUM_PROJECTION_READY__;
+  if (ready !== undefined) {
+    let bag: ProjectionConfigBag | null;
+    try {
+      bag = await Promise.race([
+        ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+      ]);
+    } catch (err) {
+      if (role === 'nested') return null;
+      throw err;
+    }
+    if (bag === null || bag === undefined) {
+      if (role === 'nested') return null;
+      throw new Error(
+        `ProjectionConfig missing within ${timeoutMs}ms — root session fault (expected SessionConfig via extension C2)`,
+      );
+    }
+    requireRootUpwardPeer();
+    return freezeBag(bag);
+  }
+
+  const raw = globalThis.__SPECULUM_PROJECTION__;
+  if (raw !== undefined && raw !== null && typeof raw === 'object') {
+    requireRootUpwardPeer();
+    return freezeBag(raw as ProjectionConfigBag);
+  }
+
+  if (role === 'nested') return null;
+  throw new Error(
+    `ProjectionConfig missing: SessionConfig was not delivered before Virtual boot ` +
+      `(expected globalThis.${PROJECTION_CONFIG_GLOBAL} via extension runtime bridge)`,
+  );
+}
+
+/**
+ * Synchronous freeze after the gate. Prefer {@link awaitProjectionConfig} at bootstrap.
+ * Sync read remains for tests that pre-assign the global.
+ */
+export function readProjectionConfig(): Readonly<ProjectionConfig> {
+  if (cached !== undefined) return cached;
+
+  const raw = globalThis.__SPECULUM_PROJECTION__;
+  if (raw === undefined || raw === null || typeof raw !== 'object') {
+    throw new Error(
+      `ProjectionConfig missing: await awaitProjectionConfig() in bootstrap ` +
+        `(expected globalThis.${PROJECTION_CONFIG_GLOBAL})`,
+    );
+  }
+
+  return freezeBag(raw as ProjectionConfigBag);
+}
+
+/** After {@link awaitProjectionConfig}; throws if not initialized. */
 export function getProjectionConfig(): Readonly<ProjectionConfig> {
   if (cached === undefined) {
-    throw new Error('ProjectionConfig not loaded — call readProjectionConfig() in bootstrap first');
+    throw new Error('ProjectionConfig not loaded — call awaitProjectionConfig() in bootstrap first');
   }
   return cached;
 }

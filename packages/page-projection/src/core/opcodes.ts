@@ -6,7 +6,8 @@
 
 export enum OpCode {
   Check = 0x01,
-  EpochReset = 0x02,
+  // 0x02 free/reserved — was EPOCH_RESET, retired with `initContext` (runtime-redesign.md §7).
+  // A generation change is stated by the frame header alone; the client rebuilds its applier.
   // 0x03–0x1F reserved (control range; no STR_DEF opcode — strings are header-local)
 
   NodeNew = 0x20,
@@ -30,7 +31,6 @@ export enum OpCode {
 
 const NAMES: Readonly<Partial<Record<OpCode, string>>> = {
   [OpCode.Check]: 'check',
-  [OpCode.EpochReset]: 'epochReset',
   [OpCode.NodeNew]: 'nodeNew',
   [OpCode.NodeDrop]: 'nodeDrop',
   [OpCode.Insert]: 'insert',

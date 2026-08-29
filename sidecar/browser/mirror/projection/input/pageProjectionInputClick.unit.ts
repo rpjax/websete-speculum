@@ -44,8 +44,6 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
       frames += 1;
     },
     onPageProjectionTelemetry: () => undefined,
-    // EventApplier rejects land here as `input_reject <errorCode> <phase>` (PageProjectionBrowserSession
-    // launch() wiring) — pushInput itself no longer returns a synchronous drop for these.
     onConsole: (_level, text) => {
       consoleLines.push(text);
     },
@@ -74,78 +72,57 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
 
     await wait(500);
 
-    const resolved = await session.evaluate(
-      `(() => {
-        const p = globalThis.__speculumProjection;
-        if (!p) return { ok: false, reason: 'producer' };
-        const el = document.getElementById('click-me');
-        if (!el) return { ok: false, reason: 'missing_button' };
-        const id = p.domNodes.keyOf(el);
-        const rect = el.getBoundingClientRect();
-        return {
-          ok: true,
-          id,
-          generation: p.domNodes.generation,
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
-        };
-      })()`,
-    );
-    assert.ok(resolved.ok, resolved.errorMessage);
-    const info = JSON.parse(resolved.value ?? '{}') as {
-      id: number;
-      generation: number;
-      x: number;
-      y: number;
-    };
-    assert.ok(info.id > 0, 'button node id');
-
-    // EventApplier.validatePointer (browser/input/EventApplier.ts) drops on any viewport stamp
-    // mismatch before it even looks at coords — stamp every ingress with the session's live size.
     const status0 = await session.getStatus();
     const viewportW = status0.width;
     const viewportH = status0.height;
 
-    const payloadJson = JSON.stringify({
-      x: info.x,
-      y: info.y,
-      viewportW,
-      viewportH,
-      button: 0,
-      buttons: 0,
-      modifiers: {},
-    });
-    const base = {
-      generation: info.generation,
-      targetId: info.id,
-      contextId: 1,
-      payloadJson,
-    };
-
     const pushDom = session as unknown as {
       pushInput(input: {
         type: string;
-        generation: number;
+        generation?: number;
         targetId: number | null;
         contextId: number;
         payloadJson: string;
       }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
+      resolveAndClickDomInputByNodeId(
+        selector: string,
+        contextId?: number,
+      ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
     };
-    // Wrong generation must NOT drop — input has no sync with frame generation.
+
+    // Generation is journal-only — must not drop.
     const mismatchedGen = await pushDom.pushInput({
-      ...base,
       type: 'mousedown',
-      generation: info.generation + 99,
+      generation: 99_999,
+      targetId: 1,
+      contextId: 1,
+      payloadJson: JSON.stringify({
+        x: 1,
+        y: 1,
+        localX: 0.5,
+        localY: 0.5,
+        viewportW,
+        viewportH,
+        button: 0,
+      }),
     });
     assert.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
 
-    // Missing nodeId → dispatched at ingress, rejected async by EventApplier.
+    // Missing nodeId → reject async.
     consoleLines.length = 0;
     const noId = await pushDom.pushInput({
-      ...base,
       type: 'mousedown',
       targetId: 0,
-      payloadJson: JSON.stringify({ x: info.x, y: info.y, viewportW, viewportH, button: 0, buttons: 0, modifiers: {} }),
+      contextId: 1,
+      payloadJson: JSON.stringify({
+        x: 1,
+        y: 1,
+        localX: 0.5,
+        localY: 0.5,
+        viewportW,
+        viewportH,
+        button: 0,
+      }),
     });
     assert.strictEqual(noId.status, 'dispatched');
     const noIdDeadline = Date.now() + 2_000;
@@ -157,43 +134,49 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
       `expected async missing_node_id reject, got: ${consoleLines.join(' | ')}`,
     );
 
-    // Coord validation is downstream in EventApplier now — ingressToUnifiedIntent/pushInput
-    // always report 'dispatched'; an out-of-viewport point rejects asynchronously via onReject
-    // (PageProjectionBrowserSession launch() logs it as `input_reject <errorCode> <phase>`).
+    // Invalid local % → reject (absolute stamp is not the hit criterion).
     consoleLines.length = 0;
-    const badCoords = await pushDom.pushInput({
-      ...base,
+    const badLocal = await pushDom.pushInput({
       type: 'mousedown',
-      payloadJson: JSON.stringify({ x: viewportW + 100, y: 0, viewportW, viewportH, button: 0, buttons: 0, modifiers: {} }),
+      targetId: 1,
+      contextId: 1,
+      payloadJson: JSON.stringify({
+        x: 1,
+        y: 1,
+        localX: 1.5,
+        localY: 0.5,
+        viewportW,
+        viewportH,
+        button: 0,
+      }),
     });
-    assert.strictEqual(badCoords.status, 'dispatched');
-    const badCoordsDeadline = Date.now() + 2_000;
-    while (!consoleLines.some((l) => l.includes('invalid_coords')) && Date.now() < badCoordsDeadline) {
+    assert.strictEqual(badLocal.status, 'dispatched');
+    const badLocalDeadline = Date.now() + 2_000;
+    while (!consoleLines.some((l) => l.includes('invalid_local')) && Date.now() < badLocalDeadline) {
       await wait(20);
     }
     assert.ok(
-      consoleLines.some((l) => l.includes('input_reject invalid_coords validate')),
-      `expected async invalid_coords reject, got: ${consoleLines.join(' | ')}`,
+      consoleLines.some((l) => l.includes('input_reject invalid_local validate')),
+      `expected async invalid_local reject, got: ${consoleLines.join(' | ')}`,
     );
 
-    // Id-addressed click via nodeId → resolveNodeHit → CDP at live center.
-    for (const type of ['mousedown', 'mouseup'] as const) {
-      const out = await pushDom.pushInput({ ...base, type });
-      assert.strictEqual(out.status, 'dispatched', type);
-    }
+    // Lab helper: keyOfSelector + resolveNodeHit (omit/center local) → CDP → DOM effect.
+    const clicked = await pushDom.resolveAndClickDomInputByNodeId('#click-me', 1);
+    assert.strictEqual(clicked.status, 'dispatched', 'resolveAndClickDomInputByNodeId');
 
     await wait(300);
 
+    // DOM is shared across Patchright worlds — attribute read is the effect oracle.
     const status = await session.evaluate(
       `document.getElementById('status')?.getAttribute('data-state') ?? ''`,
     );
     assert.ok(status.ok, status.errorMessage);
-    assert.strictEqual(status.value, 'clicked', 'Virtual must reflect click via nodeId resolve');
+    assert.strictEqual(status.value, 'clicked', 'Virtual must reflect click via nodeId + local hit');
   } finally {
     await session.dispose();
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });
   }
-  console.log('[unit] PP input click nodeId-addressed ok');
+  console.log('[unit] PP input click nodeId+local ok');
 }

@@ -31,6 +31,8 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
   viewportH?: number | null;
   x?: number;
   y?: number;
+  localX?: number;
+  localY?: number;
   key?: string;
   code?: string;
   scrollX?: number;
@@ -44,6 +46,12 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
   const viewportH = Number(raw.viewportH ?? payload.viewportH ?? 0);
   const x = Number(raw.x ?? payload.x ?? 0);
   const y = Number(raw.y ?? payload.y ?? 0);
+  const localXRaw = raw.localX ?? payload.localX;
+  const localYRaw = raw.localY ?? payload.localY;
+  const localX =
+    typeof localXRaw === 'number' && Number.isFinite(localXRaw) ? localXRaw : undefined;
+  const localY =
+    typeof localYRaw === 'number' && Number.isFinite(localYRaw) ? localYRaw : undefined;
 
   const mapLegacy = (t: string): string => {
     if (t === 'mousemove') return 'move';
@@ -71,6 +79,7 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
       contextId:
         unifiedType === 'move' ? undefined : raw.contextId && raw.contextId > 0 ? raw.contextId : 1,
       nodeId: unifiedType === 'move' ? undefined : nodeId != null && nodeId > 0 ? nodeId : null,
+      ...(unifiedType !== 'move' && localX != null && localY != null ? { localX, localY } : {}),
     };
   }
 

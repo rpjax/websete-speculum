@@ -77,6 +77,10 @@ function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
     payload.x = intent.x
     payload.y = intent.y
     if (intent.button) payload.button = intent.button
+    if (intent.type !== 'move' && intent.localX != null && intent.localY != null) {
+      payload.localX = intent.localX
+      payload.localY = intent.localY
+    }
   } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
     payload.key = intent.key
     payload.code = intent.code
@@ -382,44 +386,55 @@ function PageProjectionV2Surface({
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
-    const client = createProjectionClient({
-      surfaceHost: host,
-      width,
-      height,
-      getToken: () => sessionRef.current.token ?? undefined,
-      getAssetBaseUrl: () =>
-        sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
-      onArmed: () => {
-        bindInput(client)
-        onFrameObserveRef.current?.({
-          kind: 'pageProjection',
-          hop: 'client_arm',
-          tClient: performance.now(),
-          level: 'wire',
-        })
-      },
-      onDesync: (reason) => {
-        onFrameObserveRef.current?.({
-          kind: 'pageProjection',
-          hop: 'client_desync',
-          reason,
-          dropped: true,
-          tClient: performance.now(),
-          level: 'warn',
-        })
-      },
-      onRequestResync: (info) => {
-        void triggerResync(info.reason, info.generation, info.contextId)
-      },
-    })
-    clientRef.current = client
-    if (width > 0 && height > 0) {
-      client.setCssSize(width, height)
-    }
+    let cancelled = false
+    let client: ProjectionClient | null = null
+    void (async () => {
+      const created = await createProjectionClient({
+        surfaceHost: host,
+        width,
+        height,
+        getToken: () => sessionRef.current.token ?? undefined,
+        getAssetBaseUrl: () =>
+          sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
+        onArmed: () => {
+          if (!client) return
+          bindInput(client)
+          onFrameObserveRef.current?.({
+            kind: 'pageProjection',
+            hop: 'client_arm',
+            tClient: performance.now(),
+            level: 'wire',
+          })
+        },
+        onDesync: (reason) => {
+          onFrameObserveRef.current?.({
+            kind: 'pageProjection',
+            hop: 'client_desync',
+            reason,
+            dropped: true,
+            tClient: performance.now(),
+            level: 'warn',
+          })
+        },
+        onRequestResync: (info) => {
+          void triggerResync(info.reason, info.generation, info.contextId)
+        },
+      })
+      if (cancelled) {
+        void created.reset()
+        return
+      }
+      client = created
+      clientRef.current = created
+      if (width > 0 && height > 0) {
+        created.setCssSize(width, height)
+      }
+    })()
     return () => {
+      cancelled = true
       inputDetachRef.current?.()
       inputDetachRef.current = null
-      client.reset()
+      void clientRef.current?.reset()
       clientRef.current = null
       host.replaceChildren()
     }

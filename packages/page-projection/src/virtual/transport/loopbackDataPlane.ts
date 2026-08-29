@@ -70,6 +70,8 @@ export class LoopbackDataPlane implements DataPlane {
     reject: (err: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
+  /** Ack that landed before {@link waitHelloAck} armed (Port/postMessage reordering). */
+  private lastHelloAck: { sessionId: string; generation: number } | null = null;
 
   constructor(opts: LoopbackDataPlaneOptions) {
     this.watermark = opts.bufferedAmountWatermark ?? DEFAULT_WATERMARK;
@@ -127,10 +129,33 @@ export class LoopbackDataPlane implements DataPlane {
     this.generation = opts.generation >>> 0;
     this.intentionalClose = false;
     this.lastError = undefined;
-    const totalTimeout = opts.timeoutMs ?? LOOPBACK_WS_OPEN_TIMEOUT_MS + LOOPBACK_HELLO_ACK_TIMEOUT_MS;
-    await this.runWithTimeout(async () => {
-      await this.runEstablishAttempt();
-    }, totalTimeout, 'establish_timeout');
+    const perAttemptTimeout =
+      opts.timeoutMs ?? LOOPBACK_WS_OPEN_TIMEOUT_MS + LOOPBACK_HELLO_ACK_TIMEOUT_MS;
+    let lastErr: Error | undefined;
+    const maxAttempts = RECONNECT_BACKOFF_MS.length + 1;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await sleep(RECONNECT_BACKOFF_MS[attempt - 1]);
+        if (this.intentionalClose) break;
+      }
+      try {
+        await this.runWithTimeout(async () => {
+          await this.runEstablishAttempt();
+        }, perAttemptTimeout, 'establish_timeout');
+        return;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (this.intentionalClose) break;
+        // LB-16: doc churn / extension plane replace can drop the socket mid-hello — retry
+        // with a fresh socket instead of failing bootstrap on the first close.
+        this.setState('closed');
+        this.tearDownSocket(true);
+      }
+    }
+
+    this.setState('failed');
+    throw lastErr ?? new Error('establish_connection_exhausted');
   }
 
   /** @deprecated Prefer {@link establishConnection}. */
@@ -213,16 +238,29 @@ export class LoopbackDataPlane implements DataPlane {
     if (!this.url) {
       throw new Error('LoopbackDataPlane.establishConnection: no url');
     }
-    // Arm whenOpen before createSocket begins connecting when possible: open() is
-    // sync until the factory returns; extension bind/open is async via postMessage.
-    if (this.socket === null || this.socket.readyState === LOOPBACK_SOCKET_CLOSED) {
-      this.open(this.url);
-    }
+    this.lastHelloAck = null;
+    // One fresh socket per attempt — extension `handleOpen` replaces the predecessor WS.
+    this.tearDownSocket(true);
+    this.open(this.url);
     this.setState('connecting');
     await this.whenOpen(LOOPBACK_WS_OPEN_TIMEOUT_MS);
     const ackWait = this.waitHelloAck(LOOPBACK_HELLO_ACK_TIMEOUT_MS);
     this.sendHello();
-    await ackWait;
+    // One retry — extension Port reconnect can drop the first ack after hard nav.
+    const retry = setTimeout(() => {
+      if (this.helloAckWaiter) {
+        try {
+          this.sendHello();
+        } catch {
+          /* socket gone */
+        }
+      }
+    }, 500);
+    try {
+      await ackWait;
+    } finally {
+      clearTimeout(retry);
+    }
     this.setState('established');
   }
 
@@ -235,6 +273,14 @@ export class LoopbackDataPlane implements DataPlane {
   }
 
   private waitHelloAck(timeoutMs: number): Promise<void> {
+    if (
+      this.lastHelloAck &&
+      this.lastHelloAck.sessionId === this.sessionId &&
+      this.lastHelloAck.generation === this.generation
+    ) {
+      this.lastHelloAck = null;
+      return Promise.resolve();
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.helloAckWaiter = null;
@@ -244,6 +290,7 @@ export class LoopbackDataPlane implements DataPlane {
         resolve: () => {
           clearTimeout(timer);
           this.helloAckWaiter = null;
+          this.lastHelloAck = null;
           resolve();
         },
         reject: (err: Error) => {
@@ -253,6 +300,14 @@ export class LoopbackDataPlane implements DataPlane {
         },
         timer,
       };
+      // Re-check: ack may have landed between the sync check and waiter arm.
+      if (
+        this.lastHelloAck &&
+        this.lastHelloAck.sessionId === this.sessionId &&
+        this.lastHelloAck.generation === this.generation
+      ) {
+        this.helloAckWaiter.resolve();
+      }
     });
   }
 
@@ -358,6 +413,7 @@ export class LoopbackDataPlane implements DataPlane {
 
     const env = decodeLoopbackEnvelope(bytes);
     if (env?.kind === 'hello-ack') {
+      this.lastHelloAck = { sessionId: env.sessionId, generation: env.generation };
       if (
         this.helloAckWaiter &&
         env.sessionId === this.sessionId &&

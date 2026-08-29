@@ -1,10 +1,17 @@
 /**
  * Virtual domain bus — ContextBus + iframe fabric (replaces ProjectionBus).
+ *
+ * Carrier: directed `MessagePort` per parent↔child edge (`portCarrier.ts`,
+ * runtime-redesign.md §0 #1 / §8). `window.postMessage` appears exactly twice per edge — the
+ * port handshake — and never carries a bus envelope. There is no `postMessage(envelope, '*')`
+ * fan-out: broadcast is a bus *addressing* mode (`destination: '*'`), delivered by writing to
+ * each held port, not by shouting into every window on the page.
  */
 
 import type { ProjectionTelemetryMessage } from '../../core/telemetry';
 import type { SnapshotOptions, SnapshotResult } from '../snapshot';
 import { ContextBus, type IContextBus } from './contextBus';
+import { ChildPortHub, ParentPortLink, isBusPortSetup } from './portCarrier';
 import {
   CONTEXT_BUS_CHANNEL,
   CONTEXT_BUS_RUNTIME,
@@ -65,15 +72,26 @@ export type VirtualDomainBusOptions = {
   isDeliverableDestination?: (contextId: number) => boolean;
 };
 
-const GET_SCOPE_TIMEOUT_MS = 200;
 const MINT_TIMEOUT_MS = 500;
 const SNAPSHOT_TIMEOUT_MS = 8_000;
 const RESUME_TIMEOUT_MS = 2_000;
 
-function isBusEnvelope(data: unknown): data is BusEnvelope {
-  if (typeof data !== 'object' || data === null) return false;
-  return (data as { channel?: unknown }).channel === CONTEXT_BUS_CHANNEL;
-}
+/** RUNTIME names the *immediate* parent must answer itself — it alone owns the iframe row. */
+const IDENTITY_INVOCATIONS: ReadonlySet<string> = new Set(['getScopeId', 'initContext']);
+
+/** Parent's answer to `initContext` (runtime-redesign.md §6). */
+export type InitContextResult = {
+  contextId: number;
+  generation: number;
+};
+
+type PendingIdentityRequest = {
+  port: MessagePort;
+  source: object;
+  caller: number;
+  invocationId: number;
+  name: string;
+};
 
 function isTransportType(type: string): boolean {
   return (
@@ -102,7 +120,23 @@ export class VirtualDomainBus implements IContextBus {
       ) => { ok: boolean; missingNodeIds: number[] })
     | null = null;
   private readonly onMessage: (event: MessageEvent) => void;
+  private readonly hub: ChildPortHub;
+  private readonly link: ParentPortLink | null;
+  /** Identity questions a child asked before this parent could answer them (§0 #5). */
+  private pendingIdentity: PendingIdentityRequest[] = [];
+  /** Install counter per child address — the source of `generation` (§6, §7). */
+  private readonly childInstalls = new Map<number, number>();
+  /** One install = one port = one `generation`; a retried `initContext` is idempotent. */
+  private readonly grantedGeneration = new WeakMap<MessagePort, InitContextResult>();
   private disposed = false;
+  /** Last nested initContext attempt — for assertive boot probes. */
+  lastInitContextDetail: {
+    ok: boolean;
+    upwardReady: boolean;
+    invokeOk?: boolean;
+    invokeError?: string;
+    value?: InitContextResult | null;
+  } | null = null;
 
   constructor(opts: VirtualDomainBusOptions) {
     this.win = opts.window;
@@ -124,35 +158,44 @@ export class VirtualDomainBus implements IContextBus {
 
     this.wireDomainHandlers();
 
+    this.hub = new ChildPortHub({
+      onInbound: (envelope, port, source) => this.receiveFromChild(envelope, port, source),
+      onPortReplaced: (source) => this.dropPendingIdentityFor(source),
+    });
+
+    this.link = this.parent
+      ? new ParentPortLink({
+          window: this.win,
+          parent: this.parent,
+          onInbound: (envelope) => this.receiveFromParent(envelope),
+        })
+      : null;
+
+    // The *only* window-level listener left: the port handshake. Bus envelopes never arrive here.
     this.onMessage = (event: MessageEvent): void => {
-      if (!isBusEnvelope(event.data)) return;
-      const envelope = event.data;
-
-      // getScopeId needs MessageEvent.source — answer before the stub handler throws scope_pending.
-      if (
-        envelope.type === 'request-invocation' &&
-        this.bus.servesRuntime &&
-        envelope.destination === CONTEXT_BUS_RUNTIME &&
-        event.source
-      ) {
-        const req = envelope.event as { name: string; invocationId: number };
-        if (req.name === 'getScopeId') {
-          const scope = this.lookupScopeId?.(event.source);
-          if (scope !== undefined) {
-            this.respondInvocationToSource(event.source, envelope.source, req, scope);
-            return;
-          }
-        }
-      }
-
-      if (this.isAddressedHere(envelope)) {
-        this.bus.receive(envelope);
-      } else {
-        this.routeOutbound(envelope);
-      }
-      void this.handleDomainSideEffects(envelope, event);
+      if (!isBusPortSetup(event.data)) return;
+      const source = event.source as object | null;
+      if (!source) return;
+      this.hub.accept(source);
     };
     this.win.addEventListener('message', this.onMessage);
+  }
+
+  /**
+   * Open the upward channel (nested only). Separate from the constructor so bootstrap can install
+   * every listener *before* any traffic exists (§5 boot order) — the parent may answer instantly.
+   */
+  openUpwardChannel(): void {
+    this.link?.open();
+  }
+
+  /** bfcache restore: the old port is dead on the parent side — re-handshake (§0 #8). */
+  reopenUpwardChannel(): void {
+    this.link?.reopen();
+  }
+
+  get upwardReady(): boolean {
+    return this.link?.ready ?? true;
   }
 
   get contextId(): number {
@@ -190,7 +233,32 @@ export class VirtualDomainBus implements IContextBus {
     if (this.disposed) return;
     this.disposed = true;
     this.win.removeEventListener('message', this.onMessage);
+    this.pendingIdentity = [];
+    this.hub.dispose();
+    this.link?.dispose();
     this.bus.dispose();
+  }
+
+  /**
+   * A nested host row appeared (or changed) — retry every identity question that could not be
+   * answered yet. Event-driven, so a child never polls and never spin-waits (§0 #5).
+   */
+  noteChildScopeChanged(): void {
+    if (this.pendingIdentity.length === 0) return;
+    const pending = this.pendingIdentity;
+    this.pendingIdentity = [];
+    for (const req of pending) {
+      if (!this.answerIdentity(req)) this.pendingIdentity.push(req);
+    }
+  }
+
+  /**
+   * Inner navigation / host drop: kill the port of a dead install so it can never forward again
+   * (§8 step 4). The replacement install re-handshakes and gets a fresh port + generation.
+   */
+  closeChildChannel(contextId: number): void {
+    this.hub.closeForContext(contextId);
+    this.pendingIdentity = this.pendingIdentity.filter((req) => req.caller !== contextId);
   }
 
   receive(envelope: BusEnvelope): void {
@@ -266,19 +334,54 @@ export class VirtualDomainBus implements IContextBus {
     }
   }
 
-  async getScopeId(): Promise<number> {
-    if (!this.parent) return this.mine;
-    for (;;) {
-      const result = await this.bus.invoke<Record<string, never>, number>(
-        'getScopeId',
-        {},
-        { destination: CONTEXT_BUS_RUNTIME, timeoutMs: GET_SCOPE_TIMEOUT_MS },
-      );
-      if (result.ok && typeof result.value === 'number' && result.value >= 2) {
-        return result.value;
-      }
-      await new Promise((r) => setTimeout(r, 16));
+  /**
+   * Nested `initContext` (runtime-redesign.md §6): one RPC to the immediate parent, one deadline,
+   * no retry loop. The parent queues the request until it can answer, so a timeout means the
+   * parent is genuinely not there — the caller goes dormant instead of spinning forever.
+   */
+  async requestInitContext(timeoutMs: number): Promise<InitContextResult | null> {
+    if (!this.link) {
+      this.lastInitContextDetail = { ok: false, upwardReady: false, invokeError: 'no_link' };
+      return null;
     }
+    this.link.open();
+    const result = await this.bus.invoke<Record<string, never>, InitContextResult>(
+      'initContext',
+      {},
+      { destination: CONTEXT_BUS_RUNTIME, timeoutMs },
+    );
+    if (!result.ok) {
+      this.lastInitContextDetail = {
+        ok: false,
+        upwardReady: this.link.ready,
+        invokeOk: false,
+        invokeError: result.error?.message ?? 'invoke_failed',
+      };
+      return null;
+    }
+    const value = result.value;
+    if (
+      typeof value?.contextId !== 'number' ||
+      value.contextId < 2 ||
+      typeof value.generation !== 'number' ||
+      value.generation < 1
+    ) {
+      this.lastInitContextDetail = {
+        ok: false,
+        upwardReady: this.link.ready,
+        invokeOk: true,
+        invokeError: 'bad_identity_shape',
+        value: value ?? null,
+      };
+      return null;
+    }
+    this.lastInitContextDetail = {
+      ok: true,
+      upwardReady: this.link.ready,
+      invokeOk: true,
+      value: { contextId: value.contextId, generation: value.generation },
+    };
+    return { contextId: value.contextId, generation: value.generation };
   }
 
   async requestMint(): Promise<number | undefined> {
@@ -393,16 +496,20 @@ export class VirtualDomainBus implements IContextBus {
   async requestResolveNodeHit(
     contextId: number,
     nodeId: number,
-    x?: number,
-    y?: number,
+    localX?: number,
+    localY?: number,
   ): Promise<{ ok: boolean; x?: number; y?: number; reason?: string }> {
     if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
       return { ok: false, reason: 'context_not_found' };
     }
     const result = await this.bus.invoke<
-      { nodeId: number; x?: number; y?: number },
+      { nodeId: number; localX?: number; localY?: number },
       { ok: boolean; x?: number; y?: number; reason?: string }
-    >('resolveNodeHit', { nodeId, x, y }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+    >(
+      'resolveNodeHit',
+      { nodeId, localX, localY },
+      { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS },
+    );
     if (result.ok) return result.value;
     return { ok: false, reason: result.error?.message ?? 'resolve_hit_failed' };
   }
@@ -434,11 +541,8 @@ export class VirtualDomainBus implements IContextBus {
   }
 
   private wireDomainHandlers(): void {
-    this.bus.onInvocation('getScopeId', (_args, meta) => {
-      void meta;
-      throw new Error('scope_pending');
-    });
-
+    // No `getScopeId`/`initContext` handler here on purpose: identity is answered by the port's
+    // owner in `answerIdentity` before the envelope ever reaches the bus core (§6).
     this.bus.onInvocation('mint', () => {
       if (!this.mintFn) throw new Error('no_mint');
       return this.mintFn();
@@ -493,14 +597,101 @@ export class VirtualDomainBus implements IContextBus {
     });
   }
 
-  private async handleDomainSideEffects(envelope: BusEnvelope, event: MessageEvent): Promise<void> {
+  /**
+   * Traffic off a child's port. The port *is* the proof of origin — no `event.source` compare,
+   * and no way for page script to forge a "from my child" envelope (§8).
+   */
+  private receiveFromChild(envelope: BusEnvelope, port: MessagePort, source: object): void {
+    if (this.disposed) return;
+
+    if (
+      envelope.type === 'request-invocation' &&
+      envelope.destination === CONTEXT_BUS_RUNTIME
+    ) {
+      const req = envelope.event as { name: string; invocationId: number };
+      if (IDENTITY_INVOCATIONS.has(req.name)) {
+        // Only the immediate parent holds the iframe row, so identity is answered here even
+        // when this context is not the RUNTIME server (§6). Unanswerable → queue, never fail.
+        const pending: PendingIdentityRequest = {
+          port,
+          source,
+          caller: envelope.source,
+          invocationId: req.invocationId,
+          name: req.name,
+        };
+        if (!this.answerIdentity(pending)) this.pendingIdentity.push(pending);
+        return;
+      }
+    }
+
+    if (this.isAddressedHere(envelope)) {
+      this.bus.receive(envelope);
+    } else {
+      this.routeOutbound(envelope);
+    }
+    this.handleDomainSideEffects(envelope, 'child');
+  }
+
+  /** Traffic off the upward port. */
+  private receiveFromParent(envelope: BusEnvelope): void {
+    if (this.disposed) return;
+    if (this.isAddressedHere(envelope)) {
+      this.bus.receive(envelope);
+    } else {
+      this.routeOutbound(envelope);
+    }
+    this.handleDomainSideEffects(envelope, 'parent');
+  }
+
+  private answerIdentity(req: PendingIdentityRequest): boolean {
+    const already = this.grantedGeneration.get(req.port);
+    if (already !== undefined) {
+      this.respondOnPort(req, req.name === 'initContext' ? already : already.contextId);
+      return true;
+    }
+
+    const contextId = this.lookupScopeId?.(req.source as MessageEventSource);
+    if (contextId === undefined) return false;
+
+    this.hub.bindContext(contextId, req.source);
+    const generation = (this.childInstalls.get(contextId) ?? 0) + 1;
+    this.childInstalls.set(contextId, generation);
+    const granted: InitContextResult = { contextId, generation };
+    this.grantedGeneration.set(req.port, granted);
+    this.respondOnPort(req, req.name === 'initContext' ? granted : contextId);
+    return true;
+  }
+
+  private dropPendingIdentityFor(source: object): void {
+    this.pendingIdentity = this.pendingIdentity.filter((req) => req.source !== source);
+  }
+
+  private respondOnPort(req: PendingIdentityRequest, result: unknown): void {
+    const base = { channel: CONTEXT_BUS_CHANNEL, source: this.mine, destination: req.caller } as const;
+    try {
+      req.port.postMessage({
+        ...base,
+        type: 'invocation-started',
+        event: { invocationId: req.invocationId },
+      } satisfies BusEnvelope);
+      req.port.postMessage({
+        ...base,
+        type: 'invocation-response',
+        event: { invocationId: req.invocationId, result },
+      } satisfies BusEnvelope);
+    } catch {
+      /* port closed under us — the caller's idle timeout is the answer */
+    }
+  }
+
+  private handleDomainSideEffects(envelope: BusEnvelope, origin: 'parent' | 'child'): void {
     if (isTransportType(envelope.type)) {
       return;
     }
 
     if (envelope.type === 'frame') {
       const bytes = new Uint8Array((envelope.event as { bytes: ArrayBuffer }).bytes);
-      if (event.source === this.parent) {
+      if (origin === 'parent') {
         this.bus.emit('frame', { bytes: bytes.buffer }, { destination: '*' });
         return;
       }
@@ -509,67 +700,25 @@ export class VirtualDomainBus implements IContextBus {
     }
 
     if (envelope.type === 'telemetry') {
-      if (event.source === this.parent) {
+      if (origin === 'parent') {
         this.bus.emit('telemetry', envelope.event, { destination: '*' });
       }
       return;
     }
-
-    if (envelope.type === 'resyncRequest' && event.source !== this.parent) return;
-    if (envelope.type === 'controlInput' && event.source !== this.parent) return;
-  }
-
-  private respondInvocationToSource(
-    eventSource: MessageEventSource | null,
-    callerContextId: number,
-    req: { invocationId: number },
-    result: unknown,
-  ): void {
-    const started: BusEnvelope = {
-      channel: CONTEXT_BUS_CHANNEL,
-      source: this.mine,
-      destination: callerContextId,
-      type: 'invocation-started',
-      event: { invocationId: req.invocationId },
-    };
-    const response: BusEnvelope = {
-      channel: CONTEXT_BUS_CHANNEL,
-      source: this.mine,
-      destination: callerContextId,
-      type: 'invocation-response',
-      event: { invocationId: req.invocationId, result },
-    };
-    const target = eventSource as Window | null;
-    if (target && typeof target.postMessage === 'function') {
-      target.postMessage(started, '*');
-      target.postMessage(response, '*');
-      return;
-    }
-    this.sendLocalResponse(callerContextId, req, result);
-  }
-
-  private sendLocalResponse(source: number, req: { invocationId: number }, result: unknown): void {
-    this.bus.receive({
-      channel: CONTEXT_BUS_CHANNEL,
-      source: this.mine,
-      destination: source,
-      type: 'invocation-started',
-      event: { invocationId: req.invocationId },
-    });
-    this.bus.receive({
-      channel: CONTEXT_BUS_CHANNEL,
-      source: this.mine,
-      destination: source,
-      type: 'invocation-response',
-      event: { invocationId: req.invocationId, result },
-    });
   }
 
   private routeOutbound(envelope: BusEnvelope): void {
     if (this.disposed) return;
 
+    // Broadcast is an addressing mode, not a transport mode: one write per held child port.
     if (envelope.destination === '*') {
-      this.forEachLiveChild((w) => w.postMessage(envelope, '*'));
+      this.hub.forEachPort((port) => {
+        try {
+          port.postMessage(envelope);
+        } catch {
+          /* closed port — dropped by design */
+        }
+      });
       return;
     }
 
@@ -579,15 +728,15 @@ export class VirtualDomainBus implements IContextBus {
     }
 
     if (typeof dest === 'number') {
-      const child = this.findChildForContext(dest);
-      if (child) {
-        child.postMessage(envelope, '*');
+      const port = this.portForContext(dest);
+      if (port) {
+        port.postMessage(envelope);
         return;
       }
     }
 
-    if (this.parent) {
-      this.parent.postMessage(envelope, '*');
+    if (this.link) {
+      this.link.send(envelope);
       return;
     }
 
@@ -599,6 +748,14 @@ export class VirtualDomainBus implements IContextBus {
         name: 'UndeliverableDestination',
       });
     }
+  }
+
+  /** Port bound at identity time; the live host fabric covers a child we sent to first. */
+  private portForContext(contextId: number): MessagePort | null {
+    const bound = this.hub.portForContext(contextId);
+    if (bound) return bound;
+    const win = this.childFabric?.windowOf(contextId) ?? null;
+    return this.hub.portForWindow(win);
   }
 
   private sendLocalErrorResponse(
@@ -615,13 +772,6 @@ export class VirtualDomainBus implements IContextBus {
     });
   }
 
-  private findChildForContext(contextId: number): Window | null {
-    return this.childFabric?.windowOf(contextId) ?? null;
-  }
-
-  private forEachLiveChild(fn: (w: Window) => void): void {
-    this.childFabric?.forEachLive((w) => fn(w));
-  }
 }
 
 export { VirtualDomainBus as ProjectionBus };

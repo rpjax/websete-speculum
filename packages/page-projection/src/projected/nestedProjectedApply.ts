@@ -14,7 +14,6 @@ import { DomFrameApplier } from './applyDom';
 import { createNestedResyncSurface, type NestedResyncSurface } from './nestedResyncSurface';
 import { PageProjectionRegistry } from './registry';
 import { DOCUMENT_ID } from '../core/frame';
-import { OpCode } from '../core/opcodes';
 import { digestReplicatedTable } from '../core/tableDigest';
 import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
 import { stampAttrAuth, stampCssTextAuth } from './sessionBindingAuth';
@@ -65,6 +64,8 @@ export class NestedProjectedApply {
   private armed = false;
   private everArmed = false;
   private lastDesyncReason: string | null = null;
+  private lastDesyncMessage: string | null = null;
+  private surfaceEpoch = 0;
   private readonly onArmedCb?: () => void;
   private readonly onNestedHostCb?: NestedProjectedApplyOptions['onNestedHost'];
   private readonly onNestedHostDropCb?: NestedProjectedApplyOptions['onNestedHostDrop'];
@@ -98,7 +99,10 @@ export class NestedProjectedApply {
   }
 
   get applyError(): string | null {
-    return this.lastDesyncReason;
+    if (this.lastDesyncReason === null) return null;
+    return this.lastDesyncMessage
+      ? `${this.lastDesyncReason} | ${this.lastDesyncMessage}`
+      : this.lastDesyncReason;
   }
 
   get resyncInFlight(): boolean {
@@ -158,8 +162,8 @@ export class NestedProjectedApply {
 
   dispose(): void {
     this.abandonResyncAttempt();
-    this.surface.reset();
-    this.live.applier.reset();
+    void this.surface.reset();
+    this.live.applier.dispose();
   }
 
   private createApplier(doc: Document, registry: PageProjectionRegistry, initiallyLive: boolean): DomFrameApplier {
@@ -231,22 +235,21 @@ export class NestedProjectedApply {
 
   private applyAssembled(frame: AssembledFrame): void {
     if (frame.generation !== this.generation) {
-      const firstOp = frame.ops[0];
-      const isEpochReset = firstOp !== undefined && firstOp.op === OpCode.EpochReset;
-      if (!isEpochReset || firstOp.generation !== frame.generation) {
-        this.desync('generation_mismatch', { message: `got ${frame.generation} have ${this.generation}` });
-        return;
-      }
-      this.generation = frame.generation;
+      // runtime-redesign.md §7 — inner navigation keeps the `contextId` and replaces the install.
+      // Destroy this instance's applier and rebuild on a clean host document instead of resetting
+      // its state piecemeal; the resync frame carrying the new generation then behaves as a cold
+      // start for this context.
       this.lastSequence = frame.sequence - 1;
-      this.abandonResyncAttempt();
-      this.resyncAttempts = 0;
-      this.resyncExhausted = false;
+      void this.recreateForGenerationAsync(frame);
+      return;
     }
 
     if (frame.resync) {
       this.lastSequence = frame.sequence - 1;
-      if (this.everArmed) this.beginResyncTarget();
+      if (this.everArmed) {
+        void this.beginResyncTargetAsync(frame);
+        return;
+      }
     }
 
     if (frame.sequence !== this.lastSequence + 1) {
@@ -258,7 +261,30 @@ export class NestedProjectedApply {
     target.applier.enqueue(frame);
   }
 
-  private beginResyncTarget(): void {
+  private async recreateForGenerationAsync(frame: AssembledFrame): Promise<void> {
+    this.abandonResyncAttempt();
+    this.resyncAttempts = 0;
+    this.resyncExhausted = false;
+    this.generation = frame.generation;
+    this.armed = false;
+    this.everArmed = false;
+    this.live.applier.dispose();
+    const epoch = ++this.surfaceEpoch;
+    await this.surface.reset();
+    if (epoch !== this.surfaceEpoch) return;
+    const registry = new PageProjectionRegistry();
+    registry.register(DOCUMENT_ID, this.surface.document);
+    this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+    if (frame.sequence !== this.lastSequence + 1) {
+      this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+      return;
+    }
+    this.lastSequence = frame.sequence;
+    this.live.applier.enqueue(frame);
+    this.live.applier.flush();
+  }
+
+  private async beginResyncTargetAsync(frame: AssembledFrame): Promise<void> {
     if (this.resyncTimeoutTimer !== null) {
       clearTimeout(this.resyncTimeoutTimer);
       this.resyncTimeoutTimer = null;
@@ -267,11 +293,20 @@ export class NestedProjectedApply {
       this.surface.discardBuild();
       this.resync = null;
     }
-    const doc = this.surface.beginResyncBuild();
+    const epoch = ++this.surfaceEpoch;
+    const doc = await this.surface.beginResyncBuild();
+    if (epoch !== this.surfaceEpoch) return;
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, doc);
     const applier = this.createApplier(doc, registry, false);
     this.resync = { applier, registry, attempt: this.resyncAttempts };
+    if (frame.sequence !== this.lastSequence + 1) {
+      this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+      return;
+    }
+    this.lastSequence = frame.sequence;
+    applier.enqueue(frame);
+    applier.flush();
   }
 
   private commitResyncSwap(frame: AssembledFrame, applyMs: number): void {
@@ -417,6 +452,7 @@ export class NestedProjectedApply {
   ): void {
     if (this.lastDesyncReason === null) {
       this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+      this.lastDesyncMessage = extra?.message ?? null;
     }
     this.armed = false;
     this.assembler.reset();

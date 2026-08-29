@@ -49,8 +49,9 @@ import {
   paritySheetForDocument,
   withScriptingOnPaintParity,
 } from './scriptingOnPaintParity';
-import { installStandardsMarginParity } from './standardsMarginParity';
-import { ensureStandardsBlankDocument } from './standardsBlankDocument';
+import {
+  stampProjectedStandardsSrcdoc,
+} from './projectedBlankIframe';
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -110,6 +111,8 @@ export class DomFrameApplier {
     this.doc = doc;
     this.registry = registry;
     this.options = options;
+    // Document must already be a projected blank (srcdoc birth + strip). K4 is iframe birth
+    // work — this applier cannot repair a BackCompat / orphan Document.
   }
 
   /** Client's own row/hash table (§1.3-§1.5) — read-only outside this class. */
@@ -160,6 +163,25 @@ export class DomFrameApplier {
     this.clearCssom();
   }
 
+  /**
+   * End of this document install (runtime-redesign.md §7): a generation change destroys the
+   * instance instead of enumerating what to clear. Everything the `tableHash` does not cover —
+   * sheets, rules, parity sheet, prop-dirty, child scopes — dies with the object; only the
+   * nested appliers the parent installed on our behalf need an explicit goodbye.
+   */
+  dispose(): void {
+    if (this.raf != null) {
+      cancelAnimationFrame(this.raf);
+      this.raf = null;
+    }
+    this.queued = [];
+    for (const childScopeId of this.childScopes.values()) {
+      this.options.onNestedHostDrop?.(childScopeId);
+    }
+    this.childScopes.clear();
+    this.nestedHostIds.clear();
+  }
+
   /** Input plane marks this when the user is editing the control (§7.2). Unused in lab. */
   markPropDirty(id: number): void {
     this.propDirty.mark(id);
@@ -187,10 +209,17 @@ export class DomFrameApplier {
     // frame — "cannot fail" (§6) because every op it touches was already validated above.
     // CSSOM still uses the iframe window's `CSSStyleSheet`; a cross-realm constructor throws.
     for (let i = 0; i < frame.ops.length; i++) {
+      const op = frame.ops[i]!;
       try {
-        if (!this.applyOp(frame.ops[i]!)) return false;
-      } catch {
-        return this.fail('malformed', 'apply', 0);
+        if (!this.applyOp(op)) return false;
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? `${err.name}: ${err.message} @op[${i}]=${op.op}`
+            : `throw @op[${i}]=${op.op}`;
+        return this.failOp('malformed', 'apply', 'id' in op && typeof (op as { id?: number }).id === 'number'
+          ? (op as { id: number }).id
+          : 0, message);
       }
     }
     if (!this.cssomHandlesMatchTable()) return false;
@@ -220,8 +249,6 @@ export class DomFrameApplier {
     switch (op.op) {
       case OpCode.Check:
         return true; // §4.1 — no DOM effect; already evaluated in phase 1
-      case OpCode.EpochReset:
-        return this.applyEpochReset();
       case OpCode.NodeNew:
         return this.applyNodeNew(op);
       case OpCode.NodeDrop:
@@ -255,30 +282,6 @@ export class DomFrameApplier {
     }
   }
 
-  /**
-   * §4.1 `EPOCH_RESET` `DOM` effect: "the surface is discarded (a new document buffer is
-   * prepared — §6)." No double-buffer surface exists yet (Stage 4) — discards in place, which is
-   * safe here specifically because phase 1 already validated the *whole* frame (§P3: "if phase
-   * 1 fails, the DOM was never touched") and `EPOCH_RESET` is ordering-guaranteed first (§7 rule
-   * 1), so every `NODE_NEW`/`INSERT` immediately following in this same frame rebuilds the
-   * surface before Phase 2 returns — there is no observable empty-document frame.
-   */
-  private applyEpochReset(): boolean {
-    for (const childScopeId of this.childScopes.values()) {
-      this.options.onNestedHostDrop?.(childScopeId);
-    }
-    this.childScopes.clear();
-    this.nestedHostIds.clear();
-    this.doc.replaceChildren();
-    // replaceChildren drops the doctype; about:blank-origin docs stay BackCompat unless re-seeded.
-    ensureStandardsBlankDocument(this.doc);
-    this.registry.clear();
-    this.registry.register(DOCUMENT_ID, this.doc);
-    this.propDirty.reset();
-    this.clearCssom();
-    return true;
-  }
-
   private clearCssom(): void {
     this.sheets.clear();
     this.rules.clear();
@@ -286,7 +289,6 @@ export class DomFrameApplier {
     this.paritySheet = null;
     try {
       installScriptingOnPaintParity(this.doc);
-      installStandardsMarginParity(this.doc);
       const sheet = paritySheetForDocument(this.doc);
       this.paritySheet = sheet ?? null;
       this.doc.adoptedStyleSheets = sheet != null ? [sheet] : [];
@@ -298,11 +300,10 @@ export class DomFrameApplier {
 
   /**
    * K5 sandbox has no `allow-scripts`; hide `<noscript>` like Chromium with JS on.
-   * Call after phase-2 materialize — EPOCH_RESET may run while `defaultView`/head are gone.
+   * Call after phase-2 materialize — `defaultView`/head can be gone mid-apply.
    */
   private ensurePaintParity(): void {
     installScriptingOnPaintParity(this.doc);
-    installStandardsMarginParity(this.doc);
     const sheet = paritySheetForDocument(this.doc);
     if (sheet != null) this.paritySheet = sheet;
     if (!paintParityInstalled(this.doc) && this.doc.documentElement != null) {
@@ -616,6 +617,11 @@ export class DomFrameApplier {
       }
       const uri = elementNsUri(op.ns, op.uri);
       node = this.doc.createElementNS(uri, op.name);
+      // K4 nested host: stamp standards srcdoc **before** INSERT so the first navigation is
+      // never about:blank BackCompat. installNestedHost waits for load then strips.
+      if (op.nestedHost === true) {
+        stampProjectedStandardsSrcdoc(node as HTMLIFrameElement);
+      }
       const attrs =
         op.nestedHost === true ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name)) : op.attrs;
       // SEAL-DOM-P0-ATTR: register only after attrs land — failed setAttribute → desync.
@@ -630,15 +636,26 @@ export class DomFrameApplier {
       node = this.doc.createTextNode(op.value);
     } else if (op.kind === NodeKind.Comment) {
       node = this.doc.createComment(op.value);
-    } else if (op.kind === NodeKind.Doctype) {
+      } else if (op.kind === NodeKind.Doctype) {
       const want = op.name || 'html';
       const existing = this.doc.doctype;
       if (existing && existing.name === want) {
-        // Keep the CSS1Compat doctype from ensureStandardsBlankDocument (K4).
+        // Keep the CSS1Compat doctype from projected blank srcdoc birth (K4).
         node = existing;
       } else {
         if (existing) existing.remove();
-        node = this.doc.implementation.createDocumentType(want, '', '');
+        // Orphaned documents (defaultView null after iframe nav) return null here — desync,
+        // never hand null to the registry WeakMap.
+        const created = this.doc.implementation.createDocumentType(want, '', '');
+        if (created == null) {
+          return this.failOp(
+            'malformed',
+            'nodeNew',
+            op.id,
+            'createDocumentType returned null (document has no browsing context)',
+          );
+        }
+        node = created;
       }
     } else if (op.kind === NodeKind.ShadowRoot) {
       const host = this.registry.get(op.host);

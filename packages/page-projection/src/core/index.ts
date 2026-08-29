@@ -21,7 +21,6 @@ export {
   INSERT_AT_END,
   createFrame,
   type AttrPair,
-  type EpochResetOp,
   type NodeNewOp,
   type InsertOp,
   type RemoveOp,

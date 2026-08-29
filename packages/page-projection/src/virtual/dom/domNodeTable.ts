@@ -32,13 +32,11 @@ export class DomNodeTable {
   }
 
   /**
-   * Bootstrap-only initialization (Stage 3, frame-protocol-production-completeness): a hard
-   * navigation re-injects this whole script into a fresh JS realm, so the *identity map* is
-   * already empty by construction — there is nothing to clear here, unlike `bumpGeneration()`.
-   * This exists purely so a fresh instance reports the `generation` the orchestrator
-   * (`PageProjectionBrowserSession`) already knows this navigation is (via `ProjectionConfig.generation`),
-   * so a `rebuildAndResync` frame — and every ordinary tick after it — carries the right number for
-   * `bootstrap.ts` to decide whether to prepend `EPOCH_RESET`.
+   * Bootstrap-only initialization: every document install runs this script in a fresh JS realm,
+   * so the *identity map* is already empty by construction — there is nothing to clear here,
+   * unlike `bumpGeneration()`. This exists so a fresh instance stamps the `generation` that
+   * `initContext()` just returned (runtime-redesign.md §6) onto the cold resync frame and every
+   * ordinary tick after it. The number is never predicted by config.
    */
   setGeneration(generation: number): void {
     this.currentGeneration = generation;
@@ -121,7 +119,7 @@ export class DomNodeTable {
   /**
    * frame-protocol.md §5.8 rebuild identity (`rebuildAndResync`) — clears the map so it can be
    * rebuilt from a live walk. Unlike `bumpGeneration()`, this does NOT advance `generation`:
-   * `resync` is a same-generation wholesale replace, not `EPOCH_RESET`. `nextKey` is left
+   * `resync` is a same-generation wholesale replace, not a new install. `nextKey` is left
    * untouched, so freshly (re)allocated ids never collide with ids issued before the reset.
    */
   resetIdentity(): void {

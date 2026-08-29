@@ -17,8 +17,9 @@ export type ProjectionConfigPreScriptOptions = {
   maxFrameBytes?: number;
   /** Partial telemetry overrides (merged with Virtual defaults). */
   telemetry?: Partial<ProjectionTelemetryConfig>;
-  /** §1.2 `EPOCH_RESET` trigger (Stage 3) — which generation this injection is. Defaults to `1`. */
-  generation?: number;
+  // No `generation`: one config injection covers many document installs (a link click replaces
+  // the document without the sidecar bumping anything), so it cannot name "which install". Virtual
+  // acquires it per install from `initContext()` — runtime-redesign.md §6.
   /** CSSOM poll Hz. `0` off. Lab injects `5`. */
   cssomPollHz?: number;
   /** Loopback socket carrier. Managed path is always `extension`. */
@@ -30,6 +31,12 @@ export type ProjectionConfigPreScriptOptions = {
    * Virtual reads raw `__SPECULUM_PROJECTION__.diagBoot` (see bootDiag.ts).
    */
   diagBoot?: boolean;
+  /**
+   * CDP inject nonce — "which injection round is this", used only by the arm wrapper so a second
+   * `evaluate` on the same heap is a no-op, and by the late-boot attempt key. Not the protocol
+   * `generation` (that is acquired in-page by `initContext()`), and not part of the config payload.
+   */
+  injectNonce?: number;
 };
 
 export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Record<string, unknown> {
@@ -67,7 +74,6 @@ export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Reco
   }
   if (opts.maxFrameBytes !== undefined) payload.maxFrameBytes = opts.maxFrameBytes;
   if (opts.telemetry !== undefined) payload.telemetry = opts.telemetry;
-  if (opts.generation !== undefined) payload.generation = opts.generation;
   if (opts.cssomPollHz !== undefined) payload.cssomPollHz = opts.cssomPollHz;
   if (opts.diagBoot === true) payload.diagBoot = true;
   return payload;

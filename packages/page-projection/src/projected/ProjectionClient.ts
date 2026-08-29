@@ -28,12 +28,12 @@ import { PageProjectionRegistry } from './registry';
 import { createSurfaceHost, type SurfaceHost } from './surface';
 import { digestReplicatedTable } from '../core/tableDigest';
 import { CONTEXT_ID_ROOT, DOCUMENT_ID } from '../core/frame';
-import { OpCode } from '../core/opcodes';
 import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
 import {
   stampAttrAuth,
   stampCssTextAuth,
 } from './sessionBindingAuth';
+import { isProjectedStandardsDocument, stripProjectedSkeleton } from './projectedBlankIframe';
 
 export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -134,12 +134,11 @@ export class ProjectionClient {
   private readonly pendingNestedFrames = new Map<number, Uint8Array[]>();
   /** contextId → host waiting for initial about:blank `load` before apply binds. */
   private readonly nestedHostAwaitingLoad = new Map<number, NestedHostPendingLoad>();
+  /** Supersedes in-flight async surface reset / resync standby birth. */
+  private surfaceEpoch = 0;
 
-  constructor(opts: ProjectionClientOptions) {
-    this.surface = createSurfaceHost(opts.surfaceHost, {
-      width: opts.width ?? 1280,
-      height: opts.height ?? 720,
-    });
+  private constructor(opts: ProjectionClientOptions, surface: SurfaceHost) {
+    this.surface = surface;
     this.onTelemetry = opts.onTelemetry;
     this.onArmedCb = opts.onArmed;
     this.onDesyncCb = opts.onDesync;
@@ -154,27 +153,79 @@ export class ProjectionClient {
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
   }
 
+  /** Composition-root entry — surface iframe is born with standards srcdoc before use. */
+  static async create(opts: ProjectionClientOptions): Promise<ProjectionClient> {
+    const surface = await createSurfaceHost(opts.surfaceHost, {
+      width: opts.width ?? 1280,
+      height: opts.height ?? 720,
+    });
+    return new ProjectionClient(opts, surface);
+  }
+
   private installNestedHost(iframe: HTMLIFrameElement, contextId: number): void {
-    if (this.nested.has(contextId)) return;
-    if (this.nestedHostAwaitingLoad.has(contextId)) return;
-    // about:blank host: the document identity is unstable until the initial `load`.
-    // Binding NestedProjectedApply before that paints an orphaned Document; load then
-    // replaces contentDocument and the nested surface looks empty (armed flag can still
-    // stick on the Window). Keep frames in pendingNestedFrames until load, then bind once.
+    const existing = this.nested.get(contextId);
+    if (existing) {
+      // Same element still live — nothing to do. Replaced/moved host — drop and rebind
+      // (keep pending frames; same contextId, new browsing context).
+      try {
+        if (
+          existing.hostIframe === iframe
+          && iframe.contentDocument != null
+          && existing.registry.get(DOCUMENT_ID) === iframe.contentDocument
+          && iframe.contentDocument.defaultView != null
+        ) {
+          return;
+        }
+      } catch {
+        /* rebind */
+      }
+      this.cancelPendingNestedHost(contextId);
+      existing.dispose();
+      this.nested.delete(contextId);
+    }
+    const existingPending = this.nestedHostAwaitingLoad.get(contextId);
+    if (existingPending) {
+      existingPending.iframe = iframe;
+      existingPending.bind();
+      return;
+    }
+    // Host was stamped with PROJECTED_STANDARDS_SRCDOC at NODE_NEW (before INSERT). Wait for
+    // that load, strip the skeleton, then bind. Keep frames in pendingNestedFrames until then.
     const pending: NestedHostPendingLoad = { iframe, bind: () => undefined, cancelled: false };
+    let scheduled = false;
     const bind = (): void => {
       if (pending.cancelled) return;
-      this.nestedHostAwaitingLoad.delete(contextId);
-      if (this.nested.has(contextId)) return;
-      const doc = iframe.contentDocument;
-      const win = iframe.contentWindow;
-      if (!doc || !win) return;
-      // Same bare-document strip as the lab surface: about:blank's default html/head/body
-      // must not sit under id 1 when the nested resync INSERTs its own document element.
-      while (doc.firstChild) doc.removeChild(doc.firstChild);
+      if (this.nested.has(contextId)) {
+        this.nestedHostAwaitingLoad.delete(contextId);
+        return;
+      }
+      if (!iframe.isConnected) {
+        scheduled = false;
+        return;
+      }
+      // Adopt synchronously on this turn — no Promise.then gap after strip (that raced and
+      // left NestedProjectedApply on an orphaned Document).
+      const liveDoc = iframe.contentDocument;
+      if (!isProjectedStandardsDocument(liveDoc)) {
+        scheduled = false;
+        iframe.addEventListener('load', scheduleBind, { once: true });
+        return;
+      }
+      stripProjectedSkeleton(liveDoc);
+      if (iframe.contentDocument !== liveDoc || liveDoc.defaultView == null) {
+        scheduled = false;
+        iframe.addEventListener('load', scheduleBind, { once: true });
+        return;
+      }
+      const liveWin = iframe.contentWindow;
+      if (!liveWin) {
+        scheduled = false;
+        iframe.addEventListener('load', scheduleBind, { once: true });
+        return;
+      }
       const session = new NestedProjectedApply({
         hostIframe: iframe,
-        document: doc,
+        document: liveDoc,
         contextId,
         getToken: () => this.resolveToken(),
         getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
@@ -183,7 +234,8 @@ export class ProjectionClient {
         onTelemetry: (msg) => this.onTelemetry?.(msg),
         onArmed: () => {
           try {
-            (win as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed = true;
+            (liveWin as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed =
+              true;
           } catch {
             /* ignore */
           }
@@ -197,6 +249,7 @@ export class ProjectionClient {
           }),
       });
       this.nested.set(contextId, session);
+      this.nestedHostAwaitingLoad.delete(contextId);
       const queued = this.pendingNestedFrames.get(contextId);
       if (queued) {
         this.pendingNestedFrames.delete(contextId);
@@ -204,9 +257,20 @@ export class ProjectionClient {
       }
       session.flush();
     };
-    pending.bind = bind;
+    /** Never bind/flush nested apply on the parent applyInsert stack (depth≥2 re-entrancy). */
+    const scheduleBind = (): void => {
+      if (pending.cancelled || scheduled) return;
+      scheduled = true;
+      setTimeout(() => {
+        scheduled = false;
+        bind();
+      }, 0);
+    };
+    pending.bind = scheduleBind;
     this.nestedHostAwaitingLoad.set(contextId, pending);
-    iframe.addEventListener('load', bind, { once: true });
+    iframe.addEventListener('load', scheduleBind, { once: true });
+    // Always one deferred attempt — covers load-already-fired before we subscribed.
+    scheduleBind();
   }
 
   private cancelPendingNestedHost(contextId: number): void {
@@ -325,7 +389,7 @@ export class ProjectionClient {
   }
 
   /** Empty the projected iframe and reset apply state. Does not touch Virtual. */
-  reset(): void {
+  async reset(): Promise<void> {
     this.abandonResyncAttempt();
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
@@ -342,7 +406,9 @@ export class ProjectionClient {
     for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
       this.cancelPendingNestedHost(contextId);
     }
-    this.surface.reset();
+    const epoch = ++this.surfaceEpoch;
+    await this.surface.reset();
+    if (epoch !== this.surfaceEpoch) return;
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
@@ -377,26 +443,14 @@ export class ProjectionClient {
 
   private applyAssembled(frame: AssembledFrame): void {
     if (frame.generation !== this.generation) {
-      // §7 ordering rule 1 ("EPOCH_RESET first, if present") — a frame announcing a new
-      // generation is only valid when its own leading op says so explicitly (Stage 3); anything
-      // else claiming a different generation without that announcement is a real mismatch.
-      const firstOp = frame.ops[0];
-      const isEpochReset = firstOp !== undefined && firstOp.op === OpCode.EpochReset;
-      if (!isEpochReset || firstOp.generation !== frame.generation) {
-        this.desync('generation_mismatch', { message: `got ${frame.generation} have ${this.generation}` });
-        return;
-      }
-      // §1.2/§4.1: "this generation is over, nothing carries forward" — a fresh generation
-      // restarts sequence numbering too (bootstrap.ts always sends its first frame at
-      // `sequence: 1` for whichever generation it is), so accepting the transition here means
-      // resetting `lastSequence` to just before it, not carrying the old generation's count.
-      this.generation = frame.generation;
+      // runtime-redesign.md §7 — the header already states the generation; there is no leading
+      // op to corroborate it. A different generation means a different document install, so the
+      // whole applier (table, registry, sheets, nested children) is destroyed and rebuilt rather
+      // than reset item by item. A fresh install restarts sequence numbering, so adopt this
+      // frame's own sequence context instead of carrying the old generation's count.
       this.lastSequence = frame.sequence - 1;
-      // A new generation makes whatever the old generation was recovering from moot — abandon
-      // any in-flight resync build/backoff instead of racing it against the fresh navigation.
-      this.abandonResyncAttempt();
-      this.resyncAttempts = 0;
-      this.resyncExhausted = false;
+      void this.recreateForGenerationAsync(frame);
+      return;
     }
 
     if (frame.resync) {
@@ -406,7 +460,10 @@ export class ProjectionClient {
       // frame's own sequence context exactly like the generation-change branch above does, rather
       // than special-casing the ordinary gap check below.
       this.lastSequence = frame.sequence - 1;
-      if (this.everArmed) this.beginResyncTarget();
+      if (this.everArmed) {
+        void this.beginResyncTargetAsync(frame);
+        return;
+      }
     }
 
     if (frame.sequence !== this.lastSequence + 1) {
@@ -416,6 +473,42 @@ export class ProjectionClient {
     this.lastSequence = frame.sequence;
     const target = this.resync ?? this.live;
     target.applier.enqueue(frame);
+  }
+
+  /**
+   * New document install (runtime-redesign.md §7): teardown by object lifetime. The previous
+   * install's applier, registry, surface document and nested children are discarded, and the
+   * client returns to its cold-start posture — the resync frame that carries the new generation
+   * then builds the fresh live surface exactly like a first frame, instead of a standby build
+   * racing a surface that no longer describes anything.
+   */
+  private async recreateForGenerationAsync(frame: AssembledFrame): Promise<void> {
+    this.abandonResyncAttempt();
+    this.resyncAttempts = 0;
+    this.resyncExhausted = false;
+    this.generation = frame.generation;
+    this.armed = false;
+    this.everArmed = false;
+    for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
+      this.cancelPendingNestedHost(contextId);
+    }
+    this.pendingNestedFrames.clear();
+    this.live.applier.dispose();
+    for (const n of this.nested.values()) n.dispose();
+    this.nested.clear();
+    const epoch = ++this.surfaceEpoch;
+    await this.surface.reset();
+    if (epoch !== this.surfaceEpoch) return;
+    const registry = new PageProjectionRegistry();
+    registry.register(DOCUMENT_ID, this.surface.document);
+    this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+    if (frame.sequence !== this.lastSequence + 1) {
+      this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+      return;
+    }
+    this.lastSequence = frame.sequence;
+    this.live.applier.enqueue(frame);
+    this.live.applier.flush();
   }
 
   /**
@@ -492,7 +585,7 @@ export class ProjectionClient {
   }
 
   /** Begins (or restarts) a standby build the moment a `resync`-flagged frame is first seen. */
-  private beginResyncTarget(): void {
+  private async beginResyncTargetAsync(frame: AssembledFrame): Promise<void> {
     if (this.resyncTimeoutTimer !== null) {
       clearTimeout(this.resyncTimeoutTimer);
       this.resyncTimeoutTimer = null;
@@ -503,11 +596,23 @@ export class ProjectionClient {
       this.surface.discardBuild();
       this.resync = null;
     }
-    const doc = this.surface.beginResyncBuild();
+    const epoch = ++this.surfaceEpoch;
+    const doc = await this.surface.beginResyncBuild();
+    if (epoch !== this.surfaceEpoch) return;
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, doc);
     const applier = this.createApplier(doc, registry, false);
     this.resync = { applier, registry, attempt: this.resyncAttempts };
+    if (frame.sequence !== this.lastSequence + 1) {
+      this.desync('sequence_gap', {
+        expectedSequence: this.lastSequence + 1,
+        gotSequence: frame.sequence,
+      });
+      return;
+    }
+    this.lastSequence = frame.sequence;
+    applier.enqueue(frame);
+    applier.flush();
   }
 
   /** Stage 4, §5.8: closing `CHECK` verified OK (this is what `DomFrameApplier`'s `onApplied` already gates on) — swap. */
@@ -709,7 +814,9 @@ export class ProjectionClient {
   }
 }
 
-/** Composition-root factory — same DI surface as `new ProjectionClient(opts)`. */
-export function createProjectionClient(opts: ProjectionClientOptions): ProjectionClient {
-  return new ProjectionClient(opts);
+/** Composition-root factory — awaits standards surface birth (K4 srcdoc). */
+export async function createProjectionClient(
+  opts: ProjectionClientOptions,
+): Promise<ProjectionClient> {
+  return ProjectionClient.create(opts);
 }

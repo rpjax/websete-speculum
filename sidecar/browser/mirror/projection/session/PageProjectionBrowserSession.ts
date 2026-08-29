@@ -27,7 +27,13 @@ import {
   type BrowserStatus,
   type CookieNormalizeStats,
 } from '../../../BrowserSession';
-import { ProjectionRuntimeInstaller, resolveLaunchScripts, loadInpageScript } from '../inject';
+import { resolveLaunchScripts, buildConfigPayload } from '../inject';
+import { ExtensionC2Host } from './extensionC2Host';
+import {
+  materializeSpeculumPpForSession,
+  removeSpeculumPpSessionDir,
+  speculumPpExtensionPath,
+} from '../../../patchright/ChromeRuntime';
 import {
   isProjectionTelemetryMessage,
   LAB_TELEMETRY_DEFAULTS,
@@ -41,8 +47,14 @@ import { PlaneChannel } from '@speculum/page-projection/core/plane';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { ProjectionDataPlaneHost } from './projectionDataPlaneHost';
 import { installDocumentResponseHook, cspDocumentMutator } from './csp/documentResponseHook';
-import { cspDiagLog, isCspDiagEnabled } from './csp/cspDiag';
-import { installSingleTabAdoption } from './singleTab';
+import { cspDiagLog } from './csp/cspDiag';
+import {
+  abortPrimaryPageReplace,
+  beginPrimaryPageReplace,
+  commitPrimaryPageReplace,
+  installSingleTabAdoption,
+} from './singleTab';
+import { attachCdpConsoleRelay } from '../../../patchright/cdpConsoleRelay';
 import { EditableFocus } from '../../../patchright/EditableFocus';
 import { matchesAllowedDomain } from '../../../patchright/Navigation';
 import {
@@ -61,7 +73,6 @@ import type {
 } from '../../../contracts';
 import { AssetStore } from '../assets/AssetStore';
 import { FrameRewriteHop } from '../assets/rewritePart';
-import { Display, DisplayAllocator } from '../../../patchright/Display';
 import { launchChrome, closeChrome, type ChromeHandle } from '../../../patchright/ChromeRuntime';
 import { createInputAdapter } from '../../../input/createInputAdapter';
 import type { IInputAdapter } from '../../../input/ports';
@@ -70,8 +81,6 @@ import { SidecarBuffer } from '../../../input/SidecarBuffer';
 import { EventApplier } from '../../../input/EventApplier';
 import { ingressToUnifiedIntent } from '../../../input/ingressToUnifiedIntent';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
-
-const ppDisplays = new DisplayAllocator();
 
 /** Optional lab/host probe adapters — session must not import `lab/` directly. */
 export type PageProjectionProbes = {
@@ -91,7 +100,10 @@ export type PageProjectionProbes = {
 };
 
 export type PageProjectionFactoryOptions = {
-  /** Ignored for OS path — PP always launches headed on Display when uinput is present. */
+  /**
+   * Sparse-cdp PP: no uinput, no Xorg/`Display`. `headless` is Patchright only —
+   * headed Chrome uses the native desktop (or ambient host `DISPLAY` if set).
+   */
   headless: boolean;
   probes?: PageProjectionProbes;
 };
@@ -111,15 +123,18 @@ export class PageProjectionBrowserSession {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private chrome: ChromeHandle | null = null;
-  private display: Display | null = null;
   private inputAdapter: IInputAdapter | null = null;
   private eventApplier: EventApplier | null = null;
   private cdpSession: CDPSession | null = null;
-  private generation = 1;
+  private generation = 0;
   private cpuAllowed = false;
   private cpuRunning = false;
+  private readonly headless: boolean;
   private readonly editableFocus: EditableFocus;
   private readonly dataPlane = new ProjectionDataPlaneHost();
+  private readonly extensionC2 = new ExtensionC2Host();
+  /** Per-session copy of `speculum-pp` (owns c2-endpoint.json). */
+  private extensionInstallDir: string | null = null;
   private readonly assets = new AssetStore();
   private readonly rewriteHop = new FrameRewriteHop();
   private readonly probes: PageProjectionProbes;
@@ -130,7 +145,7 @@ export class PageProjectionBrowserSession {
     private readonly events: BrowserSessionEvents,
     factoryOpts: PageProjectionFactoryOptions,
   ) {
-    void factoryOpts.headless;
+    this.headless = factoryOpts.headless;
     this.probes = factoryOpts.probes ?? {};
     this.planeBridgeToken = randomUUID();
     this.editableFocus = new EditableFocus(events);
@@ -188,18 +203,30 @@ export class PageProjectionBrowserSession {
       );
     }
     if (!process.env['CHROME_EXECUTABLE']?.trim()) {
-      throw Object.assign(new Error('CHROME_EXECUTABLE required for PageProjection Display launch'), {
+      throw Object.assign(new Error('CHROME_EXECUTABLE required for PageProjection Chrome launch'), {
         code: 'FAILED_PRECONDITION',
         errorCode: 'chrome_executable_missing',
         phase: 'launch',
       });
     }
 
-    loadInpageScript();
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const virtualPath = path.join(speculumPpExtensionPath(), 'main', 'virtual.js');
+    if (!fs.existsSync(virtualPath)) {
+      throw Object.assign(new Error(`speculum-pp virtual.js missing at ${virtualPath}`), {
+        code: 'FAILED_PRECONDITION',
+        errorCode: 'speculum_pp_virtual_missing',
+        phase: 'launch',
+      });
+    }
     await this.dataPlane.listen();
-    this.dataPlane.configureSession(this.sessionId, this.generation);
+    this.dataPlane.configureSession(this.sessionId);
+    this.extensionInstallDir = materializeSpeculumPpForSession(this.sessionId);
+    this.extensionC2.setExtensionDir(this.extensionInstallDir);
+    await this.extensionC2.listen();
 
-    // Display capacity = policy max R; logical viewport soft-resizes within R (D-UI-05/11).
+    // Capacity = policy max R; logical viewport soft-resizes within R (D-UI-05/11).
     // Sparse-cdp is the sole PP input path (OS ABS removed — decision-log.md 2026-08-27).
     // cdp.send is a lazy accessor through currentCdpSession(); safe to build before Chrome exists.
     const maxW = options.viewportPolicy.maxWidth;
@@ -218,12 +245,10 @@ export class PageProjectionBrowserSession {
     });
     this.inputAdapter = inputAdapter;
 
-    const displayNum = ppDisplays.allocate();
-    this.display = await Display.start(displayNum, maxW, maxH);
-
+    // No Xorg/`Display` for PP — sparse-cdp only. Headed = native desktop / ambient DISPLAY.
     this.chrome = await launchChrome({
       sessionId: this.sessionId,
-      displayEnv: this.display.displayEnv,
+      headless: this.headless,
       width: this.width,
       height: this.height,
       locale: options.locale || 'en-US',
@@ -232,19 +257,21 @@ export class PageProjectionBrowserSession {
       colorScheme: options.colorScheme === 'no-preference' ? 'light' : options.colorScheme || 'light',
       geolocation: options.geolocation,
       device: options.device,
+      extensionPaths: [this.extensionInstallDir],
     });
     this.context = this.chrome.context;
     this.page = this.chrome.page;
     this.cdpSession = this.chrome.cdp;
     this.browser = this.context.browser();
+    await this.extensionC2.waitConnected();
 
     this.eventApplier = new EventApplier({
       buffer: new SidecarBuffer(),
       pointer: inputAdapter.pointer,
       keyboard: inputAdapter.keyboard,
       activeViewport: () => ({ w: this.width, h: this.height }),
-      clickDelivery: liveNodeResolveClickDelivery((contextId, nodeId, x, y) =>
-        this.resolveClickTarget(contextId, nodeId, x, y),
+      clickDelivery: liveNodeResolveClickDelivery((contextId, nodeId, localX, localY) =>
+        this.resolveClickTarget(contextId, nodeId, localX, localY),
       ),
       applyScrollSet: (args) => this.applyScrollSet(args),
       applyHistoryNav: async (direction) => {
@@ -273,7 +300,7 @@ export class PageProjectionBrowserSession {
         message: 'chromium disconnected',
       });
     });
-    this.generation = 1;
+    this.generation = 0;
     this.open = true;
     this.events.onLocationChanged(this.url);
     return { width: this.width, height: this.height };
@@ -293,13 +320,14 @@ export class PageProjectionBrowserSession {
     this.context = null;
     this.page = null;
     if (chrome) await closeChrome(chrome);
-    const display = this.display;
-    this.display = null;
-    if (display) await display.dispose();
     const inputAdapter = this.inputAdapter;
     this.inputAdapter = null;
     inputAdapter?.dispose();
     await this.dataPlane.close();
+    await this.extensionC2.close();
+    const extDir = this.extensionInstallDir;
+    this.extensionInstallDir = null;
+    if (extDir) removeSpeculumPpSessionDir(extDir);
   }
 
   async dispose(): Promise<void> {
@@ -377,9 +405,9 @@ export class PageProjectionBrowserSession {
     const opts = this.requireLaunch();
     const dataPlaneUrl = this.dataPlane.listenUrl;
     // Do not close the live page before freshPage — see freshPage ordering.
-    this.generation += 1;
+    const priorGeneration = this.generation;
     this.cdpSession = null;
-    this.dataPlane.configureSession(this.sessionId, this.generation);
+    this.dataPlane.configureSession(this.sessionId);
     this.page = await this.freshPage(dataPlaneUrl, opts);
     this.assets.clear();
     this.assets.bindPage(this.page);
@@ -402,7 +430,8 @@ export class PageProjectionBrowserSession {
     }
     this.editableFocus.stop();
     await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await this.dataPlane.waitEstablished({ generation: this.generation });
+    await this.dataPlane.waitEstablished({ afterGeneration: priorGeneration });
+    this.generation = this.dataPlane.establishedGeneration;
     this.url = this.page.url() || url;
     this.events.onLocationChanged(this.url);
     cspDiagLog('navigate complete', {
@@ -665,6 +694,8 @@ export class PageProjectionBrowserSession {
       viewportH: this.height,
       x: hit.x,
       y: hit.y,
+      localX: 0.5,
+      localY: 0.5,
       button: 'left' as const,
       contextId,
       nodeId: keyed.nodeId,
@@ -759,12 +790,12 @@ export class PageProjectionBrowserSession {
   private async resolveClickTarget(
     contextId: number,
     nodeId: number,
-    x: number,
-    y: number,
+    localX: number | undefined,
+    localY: number | undefined,
   ): Promise<{ ok: boolean; x?: number; y?: number; reason?: string }> {
     const r = await this.loopbackInvoke<{ ok?: boolean; reason?: string; x?: number; y?: number }>(
       'resolveNodeHit',
-      { contextId, nodeId, x, y },
+      { contextId, nodeId, localX, localY },
     );
     if (!r.ok || typeof r.x !== 'number' || typeof r.y !== 'number') {
       return { ok: false, reason: r.reason ?? 'node_not_found' };
@@ -804,13 +835,41 @@ export class PageProjectionBrowserSession {
     virtualEstablished: boolean;
     generation: number;
   }> {
-    const ev = await this.evaluate(`(() => {
-      const ft = globalThis.__speculumProjection?.frameTransport;
-      return !!(ft && ft.isEstablished);
-    })()`);
+    const nodeEstablished = this.dataPlane.isEstablished;
+    let virtualEstablished = false;
+    // Patchright page.evaluate often cannot see MAIN-world Virtual globals. Prefer CDP
+    // Runtime.evaluate; after hard nav the default context can lag, so fall back to a
+    // loopback RPC that only succeeds when Virtual is established.
+    const cdp = this.cdpSession;
+    if (cdp) {
+      try {
+        const result = await cdp.send('Runtime.evaluate', {
+          expression:
+            '!!(globalThis.__speculumProjection && globalThis.__speculumProjection.frameTransport && globalThis.__speculumProjection.frameTransport.isEstablished)',
+          returnByValue: true,
+        });
+        virtualEstablished = result?.result?.value === true;
+      } catch {
+        virtualEstablished = false;
+      }
+    }
+    if (!virtualEstablished && nodeEstablished) {
+      try {
+        const r = await this.dataPlane.invoke('keyOfSelector', {
+          selector: 'html',
+          contextId: 1,
+        });
+        virtualEstablished = r.ok === true;
+      } catch {
+        virtualEstablished = false;
+      }
+    }
+    if (nodeEstablished && this.dataPlane.establishedGeneration > this.generation) {
+      this.generation = this.dataPlane.establishedGeneration;
+    }
     return {
-      nodeEstablished: this.dataPlane.isEstablished,
-      virtualEstablished: ev.ok === true && ev.value === 'true',
+      nodeEstablished,
+      virtualEstablished,
       generation: this.generation,
     };
   }
@@ -1076,17 +1135,24 @@ export class PageProjectionBrowserSession {
     // Create the replacement tab BEFORE closing the old one. After CDP
     // Extensions.loadUnpacked, Chrome 152 can fail Target.createTarget when no
     // page target remains (session navigate used to close-then-open).
-    const p = await context.newPage();
-    const stale = context.pages().filter((x) => x !== p);
-    for (const old of stale) {
-      try {
-        await old.close();
-      } catch {
-        /* best-effort */
+    // Suspend single-tab orphan closer: it would otherwise close this new page
+    // as a "second tab", then we close the old primary → zero pages → context die.
+    beginPrimaryPageReplace(context);
+    let p: Page;
+    try {
+      p = await context.newPage();
+      const stale = context.pages().filter((x) => x !== p);
+      for (const old of stale) {
+        try {
+          await old.close();
+        } catch {
+          /* best-effort */
+        }
       }
+    } catch (err) {
+      abortPrimaryPageReplace(context);
+      throw err;
     }
-    p.on('console', (msg) => this.events.onConsole(consoleLevel(msg.type()), msg.text()));
-    p.on('pageerror', (err) => this.events.onConsole(3, err.message));
     p.on('crash', () => {
       if (!this.open) return;
       this.open = false;
@@ -1112,56 +1178,56 @@ export class PageProjectionBrowserSession {
     });
     const telemetry = (options.projectionTelemetry ?? LAB_TELEMETRY_DEFAULTS) as Partial<ProjectionTelemetryConfig>;
     this.cdpSession = await context.newCDPSession(p);
-    const resolvedLaunch = await resolveLaunchScripts(options.scripts ?? []);
-    const installer = new ProjectionRuntimeInstaller({
-      context,
-      page: p,
-      rootCdp: this.cdpSession,
-      config: {
-        sessionId: this.sessionId,
-        transport: 'loopback',
-        dataPlaneUrl,
-        loopbackCarrier: 'extension',
-        planeBridgeToken: this.planeBridgeToken,
-        frameRateHz: options.frameRateHz ?? 60,
-        telemetry,
-        generation: this.generation,
-        cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
-        ...(process.env.SPECULUM_DIAG_BOOT === '1' ? { diagBoot: true } : {}),
-      },
-      launchScripts: resolvedLaunch,
-      includeCspDiag: isCspDiagEnabled(),
+    // Patchright page.on('console') / pageerror are silent — CDP Runtime is the relay.
+    await attachCdpConsoleRelay(this.cdpSession, (level, text) => this.events.onConsole(level, text));
+    // Launch scripts: gate lives in SessionConfig for the extension entry (customs in V1 via
+    // TargetRules in the content-script entry when wired). Resolved here so C2 carries knobs.
+    void (await resolveLaunchScripts(options.scripts ?? []));
+    const sessionConfig = buildConfigPayload({
+      sessionId: this.sessionId,
+      transport: 'loopback',
+      dataPlaneUrl,
+      loopbackCarrier: 'extension',
+      planeBridgeToken: this.planeBridgeToken,
+      frameRateHz: options.frameRateHz ?? 60,
+      telemetry,
+      cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
     });
-    await installer.install();
+    // ACK before any navigation — fail-closed (runtime-redesign.md §0 #3).
+    await this.extensionC2.pushSessionConfig(sessionConfig as import('./extensionC2Host').ExtensionSessionConfig);
     await installDocumentResponseHook(this.cdpSession, {
       mutators: [cspDocumentMutator],
       context,
       page: p,
     });
     // Locale / OAuth popups → same tab so CSP surgery + data plane stay on the primary page.
+    const adoptUrlOnPrimary = async (url: string) => {
+      const allowed = options.allowedNavigationDomains;
+      if (allowed && allowed.length > 0) {
+        try {
+          const host = new URL(url).hostname;
+          if (!matchesAllowedDomain(host, allowed)) {
+            this.events.onMainFrameNavigationBlocked(url);
+            return;
+          }
+        } catch {
+          return;
+        }
+      }
+      const prior = this.generation;
+      await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await this.dataPlane.waitEstablished({ afterGeneration: prior });
+      this.generation = this.dataPlane.establishedGeneration;
+      this.url = p.url() || url;
+      this.events.onLocationChanged(this.url);
+      this.editableFocus.rebind(p);
+    };
     installSingleTabAdoption({
       page: p,
       context,
-      adoptUrlOnPrimary: async (url) => {
-        const allowed = options.allowedNavigationDomains;
-        if (allowed && allowed.length > 0) {
-          try {
-            const host = new URL(url).hostname;
-            if (!matchesAllowedDomain(host, allowed)) {
-              this.events.onMainFrameNavigationBlocked(url);
-              return;
-            }
-          } catch {
-            return;
-          }
-        }
-        await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-        await this.dataPlane.waitEstablished({ generation: this.generation });
-        this.url = p.url() || url;
-        this.events.onLocationChanged(this.url);
-        this.editableFocus.rebind(p);
-      },
+      adoptUrlOnPrimary,
     });
+    commitPrimaryPageReplace(context, p, adoptUrlOnPrimary);
     // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).
     try {
       await proveLogicalViewport(this.cdpSession, this.width, this.height, this.device, {
@@ -1217,12 +1283,6 @@ export class PageProjectionBrowserSession {
     }
     return { ok: true } as T;
   }
-}
-
-function consoleLevel(type: string): number {
-  if (type === 'error') return 3;
-  if (type === 'warning') return 2;
-  return 1;
 }
 
 export function createPageProjectionBrowserSessionFactory(

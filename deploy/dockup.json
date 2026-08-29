@@ -323,7 +323,7 @@
       {
         "id": "fixture",
         "image": "speculum-refactor-fixture",
-        "context": "../tests/motor-fixture",
+        "context": "tests/motor-fixture",
         "dockerfile": "Dockerfile",
         "env": [
           { "name": "FIXTURE_ROLE", "value": "good" },

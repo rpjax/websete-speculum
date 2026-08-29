@@ -89,9 +89,12 @@ async function testSparseNeverEmitsMove(): Promise<void> {
   }
 }
 
-/** event.target → registry.idOf on down. */
+/** event.target → registry.idOf on down; local % from target rect. */
 async function testSparseResolvesNodeIdFromEventTarget(): Promise<void> {
-  const target = { nodeType: 1 };
+  const target = {
+    nodeType: 1,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
+  };
   const { doc, surface } = mockSurface();
   const sent: UnifiedIntent[] = [];
   const registry = new PageProjectionRegistry();
@@ -105,14 +108,16 @@ async function testSparseResolvesNodeIdFromEventTarget(): Promise<void> {
     baseOpts(),
   );
   try {
-    doc.dispatch('pointerdown', { clientX: 5, clientY: 6, button: 0, target });
+    doc.dispatch('pointerdown', { clientX: 100, clientY: 25, button: 0, target });
     await new Promise((r) => setTimeout(r, 10));
     assert.strictEqual(sent.length, 1);
     assert.strictEqual(sent[0]!.type, 'down');
     if (sent[0]!.type === 'down') {
       assert.strictEqual(sent[0]!.nodeId, 42);
-      assert.strictEqual(sent[0]!.x, 5);
-      assert.strictEqual(sent[0]!.y, 6);
+      assert.strictEqual(sent[0]!.x, 100);
+      assert.strictEqual(sent[0]!.y, 25);
+      assert.strictEqual(sent[0]!.localX, 1);
+      assert.strictEqual(sent[0]!.localY, 0.5);
     }
   } finally {
     detach();

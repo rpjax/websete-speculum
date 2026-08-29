@@ -507,6 +507,8 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
           census: msg.census != null ? String(msg.census) : undefined,
           x: msg.x,
           y: msg.y,
+          localX: msg.localX ?? msg.local_x,
+          localY: msg.localY ?? msg.local_y,
           key: msg.key,
           code: msg.code,
           scrollX: msg.scrollX ?? msg.scroll_x,

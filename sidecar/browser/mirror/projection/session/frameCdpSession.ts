@@ -51,11 +51,25 @@ export async function wireFrameCdpLifecycle(opts: WireFrameCdpLifecycleOptions):
   const { page, context, state, onFrameSession, onMainFrameNavigated } = opts;
 
   const attach = async (frame: Frame) => {
-    if (onFrameSession) {
-      await onFrameSession(frame);
-      return;
+    try {
+      if (onFrameSession) {
+        await onFrameSession(frame);
+        return;
+      }
+      await attachFrameCdp(frame, page, context, state);
+    } catch (err) {
+      // Target closed / detached mid-attach — never surface as unhandledRejection.
+      if (process.env.SPECULUM_DIAG_BOOT === '1') {
+        process.stderr.write(
+          `[speculum-boot-diag] ${JSON.stringify({
+            side: 'sidecar',
+            event: 'frameCdp_attach_failed',
+            t: Date.now(),
+            message: err instanceof Error ? err.message : String(err),
+          })}\n`,
+        );
+      }
     }
-    await attachFrameCdp(frame, page, context, state);
   };
 
   await Promise.all(page.frames().map((frame) => attach(frame)));
@@ -66,7 +80,15 @@ export async function wireFrameCdpLifecycle(opts: WireFrameCdpLifecycleOptions):
 
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) {
-      if (onMainFrameNavigated) void onMainFrameNavigated();
+      if (onMainFrameNavigated) {
+        void (async () => {
+          try {
+            await onMainFrameNavigated();
+          } catch {
+            /* target closed mid-nav */
+          }
+        })();
+      }
       return;
     }
     if (state.frameSessions.has(frame)) return;

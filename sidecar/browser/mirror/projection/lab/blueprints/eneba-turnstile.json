@@ -1,0 +1,47 @@
+{
+  "id": "eneba-turnstile",
+  "description": "Eneba BR Sim → Cloudflare Turnstile — dual-plane objective diagnostic",
+  "sessionPolicy": "cold",
+  "fold": "turnstile",
+  "humanNotes": [
+    "Requires lab UI + Projected client (npm run lab:eneba-turnstile).",
+    "Virtual click Sim via evaluate; probe.turnstile captures live DOM + table + iso + nestedPeek.",
+    "Verdicts: turnstile.* in verdicts.json; artifact probes/turnstile-diagnostic.json."
+  ],
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "https://www.eneba.com" } },
+        {
+          "id": "collect",
+          "type": "collect.enable",
+          "dependsOn": ["boot"],
+          "params": { "invariants": true, "metrics": true, "nodeTableApply": true }
+        },
+        { "id": "wait-popup", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 8000 } },
+        {
+          "id": "click-sim",
+          "type": "evaluate",
+          "dependsOn": ["wait-popup"],
+          "params": {
+            "expression": "(() => { const norm = (s) => (s ?? '').replace(/\\s+/g, ' ').trim().toLowerCase(); const candidates = [...document.querySelectorAll('button, a, [role=\"button\"], input[type=\"button\"], input[type=\"submit\"]')]; let sim = candidates.find((el) => norm(el.textContent) === 'sim' || norm(el.value) === 'sim'); if (!sim) { sim = candidates.find((el) => norm(el.textContent).includes('sim') && norm(el.textContent).length < 12); } if (!sim) { const labels = candidates.slice(0, 40).map((el) => norm(el.textContent) || norm(el.value) || el.tagName).join('|'); throw new Error('Sim button not found; sample=' + labels); } sim.click(); return JSON.stringify({ clicked: true, tag: sim.tagName, text: norm(sim.textContent) || norm(sim.value) }); })()"
+          }
+        },
+        { "id": "wait-challenge", "type": "sleep", "dependsOn": ["click-sim"], "params": { "ms": 15000 } },
+        {
+          "id": "probe-turnstile",
+          "type": "probe.turnstile",
+          "dependsOn": ["wait-challenge"]
+        },
+        {
+          "id": "fold",
+          "type": "fold",
+          "dependsOn": ["probe-turnstile"],
+          "params": { "ruleset": "turnstile" }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

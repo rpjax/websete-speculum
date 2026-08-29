@@ -1,9 +1,8 @@
 # Projection lab — Docker
 
-Canonical environment for PageProjection lab (headed Chrome on Xorg dummy).
-PP input is **sparse-cdp** (CDP id-addressed click) — it does **not** require `/dev/uinput`.
+Canonical environment for PageProjection lab. PP input is **sparse-cdp** (CDP) — **no** Xorg/`Display`/`/dev/uinput` on the PP path.
 
-`/dev/uinput` may still appear in Compose for VideoStreaming / legacy OS paths on other hosts; PP blueprints do not depend on it.
+Headed Chrome (`SPECULUM_LAB_HEADED=1`) needs a real display (host `DISPLAY`, or run headless). The lab image may still ship X packages for VideoStreaming OS leftovers; PP does not start them.
 
 ## Run
 
@@ -39,7 +38,7 @@ Blueprints assert Virtual effect (DOM/scroll). Click delivery is `resolveAndClic
 | Var | Default | Meaning |
 |-----|---------|---------|
 | Host port | 4103 | Published lab HTTP/WS |
-| `SPECULUM_LAB_HEADED` | 1 | Chromium on Xorg dummy |
+| `SPECULUM_LAB_HEADED` | 1 | Visible Chrome when a display is available (PP does not spawn Xorg) |
 | `CHROME_EXECUTABLE` | `/usr/bin/google-chrome` | Required for PP session launch |
 | `SPECULUM_INPUT_BACKEND` | os | VideoStreaming only — not used by PP sparse-cdp |
 

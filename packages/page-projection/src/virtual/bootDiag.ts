@@ -36,6 +36,39 @@ export function beginBootDiag(bootId: string): void {
   };
 }
 
+export type BootOutcome = {
+  ok: boolean;
+  reason: string;
+  contextId?: number;
+  t: number;
+  href: string;
+  isRoot: boolean;
+  /** Extra facts for assertive lab probes (always set; not gated by diagBoot). */
+  detail?: Record<string, unknown>;
+};
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __speculumBootOutcome: BootOutcome | undefined;
+}
+
+/** Always-on boot verdict for lab asserts — independent of diagBoot. */
+export function setBootOutcome(
+  reason: string,
+  opts: { ok?: boolean; contextId?: number; detail?: Record<string, unknown> } = {},
+): void {
+  const outcome: BootOutcome = {
+    ok: opts.ok === true,
+    reason,
+    contextId: opts.contextId,
+    t: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    href: typeof location !== 'undefined' ? location.href : '',
+    isRoot: typeof window !== 'undefined' ? window.parent === window : false,
+    detail: opts.detail,
+  };
+  globalThis.__speculumBootOutcome = outcome;
+}
+
 export function bootDiagLog(event: string, fields: Record<string, unknown> = {}): void {
   if (!isBootDiagEnabled()) return;
   const payload = {

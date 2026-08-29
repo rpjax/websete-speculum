@@ -31,6 +31,9 @@ export type DomInputIngress = {
   census?: string | null;
   x?: number;
   y?: number;
+  /** Sparse-cdp click — fractions in target box [0,1] (also accepted via payload JSON). */
+  localX?: number;
+  localY?: number;
   key?: string;
   code?: string;
   scrollX?: number;

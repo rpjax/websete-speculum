@@ -345,7 +345,7 @@ Policy delivery: [`docker-entrypoint.sh`](../../../sidecar/docker-entrypoint.sh)
 | Config inject | `inject/buildConfigPreScript.ts` | `sessionId` in `__SPECULUM_PROJECTION__` |
 | Session | `PageProjectionBrowserSession.ts` | sessionId, `waitEstablished` after goto |
 | Bootstrap | `virtual/bootstrap.ts` | `await establishConnection()`; fail boot |
-| Extension carrier | `extension-plane.md`, `extensions/speculum-plane/`, `extensionPlaneSocket.ts` | byte tunnel; LB-08…19 on Virtual unchanged |
+| Extension carrier | `extension-plane.md`, `extensions/speculum-pp/`, `extensionPlaneSocket.ts` | byte tunnel; LB-08…19 on Virtual unchanged |
 | Tests | `nodeDataPlane.unit.ts`, `pageProjectionSession.unit.ts`, `extensionPlane/envelope.unit.ts` | §14 |
 
 ---

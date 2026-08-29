@@ -173,22 +173,37 @@ export function attachProjectedInputCapture(
       opts.metrics?.noteSkip('disarmed');
       return;
     }
+    const target = event.target;
+    if (!target || typeof target !== 'object' || !('nodeType' in target)) {
+      opts.metrics?.noteSkip('no_node');
+      return;
+    }
+    const el = target as Element;
+    if (el.nodeType !== 1) {
+      opts.metrics?.noteSkip('no_node');
+      return;
+    }
+    const nodeId = registry.idOf(el);
+    if (nodeId == null) {
+      opts.metrics?.noteSkip('no_node');
+      return;
+    }
+    // Local % in the event window's box — before frame-hop to root (same space as clientX/Y).
+    const box = el.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) {
+      opts.metrics?.noteSkip('no_coords');
+      return;
+    }
+    const rawLocalX = (event.clientX - box.left) / box.width;
+    const rawLocalY = (event.clientY - box.top) / box.height;
+    const localX = Math.min(1, Math.max(0, rawLocalX));
+    const localY = Math.min(1, Math.max(0, rawLocalY));
     const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
     if (!coords) {
       opts.metrics?.noteSkip('no_coords');
       return;
     }
     const stamp = viewportStamp();
-    const target = event.target;
-    if (!target || typeof target !== 'object' || !('nodeType' in target)) {
-      opts.metrics?.noteSkip('no_node');
-      return;
-    }
-    const nodeId = registry.idOf(target as Node);
-    if (nodeId == null) {
-      opts.metrics?.noteSkip('no_node');
-      return;
-    }
     enqueue({
       schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
       type,
@@ -196,6 +211,8 @@ export function attachProjectedInputCapture(
       ...stamp,
       x: coords.x,
       y: coords.y,
+      localX,
+      localY,
       button: buttonFromEvent(event.button),
       contextId: opts.contextId,
       nodeId,

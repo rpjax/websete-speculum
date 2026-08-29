@@ -1,6 +1,6 @@
 {
   "id": "input-iframe-click",
-  "description": "OS ABS — nested context click (contextId=2) via frame-aware resolve + ABS coords",
+  "description": "sparse-cdp — nested context click (contextId=2) via keyOfSelector + resolveNodeHit",
   "sessionPolicy": "cold",
   "queues": [
     {

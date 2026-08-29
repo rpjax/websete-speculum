@@ -3,6 +3,7 @@ import { EventApplier } from './EventApplier';
 import { SidecarBuffer } from './SidecarBuffer';
 import { liveNodeResolveClickDelivery } from './clickDelivery';
 import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes';
+import { mapLocalHitToRootPoint } from '@speculum/page-projection/core/input/localHit';
 
 export async function runEventApplierUnitTests(): Promise<void> {
   // Stale viewport stamp → drop
@@ -30,10 +31,15 @@ export async function runEventApplierUnitTests(): Promise<void> {
   await applierStale.flush();
   assert.ok(rejects.includes('stale_viewport'));
 
-  // nodeId resolves to a live point
+  // nodeId + local → delivery gets local; CDP at mapped point
   const moves3: Array<{ x: number; y: number }> = [];
   const buttons3: Array<{ btn: string; down: boolean }> = [];
-  const resolveCalls: Array<{ contextId: number; nodeId: number; x: number; y: number }> = [];
+  const resolveCalls: Array<{
+    contextId: number;
+    nodeId: number;
+    localX: number | undefined;
+    localY: number | undefined;
+  }> = [];
   const applierResolve = new EventApplier({
     buffer: new SidecarBuffer(),
     pointer: {
@@ -43,9 +49,15 @@ export async function runEventApplierUnitTests(): Promise<void> {
     },
     keyboard: { key: () => {}, sanitize: () => {} },
     activeViewport: () => ({ w: 800, h: 600 }),
-    clickDelivery: liveNodeResolveClickDelivery(async (contextId, nodeId, x, y) => {
-      resolveCalls.push({ contextId, nodeId, x, y });
-      return { ok: true, x, y };
+    clickDelivery: liveNodeResolveClickDelivery(async (contextId, nodeId, localX, localY) => {
+      resolveCalls.push({ contextId, nodeId, localX, localY });
+      const mapped = mapLocalHitToRootPoint(
+        { left: 100, top: 200, right: 200, bottom: 300 },
+        localX ?? 0.5,
+        localY ?? 0.5,
+      );
+      assert.ok(mapped);
+      return { ok: true, x: mapped!.x, y: mapped!.y };
     }),
   });
   applierResolve.enqueue({
@@ -55,13 +67,15 @@ export async function runEventApplierUnitTests(): Promise<void> {
     viewportH: 600,
     x: 10,
     y: 20,
+    localX: 1,
+    localY: 0.5,
     button: 'left',
     contextId: 3,
     nodeId: 42,
   });
   await applierResolve.flush();
-  assert.deepStrictEqual(resolveCalls, [{ contextId: 3, nodeId: 42, x: 10, y: 20 }]);
-  assert.deepStrictEqual(moves3[0], { x: 10, y: 20 }, 'must dispatch at the client pointer point');
+  assert.deepStrictEqual(resolveCalls, [{ contextId: 3, nodeId: 42, localX: 1, localY: 0.5 }]);
+  assert.deepStrictEqual(moves3[0], { x: 200, y: 250 }, 'local 1,0.5 → right edge center of rect');
   assert.ok(buttons3.some((b) => b.btn === 'left' && b.down === true));
 
   // resolve failure → reject, no dispatch
@@ -85,6 +99,8 @@ export async function runEventApplierUnitTests(): Promise<void> {
     viewportH: 600,
     x: 10,
     y: 20,
+    localX: 0.5,
+    localY: 0.5,
     button: 'left',
     contextId: 1,
     nodeId: 99,
@@ -120,6 +136,34 @@ export async function runEventApplierUnitTests(): Promise<void> {
   applierNoTarget.enqueue(downNull);
   await applierNoTarget.flush();
   assert.ok(rejects3.includes('missing_node_id'));
+
+  // invalid local → reject
+  const rejectsLocal: string[] = [];
+  const applierBadLocal = new EventApplier({
+    buffer: new SidecarBuffer(),
+    pointer: {
+      moveTo: () => assert.fail('bad local must not move'),
+      button: () => assert.fail('bad local must not click'),
+      sanitize: () => {},
+    },
+    keyboard: { key: () => {}, sanitize: () => {} },
+    activeViewport: () => ({ w: 800, h: 600 }),
+    clickDelivery: liveNodeResolveClickDelivery(async () => assert.fail('must not resolve bad local')),
+    onReject: (code) => rejectsLocal.push(code),
+  });
+  applierBadLocal.enqueue({
+    schemaVersion: 1,
+    type: 'down',
+    viewportW: 800,
+    viewportH: 600,
+    x: 1,
+    y: 1,
+    localX: 1.5,
+    localY: 0.5,
+    nodeId: 1,
+  });
+  await applierBadLocal.flush();
+  assert.ok(rejectsLocal.includes('invalid_local'));
 
   // keyboard prefers intent.key over intent.code (KeyA → a)
   const keys: string[] = [];

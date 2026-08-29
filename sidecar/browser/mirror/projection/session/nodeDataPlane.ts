@@ -67,6 +67,9 @@ type PendingInvoke = {
 
 type EstablishedWaiter = {
   generation: number;
+  afterGeneration?: number | null;
+  /** When true, resolve on any successful hello (observe, don't predict). */
+  anyGeneration?: boolean;
   resolve: () => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -111,16 +114,33 @@ export class NodeDataPlane implements DataPlane {
     };
   }
 
-  setExpectedSession(opts: { sessionId: string; generation: number }): void {
+  setExpectedSession(opts: { sessionId: string; generation?: number }): void {
     this.sessionId = opts.sessionId;
-    this.expectedGeneration = opts.generation >>> 0;
+    if (opts.generation !== undefined) {
+      this.expectedGeneration = opts.generation >>> 0;
+    }
   }
 
-  waitEstablished(opts: { generation: number; timeoutMs?: number }): Promise<void> {
-    const generation = opts.generation >>> 0;
-    if (this.isEstablished && this.expectedGeneration === generation) {
-      return Promise.resolve();
-    }
+  /**
+   * Wait until a Virtual hello is ack'd.
+   * - `generation`: match that install exactly
+   * - `afterGeneration`: accept the next install with generation > afterGeneration
+   *   (sidecar observes initContext — does not predict)
+   * - omit both: accept any established hello
+   */
+  waitEstablished(
+    opts: { generation?: number; afterGeneration?: number; timeoutMs?: number } = {},
+  ): Promise<void> {
+    const wantExact = opts.generation !== undefined ? opts.generation >>> 0 : null;
+    const after =
+      opts.afterGeneration !== undefined ? opts.afterGeneration >>> 0 : null;
+    const matches = (): boolean => {
+      if (!this.isEstablished) return false;
+      if (wantExact !== null) return this.expectedGeneration === wantExact;
+      if (after !== null) return this.expectedGeneration > after;
+      return true;
+    };
+    if (matches()) return Promise.resolve();
     const timeoutMs = opts.timeoutMs ?? LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -132,7 +152,14 @@ export class NodeDataPlane implements DataPlane {
           }),
         );
       }, timeoutMs);
-      const entry: EstablishedWaiter = { generation, resolve, reject, timer };
+      const entry: EstablishedWaiter = {
+        generation: wantExact ?? 0,
+        afterGeneration: after,
+        anyGeneration: wantExact === null && after === null,
+        resolve,
+        reject,
+        timer,
+      };
       this.establishedWaiters.push(entry);
     });
   }
@@ -333,23 +360,49 @@ export class NodeDataPlane implements DataPlane {
       reject('session_mismatch');
       return;
     }
-    if (env.generation !== this.expectedGeneration) {
+    if (env.generation < 1 || !Number.isInteger(env.generation)) {
       cspDiagLog('data plane hello reject', {
         reason: 'generation_mismatch',
         got: env.generation,
-        expected: this.expectedGeneration,
       });
       reject('generation_mismatch');
-      return;
-    }
-    if (this.state === 'established' && this.socket !== null && this.socket !== socket) {
-      reject('already_established');
       return;
     }
     if (env.role !== 'virtual-root') {
       reject('protocol_unsupported');
       return;
     }
+
+    const incomingGen = env.generation >>> 0;
+    const canonical = this.socket;
+    const wasEstablished = this.state === 'established' && canonical !== null;
+
+    if (wasEstablished && canonical === socket) {
+      try {
+        socket.send(
+          Buffer.from(encodeLoopbackHelloAck(this.sessionId, this.expectedGeneration)),
+          { binary: true },
+        );
+      } catch {
+        reject('protocol_unsupported');
+      }
+      return;
+    }
+
+    if (wasEstablished && canonical !== null && canonical !== socket) {
+      if (incomingGen <= this.expectedGeneration) {
+        reject('already_established');
+        return;
+      }
+      // LB-15.2: newer install supersedes predecessor still on the old socket.
+      this.detach(true, LOOPBACK_GENERATION_SUPERSEDED_CODE);
+    } else if (this.socket !== null && this.socket !== socket) {
+      this.detach(true, LOOPBACK_GENERATION_SUPERSEDED_CODE);
+    }
+
+    // Adopt the generation the Virtual stated via initContext — do not predict it
+    // (runtime-redesign.md §6 / waitEstablished observes, does not prescribe).
+    this.expectedGeneration = incomingGen;
 
     try {
       socket.send(
@@ -373,7 +426,11 @@ export class NodeDataPlane implements DataPlane {
   private resolveEstablishedWaiters(generation: number): void {
     const keep: EstablishedWaiter[] = [];
     for (const w of this.establishedWaiters) {
-      if (w.generation === generation) {
+      const hit =
+        w.anyGeneration === true ||
+        w.generation === generation ||
+        (typeof w.afterGeneration === 'number' && generation > w.afterGeneration);
+      if (hit) {
         clearTimeout(w.timer);
         w.resolve();
       } else {

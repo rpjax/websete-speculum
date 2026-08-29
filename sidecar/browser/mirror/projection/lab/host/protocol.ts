@@ -52,6 +52,21 @@ export type LabClientMessage =
         checked?: boolean;
         selected?: boolean;
       }> | null;
+      nestedPeek?: {
+        nested: number[];
+        awaiting: number[];
+        pendingFrames: Record<string, number>;
+        sessions: Array<{
+          contextId: number;
+          armed: boolean;
+          desynced: boolean;
+          applyError: string | null;
+          generation: number;
+          compat: string | null;
+          bodyLen: number;
+          docIsLive: boolean | null;
+        }>;
+      } | null;
     }
   | { type: 'client.requestResync'; reason?: string; contextId?: number }
   | { type: 'client.intent'; intent: Record<string, unknown> }
@@ -122,7 +137,7 @@ export type LabHostMessage =
       errorCode?: string;
       message?: string;
     }
-  | { type: 'requestSnapshot'; contextId: number }
+  | { type: 'requestSnapshot'; contextId: number; includeNestedPeek?: boolean }
   | { type: 'lab.tamper'; kind: 'ghostRule' }
   | { type: 'lab.injectFrame'; bytes: string }
   | { type: 'console'; level: number; text: string; t: number }

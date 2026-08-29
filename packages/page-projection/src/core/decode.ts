@@ -268,8 +268,6 @@ function decodeOp(
       if (scope !== CHECK_SCOPE_TABLE && scope !== CHECK_SCOPE_RANGE) return null; // P7 — strict, not tolerant
       return { op: OpCode.Check, scope, lo, hi, hash };
     }
-    case OpCode.EpochReset:
-      return { op: OpCode.EpochReset, generation: r.u32() };
     case OpCode.NodeDrop: {
       const count = r.u16();
       checkChildCount(count); // NODE_DROP has no named limit of its own; shares INSERT/REMOVE's batch cap

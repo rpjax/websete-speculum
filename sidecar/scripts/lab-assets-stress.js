@@ -187,7 +187,11 @@ async function main() {
   const health = await waitHealth(20_000);
   console.log(`[assets-stress] lab ok protocol=${health.protocolVersion} → ${OUT_DIR}`);
 
-  const browser = await chromium.launch({ headless: true });
+  const chromePath = process.env.CHROME_EXECUTABLE || undefined;
+  const browser = await chromium.launch({
+    headless: true,
+    ...(chromePath ? { executablePath: chromePath } : {}),
+  });
   const results = [];
   try {
     for (const target of TARGETS) {

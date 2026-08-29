@@ -30,14 +30,21 @@ export type DescribeDomResyncOptions = {
   notePendingNestedHost?: (el: Element) => void;
 };
 
+export type DescribeDomResyncResult = {
+  ops: FrameOp[];
+  /** A nested host had no real `contextId` yet — the caller must not emit this frame (§0 #4). */
+  mintPending: boolean;
+};
+
 export function describeDomResync(
   domNodes: DomNodeTable,
   formIndex: FormPropIndex,
   opts?: DescribeDomResyncOptions,
-): FrameOp[] {
+): DescribeDomResyncResult {
   const childScopes = opts?.childScopes;
   const notePendingNestedHost = opts?.notePendingNestedHost;
   const ops: FrameOp[] = [];
+  let mintPending = false;
   formIndex.rebuild(domNodes);
 
   for (const [id, node] of domNodes.liveEntries()) {
@@ -61,6 +68,7 @@ export function describeDomResync(
         formIndex.remove(node);
         domNodes.release(node);
         notePendingNestedHost?.(node as Element);
+        mintPending = true;
         continue;
       }
       if (admitted.kind === 'host') nested = { childScopeId: admitted.contextId };
@@ -78,7 +86,7 @@ export function describeDomResync(
     pushChildInsert(ops, id, children, domNodes);
   }
 
-  return ops;
+  return { ops, mintPending };
 }
 
 function pushChildInsert(

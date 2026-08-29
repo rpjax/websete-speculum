@@ -66,12 +66,12 @@ export class EventApplier {
     switch (intent.type) {
       case 'move':
         // Sparse catalog rejects continuous move at the peripheral; still validate stamp.
-        if (!this.validatePointer(intent)) return;
+        if (!this.validateMove(intent)) return;
         this.opts.pointer.moveTo(intent.x, intent.y);
         return;
       case 'down':
       case 'up': {
-        if (!this.validatePointer(intent)) return;
+        if (!this.validateClick(intent)) return;
 
         if (intent.nodeId == null) {
           this.reject('missing_node_id', 'validate');
@@ -81,8 +81,8 @@ export class EventApplier {
         const resolved = await delivery.resolveClickTarget(
           intent.contextId ?? 1,
           intent.nodeId,
-          intent.x,
-          intent.y,
+          intent.localX,
+          intent.localY,
         );
         if (!resolved.ok || resolved.x == null || resolved.y == null) {
           this.reject(
@@ -146,14 +146,47 @@ export class EventApplier {
     }
   }
 
-  private validatePointer(intent: { viewportW: number; viewportH: number; x: number; y: number }): boolean {
+  private validateViewportStamp(intent: { viewportW: number; viewportH: number }): boolean {
     const active = this.opts.activeViewport();
     if (intent.viewportW !== active.w || intent.viewportH !== active.h) {
       this.reject('stale_viewport', 'validate');
       return false;
     }
+    return true;
+  }
+
+  private validateMove(intent: { viewportW: number; viewportH: number; x: number; y: number }): boolean {
+    if (!this.validateViewportStamp(intent)) return false;
     if (intent.x < 0 || intent.y < 0 || intent.x >= intent.viewportW || intent.y >= intent.viewportH) {
       this.reject('invalid_coords', 'validate');
+      return false;
+    }
+    return true;
+  }
+
+  private validateClick(intent: {
+    viewportW: number;
+    viewportH: number;
+    localX?: number;
+    localY?: number;
+  }): boolean {
+    if (!this.validateViewportStamp(intent)) return false;
+    const hasLocal =
+      typeof intent.localX === 'number'
+      && typeof intent.localY === 'number'
+      && Number.isFinite(intent.localX)
+      && Number.isFinite(intent.localY);
+    if (!hasLocal) {
+      // Lab may omit local (Virtual center). Product Projected always sends local.
+      return true;
+    }
+    if (
+      intent.localX! < -1e-6
+      || intent.localY! < -1e-6
+      || intent.localX! > 1 + 1e-6
+      || intent.localY! > 1 + 1e-6
+    ) {
+      this.reject('invalid_local', 'validate');
       return false;
     }
     return true;

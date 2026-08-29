@@ -6,13 +6,12 @@
 
 import type { FrameClock } from './clock/frameClock';
 import { TimerFrameClock } from './clock/timerFrameClock';
-import { readProjectionConfig } from './config/projectionConfig';
+import { awaitProjectionConfig } from './config/projectionConfig';
 import { MutationBuffer } from './dom/mutationBuffer';
 import { DomMutationObserver } from './dom/domMutationObserver';
 import { DomNodeTable } from './dom/domNodeTable';
 import { DOCUMENT_ID, CONTEXT_ID_ROOT } from '../core/frame';
 import { CONTEXT_ID_PROVISIONAL } from '../core/contextBusConstants';
-import { OpCode } from '../core/opcodes';
 import { ReplicatedTable } from '../core/replicatedTable';
 import { BinaryFrameEncoder } from './frame/binaryFrameEncoder';
 import { FrameEmitter } from './frame/frameEmitter';
@@ -28,19 +27,61 @@ import { disabledCssomPlane, type CssomPlane } from './cssom/cssomPlane';
 import { ProjectionTelemetry } from './telemetry/projectionTelemetry';
 import type { FrameTransport } from './transport/frameTransport';
 import { LoopbackFrameTransport } from './transport/loopbackFrameTransport';
-import { beginBootDiag, bootDiagLog, mintBootDiagId } from './bootDiag';
+import { beginBootDiag, bootDiagLog, mintBootDiagId, setBootOutcome } from './bootDiag';
 import { BusFrameTransport } from './transport/busFrameTransport';
 import { VirtualDomainBus } from './bus/virtualDomainBus';
 import { RootRuntime } from './runtime/rootRuntime';
 import { ContextRegistry } from './runtime/contextRegistry';
-import { ChildScopeIndex, createMintPort } from './dom/childScopes';
+import {
+  initNestedContext,
+  initRootContext,
+  resolveRootUpwardPeer,
+  NESTED_INIT_CONTEXT_TIMEOUT_MS,
+  ROOT_INIT_CONTEXT_TIMEOUT_MS,
+} from './runtime/initContext';
+import { ChildScopeIndex, createMintPort, type MintPort } from './dom/childScopes';
 import type { TableLiveOracleResult } from '../core/tableLiveOracle';
 import type { CssomTableLiveOracleResult } from '../core/cssomTableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import { PlaneChannel, type DataPlane } from '../core/plane';
+import { mapLocalHitToRootPoint } from '../core/input/localHit';
 import type { CssomPollStats } from './cssom/cssomPoller';
 import { applyScrollPositions } from './input/applyScrollPositions';
 import { NONE_DOM_NODE_KEY } from '../core/domNodeKey';
+
+/**
+ * Nested cold seed: wait until the document is past `loading`, then two rAFs so
+ * sync parser-injected nodes exist before {@link rebuildAndResync}. Without this,
+ * childList under not-yet-mapped parents is dropped and live elements stay
+ * `node_unmapped` for lab `keyOfSelector` (input-iframe-click).
+ */
+function waitDocumentSeedReady(doc: Document): Promise<void> {
+  const afterPaint = (): Promise<void> =>
+    new Promise((resolve) => {
+      const raf = doc.defaultView?.requestAnimationFrame?.bind(doc.defaultView);
+      if (!raf) {
+        setTimeout(resolve, 0);
+        return;
+      }
+      raf(() => raf(() => resolve()));
+    });
+
+  if (doc.readyState !== 'loading') return afterPaint();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      void afterPaint().then(resolve);
+    };
+    doc.addEventListener('DOMContentLoaded', finish, { once: true });
+    doc.addEventListener('readystatechange', () => {
+      if (doc.readyState !== 'loading') finish();
+    });
+    setTimeout(finish, 5_000);
+  });
+}
 
 declare global {
   var __speculumProjection:
@@ -124,12 +165,14 @@ declare global {
           reason?: string;
         }>;
         /**
-         * Sparse-cdp path — validates client pointer coords against live node bounds and
-         * returns the root-viewport point for CDP dispatch (not element center).
+         * Sparse-cdp — map localX/localY ([0,1] in node box) to live root-viewport CSS for CDP.
+         * Omit local → element center (lab). Absolute x/y are not a hit criterion.
          */
         resolveNodeHit: (args: {
           nodeId: number;
           contextId?: number;
+          localX?: number;
+          localY?: number;
           x?: number;
           y?: number;
         }) => Promise<{ ok: boolean; x?: number; y?: number; reason?: string }>;
@@ -137,85 +180,49 @@ declare global {
     | undefined;
 }
 
-function scrubSpeculumInjectScripts(): void {
-  const cur = document.currentScript;
-  const marker = '__SPECULUM_PP_INJECT_V1__';
-  const list = document.querySelectorAll('script');
-  for (let i = 0; i < list.length; i++) {
-    const s = list[i];
-    if (s === cur) continue;
-    if (!s.src && s.textContent?.includes(marker)) s.remove();
-  }
-}
-
-scrubSpeculumInjectScripts();
-document.currentScript?.remove();
-
+/**
+ * Boot order (runtime-redesign.md §5): `config gate → observer + bus listeners → await
+ * initContext() → activate`.
+ *
+ * No re-entrancy guard and no script scrubbing: this bundle runs once per document install, in a
+ * fresh JS realm, delivered by the content script. The old `__speculumProjectionBoot` promise and
+ * `scrubSpeculumInjectScripts()` existed to survive double injection through the page's own DOM,
+ * which is not how the runtime arrives any more (§10 deletion inventory). A second boot in one
+ * realm would now be a delivery bug and must be visible, not silently absorbed.
+ */
 void (async () => {
-  const bootGlobal = globalThis as { __speculumProjectionBoot?: Promise<void> };
-  const hasProjection = !!globalThis.__speculumProjection;
-  const hasBootPromise = !!bootGlobal.__speculumProjectionBoot;
-  if (hasProjection) {
-    bootDiagLog('boot_entry', {
-      action: 'skip',
-      reason: 'has_projection',
-      hasProjection,
-      hasBootPromise,
-    });
-    return;
-  }
-  if (hasBootPromise) {
-    bootDiagLog('boot_entry', {
-      action: 'await',
-      reason: 'existing_boot_promise',
-      hasProjection,
-      hasBootPromise,
-    });
-    await bootGlobal.__speculumProjectionBoot;
-    bootDiagLog('boot_entry', {
-      action: 'await_done',
-      hasProjection: !!globalThis.__speculumProjection,
-      hasBootPromise: !!bootGlobal.__speculumProjectionBoot,
-    });
-    return;
-  }
-
   const bootId = mintBootDiagId();
   beginBootDiag(bootId);
-  bootDiagLog('boot_start', {
-    action: 'start',
-    hasProjection,
-    hasBootPromise,
-  });
+  bootDiagLog('boot_start', { action: 'start' });
 
-  bootGlobal.__speculumProjectionBoot = (async () => {
   try {
-  const config = readProjectionConfig();
+  // 1. Config gate — fail closed before anything observes or emits.
   const isRoot = window.parent === window;
-  let mine = CONTEXT_ID_ROOT;
+  const config = await awaitProjectionConfig({ role: isRoot ? 'root' : 'nested' });
+  if (config === null) {
+    setBootOutcome('config_gate_timeout');
+    bootDiagLog('boot_dormant', { reason: 'config_gate_timeout' });
+    return;
+  }
   let frameTransport: FrameTransport;
   let dataPlane: DataPlane | null = null;
   let loopback: LoopbackFrameTransport | null = null;
   let bus: VirtualDomainBus;
-  let mintFn: () => number | null;
+  let mintFn: MintPort;
+  let rootRuntime: RootRuntime | null = null;
 
   if (isRoot) {
-    const runtime = new RootRuntime(config, window);
-    loopback = runtime.loopback;
-    frameTransport = runtime.frameTransport;
-    dataPlane = runtime.dataPlane;
-    bus = runtime.bus;
-    mintFn = () => runtime.mint();
-    mine = CONTEXT_ID_ROOT;
-    try {
-      await runtime.establishConnection();
-    } catch (err) {
-      throw new Error(
-        `[speculumProjection] data plane establish failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    // Do NOT establish the data plane yet: the hello has to carry the generation that
+    // `initContext` is about to state, not one predicted before this document existed (§6).
+    rootRuntime = new RootRuntime(config, window);
+    loopback = rootRuntime.loopback;
+    frameTransport = rootRuntime.frameTransport;
+    dataPlane = rootRuntime.dataPlane;
+    bus = rootRuntime.bus;
+    const mintRoot = rootRuntime;
+    mintFn = createMintPort({ mintSync: () => mintRoot.mint() });
   } else {
-    // Provisional bus id — must not collide with CONTEXT_ID_ROOT (1) while getScopeId pending.
+    // Provisional bus id — must not collide with CONTEXT_ID_ROOT (1) until initContext answers.
     bus = new VirtualDomainBus({
       window,
       parent: window.parent,
@@ -224,20 +231,14 @@ void (async () => {
     });
     frameTransport = new BusFrameTransport(bus);
     mintFn = createMintPort({ requestMint: () => bus.requestMint() });
-    while (true) {
-      try {
-        const parentReady = (window.parent as { __speculumProjection?: { contextId?: number } })
-          .__speculumProjection?.contextId === CONTEXT_ID_ROOT;
-        if (parentReady) break;
-      } catch {
-        /* cross-origin parent */
-      }
-      await new Promise((r) => setTimeout(r, 16));
-    }
-    mine = await bus.getScopeId();
   }
 
-  const childScopes = new ChildScopeIndex(mintFn);
+  const childScopes = new ChildScopeIndex(mintFn, {
+    // A queued child `initContext` becomes answerable the instant its host row is admitted.
+    onAdmit: () => bus.noteChildScopeChanged(),
+    // Host row gone (inner nav / removal): the dead install's port must not survive it (§8).
+    onDrop: (contextId) => bus.closeChildChannel(contextId),
+  });
 
   const domNodes = new DomNodeTable();
   const nodeOf = (id: number) => domNodes.get(id);
@@ -252,7 +253,6 @@ void (async () => {
     return childScopes.windowOf(contextId, nodeOf) != null;
   });
   domNodes.bind(document, DOCUMENT_ID);
-  domNodes.setGeneration(config.generation);
   const table = new ReplicatedTable();
   const formIndex = new FormPropIndex();
 
@@ -268,6 +268,151 @@ void (async () => {
   });
   const encoder = new BinaryFrameEncoder({ maxFrameBytes: config.maxFrameBytes });
 
+  // 2. Observer + bus listeners BEFORE the await (§5, both rules).
+  //    Observing after `initContext` loses everything the parser inserted during it; the bus
+  //    listener must already be up because a *child* of this context can ask before this
+  //    context has its own id — that request queues instead of being lost.
+  domMutationObserver.start();
+  bus.openUpwardChannel();
+
+  // 3. `initContext` — the activation gate. Nested asks its parent; the root asks the authority
+  //    above it. Terminal policy is asymmetric on purpose: an ad iframe nobody admits is not a
+  //    broken session, but a root with no authority is (§5 terminal policy).
+  const identity = isRoot
+    ? await initRootContext(resolveRootUpwardPeer(), ROOT_INIT_CONTEXT_TIMEOUT_MS)
+    : await initNestedContext(bus, NESTED_INIT_CONTEXT_TIMEOUT_MS);
+
+  if (identity === null) {
+    setBootOutcome('init_context_timeout', {
+      detail: {
+        timeoutMs: NESTED_INIT_CONTEXT_TIMEOUT_MS,
+        upwardReady: bus.upwardReady,
+        initDetail: (bus as { lastInitContextDetail?: unknown }).lastInitContextDetail ?? null,
+      },
+    });
+    bootDiagLog('boot_dormant', {
+      reason: 'init_context_timeout',
+      timeoutMs: NESTED_INIT_CONTEXT_TIMEOUT_MS,
+    });
+    domMutationObserver.unobserveAllRoots();
+    mutationBuffer.drain();
+    bus.dispose();
+    return;
+  }
+
+  const mine = identity.contextId;
+  domNodes.setGeneration(identity.generation);
+  bus.setMine(mine);
+
+  // Register invoke BEFORE establish/hello so sidecar probes during the open race
+  // never see a live socket with a null handler (in-page hard nav is the worst case).
+  type ProducerApi = NonNullable<(typeof globalThis)['__speculumProjection']>;
+  let producerApi: ProducerApi | null = null;
+  if (dataPlane) {
+    dataPlane.setInvokeHandler(async (name, args) => {
+      const p = producerApi ?? globalThis.__speculumProjection;
+      if (!p) throw new Error('producer_booting');
+      switch (name) {
+        case 'applyScrollSet': {
+          const a = args as {
+            contextId: number;
+            nodeId: number | null;
+            scrollX: number;
+            scrollY: number;
+          };
+          return p.applyScrollSet(a);
+        }
+        case 'keyOfSelector': {
+          const a = (args ?? {}) as { selector?: string; contextId?: number };
+          if (typeof a.selector !== 'string' || !a.selector) {
+            throw new Error('keyOfSelector: missing selector');
+          }
+          return p.keyOfSelector({ selector: a.selector, contextId: a.contextId });
+        }
+        case 'resolveElementHit': {
+          const a = (args ?? {}) as { selector?: string; contextId?: number };
+          if (typeof a.selector !== 'string' || !a.selector) {
+            throw new Error('resolveElementHit: missing selector');
+          }
+          return p.resolveElementHit({ selector: a.selector, contextId: a.contextId });
+        }
+        case 'resolveNodeHit': {
+          const a = (args ?? {}) as {
+            nodeId?: number;
+            contextId?: number;
+            localX?: number;
+            localY?: number;
+            x?: number;
+            y?: number;
+          };
+          if (typeof a.nodeId !== 'number') {
+            throw new Error('resolveNodeHit: missing nodeId');
+          }
+          return p.resolveNodeHit({
+            nodeId: a.nodeId,
+            contextId: a.contextId,
+            localX: a.localX,
+            localY: a.localY,
+            x: a.x,
+            y: a.y,
+          });
+        }
+        case 'haltWorld':
+          p.haltWorld();
+          return { ok: true };
+        case 'resumeWorld':
+          p.resumeWorld();
+          return { ok: true };
+        case 'flushFrame': {
+          const r = p.flushFrame();
+          return { ok: true, generation: r.generation, sequence: r.sequence };
+        }
+        case 'snapshotContext': {
+          const a = (args ?? {}) as {
+            contextId?: number;
+            includeTree?: boolean;
+            cssom?: 'none' | 'committed' | 'scan';
+          };
+          const contextId =
+            typeof a.contextId === 'number' && a.contextId > 0 ? a.contextId : CONTEXT_ID_ROOT;
+          return p.snapshotContext(contextId, {
+            includeTree: a.includeTree,
+            cssom: a.cssom,
+          });
+        }
+        default:
+          throw new Error(`unknown loopback invoke: ${name}`);
+      }
+    });
+  }
+
+  if (rootRuntime !== null) {
+    try {
+      await rootRuntime.establishConnection(identity.generation);
+    } catch (err) {
+      throw new Error(
+        `[speculumProjection] data plane establish failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Sidecar may RPC as soon as hello-ack lands; seed encode of large documents can take
+  // seconds. Expose a bootstrapping producer so probes do not sit on `producer_booting`.
+  const bootProducer = {
+    applyScrollSet: async () => ({ ok: true as const }),
+    keyOfSelector: async () => ({ ok: false as const, reason: 'producer_booting' }),
+    resolveElementHit: async () => ({ ok: false as const, reason: 'producer_booting' }),
+    resolveNodeHit: async () => ({ ok: false as const, reason: 'producer_booting' }),
+    haltWorld: () => {},
+    resumeWorld: () => {},
+    flushFrame: () => ({ generation: identity.generation, sequence: 0 }),
+    snapshotContext: async () => {
+      throw new Error('producer_booting');
+    },
+  };
+  producerApi = bootProducer as unknown as ProducerApi;
+
+  // 4. Activate.
   const telemetry = new ProjectionTelemetry({
     config: config.telemetry,
     dataPlane,
@@ -311,8 +456,6 @@ void (async () => {
     onRateChanged: (info) => telemetry.recordRateChanged(info),
   });
 
-  domMutationObserver.start();
-
   const frameEmitter = new FrameEmitter({
     clock: frameClock,
     buffer: mutationBuffer,
@@ -331,7 +474,16 @@ void (async () => {
     contextId: mine,
   });
 
-  bus.setMine(mine);
+  // Nested: seed after parse settles. Cold rebuild during `loading` walks a partial
+  // tree; MO then drops childList under not-yet-mapped parents → live nodes stay
+  // unmapped (`keyOfSelector` → `node_unmapped`, lab input-iframe-click).
+  //
+  // Do NOT register mintFn.onSettled→flushNow before cold resync: a mint that settles during
+  // depth≥2 admit re-enters the incremental builder and wedges the main thread
+  // (assert-iframe-nested-boot). Wire it after sendInitial instead.
+  if (!isRoot) {
+    await waitDocumentSeedReady(document);
+  }
 
   const contextRegistry = isRoot ? new ContextRegistry(bus) : null;
   if (contextRegistry && isRoot) {
@@ -409,14 +561,6 @@ void (async () => {
     };
   }
 
-  function pointInsideRect(
-    x: number,
-    y: number,
-    rect: { left: number; top: number; right: number; bottom: number },
-  ): boolean {
-    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-  }
-
   bus.onInvocation('keyOfSelector', (args: { selector: string }) => {
     // Drain this context's MO → identity before lookup (nested flush ≠ root flushFrame).
     frameEmitter.flushNow();
@@ -440,19 +584,32 @@ void (async () => {
     return { ok: true as const, x, y, scrollX, scrollY, nodeId };
   });
 
-  bus.onInvocation('resolveNodeHit', (args: { nodeId: number; x?: number; y?: number }) => {
+  bus.onInvocation('resolveNodeHit', (args: {
+    nodeId: number;
+    localX?: number;
+    localY?: number;
+    x?: number;
+    y?: number;
+  }) => {
     frameEmitter.flushNow();
     const node = domNodes.get(args.nodeId);
     if (!node || node.nodeType !== Node.ELEMENT_NODE) {
       return { ok: false as const, reason: 'node_not_found' };
     }
     const el = node as Element;
-    if (typeof args.x === 'number' && typeof args.y === 'number') {
-      const rect = elementRectInRootViewport(el);
-      if (!pointInsideRect(args.x, args.y, rect)) {
-        return { ok: false as const, reason: 'point_outside_node' };
-      }
-      return { ok: true as const, x: args.x, y: args.y };
+    const hasLocal =
+      typeof args.localX === 'number'
+      && typeof args.localY === 'number'
+      && Number.isFinite(args.localX)
+      && Number.isFinite(args.localY);
+    if (hasLocal) {
+      const mapped = mapLocalHitToRootPoint(
+        elementRectInRootViewport(el),
+        args.localX as number,
+        args.localY as number,
+      );
+      if (!mapped) return { ok: false as const, reason: 'bad_local' };
+      return { ok: true as const, x: mapped.x, y: mapped.y };
     }
     const { x, y } = clientPointInRootViewport(el);
     return { ok: true as const, x, y };
@@ -461,8 +618,11 @@ void (async () => {
   bus.onResyncRequest((req) => {
     if (req.contextId !== mine) return;
     frameEmitter.requestResync((seq) => {
-      const { frame, cssom: cssomStats } = emitResyncFrame(resyncPlanes, seq);
+      const { frame, cssom: cssomStats, mintPending } = emitResyncFrame(resyncPlanes, seq);
       telemetry.recordCssomPoll(cssomStats);
+      // A resync frame *is* the surface: shipping it with a nested host omitted would establish a
+      // hole. Hold the request and rebuild when the mint settles (§0 #4).
+      if (mintPending) return null;
       return frame;
     });
   });
@@ -505,14 +665,36 @@ void (async () => {
     });
   }
 
-  const { frame: resyncFrame, cssom: cssomResyncStats } = rebuildAndResync(
-    resyncPlanes,
-    frameEmitter.currentSequence + 1,
-  );
-  telemetry.recordCssomPoll(cssomResyncStats);
-  if (config.generation > 1) {
-    resyncFrame.ops.unshift({ op: OpCode.EpochReset, generation: config.generation });
+  // Cold seed. A nested host whose mint is still in flight would be *omitted* from the frame that
+  // establishes the whole surface, so rebuild once the RPC settles instead (§0 #4). Bounded by
+  // the same budget as `initContext`: if no id ever arrives, this context is dormant, never
+  // half-projected. No `EPOCH_RESET` prepend — a generation change is stated by the header alone
+  // and the client answers it by rebuilding its applier (§7).
+  let resync = rebuildAndResync(resyncPlanes, frameEmitter.currentSequence + 1);
+  const mintDeadline = Date.now() + NESTED_INIT_CONTEXT_TIMEOUT_MS;
+  while (resync.mintPending && Date.now() < mintDeadline) {
+    // whenSettled must not outlive the deadline — a hung RPC used to park activate forever
+    // after hello (sidecar saw established + producer_booting).
+    const remaining = Math.max(1, mintDeadline - Date.now());
+    await Promise.race([
+      mintFn.whenSettled(),
+      new Promise<void>((resolve) => setTimeout(resolve, remaining)),
+    ]);
+    resync = rebuildAndResync(resyncPlanes, frameEmitter.currentSequence + 1);
   }
+  if (resync.mintPending) {
+    setBootOutcome('nested_host_mint_pending', { contextId: mine });
+    bootDiagLog('boot_dormant', { contextId: mine, reason: 'nested_host_mint_pending' });
+    domMutationObserver.unobserveAllRoots();
+    mutationBuffer.drain();
+    bus.dispose();
+    // Hello already ran — do not leave a ghost established socket on the sidecar.
+    rootRuntime?.dispose();
+    loopback?.close();
+    return;
+  }
+  const { frame: resyncFrame, cssom: cssomResyncStats } = resync;
+  telemetry.recordCssomPoll(cssomResyncStats);
   domMutationObserver.takePendingIntoBuffer();
   mutationBuffer.drain();
   await frameEmitter.sendInitial(resyncFrame);
@@ -525,9 +707,44 @@ void (async () => {
   });
   domMutationObserver.syncObservedShadowRoots(domNodes);
 
+  // After cold seed only — see comment at the previous mintFn.onSettled site.
+  mintFn.onSettled(() => frameEmitter.flushNow());
+
   frameEmitter.start();
   telemetry.start();
   cssom.start();
+
+  /**
+   * bfcache restore (runtime-redesign.md §0 #8 / M3). A restored document is the *same* install
+   * from the page's point of view but a new one from the carrier's: the parent closed the port
+   * when the document left, and the client's replica is stale. So: re-run the port setup, ask
+   * `initContext` again, adopt the generation it states, and let the client rebuild off the new
+   * generation instead of trying to resume a sequence nobody kept.
+   */
+  window.addEventListener('pageshow', (event) => {
+    if (!(event as PageTransitionEvent).persisted) return;
+    void (async () => {
+      frameEmitter.stop();
+      cssom.halt();
+      bus.reopenUpwardChannel();
+      const again = isRoot
+        ? await initRootContext(resolveRootUpwardPeer(), ROOT_INIT_CONTEXT_TIMEOUT_MS)
+        : await initNestedContext(bus, NESTED_INIT_CONTEXT_TIMEOUT_MS);
+      if (again === null) {
+        bootDiagLog('boot_dormant', { contextId: mine, reason: 'bfcache_init_context_timeout' });
+        domMutationObserver.unobserveAllRoots();
+        mutationBuffer.drain();
+        bus.dispose();
+        return;
+      }
+      if (rootRuntime !== null) await rootRuntime.establishConnection(again.generation);
+      domNodes.setGeneration(again.generation);
+      bus.publishResyncRequest({ contextId: mine, reason: 'bfcache_restore' });
+      frameEmitter.start();
+      cssom.start();
+      bootDiagLog('boot_reinit', { contextId: mine, generation: again.generation });
+    })();
+  });
 
   // Each producer context (root + nested) exposes tree capture for bus snapshot RPC (`includeTree`).
   (globalThis as { __speculumSnapshot?: { snapshotTree: typeof snapshotTree } }).__speculumSnapshot = {
@@ -605,83 +822,26 @@ void (async () => {
     resolveNodeHit: async (args) => {
       const contextId =
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
-      return bus.requestResolveNodeHit(contextId, args.nodeId, args.x, args.y);
+      return bus.requestResolveNodeHit(contextId, args.nodeId, args.localX, args.localY);
     },
   };
+  setBootOutcome('established', {
+    ok: true,
+    contextId: mine,
+    detail: { sequence: frameEmitter.currentSequence, generation: identity.generation },
+  });
   bootDiagLog('boot_established', {
     contextId: mine,
     sequence: frameEmitter.currentSequence,
     isRoot: window.parent === window,
   });
 
-  if (dataPlane) {
-    dataPlane.setInvokeHandler(async (name, args) => {
-      const p = globalThis.__speculumProjection;
-      if (!p) throw new Error('producer missing');
-      switch (name) {
-        case 'applyScrollSet': {
-          const a = args as {
-            contextId: number;
-            nodeId: number | null;
-            scrollX: number;
-            scrollY: number;
-          };
-          return p.applyScrollSet(a);
-        }
-        case 'keyOfSelector': {
-          const a = (args ?? {}) as { selector?: string; contextId?: number };
-          if (typeof a.selector !== 'string' || !a.selector) {
-            throw new Error('keyOfSelector: missing selector');
-          }
-          return p.keyOfSelector({ selector: a.selector, contextId: a.contextId });
-        }
-        case 'resolveElementHit': {
-          const a = (args ?? {}) as { selector?: string; contextId?: number };
-          if (typeof a.selector !== 'string' || !a.selector) {
-            throw new Error('resolveElementHit: missing selector');
-          }
-          return p.resolveElementHit({ selector: a.selector, contextId: a.contextId });
-        }
-        case 'resolveNodeHit': {
-          const a = (args ?? {}) as { nodeId?: number; contextId?: number; x?: number; y?: number };
-          if (typeof a.nodeId !== 'number') {
-            throw new Error('resolveNodeHit: missing nodeId');
-          }
-          return p.resolveNodeHit({ nodeId: a.nodeId, contextId: a.contextId, x: a.x, y: a.y });
-        }
-        case 'haltWorld':
-          p.haltWorld();
-          return { ok: true };
-        case 'resumeWorld':
-          p.resumeWorld();
-          return { ok: true };
-        case 'flushFrame': {
-          const r = p.flushFrame();
-          return { ok: true, generation: r.generation, sequence: r.sequence };
-        }
-        case 'snapshotContext': {
-          const a = (args ?? {}) as {
-            contextId?: number;
-            includeTree?: boolean;
-            cssom?: 'none' | 'committed' | 'scan';
-          };
-          const contextId =
-            typeof a.contextId === 'number' && a.contextId > 0 ? a.contextId : CONTEXT_ID_ROOT;
-          return p.snapshotContext(contextId, {
-            includeTree: a.includeTree,
-            cssom: a.cssom,
-          });
-        }
-        default:
-          throw new Error(`unknown loopback invoke: ${name}`);
-      }
-    });
-  }
+  producerApi = globalThis.__speculumProjection ?? null;
   } catch (err) {
+    setBootOutcome('bootstrap_throw', {
+      detail: { message: err instanceof Error ? err.message : String(err) },
+    });
     console.error('[speculumProjection] bootstrap failed', err);
     throw err;
   }
-  })();
-
-  await bootGlobal.__speculumProjectionBoot;
 })();

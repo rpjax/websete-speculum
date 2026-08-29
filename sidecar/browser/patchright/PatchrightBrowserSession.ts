@@ -323,7 +323,7 @@ export class PatchrightBrowserSession implements BrowserSession {
       this.input.setTouchPrimary(touchPrimary(device));
       this.chromeWidth = width;
       this.chromeHeight = height;
-      this.evaluateCap.attachConsole(this.chrome.page);
+      await this.evaluateCap.attachConsole(this.chrome.page, this.chrome.cdp);
       this.editableFocus.start(this.chrome.page);
 
       if (this.pendingState) {

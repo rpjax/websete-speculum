@@ -4,19 +4,19 @@
 
 **Historical (below):** The body of this file (§1–§9 ABS uinput + S6 census + Display fail-closed) is **development history** — the sealed OS unified design from 2026-08-26. It is **not** implemented in the current codebase. Reopen only with an explicit redesign + decision-log row. Design provenance: [input-unified-design-draft.md](input-unified-design-draft.md). Superseded CDP Mode A/B/C: [input-v2.md](input-v2.md).
 
-**Bar today:** lab Docker effect oracles on sparse-cdp + real-site (Eneba) validation. Display/Xorg may still start for headed Chrome; PP input itself does **not** require `/dev/uinput`.
+**Bar today:** lab Docker effect oracles on sparse-cdp + real-site (Eneba) validation. PP does **not** use Xorg/`Display` or `/dev/uinput`.
 
-**Lab proof (sparse-cdp V1 — 2026-08-27):** Docker blueprints **9/10 PASS** — `input-click`, `input-forms`, `input-forms-keycode`, `input-forms-enter`, `input-scroll`, `input-scroll-components`, `input-iframe-scroll`, `input-stress`, `input-e2e-stress`. `input-iframe-click` nested `contextId=2` → `keyOfSelector` **`node_unmapped`** (open follow-up; root + real-site paths proven). `input-forms` may flake `Target.createTarget` on back-to-back cold boots — PASS on isolated retry (lab infra). **Real-site:** Eneba search/space/overlay dismiss validated (Rodrigo). Sidecar `npm run unit` green.
+**Lab proof (sparse-cdp V1 — closed 2026-08-28):** Docker blueprints **10/10 PASS** — previous nine plus **`input-iframe-click`** (`contextId=2`, `#inner-click` + `assert-inner`). Nested seed wait before `rebuildAndResync` ([open.md](open.md) **PP-INPUT-IFRAME-CLICK-NESTED**). `input-forms` may flake `Target.createTarget` on back-to-back cold boots — PASS on isolated retry (lab infra). **Real-site:** Eneba search/space/overlay dismiss validated (Rodrigo). Sidecar `npm run unit` green.
 
 ---
 
 ## Canonical pipeline (2026-08-27+)
 
 ```
-Projected capture (sparse: event.target → idOf, no pointermove stream)
-  → UnifiedIntent (down/up + nodeId/contextId; keyDown/keyUp; scrollSet; historyNav)
+Projected capture (sparse: event.target → idOf + localX/Y in target box, no pointermove stream)
+  → UnifiedIntent (down/up + nodeId/contextId/localX/localY; keyDown/keyUp; scrollSet; historyNav)
   → wire → SidecarBuffer → EventApplier
-       ├─ click: loopback resolveNodeHit(nodeId + x/y) → validate in live bounds → CDP at pointer
+       ├─ click: loopback resolveNodeHit(nodeId + localX/Y) → map onto live box → CDP at that point
        ├─ keyboard: intent.key → page.keyboard.down/up (ASCII + editing keys); non-ASCII → insertText
        ├─ history: page.goBack / page.goForward on Virtual
        └─ scroll: loopback applyScrollSet → Virtual applyScrollPositions
@@ -141,8 +141,9 @@ variants now coexist behind `EventApplier` (§2.1, `clickDelivery.ts`); this sec
 - `EventApplier.applyOne`'s `down`/`up` case switches exhaustively on `clickDelivery.mode`
   (`clickDelivery.ts`; `PageProjectionBrowserSession.launch()` wires exactly one strategy per
   `inputAdapterKind`): `'live-node-resolve'` + `nodeId != null` → resolve via Virtual RPC
-  `resolveNodeHit` (§5) with client `(x,y)` — validates point inside live node bounds,
-  dispatches CDP there; **`nodeId == null` →
+  `resolveNodeHit` (§5) with `localX`/`localY` ∈ [0,1] (top-left of target box) — Virtual maps
+  onto the live element rect for CDP; omit local → element center (lab). Absolute client `(x,y)`
+  is stamp/journal only. **`nodeId == null` →
   reject `missing_node_id` / phase `validate`** — fail-closed, no raw-coordinate fallback.
 - Lab/CLI proof helper: `PageProjectionBrowserSession.resolveAndClickDomInputByNodeId(selector,
   contextId)`, sibling to `resolveAndClickDomInput` but addressing by nodeId. Root-context proof
@@ -166,11 +167,12 @@ variants now coexist behind `EventApplier` (§2.1, `clickDelivery.ts`); this sec
 
 ## 3. Coordinates
 
-- Intents carry **client CSS** coords stamped with `viewportW`/`viewportH`.
-- **F(x) (LOCKED):** `mapLogicalToAbs` — client `(x,y)` maps **1:1** into ABS (`createLogicalWindowTransform(W,H)` ⇒ absMax = W−1,H−1). No chrome-inset calibration. No CDP probe.
+- Intents carry **client CSS** coords stamped with `viewportW`/`viewportH` (journal / move).
+- **Sparse-cdp click hit (2026-08-28):** `localX`/`localY` ∈ [0,1] inside the target's border box (top-left origin). Virtual maps onto the live node rect — absolute stamp is **not** the hit criterion.
+- **F(x) (LOCKED) — historical OS ABS:** `mapLogicalToAbs` — client `(x,y)` maps **1:1** into ABS (`createLogicalWindowTransform(W,H)` ⇒ absMax = W−1,H−1). No chrome-inset calibration. No CDP probe.
 - Launch/resize geometry: `applyNativeWindowBounds` places the **content** box at display (0,0) size W×H (chrome pushed off-screen). That is window setup, not input-path calibration.
 - Display+ABS capacity is over-alloc **R** (`viewportPolicy.maxWidth`/`maxHeight`, D-UI-04/11) — session logical W×H is a **soft-resizing subset** of that R, not an identity display size (`PageProjectionBrowserSession.launch()`). **Corrected 2026-08-27** — this line previously said cutover capacity was identity W×H with over-alloc R as D-UI-05/11 future work; R-as-launch-capacity already shipped, this was stale prose only (no behavior change).
-- Nested iframe pointers: client maps to **root viewport** before enqueue.
+- Nested iframe pointers: client maps to **root viewport** before enqueue; local % is computed in the **event window** before frame-hop.
 
 ---
 
@@ -200,7 +202,7 @@ Carrier: draft §10.1c. Expand only by decision. Closed list for this cutover:
 | `applyScrollSet` | `{ contextId, nodeId, scrollX, scrollY }` | `{ ok, reason? }` | Applier `scrollSet` |
 | `keyOfSelector` | `{ selector, contextId? }` | `{ ok, nodeId?, reason? }` | lab `resolveAndScrollElement` |
 | `resolveElementHit` | `{ selector, contextId? }` | `{ ok, x?, y?, scrollX?, scrollY?, nodeId?, reason? }` | lab `resolveAndClick` / type |
-| `resolveNodeHit` | `{ nodeId, x?, y?, contextId? }` | `{ ok, x?, y?, reason? }` | `sparse-cdp`'s `'live-node-resolve'` — id + pointer coords (center fallback when x/y omitted) |
+| `resolveNodeHit` | `{ nodeId, localX?, localY?, contextId? }` | `{ ok, x?, y?, reason? }` | `sparse-cdp` `'live-node-resolve'` — id + local % in box → live CSS (center when local omitted) |
 | `haltWorld` | `{}` | `{ ok, reason? }` | lab / session |
 | `resumeWorld` | `{}` | `{ ok, reason? }` | lab / session |
 | `flushFrame` | `{}` | `{ ok, generation?, sequence?, reason? }` | lab / session |
@@ -242,7 +244,7 @@ Sealed on effect oracles above — producer RPC path is loopback only (no CDP MA
 
 **History nav (2026-08-27):** `historyNav` intent (`back`/`forward`) — Projected capture blocks local history (`preventDefault` on shortcuts; `popstate` trap; touch edge-swipe) and forwards to Virtual `page.goBack`/`goForward`. Wire aliases: `goback`/`goforward`.
 
-**Click coords (2026-08-27):** `resolveNodeHit` receives client `(x,y)` + `nodeId`; Virtual validates the point is inside the live element bounds and returns the same coords for CDP (not element center). Lab helpers without coords still fall back to center. **Space:** never `.trim()` `intent.key` — `' '` maps to Playwright `Space`.
+**Click hit (2026-08-28):** `resolveNodeHit` receives `nodeId` + `localX`/`localY` ∈ [0,1] (top-left origin of the target's border box). Virtual maps onto the live element rect for CDP. Absolute client `(x,y)` is journal stamp only — not a hit criterion (supersedes 2026-08-27 absolute+bounds). Lab helpers may omit local → center. **Space:** never `.trim()` `intent.key` — `' '` maps to Playwright `Space`.
 
 ---
 

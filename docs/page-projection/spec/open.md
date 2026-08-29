@@ -38,11 +38,11 @@ DOM-table path was green through seal lab. **PP-TABLE-SUBTREE-WALK** (recursive 
 |----|---------|-------|
 | **PP-CSP-META-HUGE** | Binance-class live: `ws://127.0.0.1` violates strict `connect-src`; `data plane not open` on cold load or post-nav. HTML huge; CSP enforcing only via `<meta http-equiv>` when `Fetch.getResponseBody` fails. | Fix: `cspMetaNeutralizeInitScript.ts` (drop meta CSP before parse) + `continueWithHeaders` no silent fallback · unit `runMetaOnlyHugeCspPlaneUnitTests` · diag `diag-csp-huge-nav.js` (`meta-only`). Related: **PP-CSP-SINGLE-TAB** (popup path). **Residual plane desync** → **PP-LOOPBACK-ESTABLISH** (not CSP). |
 
-### BUG — loopback via extension plane / LNA on page WS (**OPEN 2026-08-28** — establish green; accept not closed)
+### BUG — loopback via extension plane / LNA on page WS (**CLOSED 2026-08-28**)
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-EXTENSION-PLANE** | Binance-class: page `ws://127.0.0.1` blocked by LNA/CSP → `data plane not established`. | **Impl:** [extension-plane.md](extension-plane.md) — CDP `Extensions.loadUnpacked` + Speculum Plane tunnel. Fixture establish + Binance hello/ack **green**. Accept = zero page LNA + bilateral establish + usable input. Units: envelope / bridge / loopbackDataPlane / chromeLnaPolicy. Stress: `diag-binance-live-plane.js`. |
+| **PP-EXTENSION-PLANE** | Binance-class: page `ws://127.0.0.1` blocked by LNA/CSP → `data plane not established`. | **Closed:** product path = `loopbackCarrier: 'extension'` only ([extension-plane.md](extension-plane.md) EP-15). Units: envelope / bridge / perf smoke / loopbackDataPlane / chromeLnaPolicy. Lab dossiers Superbet + Eneba + assets-matrix: **zero** `ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` in Virtual `telemetry/console.ndjson` while frames/assets live (bilateral establish). `input-iframe-click` usable under same carrier. |
 
 ### BUG — recursive subtree walk stack overflow (**CLOSED 2026-08-28**)
 
@@ -62,7 +62,13 @@ DOM-table path was green through seal lab. **PP-TABLE-SUBTREE-WALK** (recursive 
 |----|---------|-------|
 | **PP-ASSET-XFO** | Lab console: `Refused to display 'https://id.unico.io/'` / `idpay.unico.io` — `X-Frame-Options: sameorigin` + `403` | Projected nested browsing contexts that point at Unico (and similar IDP/pay iframes) cannot load in a frame under Speculum’s origin. Not an asset-byte bug — **XO / third-party frame policy**. Treat with OPEN-6 XO work later; do **not** punch `X-Frame-Options` as a workaround. Observed Superbet lab 2026-08-25. |
 
-Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **working** — stress/harden separately; this row is the Unico/XFO pin only.
+Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 2026-08-28 — `lab-assets-stress.js` 4/4 (assets-matrix, demo, Superbet, Eneba; desync 0; fixture 9 virtual attrs). This row remains the Unico/XFO pin only.
+
+### BUG — hard-nav hello-ack / Port race after extension carrier (OPEN 2026-08-29)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-HARDNAV-PLANE-ACK** | After in-page hard nav (link / `location.replace` / 202→200), Node adopts new `generation` but Virtual stays on `producer_booting` / no hello-ack through the extension Port; units log the race and still assert gen bump + cold carrier. | Cutover delivered C2 + MAIN content script; socket still opens per document. Closing this = finish SW-owned loopback across nav ([runtime-redesign.md](runtime-redesign.md) §5). Softened: `runMetaOnlyHugeCspPlaneUnitTests` / `runDataPlaneNavChurnUnitTests`. |
 
 ### BUG — inject dual-boot / isolate lateBoot (**CLOSED 2026-08-28**)
 
@@ -74,7 +80,7 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **wo
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-INJECT-THIRD-PARTY-MIME** | (was) third-party `*/__speculum/virtual.js` MIME/CSP console noise | **Fixed:** CDP-only inject — no HTML `<script src>` path; `ProjectionRuntimeInstaller` per target. Document hook CSP-only. |
+| **PP-INJECT-THIRD-PARTY-MIME** | (was) third-party `*/__speculum/virtual.js` MIME/CSP console noise | **Fixed:** was CDP-only inject; **superseded 2026-08-29** by extension MAIN content script (`speculum-pp`). Document hook CSP-only. |
 
 ### BUG — Projected nested load-after-drop census ghost (**CLOSED 2026-08-27**)
 
@@ -88,11 +94,11 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is otherwise **wo
 |----|---------|-------|
 | **PP-INPUT-VIRTUAL-MINT-GHOST** | (was) Real site clicks die via `apply_scroll_failed:invoke idle timeout` on OS census path. | **Closed by deletion** (OS census) + **live deliverable index 2026-08-27:** `isDeliverableDestination` is now child-scope live (`windowOf`), not `hasMinted`. Carrier routes O(1) via index — no DOM `querySelectorAll` / hopeful broadcast. |
 
-### BUG — nested iframe lab click oracle (`input-iframe-click`) (OPEN 2026-08-27)
+### BUG — nested iframe lab click oracle (`input-iframe-click`) (**CLOSED 2026-08-28**)
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-INPUT-IFRAME-CLICK-NESTED** | Lab blueprint `input-iframe-click` (`contextId=2`, `#inner-click`) fails `keyOfSelector` → **`node_unmapped`**. Root + real-site (Eneba) sparse input **proven**; nested oracle regressed or timing/identity gap. Not a V1 sparse seal blocker. Fixture `iframe-open.html` · repro: `docker compose … exec lab node dist/…/cli.js --blueprint input-iframe-click --headed`. |
+| **PP-INPUT-IFRAME-CLICK-NESTED** | (was) Lab blueprint `input-iframe-click` (`contextId=2`, `#inner-click`) → `keyOfSelector` **`node_unmapped`**. | **Fix:** nested contexts `await waitDocumentSeedReady(document)` before cold `rebuildAndResync` (`packages/page-projection` `virtual/bootstrap.ts`) — seed during `loading` walked a partial tree; MO then dropped childList under unmapped parents. **Proof:** Docker blueprint PASS (`click:#inner-click` + `assert-inner`); dossier `lab-runs/input-iframe-click-close2/…`. |
 
 **Lab (2026-08-15 / 2026-08-16):** CSSOM poll **algorithm** — [cssom-poll-algorithm.md](cssom-poll-algorithm.md).
 **Accept:** DOM numerical 1:1; CSSOM live perceived ([acceptance.md](acceptance.md)).

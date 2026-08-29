@@ -30,4 +30,11 @@ export type FrameBuilder = {
    * (`reclaim`) so the next tick retries them instead of losing them.
    */
   takeUnconsumedRecords?(): MutationRecord[] | null;
+  /**
+   * Work the builder is holding on its own account, with no new `MutationRecord` behind it — a
+   * frame withheld while a nested-host mint was pending, or a host queued for re-description
+   * (§0 #4). The pipe must not idle-skip a boundary while this is true, or the hold would sit
+   * until the next mutation on a page that may have gone quiet.
+   */
+  hasHeldWork?(): boolean;
 };

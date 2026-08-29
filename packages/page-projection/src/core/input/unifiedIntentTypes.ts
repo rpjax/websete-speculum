@@ -34,16 +34,20 @@ export type PointerIntent = UnifiedIntentBase & {
   type: 'move' | 'down' | 'up';
   viewportW: number;
   viewportH: number;
+  /** Root-viewport CSS stamp (journal / move). Not the sparse-cdp hit criterion for down/up. */
   x: number;
   y: number;
   button?: 'left' | 'middle' | 'right';
   /**
-   * Client-side hit-test for `down`/`up`: context/node in the Projected replica plus
-   * root-viewport pointer coords. Virtual validates the point lies inside the live node
-   * bounds and dispatches CDP there (not element center).
+   * `down`/`up` hit: Projected `event.target` → `nodeId`, plus position inside that
+   * element's border box as fractions of width/height (top-left origin, [0,1]).
+   * Virtual maps local → live root-viewport CSS for CDP (survives Projected≠Virtual layout).
+   * Omit local → Virtual center (lab helpers).
    */
   contextId?: number;
   nodeId?: number | null;
+  localX?: number;
+  localY?: number;
 };
 
 export type KeyIntent = UnifiedIntentBase & {

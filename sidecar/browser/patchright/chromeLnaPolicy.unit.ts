@@ -1,7 +1,7 @@
 import assert from 'assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildChromeArgs, speculumPlaneExtensionPath, webglSpoofExtensionPath } from './ChromeRuntime';
+import { buildChromeArgs, speculumPpExtensionPath } from './ChromeRuntime';
 
 function sidecarRoot(): string {
   // dist/browser/patchright → ../../.. = package root (host + /app in lab image)
@@ -46,8 +46,12 @@ export function runChromeLnaPolicyUnitTests(): void {
     args.includes('--enable-unsafe-extension-debugging'),
     'branded Chrome requires --enable-unsafe-extension-debugging for CDP Extensions.loadUnpacked',
   );
-  assert.ok(fs.existsSync(webglSpoofExtensionPath()), 'webgl-spoof extension dir must exist');
-  assert.ok(fs.existsSync(speculumPlaneExtensionPath()), 'speculum-plane extension dir must exist');
+  const ppPath = speculumPpExtensionPath();
+  assert.ok(fs.existsSync(ppPath), 'speculum-pp extension dir must exist');
+  assert.ok(
+    fs.existsSync(path.join(ppPath, 'main', 'virtual.js')),
+    'speculum-pp main/virtual.js must exist (npm run build:virtual)',
+  );
   const disableFeatures = args.find((a) => a.startsWith('--disable-features=')) ?? '';
   assert.ok(
     !disableFeatures.includes('LocalNetworkAccessChecks'),

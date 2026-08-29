@@ -13,7 +13,6 @@ import { propValueKind } from '../../core/propSet';
 import type {
   AttrPair,
   CheckOp,
-  EpochResetOp,
   Frame,
   FrameOp,
   InsertOp,
@@ -148,8 +147,6 @@ export class BinaryFrameEncoder implements FrameEncoder {
     switch (op.op) {
       case OpCode.Check:
         return this.writeCheck(w, op);
-      case OpCode.EpochReset:
-        return this.writeEpochReset(w, op);
       case OpCode.NodeNew:
         return this.writeNodeNew(w, op);
       case OpCode.NodeDrop:
@@ -190,11 +187,6 @@ export class BinaryFrameEncoder implements FrameEncoder {
     w.u32(op.lo);
     w.u32(op.hi);
     w.u64(op.hash);
-  }
-
-  private writeEpochReset(w: BinaryWriter, op: EpochResetOp): void {
-    w.u8(OpCode.EpochReset);
-    w.u32(op.generation);
   }
 
   private writeNodeNew(w: BinaryWriter, op: NodeNewOp): void {

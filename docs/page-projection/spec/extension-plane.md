@@ -3,7 +3,7 @@
 **Status:** **SEALED 2026-08-27** (Rodrigo) — normative bridge from Virtual main world to sidecar loopback WS via managed Chrome extension.  
 **Extends:** [loopback.md](loopback.md) (mux + establish LB-08…19 unchanged on the wire).  
 **Distinct from:** [context-bus.md](context-bus.md) — **separate channel**; do not multiplex loopback on ContextBus.  
-**Code:** `sidecar/extensions/speculum-plane/` · `packages/page-projection/src/core/extensionPlane/` · `packages/page-projection/src/virtual/transport/extensionPlaneSocket.ts` · `sidecar/browser/mirror/projection/inject/extensionPlaneMainShim.ts`.
+**Code:** `sidecar/extensions/speculum-pp/` (plane tunnel in SW + isolated content) · `packages/page-projection/src/core/extensionPlane/` · `packages/page-projection/src/virtual/transport/extensionPlaneSocket.ts` · `sidecar/browser/mirror/projection/inject/extensionPlaneMainShim.ts` (harness).
 
 ---
 
@@ -41,7 +41,7 @@ Only the **root** document uses this carrier. Nested documents continue ContextB
 | **EP-10** | **LOCKED** | `event.source === window` required on main↔content postMessage |
 | **EP-11** | **LOCKED** | Sidecar `NodeDataPlane` / `ProjectionDataPlaneHost` **unchanged** — extension is another WS client |
 | **EP-12** | **LOCKED** | `dataPlaneUrl` still injected — background uses it for `open` |
-| **EP-13** | **LOCKED** | Fail-fast if `speculum-plane` extension missing at Chrome launch |
+| **EP-13** | **LOCKED** | Fail-fast if `speculum-pp` extension (template + `main/virtual.js`) missing at Chrome launch |
 | **EP-14** | **IMPL** | Optional diag: `SPECULUM_DIAG_PLANE=1` → stderr in extension background (not product gate) |
 | **EP-15** | **LOCKED** | Accept: zero `ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` in **page** console + bilateral `isEstablished` |
 
@@ -85,7 +85,7 @@ Malformed envelopes → drop (no throw across worlds).
 | Loopback socket iface | `core/loopback/socket.ts` |
 | Extension socket | `virtual/transport/extensionPlaneSocket.ts` |
 | Main shim (inject) | `inject/extensionPlaneMainShim.ts` |
-| Extension MV3 | `extensions/speculum-plane/` |
+| Extension MV3 | `extensions/speculum-pp/` |
 | Chrome launch | `browser/patchright/ChromeRuntime.ts` — CDP `Extensions.loadUnpacked` + `--enable-unsafe-extension-debugging` (branded Chrome 137+ ignores `--load-extension`) |
 | Session token | `PageProjectionBrowserSession.ts` |
 
@@ -99,10 +99,10 @@ Malformed envelopes → drop (no throw across worlds).
 | `extensionPlaneBridge.unit.ts` | bind/open/send + ignore premature close while CONNECTING |
 | `loopbackDataPlane.unit.ts` | LB-11…13 + whenOpen missed-open race |
 | `chromeLnaPolicy.unit.ts` / `unit.ts` Chrome args | extension dirs + CDP debug flag (no CLI `--load-extension`) |
-| `diag-extension-plane.js` | controlled fixture establish (lab) |
-| `diag-binance-live-plane.js` | EP-15 stress (requires CHROME_EXECUTABLE) |
+| Lab dossiers (assets-matrix / Superbet / Eneba) | EP-15: zero page `ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` in `telemetry/console.ndjson` + live frames/assets |
+| `lab-assets-stress.js` / blueprint `input-iframe-click` | bilateral establish under extension carrier + usable nested input |
 
-Tracker: [open.md](open.md) **PP-EXTENSION-PLANE**.
+Tracker: [open.md](open.md) **PP-EXTENSION-PLANE** — **CLOSED 2026-08-28**.
 
 ---
 
@@ -114,3 +114,4 @@ Tracker: [open.md](open.md) **PP-EXTENSION-PLANE**.
 | 2026-08-28 | **Launch path:** managed extensions install via CDP `Extensions.loadUnpacked` (CLI `--load-extension` dead on branded Chrome ≥137). Bridge design unchanged. |
 | 2026-08-28 | **Boot fix:** ignore Port `error`/`close` while CONNECTING until `open-ok` (superseded WS churn); `whenOpen` re-check/poll. Inject lateBoot / dual-boot seal lives in [browser-session.md](browser-session.md) (2026-08-28), not here. |
 | 2026-08-28 | **Sanitize:** page-origin WS removed from product path (`pageWebSocketLoopbackSocket` deleted; `loopbackCarrier` = `extension` only; CSP diag probe observe-only — no page `new WebSocket`). |
+| 2026-08-28 | **EP-15 accept CLOSED** — units green; Superbet/Eneba/assets-matrix Virtual console without page LNA while plane live; [open.md](open.md) **PP-EXTENSION-PLANE**. |

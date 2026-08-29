@@ -62,20 +62,20 @@ export class RootRuntime {
     return this.mintAllocator.mint();
   }
 
-  async establishConnection(): Promise<void> {
+  /**
+   * `generation` is a **parameter**, not a config read: it is stated by `initContext` for this
+   * install (runtime-redesign.md §6), so the hello reports what the authority above said rather
+   * than what a frozen bag predicted before the document existed.
+   */
+  async establishConnection(generation: number): Promise<void> {
     if (!this.loopback) return;
     if (!this.loopback.destinationUrl) {
       this.loopback.open(this.config.dataPlaneUrl);
     }
     await this.loopback.establishConnection({
       sessionId: this.config.sessionId,
-      generation: this.config.generation,
+      generation,
     });
-  }
-
-  /** @deprecated Prefer {@link establishConnection}. */
-  async whenOpen(): Promise<void> {
-    await this.establishConnection();
   }
 
   dispose(): void {

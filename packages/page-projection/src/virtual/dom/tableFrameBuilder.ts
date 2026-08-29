@@ -75,6 +75,17 @@ export class TableFrameBuilder implements FrameBuilder {
   private readonly pendingHosts = new Set<Element>();
   private lastStats: FrameBuildStats | null = null;
   private pendingUnconsumed: MutationRecord[] | null = null;
+  /**
+   * Ops built during a tick that ended with a nested-host mint still pending (§0 #4): the frame
+   * is *not* emitted, and these carry forward to the next tick instead of being rolled back —
+   * the ids in them are already allocated in `DomNodeTable`, so dropping them would leave the
+   * client's table without rows for ids a later `INSERT` references. `preTableHash` is
+   * deliberately not carried: these ops never reached `this.table`, so the live table hash at
+   * the next build still describes exactly the state they apply against.
+   */
+  private heldOps: FrameOp[] | null = null;
+  /** A `childScopes.admit` came back `pending` this tick — hold the frame. */
+  private mintHeld = false;
 
   // Reused across ticks (`.clear()`ed at the top of `build()`) instead of allocated fresh every
   // tick — at a sustained frame rate this is 5 fewer heap allocations per tick, directly the GC
@@ -116,6 +127,11 @@ export class TableFrameBuilder implements FrameBuilder {
     this.pendingHosts.add(el);
   }
 
+  /** Held frame / queued host — the pipe must give this a boundary even with no new records. */
+  hasHeldWork(): boolean {
+    return this.heldOps !== null || this.pendingHosts.size > 0;
+  }
+
   /**
    * `records` may legitimately be empty — `frameEmitter.ts` also calls this on a periodic,
    * mutation-independent cadence purely so `emitNodeDropSweep` below gets a chance to run during
@@ -130,7 +146,9 @@ export class TableFrameBuilder implements FrameBuilder {
     // be in.
     const preTableHash = this.table.tableHash;
 
-    const ops: FrameOp[] = [];
+    const ops: FrameOp[] = this.heldOps ?? [];
+    this.heldOps = null;
+    this.mintHeld = false;
     this.pendingUnconsumed = null;
     this.visited.clear();
     this.createdThisTick.clear();
@@ -191,6 +209,17 @@ export class TableFrameBuilder implements FrameBuilder {
     }
 
     this.discoverShadowRoots(ops);
+
+    // §0 #4 — one mint id per RPC, and no frame while one is pending. Emitting now would ship a
+    // tick whose nested host is simply absent (the K4 hole that made depth >= 2 look broken);
+    // waiting for the real id is the protocol. Nothing is rolled back: the ops carry to the next
+    // tick, `pendingHosts` re-describes the host, and `MintPort.onMinted` re-drives the clock so
+    // a quiet page does not strand the hold.
+    if (this.mintHeld) {
+      this.heldOps = ops;
+      this.lastStats = null;
+      return null;
+    }
 
     // Virtual side applies phase 1 (table) only, per §6 — the real DOM already mutated, which is
     // what the MutationObserver just reported; there is no phase 2 to run against a live DOM here.
@@ -377,6 +406,7 @@ export class TableFrameBuilder implements FrameBuilder {
         this.domNodes.release(node);
         this.visited.delete(node);
         this.pendingHosts.add(node as Element);
+        this.mintHeld = true;
         return NONE_DOM_NODE_KEY;
       }
       if (admitted.kind === 'host') nested = { childScopeId: admitted.contextId };

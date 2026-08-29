@@ -42,18 +42,48 @@ export function profileDirForSession(sessionId: string): string {
   return path.join(os.tmpdir(), 'speculum-profiles', sessionId);
 }
 
-/** Path to webgl-spoof from compiled `dist/browser/patchright` (and Docker `/app`). */
-export function webglSpoofExtensionPath(): string {
-  return path.resolve(__dirname, '../../../extensions/webgl-spoof');
+/** Template path for the unified PageProjection extension (webgl + plane + Virtual runtime). */
+export function speculumPpExtensionPath(): string {
+  return path.resolve(__dirname, '../../../extensions/speculum-pp');
 }
 
-/** Path to speculum-plane extension (loopback carrier). */
-export function speculumPlaneExtensionPath(): string {
-  return path.resolve(__dirname, '../../../extensions/speculum-plane');
+/** Per-session install dir under os.tmpdir (owns `c2-endpoint.json`; never the shared template). */
+export function speculumPpSessionExtensionDir(sessionId: string): string {
+  const safe = sessionId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return path.join(os.tmpdir(), 'speculum-extensions', safe);
+}
+
+/**
+ * Copy the static `speculum-pp` template into a per-session directory for `loadUnpacked`.
+ * Isolates `c2-endpoint.json` so concurrent sessions cannot steal each other's C2 host.
+ */
+export function materializeSpeculumPpForSession(sessionId: string): string {
+  const template = speculumPpExtensionPath();
+  requireManagedExtensions();
+  const dest = speculumPpSessionExtensionDir(sessionId);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.cpSync(template, dest, { recursive: true });
+  try {
+    fs.unlinkSync(path.join(dest, 'c2-endpoint.json'));
+  } catch {
+    /* template should not ship an endpoint; ignore */
+  }
+  return dest;
+}
+
+/** Best-effort remove of a per-session extension directory after Chrome close. */
+export function removeSpeculumPpSessionDir(dir: string): void {
+  if (!dir.trim()) return;
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
 }
 
 function managedExtensionPaths(): string[] {
-  return [webglSpoofExtensionPath(), speculumPlaneExtensionPath()];
+  return [speculumPpExtensionPath()];
 }
 
 function requireManagedExtensions(): void {
@@ -65,6 +95,17 @@ function requireManagedExtensions(): void {
         { code: 'FAILED_PRECONDITION', errorCode: `${name.replace(/-/g, '_')}_missing`, phase: 'launch' },
       );
     }
+    const virtualJs = path.join(extPath, 'main', 'virtual.js');
+    if (!fs.existsSync(virtualJs)) {
+      throw Object.assign(
+        new Error(`speculum-pp main/virtual.js missing at ${virtualJs} — run npm run build:virtual`),
+        {
+          code: 'FAILED_PRECONDITION',
+          errorCode: 'speculum_pp_virtual_missing',
+          phase: 'launch',
+        },
+      );
+    }
   }
 }
 
@@ -73,7 +114,7 @@ function requireManagedExtensions(): void {
  * real GPU when present, SwiftShader software fallback otherwise (no env knobs).
  * Kit UNMASKED spoof is applied in-page via device-kits init script.
  *
- * Managed extensions (webgl-spoof + speculum-plane) are installed after launch via
+ * Managed extension (`speculum-pp`) is installed after launch via
  * CDP `Extensions.loadUnpacked` (see {@link installManagedExtensions}). Branded
  * Google Chrome 137+ ignores `--load-extension` / `--disable-extensions-except`;
  * `--enable-unsafe-extension-debugging` is required for that CDP path (EP-13).
@@ -121,7 +162,10 @@ export function buildChromeArgs(width: number, height: number): string[] {
  * Detach the browser CDP session after install — holding it breaks `Target.createTarget`
  * (session navigate close+newPage) on Chrome 152.
  */
-export async function installManagedExtensions(context: BrowserContext): Promise<string[]> {
+export async function installManagedExtensions(
+  context: BrowserContext,
+  extensionPaths?: readonly string[],
+): Promise<string[]> {
   const browser = context.browser();
   if (!browser || typeof browser.newBrowserCDPSession !== 'function') {
     throw Object.assign(new Error('browser CDP session unavailable for extension install'), {
@@ -130,10 +174,11 @@ export async function installManagedExtensions(context: BrowserContext): Promise
       phase: 'launch',
     });
   }
+  const paths = extensionPaths?.length ? [...extensionPaths] : managedExtensionPaths();
   const cdp = await browser.newBrowserCDPSession();
   const ids: string[] = [];
   try {
-    for (const extPath of managedExtensionPaths()) {
+    for (const extPath of paths) {
       const name = path.basename(extPath);
       try {
         // Extensions domain is experimental; Patchright typings omit it on CDPSession.
@@ -168,7 +213,10 @@ export async function installManagedExtensions(context: BrowserContext): Promise
 
 export async function launchChrome(args: {
   sessionId: string;
-  displayEnv: string;
+  /** X11 DISPLAY (e.g. `:100`). Omit on Windows/macOS native headed — do not invent DISPLAY. */
+  displayEnv?: string;
+  /** Default false (visible). PP sparse-cdp honors lab/factory headless. */
+  headless?: boolean;
   width: number;
   height: number;
   locale: string;
@@ -178,6 +226,8 @@ export async function launchChrome(args: {
   geolocation?: BrowserGeolocation;
   device?: BrowserDeviceProfile;
   preserveUserDataDir?: boolean;
+  /** Per-session unpacked extension dirs (default: shared template — PP must pass a materialized copy). */
+  extensionPaths?: readonly string[];
 }): Promise<ChromeHandle> {
   if (!Number.isFinite(args.width) || !Number.isFinite(args.height) || args.width <= 0 || args.height <= 0) {
     throw Object.assign(new Error('launch requires positive width and height'), {
@@ -201,15 +251,17 @@ export async function launchChrome(args: {
     }
   }
 
+  const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  if (args.displayEnv) {
+    env.DISPLAY = args.displayEnv;
+  }
+
   const context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
+    headless: args.headless === true,
     executablePath: chromeExecutable,
     // Playwright defaults include --disable-extensions; keep extensions enabled for CDP load.
     ignoreDefaultArgs: ['--disable-extensions'],
-    env: {
-      ...process.env as Record<string, string>,
-      DISPLAY: args.displayEnv,
-    },
+    env,
     args: buildChromeArgs(args.width, args.height),
     viewport: null,
     locale: args.locale,
@@ -223,7 +275,7 @@ export async function launchChrome(args: {
   let page = context.pages()[0];
   if (!page) page = await context.newPage();
 
-  await installManagedExtensions(context);
+  await installManagedExtensions(context, args.extensionPaths);
 
   const cdp = await context.newCDPSession(page);
   if (args.geolocation) {
@@ -236,7 +288,9 @@ export async function launchChrome(args: {
   // Native window at logical W×H + device metrics (no fullscreen — that left
   // mobile cssLayoutViewport stuck at the legacy ~980px width).
   await applyLogicalViewport(cdp, args.width, args.height, args.device, context);
-  await ensureChromeXFocus(args.displayEnv);
+  if (args.displayEnv) {
+    await ensureChromeXFocus(args.displayEnv);
+  }
 
   return { context, page, cdp, userDataDir };
 }

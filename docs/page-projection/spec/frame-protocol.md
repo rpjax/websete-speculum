@@ -97,8 +97,10 @@ is: one node-id space per document, one logical node table per document, one has
 | `1` | **Document** — not `<html>`. Exists for the lifetime of a generation. `<html>` is an ordinary `ELEMENT` row, allocated like any other, parented to `1`. |
 | `2 …` | allocated monotonically by the producer |
 
-Ids are allocated **only** by the producer and are never reused within a `generation`. On
-`EPOCH_RESET` both tables are cleared and allocation restarts at `2`.
+Ids are allocated **only** by the producer and are never reused within a `generation`. When
+`generation` changes (new document install via `initContext`), the Projected applier is **destroyed and
+recreated** — both tables start empty and allocation restarts at `2`. There is no `EPOCH_RESET` opcode
+([runtime-redesign.md](runtime-redesign.md) §7).
 
 **OPEN-6:** session `contextId` `1` is the **root algorithm instance**, not this Document row.
 Every nested instance still has Document row `1` **inside its own table**. Different spaces —
@@ -281,9 +283,10 @@ best-effort apply. Early design drafts (`NODE_META`, `DOC_STATE`, `SCROLL_*`, `N
 `DOC_ATTACH`, extended `PROP_SET` ids) are **not** part of V4; do not document or implement them
 until a version bump adds them explicitly.
 
-**Shipped opcodes (16):** `CHECK`, `EPOCH_RESET`, `NODE_NEW`, `NODE_DROP`, `INSERT`, `REMOVE`,
+**Shipped opcodes (15):** `CHECK`, `NODE_NEW`, `NODE_DROP`, `INSERT`, `REMOVE`,
 `ATTR_SET`, `ATTR_DEL`, `TEXT_SET`, `PROP_SET`, `SHEET_NEW`, `SHEET_DROP`, `SHEET_ORDER`,
-`RULE_NEW`, `RULE_DROP`, `RULE_SET`.
+`RULE_NEW`, `RULE_DROP`, `RULE_SET`. (`0x02` was `EPOCH_RESET` — retired; generation change is the
+frame header alone + Projected instance teardown, [runtime-redesign.md](runtime-redesign.md) §7.)
 
 Strings are **not** defined by a control opcode — they live in each part's header `strings` block (§2).
 
@@ -299,10 +302,8 @@ row's `lms = sequence` and updates `rowHash`/`tableHash`; this is not repeated p
 `Table`: none. `DOM`: none.
 A frame containing only a `CHECK` is a reconciliation heartbeat.
 
-**`0x02 EPOCH_RESET`** — `generation: u32` · phase 1 · idempotent
-`Pre`: MUST be the first instruction of the frame.
-`Table`: clears the node table and the persistent string table; id allocation restarts at `2`; row `1`
-is recreated empty. `DOM`: the surface is discarded (a new document buffer is prepared — §6).
+**`0x02`:** free/reserved — was `EPOCH_RESET`, retired. A generation change is stated by the frame
+header; the client rebuilds its applier ([runtime-redesign.md](runtime-redesign.md) §7).
 
 **`0x03`–`0x1F`:** reserved in the control range (no `STR_DEF` / `NOP` opcode shipped — strings are header-local only, §2).
 
@@ -847,7 +848,7 @@ The second runs every frame. The first is what catches the producer lying.
 
 ## 7. Ordering within a frame — DECIDED
 
-1. `EPOCH_RESET` first, if present.
+1. *(retired)* `EPOCH_RESET` first — no longer shipped; generation mismatch → tear down applier.
 2. `NODE_NEW` before any instruction referencing that id.
 3. `NODE_DROP` after every `REMOVE` of that node.
 4. `CHECK` verifies the state at the point it appears.

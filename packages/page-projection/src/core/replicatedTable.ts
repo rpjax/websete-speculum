@@ -151,7 +151,7 @@ export class ReplicatedTable {
     for (const [id, row] of this.rows) fn(id, row);
   }
 
-  /** Drops every row and derived index — `EPOCH_RESET` (§4.1) and resync's wholesale replace (§5.8). */
+  /** Drops every row and derived index — resync's wholesale replace (§5.8). */
   reset(): void {
     this.rows.clear();
     this.attrHashes.clear();

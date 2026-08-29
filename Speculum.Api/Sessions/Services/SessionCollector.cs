@@ -167,6 +167,13 @@ public sealed class SessionCollector : ISessionCollector, IDisposable
     {
         try
         {
+            // Timer may have claimed while RefCount was still 0; AddRef can win the race
+            // before/during the awaits below. Re-check attachment before any side effect.
+            if (!IsDetached(sessionId))
+            {
+                return;
+            }
+
             using var scope = _scopeFactory.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<ISessionRepository>();
             var session = await repository.LoadAsync(sessionId).ConfigureAwait(false);
@@ -174,6 +181,11 @@ public sealed class SessionCollector : ISessionCollector, IDisposable
                 || session.State is LifecycleState.Stopped or LifecycleState.Aborted)
             {
                 Unwatch(sessionId);
+                return;
+            }
+
+            if (!IsDetached(sessionId))
+            {
                 return;
             }
 
@@ -198,6 +210,14 @@ public sealed class SessionCollector : ISessionCollector, IDisposable
         {
             _logger.LogWarning(ex, "Detached session {SessionId} timed out but stop failed.", sessionId);
             ReArmIfStillDetached(sessionId);
+        }
+    }
+
+    private bool IsDetached(Guid sessionId)
+    {
+        lock (_gate)
+        {
+            return _entries.TryGetValue(sessionId, out var entry) && entry.RefCount == 0;
         }
     }
 

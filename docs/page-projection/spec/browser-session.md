@@ -15,9 +15,20 @@
 
 **Loopback establishment (LOCKED 2026-08-27):** TCP `OPEN` ≠ ready. Both sides **`await establishConnection()`** / **`waitEstablished(generation)`** after handshake (`hello` / `hello-ack`). One canonical socket per `(sessionId, generation)`; ghost WS forbidden. Full protocol: [loopback.md](loopback.md). Tracker: [open.md](open.md) PP-LOOPBACK-ESTABLISH.
 
-**Single tab (LOCKED 2026-08-27):** **One Chromium page per session — always.** Sidecar **forbids** a second tab. `window.open` / `target=_blank` / `_new` on the site must become a **same-tab redirect** (`location` on the primary page). If Chromium still allocates a page, the session **closes it immediately** and adopts the http(s) URL on the primary (`page.goto`, not a new tab). Implementation: unified CDP inject bundle (`inject/projectionRuntimeInstaller.ts`) + `session/singleTab.ts` adoption net · [csp.md](csp.md) · [open.md](open.md) PP-CSP-SINGLE-TAB.
+**Single tab (LOCKED 2026-08-27):** **One Chromium page per session — always.** Sidecar **forbids** a second tab. `window.open` / `target=_blank` / `_new` on the site must become a **same-tab redirect** (`location` on the primary page). If Chromium still allocates a page, the session **closes it immediately** and adopts the http(s) URL on the primary (`page.goto`, not a new tab). Implementation today: inject single-tab prelude + `session/singleTab.ts` adoption net · [csp.md](csp.md) · [open.md](open.md) PP-CSP-SINGLE-TAB. Redesign: same law; **no `managedTabId` protocol** ([runtime-redesign.md](runtime-redesign.md) §0 #7).
 
-**Runtime inject / boot (LOCKED 2026-08-28):** Virtual producer + optional `scripts` launch payloads = **CDP-only** — single bundle per browsing-context target via `Page.addScriptToEvaluateOnNewDocument` (main + OOPIF frame CDP). **No** HTML `<script>` tag inject. Document Response hook = CSP surgery only. Sentinel scrub removes inject `<script>` orphans from the live DOM (`bootstrap.ts` + bundle prelude).
+**Runtime carrier — LOCKED 2026-08-29 (cutover):** Virtual is delivered by the unified MV3 extension
+`sidecar/extensions/speculum-pp/` (webgl + plane + MAIN Virtual), not CDP `addScriptToEvaluateOnNewDocument`.
+Each session **copies** that template to a temp dir, writes `c2-endpoint.json` there, and
+`Extensions.loadUnpacked` the copy. Sidecar pushes **SessionConfig** over extension C2 and **must not navigate until ACK**. Document boot:
+config gate (`T_config=2000`) → MO + bus → `initContext` → activate. `generation` comes from `initContext`
+(SW for root, parent MessagePort for nested), not from the config bag. Normative: [runtime-redesign.md](runtime-redesign.md) §0.
+Document Response hook remains **CSP surgery only**. OOPIF attach races are swallowed (no session fault).
+
+**Runtime inject / boot — SUPERSEDED 2026-08-29:** the CDP-only seal below is **historical**. Do **not**
+reintroduce `ProjectionRuntimeInstaller` / lateBoot / DomMap bootstrap.
+
+**Runtime inject / boot (was LOCKED 2026-08-28 — CDP path, deleted):** Virtual producer + optional `scripts` launch payloads were **CDP-only** — single bundle per browsing-context target via `Page.addScriptToEvaluateOnNewDocument` (main + OOPIF frame CDP). **No** HTML `<script>` tag inject. Sentinel scrub / lateBoot existed only for that carrier.
 
 **Boot contract (same seal):**
 - **Happy path:** `onNewDocument` on each CDP target (page + OOPIF). Virtual runs in the page **main world** (not Patchright isolate).

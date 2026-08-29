@@ -4,7 +4,7 @@
  * Chromium UA paint when scripting is enabled — DOM/table stream unchanged.
  *
  * Prefer Constructable Stylesheets on `adoptedStyleSheets`. If `defaultView` is missing (seen on
- * some mobile browsers while the iframe document is empty mid-EPOCH_RESET) or adopt fails, fall
+ * some mobile browsers while the iframe document is still empty) or adopt fails, fall
  * back to a Speculum-owned `<style>` in `<head>` — same paint rule, still not in the producer table.
  */
 

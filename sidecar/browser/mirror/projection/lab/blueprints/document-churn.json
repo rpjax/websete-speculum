@@ -10,9 +10,29 @@
         {
           "id": "boot",
           "type": "boot",
-          "params": { "url": "fixtures/document-churn.html?mode=js&n=3" }
+          "params": { "url": "fixtures/document-churn.html?mode=hold&n=3" }
         },
-        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 3000 } },
+        {
+          "id": "wait-establish",
+          "type": "sleep",
+          "dependsOn": ["boot"],
+          "params": { "ms": 2000 }
+        },
+        {
+          "id": "start-churn",
+          "type": "evaluate",
+          "dependsOn": ["wait-establish"],
+          "params": {
+            "virtual": true,
+            "expression": "typeof globalThis.__documentChurnStart==='function'&&globalThis.__documentChurnStart()"
+          }
+        },
+        {
+          "id": "wait-settle",
+          "type": "sleep",
+          "dependsOn": ["start-churn"],
+          "params": { "ms": 6000 }
+        },
         {
           "id": "probe-launch",
           "type": "probe.launchTelemetry",

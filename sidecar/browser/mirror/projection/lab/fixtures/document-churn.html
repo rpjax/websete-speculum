@@ -24,64 +24,68 @@
         const mode = params.get('mode') || 'meta';
         const slowMs = Number(params.get('slowMs') || '400');
         const churnCount = Number(params.get('n') || '3');
+        /** Ms before each real navigation — ignored when mode=hold (churn started via __documentChurnStart). */
+        const navSettleMs = Number(params.get('navSettleMs') || '200');
 
-        function stablePage() {
+        function churnUrl(nextMode, n) {
+          const q = new URLSearchParams({ mode: nextMode, n: String(n) });
+          if (params.has('navSettleMs')) q.set('navSettleMs', String(navSettleMs));
+          return location.pathname + '?' + q.toString();
+        }
+
+        /** Real document replacement — full navigation (new install / initContext). */
+        function churnNav(i) {
+          if (i <= 0) return;
+          setTimeout(() => location.assign(churnUrl('nav', i - 1)), navSettleMs);
+        }
+
+        /** Lab: establish on boot URL, then start churn from sidecar (evaluate virtual). */
+        if (mode === 'hold') {
+          globalThis.__documentChurnStart = function () {
+            churnNav(churnCount);
+          };
+          return;
+        }
+
+        /** Legacy DOM wipe — same Document object, no new install (lab-only NIT probe). */
+        function churnWipe(i) {
+          if (i <= 0) {
+            document.open();
+            document.write(
+              '<!doctype html><html><head><meta charset="utf-8"><title>stable</title></head><body><div id="ready">ready</div></body></html>',
+            );
+            document.close();
+            return;
+          }
           document.open();
-          document.write(
-            '<!doctype html><html><head><meta charset="utf-8"><title>stable</title></head><body><div id="ready">ready</div></body></html>',
-          );
+          document.write('<html><head></head><body>wipe ' + i + '</body></html>');
           document.close();
+          setTimeout(() => churnWipe(i - 1), 50);
         }
 
         function churnMeta(i) {
           const meta = document.createElement('meta');
           meta.httpEquiv = 'refresh';
-          meta.content = '0;url=' + location.pathname + '?mode=js&n=' + i;
+          meta.content = '0;url=' + churnUrl('nav', i);
           document.head.appendChild(meta);
         }
 
-        function churnJs(i) {
-          if (i <= 0) {
-            stablePage();
-            return;
-          }
-          document.open();
-          document.write('<html><head></head><body>churn ' + i + '</body></html>');
-          document.close();
-          setTimeout(() => churnJs(i - 1), 50);
-        }
-
         function churnSlow(i) {
-          if (i <= 0) {
-            stablePage();
-            return;
-          }
-          document.open();
-          document.write('<html><head></head><body>slow ' + i + '</body></html>');
-          document.close();
-          setTimeout(() => churnSlow(i - 1), slowMs);
+          if (i <= 0) return;
+          setTimeout(() => location.assign(churnUrl('slow', i - 1)), slowMs);
         }
 
         function churnInterstitial(i) {
-          if (i <= 0) {
-            stablePage();
-            return;
-          }
-          document.open();
-          document.write(
-            '<html><head><meta http-equiv="refresh" content="0;url=' +
-              location.pathname +
-              '?mode=interstitial&n=' +
-              (i - 1) +
-              '"></head><body>interstitial</body></html>',
-          );
-          document.close();
+          if (i <= 0) return;
+          location.assign(churnUrl('interstitial', i - 1));
         }
 
         if (mode === 'meta' && churnCount > 0) {
           churnMeta(churnCount);
-        } else if (mode === 'js') {
-          churnJs(churnCount);
+        } else if (mode === 'js' || mode === 'nav') {
+          churnNav(churnCount);
+        } else if (mode === 'wipe') {
+          churnWipe(churnCount);
         } else if (mode === 'slow') {
           churnSlow(churnCount);
         } else if (mode === 'interstitial') {

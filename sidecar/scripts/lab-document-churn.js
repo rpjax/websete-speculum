@@ -20,6 +20,26 @@ function runNpm(script) {
   return r.status ?? 1;
 }
 
+function readConsoleBootError(dossierDir) {
+  const p = path.join(dossierDir, 'telemetry', 'console.ndjson');
+  if (!fs.existsSync(p)) return null;
+  try {
+    const lines = fs.readFileSync(p, 'utf8').split(/\r?\n/).filter(Boolean);
+    for (const line of lines) {
+      const row = JSON.parse(line);
+      const text = String(row.text ?? '');
+      if (/SessionConfig missing within/i.test(text)) return 'config_gate_timeout';
+      if (/config_gate_timeout/i.test(text)) return 'config_gate_timeout';
+      if (/data plane not established/i.test(text)) return 'establish_timeout';
+      if (/bootstrap failed/i.test(text) && /initContext/i.test(text)) return 'init_context_timeout';
+      if (/bootstrap failed/i.test(text)) return 'boot_failed';
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function runCliCapture() {
   const cli = path.join(root, 'dist', 'browser', 'mirror', 'projection', 'lab', 'runner', 'cli.js');
   const r = spawnSync(process.execPath, [cli, '--blueprint', 'document-churn'], {
@@ -35,6 +55,8 @@ function runCliCapture() {
   if (/data plane not established/i.test(combined)) bootError = 'establish_timeout';
   else if (/establish_timeout/i.test(combined)) bootError = 'establish_timeout';
   else if (/config_gate_timeout/i.test(combined)) bootError = 'config_gate_timeout';
+  else if (/SessionConfig missing within/i.test(combined)) bootError = 'config_gate_timeout';
+  if (!bootError && dossierDir) bootError = readConsoleBootError(dossierDir);
   return { code: r.status ?? 1, dossierDir, stdout, bootError };
 }
 
@@ -71,6 +93,7 @@ const hist = {};
 const errorCode = {};
 const installCounts = [];
 const maxSpacingMs = [];
+const configGateMs = [];
 const failures = [];
 let failed = 0;
 
@@ -84,10 +107,12 @@ for (let i = 0; i < runs; i++) {
   const installTel = tel?.installTelemetry;
   installCounts.push(installTel?.installCount ?? null);
   maxSpacingMs.push(installTel?.maxSpacingMs ?? null);
+  configGateMs.push(tel?.gateTiming?.configGateMs ?? null);
 
   if (!pass) {
     const verdicts = dossierDir ? readVerdicts(dossierDir) : null;
-    const bootReason = tel?.bootOutcome?.reason ?? bootError ?? 'unknown';
+    const consoleError = dossierDir ? readConsoleBootError(dossierDir) : null;
+    const bootReason = tel?.bootOutcome?.reason ?? bootError ?? consoleError ?? 'unknown';
     const ec = bootReason === 'established' ? 'establish_failed' : bootReason;
     errorCode[ec] = (errorCode[ec] ?? 0) + 1;
     failures.push({
@@ -108,6 +133,7 @@ if (x10) {
     errorCode,
     installCounts,
     maxSpacingMs,
+    configGateMs,
     failures,
   };
   const outDir = path.join(root, 'lab-runs');

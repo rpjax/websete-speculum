@@ -1,21 +1,25 @@
 import type { LabChassis } from '../../host/chassis';
 import type { LabVerdict } from '../../dossier/types';
+import type { LaunchTelemetryDiagnostic } from '../../probes/launchTelemetryProbe';
 
 export type DocumentChurnJournal = {
   established?: boolean;
-  installTelemetry?: {
-    installCount: number;
-    lastInstallUrl: string | null;
-    lastGeneration: number | null;
-    events: Array<{ generation: number; url: string; installKind: string; t: string; installedAtMs?: number }>;
-    installSpacingMs?: number[];
-    maxSpacingMs?: number | null;
-  };
-  bootOutcome?: { ok: boolean; reason: string; href?: string } | null;
+  launchTelemetry?: LaunchTelemetryDiagnostic;
+  installTelemetry?: LaunchTelemetryDiagnostic['installTelemetry'];
+  bootOutcome?: LaunchTelemetryDiagnostic['bootOutcome'];
+  /** Expected minimum installs from blueprint (nav churn n=3 → 4 documents). */
+  expectedMinInstalls?: number;
 };
+
+const DEFAULT_MIN_INSTALLS = 4;
 
 export function foldDocumentChurn(chassis: LabChassis): LabVerdict[] {
   const journal = chassis.journal as DocumentChurnJournal;
+  const telProbe = journal.launchTelemetry;
+  const tel = journal.installTelemetry ?? telProbe?.installTelemetry ?? null;
+  const bootOutcome = journal.bootOutcome ?? telProbe?.bootOutcome ?? null;
+  const gate = telProbe?.gateTiming;
+  const minInstalls = journal.expectedMinInstalls ?? DEFAULT_MIN_INSTALLS;
   const verdicts: LabVerdict[] = [];
 
   if (journal.established === true) {
@@ -24,22 +28,35 @@ export function foldDocumentChurn(chassis: LabChassis): LabVerdict[] {
     verdicts.push({
       id: 'launch.churn.established',
       status: 'fail',
-      reason: journal.bootOutcome?.reason ?? 'not established',
+      reason: bootOutcome?.reason ?? 'not established',
     });
   }
 
-  const tel = journal.installTelemetry;
-  if (tel && tel.installCount >= 1) {
+  if (gate?.configGateMs != null) {
+    verdicts.push({
+      id: 'launch.churn.configGateMs',
+      status: 'pass',
+      reason: `configGateMs=${gate.configGateMs} attempts=${gate.configGateAttempts ?? '?'}`,
+    });
+  } else {
+    verdicts.push({
+      id: 'launch.churn.configGateMs',
+      status: 'skipped',
+      reason: 'config gate timing not captured (no boot outcome)',
+    });
+  }
+
+  if (tel && tel.installCount >= minInstalls) {
     verdicts.push({
       id: 'launch.churn.installCount',
       status: 'pass',
-      reason: `installCount=${tel.installCount} lastGen=${tel.lastGeneration ?? '?'}`,
+      reason: `installCount=${tel.installCount} min=${minInstalls} lastGen=${tel.lastGeneration ?? '?'}`,
     });
   } else {
     verdicts.push({
       id: 'launch.churn.installCount',
       status: 'fail',
-      reason: 'no document.install telemetry',
+      reason: `installCount=${tel?.installCount ?? 0} expected>=${minInstalls}`,
     });
   }
 
@@ -50,7 +67,7 @@ export function foldDocumentChurn(chassis: LabChassis): LabVerdict[] {
         : '';
     verdicts.push({
       id: 'launch.churn.timeline',
-      status: 'pass',
+      status: tel.installSpacingMs && tel.installSpacingMs.length > 0 ? 'pass' : 'skipped',
       reason: `timeline events=${tel.events.length}${spacingNote}`,
     });
   } else {

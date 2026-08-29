@@ -319,6 +319,24 @@ export async function executeBlueprint(
         const expression = String(params.expression ?? '');
         const session = chassis.browser;
         if (!session) return finish(false, 'no session');
+        const useVirtual = params.virtual === true;
+        if (useVirtual) {
+          const raw = await evaluateVirtualProbe(
+            session as {
+              evaluate?: (code: string) => Promise<{ ok: boolean; value?: unknown }>;
+              evaluateVirtualExpression?: (code: string, contextId?: number) => Promise<unknown>;
+            },
+            expression,
+            typeof params.contextId === 'number' ? params.contextId : 1,
+          );
+          const ok = raw !== null;
+          chassis.journal.acts.push({
+            name: action.id,
+            ok,
+            error: ok ? undefined : 'virtual evaluate failed',
+          });
+          return finish(ok, ok ? (raw === undefined ? 'ok' : String(raw)) : 'virtual evaluate failed');
+        }
         const r = await session.evaluate(expression);
         chassis.journal.acts.push({
           name: action.id,
@@ -828,6 +846,9 @@ export async function executeBlueprint(
         (chassis.journal as { installTelemetry?: unknown }).installTelemetry =
           diagnostic.installTelemetry ?? undefined;
         (chassis.journal as { bootOutcome?: unknown }).bootOutcome = diagnostic.bootOutcome ?? undefined;
+        if (bp.id === 'document-churn') {
+          (chassis.journal as { expectedMinInstalls?: number }).expectedMinInstalls = 4;
+        }
         if (chassis.dossierHandle) {
           await writeJson(
             chassis.dossierHandle,

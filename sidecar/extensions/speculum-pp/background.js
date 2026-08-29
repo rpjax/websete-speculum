@@ -44,6 +44,22 @@ let nextGeneration = 1;
 let c2Socket = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let heartbeatTimer = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let swKeepaliveTimer = null;
+
+/** @type {Promise<void>} */
+let stateReady = restoreState();
+
+function ensureStateReady() {
+  return stateReady;
+}
+
+function startSwKeepalive() {
+  if (swKeepaliveTimer) clearInterval(swKeepaliveTimer);
+  swKeepaliveTimer = setInterval(() => {
+    void chrome.storage.session.get(['sessionConfig']).catch(() => {});
+  }, 1000);
+}
 
 function toUint8Array(bytes) {
   if (bytes instanceof Uint8Array) return bytes;
@@ -285,6 +301,55 @@ function publicConfig() {
   return cfg;
 }
 
+async function replyConfigRequest(port, reqId) {
+  await ensureStateReady();
+  if (sessionConfig === null) {
+    port.postMessage({
+      channel: RUNTIME_CHANNEL,
+      kind: 'config-fail',
+      reqId,
+      reason: 'no_config',
+    });
+    return;
+  }
+  port.postMessage({
+    channel: RUNTIME_CHANNEL,
+    kind: 'config-ok',
+    reqId,
+    config: publicConfig(),
+  });
+}
+
+async function replyInitContextRequest(port, reqId) {
+  await ensureStateReady();
+  if (sessionConfig === null) {
+    port.postMessage({
+      channel: RUNTIME_CHANNEL,
+      kind: 'initContext-fail',
+      reqId,
+      reason: 'no_config',
+    });
+    return;
+  }
+  const generation = nextGeneration++;
+  void persistState();
+  const tabUrl = port.sender?.tab?.url ?? '';
+  const installKind = !tabUrl || tabUrl === 'about:blank' ? 'blank' : 'navigation';
+  c2Send({
+    kind: 'DocumentInstall',
+    generation,
+    url: tabUrl,
+    installKind,
+    t: new Date().toISOString(),
+  });
+  port.postMessage({
+    channel: RUNTIME_CHANNEL,
+    kind: 'initContext-ok',
+    reqId,
+    generation,
+  });
+}
+
 async function persistState() {
   try {
     await chrome.storage.session.set({
@@ -326,8 +391,13 @@ function applySessionConfig(cfg) {
     maxFrameBytes: cfg.maxFrameBytes,
     telemetry: cfg.telemetry,
     cssomPollHz: cfg.cssomPollHz,
+    configGateTimeoutMs:
+      typeof cfg.configGateTimeoutMs === 'number' && cfg.configGateTimeoutMs > 0
+        ? Math.floor(cfg.configGateTimeoutMs)
+        : undefined,
   };
   void persistState();
+  startSwKeepalive();
   return true;
 }
 
@@ -336,54 +406,13 @@ function handleRuntimeMessage(port, msg) {
   const reqId = msg.reqId;
 
   if (msg.kind === 'config-request') {
-    // 1 session = 1 Chrome = 1 tab (single-tab law). No tab-id claim gate.
-    if (sessionConfig === null) {
-      port.postMessage({
-        channel: RUNTIME_CHANNEL,
-        kind: 'config-fail',
-        reqId,
-        reason: 'no_config',
-      });
-      return;
-    }
-    port.postMessage({
-      channel: RUNTIME_CHANNEL,
-      kind: 'config-ok',
-      reqId,
-      config: publicConfig(),
-    });
+    void replyConfigRequest(port, reqId);
     return;
   }
 
   if (msg.kind === 'initContext-request') {
-    if (sessionConfig === null) {
-      port.postMessage({
-        channel: RUNTIME_CHANNEL,
-        kind: 'initContext-fail',
-        reqId,
-        reason: 'no_config',
-      });
-      return;
-    }
-    // Only the root document asks the SW; nested uses the parent MessagePort.
-    // Every successful answer is a new document install → bump generation.
-    const generation = nextGeneration++;
-    void persistState();
-    const tabUrl = port.sender?.tab?.url ?? '';
-    const installKind = !tabUrl || tabUrl === 'about:blank' ? 'blank' : 'navigation';
-    c2Send({
-      kind: 'DocumentInstall',
-      generation,
-      url: tabUrl,
-      installKind,
-      t: new Date().toISOString(),
-    });
-    port.postMessage({
-      channel: RUNTIME_CHANNEL,
-      kind: 'initContext-ok',
-      reqId,
-      generation,
-    });
+    void replyInitContextRequest(port, reqId);
+    return;
   }
 }
 
@@ -417,6 +446,18 @@ function handleC2Message(raw) {
       sessionId: ok && sessionConfig ? sessionConfig.sessionId : null,
       reason: ok ? undefined : 'invalid_config',
     });
+    return;
+  }
+
+  if (msg.kind === 'RuntimeProbe') {
+    void (async () => {
+      await ensureStateReady();
+      c2Send({
+        kind: 'RuntimeProbeAck',
+        ok: sessionConfig !== null,
+        sessionId: sessionConfig ? sessionConfig.sessionId : null,
+      });
+    })();
     return;
   }
 
@@ -523,4 +564,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   closeWsOnly(key);
 });
 
-void restoreState().then(() => connectC2());
+void stateReady.then(() => {
+  if (sessionConfig !== null) startSwKeepalive();
+  connectC2();
+});

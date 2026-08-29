@@ -156,6 +156,12 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 
 See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, timing-critical games, independent client zoom. **Iframes:** lab same-origin is shipped. Pierced XO iframes stay **unsupported** (NIT) until that cut — not “working.”
 
+### RESIDUAL — lab `document-churn` start-churn flake
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **LAB-CHURN-START** | x10 run: gen=1 install logged, establish OK, then no further installs / empty verdicts. | Not CLI early exit — **`start-churn` virtual eval** did not fire or page navigated before churn chain. Inspect blueprint `evaluate` + `mode=hold` → `__documentChurnStart` step before blaming establish. |
+
 ---
 
 ## Closed recently (do not reopen)

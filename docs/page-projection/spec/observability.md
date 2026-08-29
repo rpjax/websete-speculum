@@ -283,3 +283,5 @@ Code: `virtual/bus/contextBus.ts` + `virtual/bus/virtualDomainBus.ts` (telemetry
 
 When establish fails (`establish_timeout`, `data_plane_not_established`), enriched session errors carry `installCount` and full **`installTimeline`** (`DocumentInstallEvent[]` with `installedAtMs` epoch + ISO `t` per `document.install`). Lab: `document-churn` fold verdict `launch.churn.timeline`; calibrate budget via `npm run lab:document-churn-x10` → `lab-runs/churn-x10-summary.json`. Override budget: `SPECULUM_LAUNCH_BUDGET_MS`.
 
+**Config gate timing:** `launch.churn.configGateMs` reads `bootOutcome.detail.configGateMs` / `__SPECULUM_LAUNCH_TIMING__` via loopback MAIN-world eval (not Patchright isolated `page.evaluate`). Healthy local runs cluster **13–123 ms** (keepalive + `restoreState` — not the 17 s budget ceiling). **Residual:** occasional **~500 ms+** tail = MV3 SW woke from sleep; 1 s post-ACK keepalive is not 100%. If launch flakes return, inspect SW hibernation before raising timeouts.
+

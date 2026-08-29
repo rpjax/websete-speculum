@@ -21,6 +21,7 @@ export type ExtensionSessionConfig = {
   maxFrameBytes?: number;
   telemetry?: Record<string, unknown>;
   cssomPollHz?: number;
+  configGateTimeoutMs?: number;
 };
 
 type C2Message = {
@@ -35,6 +36,12 @@ type C2Message = {
   url?: string;
   installKind?: string;
   t?: string;
+};
+
+type PendingProbe = {
+  resolve: (ok: boolean) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 export type DocumentInstallEvent = {
@@ -74,6 +81,7 @@ export class ExtensionC2Host {
   }> = [];
   private documentInstallHandler: ((evt: DocumentInstallEvent) => void) | null = null;
   private readonly installEvents: DocumentInstallEvent[] = [];
+  private pendingProbe: PendingProbe | null = null;
 
   constructor(opts: ExtensionC2HostOptions = {}) {
     this.extensionDir = opts.extensionDir ?? '';
@@ -224,7 +232,53 @@ export class ExtensionC2Host {
     }
   }
 
+  /** Ping SW after SessionConfig ACK — keeps MV3 worker warm before first navigation. */
+  async probeRuntimeReady(timeoutMs?: number): Promise<void> {
+    if (!this.socket || this.socket.readyState !== 1) {
+      throw Object.assign(new Error('extension C2 not connected'), {
+        errorCode: 'extension_c2_not_connected',
+        phase: 'launch',
+      });
+    }
+    if (this.pendingProbe) {
+      clearTimeout(this.pendingProbe.timer);
+      this.pendingProbe.reject(new Error('extension runtime probe superseded'));
+      this.pendingProbe = null;
+    }
+    const probeMs = timeoutMs ?? 3_000;
+    const probePromise = new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pendingProbe) this.pendingProbe = null;
+        reject(
+          Object.assign(new Error('extension runtime probe timeout'), {
+            errorCode: 'extension_runtime_probe_timeout',
+            phase: 'launch',
+          }),
+        );
+      }, probeMs);
+      this.pendingProbe = { resolve, reject, timer };
+    });
+    this.socket.send(
+      JSON.stringify({
+        channel: EXTENSION_C2_CHANNEL,
+        kind: 'RuntimeProbe',
+      } satisfies C2Message),
+    );
+    const ok = await probePromise;
+    if (!ok) {
+      throw Object.assign(new Error('extension runtime probe not ready'), {
+        errorCode: 'extension_runtime_not_ready',
+        phase: 'launch',
+      });
+    }
+  }
+
   async close(): Promise<void> {
+    if (this.pendingProbe) {
+      clearTimeout(this.pendingProbe.timer);
+      this.pendingProbe.reject(new Error('extension C2 closed'));
+      this.pendingProbe = null;
+    }
     if (this.pendingAck) {
       clearTimeout(this.pendingAck.timer);
       this.pendingAck.reject(new Error('extension C2 closed'));
@@ -269,6 +323,13 @@ export class ExtensionC2Host {
       clearTimeout(this.pendingAck.timer);
       const pending = this.pendingAck;
       this.pendingAck = null;
+      pending.resolve(msg.ok === true);
+      return;
+    }
+    if (msg.kind === 'RuntimeProbeAck' && this.pendingProbe) {
+      clearTimeout(this.pendingProbe.timer);
+      const pending = this.pendingProbe;
+      this.pendingProbe = null;
       pending.resolve(msg.ok === true);
       return;
     }

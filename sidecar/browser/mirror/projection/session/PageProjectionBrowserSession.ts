@@ -81,7 +81,7 @@ import { SidecarBuffer } from '../../../input/SidecarBuffer';
 import { EventApplier } from '../../../input/EventApplier';
 import { ingressToUnifiedIntent } from '../../../input/ingressToUnifiedIntent';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
-import { LaunchBudget, mapBootReasonToErrorCode, resolveLaunchBudgetMs } from './launchBudget';
+import { LaunchBudget, mapBootReasonToErrorCode, resolveLaunchBudgetMs, configGateTimeoutMs, initContextTimeoutMs } from './launchBudget';
 
 export type { DocumentInstallEvent };
 
@@ -671,12 +671,8 @@ export class PageProjectionBrowserSession {
     }
   }
 
-  /** Virtual expression in root or nested iframe context (loopback). Lab probes only. */
+  /** Virtual expression in root or nested iframe context (loopback → MAIN world eval). Lab probes only. */
   async evaluateVirtualExpression(code: string, contextId = CONTEXT_ID_ROOT): Promise<unknown> {
-    if (contextId === CONTEXT_ID_ROOT) {
-      const r = await this.evaluate(code);
-      return r.ok ? r.value : null;
-    }
     const r = await this.loopbackInvoke<{ ok?: boolean; value?: unknown; reason?: string }>(
       'evaluateInContext',
       { contextId, expression: code },
@@ -1364,6 +1360,7 @@ export class PageProjectionBrowserSession {
     // Launch scripts: gate lives in SessionConfig for the extension entry (customs in V1 via
     // TargetRules in the content-script entry when wired). Resolved here so C2 carries knobs.
     void (await resolveLaunchScripts(options.scripts ?? []));
+    const budget = this.launchBudget ?? new LaunchBudget();
     const sessionConfig = buildConfigPayload({
       sessionId: this.sessionId,
       transport: 'loopback',
@@ -1373,13 +1370,17 @@ export class PageProjectionBrowserSession {
       frameRateHz: options.frameRateHz ?? 60,
       telemetry,
       cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
+      configGateTimeoutMs: configGateTimeoutMs(budget.budgetMs),
     });
     // ACK before any navigation — fail-closed (runtime-redesign.md §0 #3).
-    const budget = this.launchBudget ?? new LaunchBudget();
     await this.extensionC2.pushSessionConfig(
       sessionConfig as import('./extensionC2Host').ExtensionSessionConfig,
       budget.deadlineMs('SessionAck'),
     );
+    await this.extensionC2.probeRuntimeReady(budget.deadlineMs('ConfigGate'));
+    await context.addInitScript({
+      content: `globalThis.__SPECULUM_CONFIG_GATE_BUDGET_MS=${configGateTimeoutMs(budget.budgetMs)};globalThis.__SPECULUM_INIT_CONTEXT_BUDGET_MS=${initContextTimeoutMs(budget.budgetMs)};`,
+    });
     await installDocumentResponseHook(this.cdpSession, {
       mutators: [cspDocumentMutator],
       context,
@@ -1496,9 +1497,11 @@ export class PageProjectionBrowserSession {
     const status = this.dataPlane.dataPlane.status;
     if (status.lastError?.code) bag.lastHelloReject = status.lastError.code;
     try {
-      const raw = await this.evaluate('JSON.stringify(globalThis.__speculumBootOutcome ?? null)');
-      if (raw.ok && typeof raw.value === 'string') {
-        const outcome = JSON.parse(raw.value) as { reason?: string; ok?: boolean };
+      const raw = await this.evaluateVirtualExpression(
+        'JSON.stringify(globalThis.__speculumBootOutcome ?? null)',
+      );
+      if (typeof raw === 'string') {
+        const outcome = JSON.parse(raw) as { reason?: string; ok?: boolean };
         if (outcome.reason) {
           bag.lastBootReason = outcome.reason;
           if (!outcome.ok) {

@@ -22,6 +22,8 @@ export type ProjectionConfigPreScriptOptions = {
   // acquires it per install from `initContext()` — runtime-redesign.md §6.
   /** CSSOM poll Hz. `0` off. Lab injects `5`. */
   cssomPollHz?: number;
+  /** Config gate budget (ms) — extension runtime-bridge retry window. */
+  configGateTimeoutMs?: number;
   /** Loopback socket carrier. Managed path is always `extension`. */
   loopbackCarrier?: LoopbackCarrier;
   /** Bridge token when transport is loopback (required). */
@@ -75,6 +77,7 @@ export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Reco
   if (opts.maxFrameBytes !== undefined) payload.maxFrameBytes = opts.maxFrameBytes;
   if (opts.telemetry !== undefined) payload.telemetry = opts.telemetry;
   if (opts.cssomPollHz !== undefined) payload.cssomPollHz = opts.cssomPollHz;
+  if (opts.configGateTimeoutMs !== undefined) payload.configGateTimeoutMs = opts.configGateTimeoutMs;
   if (opts.diagBoot === true) payload.diagBoot = true;
   return payload;
 }

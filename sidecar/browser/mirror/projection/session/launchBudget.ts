@@ -30,6 +30,15 @@ const SUB_PHASE_FRACTIONS: Record<LaunchSubPhase, number> = {
   HelloEstablish: 1,
 };
 
+/** Config gate slice — shared with extension SessionConfig (not an independent 2s guillotine). */
+export function configGateTimeoutMs(budgetMs = LAUNCH_BUDGET_MS): number {
+  return Math.max(1, Math.floor(budgetMs * SUB_PHASE_FRACTIONS.ConfigGate));
+}
+
+export function initContextTimeoutMs(budgetMs = LAUNCH_BUDGET_MS): number {
+  return Math.max(1, Math.floor(budgetMs * SUB_PHASE_FRACTIONS.InitContext));
+}
+
 export class LaunchBudget {
   readonly startedAtMs: number;
   readonly budgetMs: number;

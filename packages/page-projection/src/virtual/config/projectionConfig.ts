@@ -15,8 +15,8 @@ import { resolveRootUpwardPeer, UPWARD_PEER_GLOBAL } from '../runtime/initContex
 export const PROJECTION_CONFIG_GLOBAL = '__SPECULUM_PROJECTION__' as const;
 export const PROJECTION_CONFIG_READY_GLOBAL = '__SPECULUM_PROJECTION_READY__' as const;
 
-/** Config gate timeout — root crash / nested dormant (runtime-redesign.md §0 #3). */
-export const CONFIG_GATE_TIMEOUT_MS = 2_000;
+/** Config gate timeout — launch budget ConfigGate slice (not an independent 2s guillotine). */
+export const CONFIG_GATE_TIMEOUT_MS = 17_000;
 
 export type ProjectionTransportKind = 'console' | 'loopback' | 'discard';
 
@@ -35,6 +35,7 @@ export type ProjectionConfigBag = {
   telemetry?: unknown;
   /** CSSOM poll rate. `0` disables. Lab default 5. Independent of DOM `frameRateHz`. */
   cssomPollHz?: unknown;
+  configGateTimeoutMs?: unknown;
 };
 
 /** Resolved config available to Virtual modules after {@link awaitProjectionConfig}. */
@@ -232,9 +233,7 @@ export async function awaitProjectionConfig(opts?: {
     }
     if (bag === null || bag === undefined) {
       if (role === 'nested') return null;
-      throw new Error(
-        `ProjectionConfig missing within ${timeoutMs}ms — root session fault (expected SessionConfig via extension C2)`,
-      );
+      return null;
     }
     requireRootUpwardPeer();
     return freezeBag(bag);

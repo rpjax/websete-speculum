@@ -42,8 +42,8 @@ export const UPWARD_PEER_GLOBAL = '__speculumProjectionUpward' as const;
 
 /** Nested: no answer → **dormant**. An ad iframe that nobody admits is not an error (§5). */
 export const NESTED_INIT_CONTEXT_TIMEOUT_MS = 2_000;
-/** Root: no answer → **crash**. Nothing downstream can work without the session's authority. */
-export const ROOT_INIT_CONTEXT_TIMEOUT_MS = 5_000;
+/** Root: no answer → fail closed (launch budget InitContext slice). */
+export const ROOT_INIT_CONTEXT_TIMEOUT_MS = 20_000;
 
 declare global {
   // eslint-disable-next-line no-var

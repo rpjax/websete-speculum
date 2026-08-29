@@ -38,6 +38,7 @@ import {
   resolveRootUpwardPeer,
   NESTED_INIT_CONTEXT_TIMEOUT_MS,
   ROOT_INIT_CONTEXT_TIMEOUT_MS,
+  type ContextIdentity,
 } from './runtime/initContext';
 import { ChildScopeIndex, createMintPort, type MintPort } from './dom/childScopes';
 import type { TableLiveOracleResult } from '../core/tableLiveOracle';
@@ -262,6 +263,17 @@ void (async () => {
     bootDiagLog('boot_dormant', { reason: 'config_gate_timeout' });
     return;
   }
+  const launchTiming = (globalThis as { __SPECULUM_LAUNCH_TIMING__?: Record<string, unknown> })
+    .__SPECULUM_LAUNCH_TIMING__;
+  const configGateTiming = launchTiming?.configGate as
+    | { durationMs?: number; attempts?: number; ok?: boolean }
+    | undefined;
+  if (configGateTiming?.durationMs !== undefined) {
+    bootDiagLog('config_gate_ok', {
+      durationMs: configGateTiming.durationMs,
+      attempts: configGateTiming.attempts ?? null,
+    });
+  }
   let frameTransport: FrameTransport;
   let dataPlane: DataPlane | null = null;
   let loopback: LoopbackFrameTransport | null = null;
@@ -336,21 +348,28 @@ void (async () => {
   // 3. `initContext` — the activation gate. Nested asks its parent; the root asks the authority
   //    above it. Terminal policy is asymmetric on purpose: an ad iframe nobody admits is not a
   //    broken session, but a root with no authority is (§5 terminal policy).
-  const identity = isRoot
-    ? await initRootContext(resolveRootUpwardPeer(), ROOT_INIT_CONTEXT_TIMEOUT_MS)
-    : await initNestedContext(bus, NESTED_INIT_CONTEXT_TIMEOUT_MS);
+  let identity: ContextIdentity | null;
+  if (isRoot) {
+    try {
+      identity = await initRootContext(resolveRootUpwardPeer(), ROOT_INIT_CONTEXT_TIMEOUT_MS);
+    } catch {
+      identity = null;
+    }
+  } else {
+    identity = await initNestedContext(bus, NESTED_INIT_CONTEXT_TIMEOUT_MS);
+  }
 
   if (identity === null) {
     setBootOutcome('init_context_timeout', {
       detail: {
-        timeoutMs: NESTED_INIT_CONTEXT_TIMEOUT_MS,
+        timeoutMs: isRoot ? ROOT_INIT_CONTEXT_TIMEOUT_MS : NESTED_INIT_CONTEXT_TIMEOUT_MS,
         upwardReady: bus.upwardReady,
         initDetail: (bus as { lastInitContextDetail?: unknown }).lastInitContextDetail ?? null,
       },
     });
     bootDiagLog('boot_dormant', {
       reason: 'init_context_timeout',
-      timeoutMs: NESTED_INIT_CONTEXT_TIMEOUT_MS,
+      timeoutMs: isRoot ? ROOT_INIT_CONTEXT_TIMEOUT_MS : NESTED_INIT_CONTEXT_TIMEOUT_MS,
     });
     domMutationObserver.unobserveAllRoots();
     mutationBuffer.drain();
@@ -1051,10 +1070,19 @@ void (async () => {
       }
     },
   };
+  const timingBag = (globalThis as { __SPECULUM_LAUNCH_TIMING__?: Record<string, unknown> })
+    .__SPECULUM_LAUNCH_TIMING__;
   setBootOutcome('established', {
     ok: true,
     contextId: mine,
-    detail: { sequence: frameEmitter.currentSequence, generation: identity.generation },
+    detail: {
+      sequence: frameEmitter.currentSequence,
+      generation: identity.generation,
+      configGateMs: (timingBag?.configGate as { durationMs?: number } | undefined)?.durationMs ?? null,
+      configGateAttempts: (timingBag?.configGate as { attempts?: number } | undefined)?.attempts ?? null,
+      initContextMs: (timingBag?.initContext as { durationMs?: number } | undefined)?.durationMs ?? null,
+      initContextAttempts: (timingBag?.initContext as { attempts?: number } | undefined)?.attempts ?? null,
+    },
   });
   bootDiagLog('boot_established', {
     contextId: mine,
@@ -1068,6 +1096,5 @@ void (async () => {
       detail: { message: err instanceof Error ? err.message : String(err) },
     });
     console.error('[speculumProjection] bootstrap failed', err);
-    throw err;
   }
 })();

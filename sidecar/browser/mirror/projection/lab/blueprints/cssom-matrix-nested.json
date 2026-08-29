@@ -1,0 +1,24 @@
+{
+  "id": "cssom-matrix-nested",
+  "description": "CSSOM matrix — iframe + closed shadow + author link + adopted + @import + pixel diff",
+  "sessionPolicy": "cold",
+  "fold": "cssom-matrix-nested",
+  "humanNotes": [
+    "Eight CSS classes in nested closed shadow; sheet dump + paint diff gate.",
+    "Requires lab UI + Projected client for paint diff (projectedCdpUrl)."
+  ],
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/cssom-matrix-nested.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2500 } },
+        { "id": "snap-settle", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "settle", "cssom": "scan" } },
+        { "id": "iso", "type": "iso", "dependsOn": ["snap-settle"] },
+        { "id": "probe-matrix", "type": "probe.cssomMatrix", "dependsOn": ["iso"], "params": { "nestedContextId": 2 } },
+        { "id": "fold", "type": "fold", "dependsOn": ["probe-matrix"], "params": { "ruleset": "cssom-matrix-nested" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

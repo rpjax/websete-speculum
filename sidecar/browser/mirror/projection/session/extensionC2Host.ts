@@ -31,6 +31,18 @@ type C2Message = {
   sessionId?: string | null;
   reason?: string;
   extensionId?: string;
+  generation?: number;
+  url?: string;
+  installKind?: string;
+  t?: string;
+};
+
+export type DocumentInstallEvent = {
+  generation: number;
+  url: string;
+  installKind: 'blank' | 'navigation';
+  t: string;
+  installedAtMs: number;
 };
 
 export type ExtensionC2HostOptions = {
@@ -60,6 +72,8 @@ export class ExtensionC2Host {
     reject: (err: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   }> = [];
+  private documentInstallHandler: ((evt: DocumentInstallEvent) => void) | null = null;
+  private readonly installEvents: DocumentInstallEvent[] = [];
 
   constructor(opts: ExtensionC2HostOptions = {}) {
     this.extensionDir = opts.extensionDir ?? '';
@@ -155,8 +169,17 @@ export class ExtensionC2Host {
     }
   }
 
+  /** Sidecar hook — `document.install` from SW on each initContext-ok. */
+  setDocumentInstallHandler(fn: (evt: DocumentInstallEvent) => void): void {
+    this.documentInstallHandler = fn;
+  }
+
+  getInstallEvents(): DocumentInstallEvent[] {
+    return [...this.installEvents];
+  }
+
   /** Push SessionConfig; resolves true on ACK ok. Throws on timeout / NACK. */
-  async pushSessionConfig(config: ExtensionSessionConfig): Promise<void> {
+  async pushSessionConfig(config: ExtensionSessionConfig, timeoutMs?: number): Promise<void> {
     if (!this.socket || this.socket.readyState !== 1) {
       throw Object.assign(new Error('extension C2 not connected'), {
         errorCode: 'extension_c2_not_connected',
@@ -170,6 +193,7 @@ export class ExtensionC2Host {
     }
 
     const sessionId = config.sessionId;
+    const ackMs = timeoutMs ?? this.ackTimeoutMs;
     const ackPromise = new Promise<boolean>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pendingAck?.sessionId === sessionId) this.pendingAck = null;
@@ -179,7 +203,7 @@ export class ExtensionC2Host {
             phase: 'launch',
           }),
         );
-      }, this.ackTimeoutMs);
+      }, ackMs);
       this.pendingAck = { sessionId, resolve, reject, timer };
     });
 
@@ -246,6 +270,21 @@ export class ExtensionC2Host {
       const pending = this.pendingAck;
       this.pendingAck = null;
       pending.resolve(msg.ok === true);
+      return;
+    }
+    if (msg.kind === 'DocumentInstall') {
+      const generation = typeof msg.generation === 'number' ? msg.generation : 0;
+      const url = typeof msg.url === 'string' ? msg.url : '';
+      const installKind = msg.installKind === 'blank' ? 'blank' : 'navigation';
+      const evt: DocumentInstallEvent = {
+        generation,
+        url,
+        installKind,
+        t: typeof msg.t === 'string' ? msg.t : new Date().toISOString(),
+        installedAtMs: Date.now(),
+      };
+      this.installEvents.push(evt);
+      this.documentInstallHandler?.(evt);
     }
   }
 }

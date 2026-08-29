@@ -147,8 +147,11 @@ export class NodeDataPlane implements DataPlane {
         this.removeEstablishedWaiter(entry);
         reject(
           Object.assign(new Error('data plane not established'), {
-            errorCode: 'data_plane_not_established',
+            errorCode: 'establish_timeout',
             phase: 'establish',
+            connectionState: this.state,
+            installGeneration: this.expectedGeneration,
+            lastHelloReject: this.lastError?.code ?? null,
           }),
         );
       }, timeoutMs);

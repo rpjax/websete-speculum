@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   console.log(`[projection-lab] listening ${base}`);
   console.log(`[projection-lab] open ${base}/  (client shell)`);
   console.log(`[projection-lab] fixtures ${base}/fixtures/demo.html`);
+  console.log(`[projection-lab] cross-origin ${lab.crossOriginOrigin} (class 9 CSSOM matrix)`);
   console.log(`[projection-lab] headed=${!opts.headless} (SPECULUM_LAB_HEADED=1 for visible Chrome)`);
 
   const shutdown = async () => {

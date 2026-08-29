@@ -17,6 +17,11 @@ import {
   type TurnstilePaintSample,
   type TurnstileRectSample,
 } from '../probes/turnstilePierce';
+import {
+  CSSOM_SHEET_DUMP_EXPR,
+  parseCssomSheetDump,
+  type CssomSheetDumpResult,
+} from '../probes/cssomSheetDump';
 
 export type LabProjectedHarnessOptions = ProjectionClientOptions;
 
@@ -233,6 +238,44 @@ export class LabProjectedHarness {
       return { ok: false, reason: 'widget_missing', paint: null };
     }
     return { ok: true, paint: sampleTurnstilePaint(node as Element) };
+  }
+
+  /** Lab diag — CSSOM sheet dump in nested or root projected document. */
+  probeCssomSheetDump(nestedContextId?: number): CssomSheetDumpResult {
+    const contextId = nestedContextId ?? CONTEXT_ID_ROOT;
+    const doc =
+      contextId === CONTEXT_ID_ROOT
+        ? this.client.document
+        : this.client.getNestedApply(contextId)?.document ?? null;
+    if (!doc) {
+      return {
+        ok: false,
+        reason: 'document_missing',
+        entries: [],
+        styleSheetCount: 0,
+        adoptedCount: 0,
+        totalRules: 0,
+      };
+    }
+    try {
+      const fn = new Function(`return (${CSSOM_SHEET_DUMP_EXPR})`) as () => string;
+      const prevDoc = (globalThis as { document?: Document }).document;
+      (globalThis as { document: Document }).document = doc;
+      try {
+        return parseCssomSheetDump(fn());
+      } finally {
+        if (prevDoc) (globalThis as { document: Document }).document = prevDoc;
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : String(err),
+        entries: [],
+        styleSheetCount: 0,
+        adoptedCount: 0,
+        totalRules: 0,
+      };
+    }
   }
 
   /**

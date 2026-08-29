@@ -35,9 +35,15 @@
           "dependsOn": ["wait-challenge"]
         },
         {
+          "id": "probe-sheet-dump",
+          "type": "probe.cssomSheetDump",
+          "dependsOn": ["probe-turnstile"],
+          "params": { "nestedContextId": 2, "artifactBasename": "turnstile-sheet-dump" }
+        },
+        {
           "id": "probe-nested-apply",
           "type": "probe.nestedApplyFailure",
-          "dependsOn": ["probe-turnstile"]
+          "dependsOn": ["probe-sheet-dump"]
         },
         {
           "id": "probe-rect-ladder",

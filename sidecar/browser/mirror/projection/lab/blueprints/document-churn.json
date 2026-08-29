@@ -1,0 +1,26 @@
+{
+  "id": "document-churn",
+  "description": "Launch under document churn — establish + install telemetry",
+  "sessionPolicy": "cold",
+  "fold": "document-churn",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        {
+          "id": "boot",
+          "type": "boot",
+          "params": { "url": "fixtures/document-churn.html?mode=js&n=3" }
+        },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 3000 } },
+        {
+          "id": "probe-launch",
+          "type": "probe.launchTelemetry",
+          "dependsOn": ["wait-settle"]
+        },
+        { "id": "fold", "type": "fold", "dependsOn": ["probe-launch"], "params": { "ruleset": "document-churn" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

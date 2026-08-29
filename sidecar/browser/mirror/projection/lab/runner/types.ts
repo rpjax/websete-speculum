@@ -23,7 +23,11 @@ export type ActionKind =
   | 'probe.turnstile'
   | 'probe.nestedApplyFailure'
   | 'probe.turnstileRectLadder'
-  | 'probe.turnstilePaint';
+  | 'probe.turnstilePaint'
+  | 'probe.cssomSheetDump'
+  | 'probe.paintDiff'
+  | 'probe.cssomMatrix'
+  | 'probe.launchTelemetry';
 
 export type LabAction = {
   id: string;

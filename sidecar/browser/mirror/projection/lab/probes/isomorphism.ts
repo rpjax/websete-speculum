@@ -257,6 +257,8 @@ export type ClientStateSnapshot = {
     widgetPaintOk: boolean;
     widgetPaintReason?: string;
   };
+  /** Lab-only CSSOM sheet dump (Virtual parity probe). */
+  cssomSheetDump?: import('./cssomSheetDump').CssomSheetDumpResult;
 };
 
 export type IsomorphismResult = {

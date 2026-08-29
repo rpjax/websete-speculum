@@ -71,9 +71,9 @@ Algorithm (poll + top-level serialize) is **closed** — **same code per algorit
 
 | Id | What to build | Assert | Status |
 |----|---------------|--------|--------|
-| **SEAL-CSSOM-P2-NESTED-QA** | **Not a new algorithm.** Prove CSSOM O2 on a nested `contextId` in lab (e.g. `iframe-open` snap with `cssom: 'scan'`). Same poll + apply as root. | Per-context `cssomO2` in iso N-way; fails if nested instance poll/apply regresses. | open (QA only) |
+| **SEAL-CSSOM-P2-NESTED-QA** | **Not a new algorithm.** Prove CSSOM O2 on a nested `contextId` in lab (e.g. `iframe-open` snap with `cssom: 'scan'`). Same poll + apply as root. Class **9a/9b** (cross-origin no-CORS / CORS) via second lab origin (`127.0.0.1:4078`). | Per-context `cssomO2` in iso N-way; `cssom.matrix.class9a.noCors` / `class9b.cors` on Virtual dump; fails if nested instance poll/apply regresses. | **in progress** — `cssom-matrix-nested` blueprint + sheet dump + pixel diff (`npm run lab:cssom-matrix-nested`) |
 | **SEAL-CSSOM-P2-SCALE** | Scale amortizations (generations, skip-serialize, hints) after the path is correct. | Capacity in `perf.yml`; functional settle still fails on an incomplete sheet. | open |
-| **SEAL-CSSOM-P2-ISO** | Automated Projected **paint** CSS vs Virtual (beyond table×live O2). | New probe class; CLI `--iso` does **not** claim this today ([observability.md](observability.md)). | open |
+| **SEAL-CSSOM-P2-ISO** | Automated Projected **paint** CSS vs Virtual (beyond table×live O2). | New probe class; CLI `--iso` does **not** claim this today ([observability.md](observability.md)). Paint accept requires **UI + projected client** (CDP clip); CLI skips pixel/sheet projected explicitly. | **in progress** — shared `pixelDiff` + `paintCapture` probes; gates in `cssom-matrix-nested` + `eneba-turnstile` fold |
 
 **Not a row:** nested rules as own table ids — future opt ([cssom.md](cssom.md) C3.2). Poll is the sensor ([cssom.md](cssom.md) C5).
 

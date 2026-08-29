@@ -1023,6 +1023,16 @@ export function bootLabClient(): void {
                     : undefined,
               }
             : undefined;
+        const sheetDumpRaw = msg.cssomSheetDump;
+        const cssomSheetDumpReq =
+          typeof sheetDumpRaw === 'object' && sheetDumpRaw !== null
+            ? {
+                nestedContextId:
+                  typeof (sheetDumpRaw as { nestedContextId?: unknown }).nestedContextId === 'number'
+                    ? (sheetDumpRaw as { nestedContextId: number }).nestedContextId
+                    : undefined,
+              }
+            : undefined;
         void ensureProjection().then(async (p) => {
           const ctx = p.snapshotContext(contextId);
           const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
@@ -1057,6 +1067,9 @@ export function bootLabClient(): void {
               widgetPaintReason: paint.reason,
             };
           }
+          const cssomSheetDump = cssomSheetDumpReq
+            ? p.probeCssomSheetDump(cssomSheetDumpReq.nestedContextId ?? contextId)
+            : undefined;
           ws?.send(
             JSON.stringify({
               type: 'client.snapshotResult',
@@ -1075,6 +1088,7 @@ export function bootLabClient(): void {
               ...(registryProbe !== undefined ? { registryProbe } : {}),
               ...(rectLadder !== undefined ? { rectLadder } : {}),
               ...(paintProbe !== undefined ? { paintProbe } : {}),
+              ...(cssomSheetDump !== undefined ? { cssomSheetDump } : {}),
             }),
           );
         });

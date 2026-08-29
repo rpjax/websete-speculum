@@ -31,6 +31,7 @@ type SnapshotRequest = {
       nestedContextId: number;
       widgetNodeId?: number;
     };
+    cssomSheetDump?: { nestedContextId?: number };
   };
   resolve: (snap: ClientStateSnapshot | null) => void;
   timer: ReturnType<typeof setTimeout> | null;
@@ -180,6 +181,7 @@ export class WsLabConnection {
         nestedContextId: number;
         widgetNodeId?: number;
       };
+      cssomSheetDump?: { nestedContextId?: number };
     },
   ): Promise<ClientStateSnapshot | null> {
     if (this.client === null || this.client.readyState !== this.client.OPEN) return null;
@@ -217,6 +219,7 @@ export class WsLabConnection {
       registryProbeNodeIds: req.options?.registryProbeNodeIds,
       rectLadderProbe: req.options?.rectLadderProbe,
       paintProbe: req.options?.paintProbe,
+      cssomSheetDump: req.options?.cssomSheetDump,
     });
   }
 
@@ -249,6 +252,7 @@ export class WsLabConnection {
     registryProbe?: unknown;
     rectLadder?: unknown;
     paintProbe?: unknown;
+    cssomSheetDump?: unknown;
   }): ClientStateSnapshot {
     const tableRaw = msg.table;
     const table =
@@ -290,6 +294,10 @@ export class WsLabConnection {
       paintProbe:
         typeof msg.paintProbe === 'object' && msg.paintProbe !== null
           ? (msg.paintProbe as ClientStateSnapshot['paintProbe'])
+          : undefined,
+      cssomSheetDump:
+        typeof msg.cssomSheetDump === 'object' && msg.cssomSheetDump !== null
+          ? (msg.cssomSheetDump as ClientStateSnapshot['cssomSheetDump'])
           : undefined,
     };
   }
@@ -475,6 +483,8 @@ export class WsLabConnection {
           const result = await executeBlueprint(bp, {
             chassis: this.chassis,
             resolveUrl: (u) => this.resolveUrl(u),
+            projectedCdpUrl: this.projectedCdpUrl,
+            labOrigin: this.opts.publicOrigin,
             requestClientSnapshot: (contextId, options) =>
               this.requestClientSnapshot(contextId, 5000, options),
             requestTamper: () => this.requestTamper(),

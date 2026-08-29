@@ -11,6 +11,7 @@ import type { ClientStateSnapshot } from './isomorphism';
 import type { DossierHandle } from '../dossier/write';
 import { writeBinaryArtifact, writeJson } from '../dossier/write';
 import type { TurnstilePaintSample } from './turnstilePierce';
+import { diffPngBase64 } from './pixelDiff';
 
 const NESTED_WIDGET_NODE_ID = 21;
 
@@ -38,6 +39,15 @@ export type TurnstilePaintDiagnostic = {
     clipScreenshot: { ok: boolean; path?: string; byteLength?: number; reason?: string };
   };
   paintMatch: boolean | null;
+  pixelDiff?: {
+    ok: boolean;
+    identical: boolean;
+    diffPixels?: number;
+    totalPixels?: number;
+    diffRatio?: number;
+    diffPath?: string;
+    reason?: string;
+  };
   hypothesis: string[];
 };
 
@@ -166,9 +176,12 @@ export async function runTurnstilePaintDiagnostic(opts: {
     reason: 'no_clip',
   };
   let virtualClipPath: string | undefined;
+  let virtualClipB64: string | undefined;
+  let projectedClipB64: string | undefined;
   if (clip && typeof session.captureViewportClip === 'function') {
     const shot = await session.captureViewportClip(clip);
     virtualClip = shot;
+    virtualClipB64 = shot.base64;
     if (shot.ok && shot.base64 && opts.dossier) {
       virtualClipPath = 'probes/turnstile-paint-virtual-clip.png';
       await writeBinaryArtifact(
@@ -198,6 +211,7 @@ export async function runTurnstilePaintDiagnostic(opts: {
   if (clip && opts.captureProjectedViewportClip) {
     const shot = await opts.captureProjectedViewportClip(clip);
     projectedClip = shot;
+    projectedClipB64 = shot.base64;
     if (shot.ok && shot.base64 && opts.dossier) {
       projectedClipPath = 'probes/turnstile-paint-projected-clip.png';
       await writeBinaryArtifact(
@@ -210,6 +224,31 @@ export async function runTurnstilePaintDiagnostic(opts: {
     }
   } else if (clip) {
     projectedClip = { ok: false, reason: 'no_projected_cdp' };
+  }
+
+  let pixelDiff: TurnstilePaintDiagnostic['pixelDiff'];
+  if (virtualClipB64 && projectedClipB64) {
+    const diff = await diffPngBase64(virtualClipB64, projectedClipB64, { tolerance: 0, emitDiffImage: true });
+    let diffPath: string | undefined;
+    if (diff.diffPngBase64 && opts.dossier) {
+      diffPath = 'probes/turnstile-pixel-diff.png';
+      await writeBinaryArtifact(
+        opts.dossier,
+        diffPath,
+        Buffer.from(diff.diffPngBase64, 'base64'),
+        'probes.turnstilePaint.pixelDiff',
+        'image/png',
+      );
+    }
+    pixelDiff = {
+      ok: diff.ok,
+      identical: diff.identical,
+      diffPixels: diff.diffPixels,
+      totalPixels: diff.totalPixels,
+      diffRatio: diff.diffRatio,
+      diffPath,
+      reason: diff.reason,
+    };
   }
 
   const diagnostic: TurnstilePaintDiagnostic = {
@@ -240,6 +279,7 @@ export async function runTurnstilePaintDiagnostic(opts: {
       },
     },
     paintMatch,
+    pixelDiff,
     hypothesis: [],
   };
   diagnostic.hypothesis = buildHypothesis(diagnostic);
@@ -305,6 +345,21 @@ export function foldTurnstilePaint(chassis: LabChassis): LabVerdict[] {
       id: 'turnstile.paint.screenshot',
       status: 'skipped',
       reason: 'no clip screenshots captured',
+    });
+  }
+  if (diag.pixelDiff?.ok) {
+    verdicts.push({
+      id: 'turnstile.paint.pixelDiff',
+      status: diag.pixelDiff.identical ? 'pass' : 'fail',
+      reason: diag.pixelDiff.identical
+        ? 'clips identical'
+        : `${diag.pixelDiff.diffPixels}/${diag.pixelDiff.totalPixels} pixels differ`,
+    });
+  } else {
+    verdicts.push({
+      id: 'turnstile.paint.pixelDiff',
+      status: 'skipped',
+      reason: diag.pixelDiff?.reason ?? 'pixel diff not computed',
     });
   }
   return verdicts;

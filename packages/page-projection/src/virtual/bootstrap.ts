@@ -230,6 +230,10 @@ declare global {
             src?: string | null;
           }>;
         }>;
+        evaluateInContext: (args: {
+          contextId?: number;
+          expression: string;
+        }) => Promise<{ ok: boolean; value?: unknown; reason?: string }>;
       }
     | undefined;
 }
@@ -448,6 +452,13 @@ void (async () => {
           return p.snapshotContext(contextId, {
             includeTree: a.includeTree,
             cssom: a.cssom,
+          });
+        }
+        case 'evaluateInContext': {
+          const a = (args ?? {}) as { contextId?: number; expression?: string };
+          return p.evaluateInContext({
+            contextId: a.contextId,
+            expression: a.expression ?? '',
           });
         }
         default:
@@ -935,6 +946,8 @@ void (async () => {
   (globalThis as { __speculumSnapshot?: { snapshotTree: typeof snapshotTree } }).__speculumSnapshot = {
     snapshotTree,
   };
+  (globalThis as { __speculumResolveShadowRoot?: typeof resolveShadowRoot }).__speculumResolveShadowRoot =
+    resolveShadowRoot;
 
   globalThis.__speculumProjection = {
     version: 1,
@@ -1019,6 +1032,23 @@ void (async () => {
       const contextId =
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
       return bus.requestMeasureNodePaint(contextId, args.nodeId);
+    },
+    evaluateInContext: async (args: {
+      contextId?: number;
+      expression: string;
+    }) => {
+      const contextId =
+        typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+      const win =
+        contextId === CONTEXT_ID_ROOT ? window : childScopes.windowOf(contextId, nodeOf) ?? null;
+      if (!win) return { ok: false, reason: 'context_window_missing' };
+      try {
+        // Lab-only — expression is trusted fixture probe script from sidecar.
+        const value = (win as Window & { eval: (source: string) => unknown }).eval(args.expression);
+        return { ok: true, value };
+      } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+      }
     },
   };
   setBootOutcome('established', {

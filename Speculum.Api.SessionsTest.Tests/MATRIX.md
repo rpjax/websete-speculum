@@ -52,3 +52,5 @@ knows its own box), so absence-of-fact is the assert; `Telemetry.Sessions.Resize
 `.Rejected` must be enabled in the seed for D6 to mean anything.
 
 Fixture: `tests/motor-fixture` (`/click-target`, `/touch-scroll`, `/nav/*`).
+
+**Lab (sidecar, not SessionsTest CI):** `cssom-matrix-nested` — nested CSSOM + pixel diff (`npm run lab:cssom-matrix-nested`); `document-churn` — launch under doc replace + `document.install` telemetry (`npm run lab:document-churn`, `lab:document-churn-x10`). Coverage truth for lab folds: [seal-gaps.md](../docs/page-projection/spec/seal-gaps.md).

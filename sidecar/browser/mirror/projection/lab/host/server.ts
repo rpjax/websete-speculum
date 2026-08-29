@@ -10,6 +10,11 @@ import { labAssetRoots } from '../assetRoots';
 import { WsLabConnection, listLabBlueprintSummaries } from './wsSession';
 import { tryServeLabVirtualAsset } from './labVirtualAssets';
 import { pipeFixtureFile } from '../fixtureServe';
+import {
+  createCrossOriginFixtureServer,
+  labConfigJson,
+  type CrossOriginFixtureServer,
+} from '../crossOriginFixtureServer';
 
 export type LabServerOptions = {
   host: string;
@@ -20,6 +25,7 @@ export type LabServerOptions = {
 export type LabServer = {
   close(): Promise<void>;
   readonly port: number;
+  readonly crossOriginOrigin: string;
 };
 
 const MIME: Record<string, string> = {
@@ -53,6 +59,13 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
   const { staticDir, fixturesDir, labRoot } = labAssetRoots();
   const sessions = new Map<string, WsLabConnection>();
   const publicOrigin = `http://${opts.host}:${opts.port}`;
+  let xoServer: CrossOriginFixtureServer | null = null;
+  try {
+    xoServer = await createCrossOriginFixtureServer(opts.host);
+  } catch (err) {
+    console.warn('[projection-lab] cross-origin fixture server failed:', err);
+  }
+  const crossOriginOrigin = xoServer?.origin ?? `http://${opts.host}:4078`;
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? '/';
@@ -60,6 +73,12 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
 
     void (async () => {
       if (await tryServeLabVirtualAsset(req, res, pathname, url, sessions)) return;
+
+      if (pathname === '/lab/config.json') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(labConfigJson(crossOriginOrigin)));
+        return;
+      }
 
       if (pathname === '/health' || pathname === '/lab/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -147,6 +166,7 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
 
   return {
     port: opts.port,
+    crossOriginOrigin,
     async close(): Promise<void> {
       for (const session of sessions.values()) await session.dispose();
       sessions.clear();
@@ -154,6 +174,7 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
       });
+      if (xoServer) await xoServer.close();
     },
   };
 }

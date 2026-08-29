@@ -172,6 +172,7 @@ export type LabHostMessage =
         nestedContextId: number;
         widgetNodeId?: number;
       };
+      cssomSheetDump?: { nestedContextId?: number };
     }
   | { type: 'lab.tamper'; kind: 'ghostRule' }
   | { type: 'lab.injectFrame'; bytes: string }

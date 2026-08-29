@@ -28,7 +28,7 @@ import {
   type CookieNormalizeStats,
 } from '../../../BrowserSession';
 import { resolveLaunchScripts, buildConfigPayload } from '../inject';
-import { ExtensionC2Host } from './extensionC2Host';
+import { ExtensionC2Host, type DocumentInstallEvent } from './extensionC2Host';
 import {
   materializeSpeculumPpForSession,
   removeSpeculumPpSessionDir,
@@ -81,6 +81,9 @@ import { SidecarBuffer } from '../../../input/SidecarBuffer';
 import { EventApplier } from '../../../input/EventApplier';
 import { ingressToUnifiedIntent } from '../../../input/ingressToUnifiedIntent';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
+import { LaunchBudget, mapBootReasonToErrorCode, resolveLaunchBudgetMs } from './launchBudget';
+
+export type { DocumentInstallEvent };
 
 /** Optional lab/host probe adapters — session must not import `lab/` directly. */
 export type PageProjectionProbes = {
@@ -139,6 +142,8 @@ export class PageProjectionBrowserSession {
   private readonly rewriteHop = new FrameRewriteHop();
   private readonly probes: PageProjectionProbes;
   private readonly planeBridgeToken: string;
+  private launchBudget: LaunchBudget | null = null;
+  private readonly installEvents: DocumentInstallEvent[] = [];
 
   constructor(
     readonly sessionId: string,
@@ -184,6 +189,34 @@ export class PageProjectionBrowserSession {
       }
     };
     this.dataPlane.dataPlane.setHandler(onPlane);
+    this.extensionC2.setDocumentInstallHandler((evt) => {
+      this.installEvents.push(evt);
+      this.events.onConsole(
+        0,
+        `[document.install] gen=${evt.generation} kind=${evt.installKind} url=${evt.url}`,
+      );
+    });
+  }
+
+  /** Lab / diagnostics — document install stream from extension SW. */
+  getInstallTelemetry(): {
+    installCount: number;
+    lastInstallUrl: string | null;
+    lastGeneration: number | null;
+    events: DocumentInstallEvent[];
+  } {
+    const last = this.installEvents[this.installEvents.length - 1];
+    return {
+      installCount: this.installEvents.length,
+      lastInstallUrl: last?.url ?? null,
+      lastGeneration: last?.generation ?? null,
+      events: [...this.installEvents],
+    };
+  }
+
+  /** Exposed for lab launch probes. */
+  get dataPlaneHost(): ProjectionDataPlaneHost {
+    return this.dataPlane;
   }
 
   async launch(options: BrowserLaunchOptions): Promise<BrowserReadyInfo> {
@@ -263,7 +296,8 @@ export class PageProjectionBrowserSession {
     this.page = this.chrome.page;
     this.cdpSession = this.chrome.cdp;
     this.browser = this.context.browser();
-    await this.extensionC2.waitConnected();
+    this.launchBudget = new LaunchBudget(resolveLaunchBudgetMs());
+    await this.extensionC2.waitConnected(this.launchBudget.deadlineMs('C2Connect'));
 
     this.eventApplier = new EventApplier({
       buffer: new SidecarBuffer(),
@@ -429,8 +463,16 @@ export class PageProjectionBrowserSession {
       }
     }
     this.editableFocus.stop();
-    await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await this.dataPlane.waitEstablished({ afterGeneration: priorGeneration });
+    try {
+      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      const budget = this.launchBudget ?? new LaunchBudget();
+      await this.dataPlane.waitEstablished({
+        afterGeneration: priorGeneration,
+        timeoutMs: budget.deadlineMs('HelloEstablish'),
+      });
+    } catch (err) {
+      throw await this.enrichEstablishError(err);
+    }
     this.generation = this.dataPlane.establishedGeneration;
     this.url = this.page.url() || url;
     this.events.onLocationChanged(this.url);
@@ -627,6 +669,19 @@ export class PageProjectionBrowserSession {
     } catch (err) {
       return { ok: false, value: '', errorMessage: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /** Virtual expression in root or nested iframe context (loopback). Lab probes only. */
+  async evaluateVirtualExpression(code: string, contextId = CONTEXT_ID_ROOT): Promise<unknown> {
+    if (contextId === CONTEXT_ID_ROOT) {
+      const r = await this.evaluate(code);
+      return r.ok ? r.value : null;
+    }
+    const r = await this.loopbackInvoke<{ ok?: boolean; value?: unknown; reason?: string }>(
+      'evaluateInContext',
+      { contextId, expression: code },
+    );
+    return r.ok ? r.value : null;
   }
 
   async pushInput(input: DomInputIngress): Promise<
@@ -1320,7 +1375,11 @@ export class PageProjectionBrowserSession {
       cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
     });
     // ACK before any navigation — fail-closed (runtime-redesign.md §0 #3).
-    await this.extensionC2.pushSessionConfig(sessionConfig as import('./extensionC2Host').ExtensionSessionConfig);
+    const budget = this.launchBudget ?? new LaunchBudget();
+    await this.extensionC2.pushSessionConfig(
+      sessionConfig as import('./extensionC2Host').ExtensionSessionConfig,
+      budget.deadlineMs('SessionAck'),
+    );
     await installDocumentResponseHook(this.cdpSession, {
       mutators: [cspDocumentMutator],
       context,
@@ -1342,7 +1401,11 @@ export class PageProjectionBrowserSession {
       }
       const prior = this.generation;
       await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-      await this.dataPlane.waitEstablished({ afterGeneration: prior });
+      const navBudget = this.launchBudget ?? new LaunchBudget();
+      await this.dataPlane.waitEstablished({
+        afterGeneration: prior,
+        timeoutMs: navBudget.deadlineMs('HelloEstablish'),
+      });
       this.generation = this.dataPlane.establishedGeneration;
       this.url = p.url() || url;
       this.events.onLocationChanged(this.url);
@@ -1408,6 +1471,49 @@ export class PageProjectionBrowserSession {
       return { ok: true, ...value } as T;
     }
     return { ok: true } as T;
+  }
+
+  private async enrichEstablishError(err: unknown): Promise<Error> {
+    const base = err instanceof Error ? err : new Error(String(err));
+    const bag = base as Error & {
+      errorCode?: string;
+      phase?: string;
+      lastBootReason?: string;
+      lastHelloReject?: string;
+      documentUrl?: string;
+      installGeneration?: number;
+      installCount?: number;
+      installTimeline?: DocumentInstallEvent[];
+    };
+    const establishCodes = new Set(['data_plane_not_established', 'establish_timeout']);
+    if (!establishCodes.has(bag.errorCode ?? '') && bag.phase !== 'establish') {
+      return base;
+    }
+    bag.phase = 'establish';
+    bag.errorCode = bag.errorCode ?? 'establish_timeout';
+    bag.installGeneration = this.dataPlane.establishedGeneration;
+    bag.documentUrl = this.page?.url() ?? this.url;
+    const status = this.dataPlane.dataPlane.status;
+    if (status.lastError?.code) bag.lastHelloReject = status.lastError.code;
+    try {
+      const raw = await this.evaluate('JSON.stringify(globalThis.__speculumBootOutcome ?? null)');
+      if (raw.ok && typeof raw.value === 'string') {
+        const outcome = JSON.parse(raw.value) as { reason?: string; ok?: boolean };
+        if (outcome.reason) {
+          bag.lastBootReason = outcome.reason;
+          if (!outcome.ok) {
+            bag.errorCode = mapBootReasonToErrorCode(outcome.reason);
+            bag.phase = 'boot';
+          }
+        }
+      }
+    } catch {
+      /* ignore boot outcome read */
+    }
+    const tel = this.getInstallTelemetry();
+    bag.installCount = tel.installCount;
+    bag.installTimeline = tel.events;
+    return base;
   }
 }
 

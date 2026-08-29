@@ -108,7 +108,7 @@ A snapshot is a **raw state dump at S**, not an oracle result and not “a DOM d
 
 Default CSSOM mode is **`none`** (halt idle; DOM capture is not delayed for a CSSOM scan). Pass `{ cssom: 'committed' | 'scan' }` when the probe needs CSSOM — [cssom-poll-algorithm.md](cssom-poll-algorithm.md) use cases. Resync is not a snapshot: it always blocking-scans CSSOM.
 
-**What a lab CLI `--iso` run actually proves today:** Virtual table×DOM + digest at S, **CSSOM table×live** (Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `getStateSnapshot` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, or automated Projected CSS 1:1 vs Virtual paint. Form-control **property** 1:1 (`PP-PROP-1`) is lab `forms-state` (`iso.formProps`); CLI without a DOM client skips Projected explicitly. Lab client **does** materialize constructed CSSOM (C6) on the 4077 surface; CLI `--iso` still does not assert that paint. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented. Seal kill lists: [seal-gaps.md](seal-gaps.md).
+**What a lab CLI `--iso` run actually proves today:** Virtual table×DOM + digest at S, **CSSOM table×live** (Sheet/Rule × live Virtual `cssRules`, I2 top-level) via one `getStateSnapshot` turn, wire invariants, and table×table vs Node phase-1 apply. It does **not** prove tree×tree, or automated Projected CSS 1:1 vs Virtual paint. **Pixel diff gate** (shared `pixelDiff` + `paintCapture` probes): `cssom-matrix-nested` and `eneba-turnstile` folds compare Virtual vs Projected CDP clips — zero RGB tolerance; not covered by CLI `--iso`. Form-control **property** 1:1 (`PP-PROP-1`) is lab `forms-state` (`iso.formProps`); CLI without a DOM client skips Projected explicitly. Lab client **does** materialize constructed CSSOM (C6) on the 4077 surface; CLI `--iso` still does not assert that paint. `cssomPoll` is investigation only (I10). O1 / O4 / O5 are not implemented. Seal kill lists: [seal-gaps.md](seal-gaps.md).
 
 ---
 
@@ -276,4 +276,10 @@ Algorithm (worst-case-first, I1–I11): [cssom-poll-algorithm.md](cssom-poll-alg
 | **Stream HUD** | Lab UI **Stream** tab: per-`contextId` table (wire frames, emit/apply ±, desync, resync, overrun, seq, build/apply ms). Investigation only. |
 
 Code: `virtual/bus/contextBus.ts` + `virtual/bus/virtualDomainBus.ts` (telemetry + snapshot RPC + resync fan-down), `client/nestedResyncSurface.ts`, `client/nestedProjectedApply.ts`, `lab/host/contextIndex.ts`, `lab/probes/isomorphism.ts` (N-way).
+
+---
+
+## 11. Launch establish errors
+
+When establish fails (`establish_timeout`, `data_plane_not_established`), enriched session errors carry `installCount` and full **`installTimeline`** (`DocumentInstallEvent[]` with `installedAtMs` epoch + ISO `t` per `document.install`). Lab: `document-churn` fold verdict `launch.churn.timeline`; calibrate budget via `npm run lab:document-churn-x10` → `lab-runs/churn-x10-summary.json`. Override budget: `SPECULUM_LAUNCH_BUDGET_MS`.
 

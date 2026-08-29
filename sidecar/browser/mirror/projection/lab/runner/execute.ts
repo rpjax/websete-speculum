@@ -21,8 +21,19 @@ import { foldIframeOpen } from '../blueprints/fold/iframeOpen';
 import { foldApplyHonestyDesync } from '../blueprints/fold/applyHonestyDesync';
 import { foldCspNavLocale } from '../blueprints/fold/cspNavLocale';
 import { foldTurnstile } from '../blueprints/fold/turnstile';
+import { foldCssomMatrixNested } from '../blueprints/fold/cssomMatrixNested';
+import { foldDocumentChurn } from '../blueprints/fold/documentChurn';
 import { runTurnstileDiagnostic } from '../probes/turnstileDiagnostic';
 import { runNestedApplyFailureDiagnostic } from '../probes/nestedApplyFailureDiagnostic';
+import { runCssomMatrixDiagnostic } from '../probes/cssomMatrixDiagnostic';
+import { runPaintDiffProbe } from '../probes/paintDiffProbe';
+import { runLaunchTelemetryProbe } from '../probes/launchTelemetryProbe';
+import {
+  CSSOM_SHEET_DUMP_EXPR,
+  parseCssomSheetDump,
+  compareSheetDumps,
+} from '../probes/cssomSheetDump';
+import { evaluateVirtualProbe } from '../probes/evaluateVirtualProbe';
 import type { HostileKind } from './hostileFrames';
 import {
   encodeAttrDesyncFrame,
@@ -43,6 +54,8 @@ export type InjectAck = {
 export type ExecuteHooks = {
   chassis: LabChassis;
   resolveUrl: (url: string) => string;
+  projectedCdpUrl?: string | null;
+  labOrigin?: string;
   requestClientSnapshot?: (
     contextId: number,
     options?: {
@@ -53,6 +66,7 @@ export type ExecuteHooks = {
         nestedContextId: number;
         widgetNodeId?: number;
       };
+      cssomSheetDump?: { nestedContextId?: number };
     },
   ) => Promise<import('../probes/isomorphism').ClientStateSnapshot | null>;
   requestTamper?: () => Promise<{ ok: boolean; reason?: string } | null>;
@@ -698,6 +712,136 @@ export async function executeBlueprint(
         chassis.journal.acts.push({ name: 'probe.turnstilePaint', ok: true });
         return finish(true, diagnostic.hypothesis[0] ?? 'paint probe captured');
       }
+      case 'probe.cssomSheetDump': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const nestedContextId =
+          typeof params.nestedContextId === 'number' && params.nestedContextId > 0
+            ? params.nestedContextId
+            : 1;
+        let virtualDump = parseCssomSheetDump(null);
+        const raw = await evaluateVirtualProbe(session, CSSOM_SHEET_DUMP_EXPR, nestedContextId);
+        virtualDump = parseCssomSheetDump(raw);
+        let projectedDump = parseCssomSheetDump(null);
+        if (hooks.requestClientSnapshot) {
+          const snap = await hooks.requestClientSnapshot!(nestedContextId >= 2 ? nestedContextId : 1, {
+            cssomSheetDump: { nestedContextId },
+          });
+          if (snap?.cssomSheetDump) projectedDump = snap.cssomSheetDump;
+        }
+        const compare = compareSheetDumps(virtualDump, projectedDump);
+        const payload = { nestedContextId, virtual: virtualDump, projected: projectedDump, compare };
+        (chassis.journal as { cssomSheetDump?: unknown }).cssomSheetDump = payload;
+        if (chassis.dossierHandle) {
+          await writeJson(chassis.dossierHandle, 'probes/cssom-sheet-dump.json', payload, 'probes.cssomSheetDump');
+          const basename =
+            typeof params.artifactBasename === 'string' && params.artifactBasename.trim()
+              ? params.artifactBasename.trim()
+              : null;
+          if (basename) {
+            await writeJson(
+              chassis.dossierHandle,
+              `probes/${basename}-virtual.json`,
+              virtualDump,
+              'probes.cssomSheetDump.virtual',
+            );
+            await writeJson(
+              chassis.dossierHandle,
+              `probes/${basename}-projected.json`,
+              projectedDump,
+              'probes.cssomSheetDump.projected',
+            );
+          }
+        }
+        chassis.journal.acts.push({ name: 'probe.cssomSheetDump', ok: true });
+        return finish(true, compare.identical ? 'identical' : compare.notes[0] ?? 'diverged');
+      }
+      case 'probe.paintDiff': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const clip = params.clip as { x: number; y: number; width: number; height: number } | undefined;
+        if (!clip || typeof clip.width !== 'number') return finish(false, 'clip required');
+        const diagnostic = await runPaintDiffProbe({
+          chassis,
+          session,
+          dossier: chassis.dossierHandle,
+          clip,
+          contextId: typeof params.contextId === 'number' ? params.contextId : 1,
+          artifactPrefix: typeof params.artifactPrefix === 'string' ? params.artifactPrefix : 'paint-diff',
+          projectedCdpUrl: hooks.projectedCdpUrl,
+          labOrigin: hooks.labOrigin,
+        });
+        const journalKey = typeof params.journalKey === 'string' ? params.journalKey : 'paintDiff';
+        (chassis.journal as Record<string, unknown>)[journalKey] = diagnostic;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            `probes/${journalKey}.json`,
+            diagnostic,
+            'probes.paintDiff',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.paintDiff', ok: true });
+        return finish(true, diagnostic.hypothesis[0] ?? 'paint diff captured');
+      }
+      case 'probe.cssomMatrix': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const nestedContextId =
+          typeof params.nestedContextId === 'number' && params.nestedContextId > 0
+            ? params.nestedContextId
+            : 2;
+        const diagnostic = await runCssomMatrixDiagnostic({
+          chassis,
+          session,
+          dossier: chassis.dossierHandle,
+          nestedContextId,
+          projectedCdpUrl: hooks.projectedCdpUrl,
+          labOrigin: hooks.labOrigin,
+          getClientSheetDump: hooks.requestClientSnapshot
+            ? async () => {
+                const snap = await hooks.requestClientSnapshot!(nestedContextId, {
+                  cssomSheetDump: { nestedContextId },
+                });
+                return snap?.cssomSheetDump ?? null;
+              }
+            : undefined,
+        });
+        (chassis.journal as { cssomMatrix?: unknown }).cssomMatrix = diagnostic;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            'probes/cssom-matrix.json',
+            diagnostic,
+            'probes.cssomMatrix',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.cssomMatrix', ok: true });
+        return finish(true, diagnostic.hypothesis[0] ?? 'cssom matrix captured');
+      }
+      case 'probe.launchTelemetry': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const diagnostic = await runLaunchTelemetryProbe({ chassis, session });
+        (chassis.journal as { launchTelemetry?: unknown }).launchTelemetry = diagnostic;
+        (chassis.journal as { established?: boolean }).established = diagnostic.established;
+        (chassis.journal as { installTelemetry?: unknown }).installTelemetry =
+          diagnostic.installTelemetry ?? undefined;
+        (chassis.journal as { bootOutcome?: unknown }).bootOutcome = diagnostic.bootOutcome ?? undefined;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            'probes/launch-telemetry.json',
+            diagnostic,
+            'probes.launchTelemetry',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.launchTelemetry', ok: true });
+        return finish(
+          diagnostic.established,
+          diagnostic.established ? 'established' : diagnostic.bootOutcome?.reason ?? 'not established',
+        );
+      }
       case 'collect.enable':
         return finish(true, 'collectors always on chassis');
       case 'injectFrame': {
@@ -893,6 +1037,10 @@ export async function executeBlueprint(
           verdicts = foldCspNavLocale(chassis);
         } else if (ruleset === 'turnstile' || ruleset === 'fold/turnstile') {
           verdicts = foldTurnstile(chassis);
+        } else if (ruleset === 'cssom-matrix-nested' || ruleset === 'fold/cssomMatrixNested') {
+          verdicts = foldCssomMatrixNested(chassis);
+        } else if (ruleset === 'document-churn' || ruleset === 'fold/documentChurn') {
+          verdicts = foldDocumentChurn(chassis);
         } else return finish(false, `unknown fold ruleset ${ruleset}`);
         return finish(true, `verdicts=${verdicts.length}`);
       }

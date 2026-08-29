@@ -5633,7 +5633,9 @@
 
   // browser/mirror/projection/lab/probes/turnstilePierce.ts
   var import_closedShadowLookup = __toESM(require_closedShadowLookup());
-  function sampleTurnstileElement(el, name) {
+
+  // browser/mirror/projection/lab/probes/labPierce.ts
+  function sampleElement(el, name) {
     if (!el) return { name, ok: false, reason: "missing" };
     const r = el.getBoundingClientRect();
     const win = el.ownerDocument.defaultView;
@@ -5653,7 +5655,7 @@
       src: isIframe ? el.getAttribute("src") : null
     };
   }
-  function sampleTurnstilePaint(el) {
+  function samplePaint(el) {
     if (!el) return null;
     const win = el.ownerDocument.defaultView;
     const cs = win ? win.getComputedStyle(el) : null;
@@ -5671,6 +5673,8 @@
       height: cs.height
     };
   }
+
+  // browser/mirror/projection/lab/probes/turnstilePierce.ts
   function findCfTurnstileWithHost(doc) {
     const root = doc.documentElement;
     if (!root) return { iframe: null, shadowHost: null };
@@ -5698,10 +5702,115 @@
   function measureTurnstileRootRectsFromDocument(doc) {
     const { iframe, shadowHost } = findCfTurnstileWithHost(doc);
     return [
-      sampleTurnstileElement(iframe, "nested_host_iframe_in_root"),
-      sampleTurnstileElement(shadowHost, "root_shadow_host"),
-      sampleTurnstileElement(doc.documentElement, "root_documentElement")
+      sampleElement(iframe, "nested_host_iframe_in_root"),
+      sampleElement(shadowHost, "root_shadow_host"),
+      sampleElement(doc.documentElement, "root_documentElement")
     ];
+  }
+
+  // browser/mirror/projection/lab/probes/cssomSheetDump.ts
+  var CSSOM_SHEET_DUMP_EXPR = `(() => {
+  function dumpSheetList(list, scope, hostId) {
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      if (!s) continue;
+      let rules = '<<ERROR>>';
+      let ruleCount = 0;
+      try {
+        const arr = [];
+        for (let j = 0; j < s.cssRules.length; j++) arr.push(s.cssRules[j].cssText);
+        rules = arr;
+        ruleCount = arr.length;
+      } catch {
+        rules = '<<CROSS-ORIGIN>>';
+      }
+      const owner = s.ownerNode;
+      const dataClass =
+        owner && owner.dataset && owner.dataset.class ? String(owner.dataset.class) : null;
+      out.push({
+        href: s.href || null,
+        ownerNode: owner ? owner.tagName + (owner.id ? '#' + owner.id : '') : null,
+        dataClass,
+        ruleCount,
+        rules,
+        adopted: scope === 'shadow' || !owner,
+        scope,
+        shadowHostId: hostId || null,
+      });
+    }
+    return out;
+  }
+  function collectShadowSheets(root, hostEl) {
+    const hostId = hostEl.id || hostEl.tagName.toLowerCase();
+    const out = [];
+    try {
+      out.push(...dumpSheetList(root.adoptedStyleSheets || [], 'shadow', hostId));
+    } catch {}
+    const queue = [root];
+    while (queue.length) {
+      const n = queue.shift();
+      for (const c of n.childNodes) {
+        if (c.nodeType !== 1) continue;
+        const el = c;
+        if (el.shadowRoot) {
+          out.push(...dumpSheetList(el.shadowRoot.adoptedStyleSheets || [], 'shadow', el.id || el.tagName));
+          queue.push(el.shadowRoot);
+        }
+        queue.push(el);
+      }
+    }
+    return out;
+  }
+  const entries = dumpSheetList(document.styleSheets, 'document', null);
+  const closedFixture = globalThis.__speculumClosedRoot;
+  if (closedFixture) {
+    try {
+      entries.push(...dumpSheetList(closedFixture.styleSheets, 'shadow', 'shadow-host'));
+    } catch {}
+    try {
+      entries.push(...dumpSheetList(closedFixture.adoptedStyleSheets || [], 'shadow', 'shadow-host'));
+    } catch {}
+  }
+  const hosts = document.querySelectorAll('*');
+  for (const h of hosts) {
+    const sr = h.shadowRoot || (globalThis.__speculumResolveShadowRoot ? globalThis.__speculumResolveShadowRoot(h) : null);
+    if (sr) entries.push(...collectShadowSheets(sr, h));
+  }
+  let totalRules = 0;
+  for (const e of entries) {
+    if (Array.isArray(e.rules)) totalRules += e.rules.length;
+  }
+  return JSON.stringify({
+    ok: true,
+    documentUrl: document.URL,
+    entries,
+    styleSheetCount: entries.filter((e) => !e.adopted).length,
+    adoptedCount: entries.filter((e) => e.adopted).length,
+    totalRules,
+  });
+})()`;
+  function parseCssomSheetDump(raw) {
+    if (typeof raw === "string") {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        return { ok: false, reason: "invalid_json", entries: [], styleSheetCount: 0, adoptedCount: 0, totalRules: 0 };
+      }
+    }
+    if (!raw || typeof raw !== "object") {
+      return { ok: false, reason: "empty", entries: [], styleSheetCount: 0, adoptedCount: 0, totalRules: 0 };
+    }
+    const o = raw;
+    return {
+      ok: o.ok === true,
+      reason: o.reason,
+      documentUrl: o.documentUrl,
+      entries: Array.isArray(o.entries) ? o.entries : [],
+      styleSheetCount: typeof o.styleSheetCount === "number" ? o.styleSheetCount : 0,
+      adoptedCount: typeof o.adoptedCount === "number" ? o.adoptedCount : 0,
+      totalRules: typeof o.totalRules === "number" ? o.totalRules : 0
+    };
   }
 
   // browser/mirror/projection/lab/client/LabProjectedHarness.ts
@@ -5862,7 +5971,41 @@
       if (!node || node.nodeType !== Node.ELEMENT_NODE) {
         return { ok: false, reason: "widget_missing", paint: null };
       }
-      return { ok: true, paint: sampleTurnstilePaint(node) };
+      return { ok: true, paint: samplePaint(node) };
+    }
+    /** Lab diag — CSSOM sheet dump in nested or root projected document. */
+    probeCssomSheetDump(nestedContextId) {
+      const contextId = nestedContextId ?? import_frame.CONTEXT_ID_ROOT;
+      const doc = contextId === import_frame.CONTEXT_ID_ROOT ? this.client.document : this.client.getNestedApply(contextId)?.document ?? null;
+      if (!doc) {
+        return {
+          ok: false,
+          reason: "document_missing",
+          entries: [],
+          styleSheetCount: 0,
+          adoptedCount: 0,
+          totalRules: 0
+        };
+      }
+      try {
+        const fn = new Function(`return (${CSSOM_SHEET_DUMP_EXPR})`);
+        const prevDoc = globalThis.document;
+        globalThis.document = doc;
+        try {
+          return parseCssomSheetDump(fn());
+        } finally {
+          if (prevDoc) globalThis.document = prevDoc;
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          reason: err instanceof Error ? err.message : String(err),
+          entries: [],
+          styleSheetCount: 0,
+          adoptedCount: 0,
+          totalRules: 0
+        };
+      }
     }
     /**
      * Lab diag — rect ladder from nested widget up to root projected surface.
@@ -5890,8 +6033,8 @@
       const widgetNode = nested.registry.get(widgetNodeId);
       const widgetEl = widgetNode && widgetNode.nodeType === Node.ELEMENT_NODE ? widgetNode : null;
       const nestedLevels = [
-        toLevel(sampleTurnstileElement(widgetEl, "nested_widget_div"), 1),
-        toLevel(sampleTurnstileElement(nested.document.documentElement, "nested_documentElement"), 2)
+        toLevel(sampleElement(widgetEl, "nested_widget_div"), 1),
+        toLevel(sampleElement(nested.document.documentElement, "nested_documentElement"), 2)
       ];
       const rootLevels = this.measureTurnstileRootRects().levels.map((s, i) => toLevel(s, i + 3));
       return { contextId: nestedContextId, ok: true, levels: [...nestedLevels, ...rootLevels] };
@@ -6867,6 +7010,10 @@
             nestedContextId: paintRaw.nestedContextId,
             widgetNodeId: typeof paintRaw.widgetNodeId === "number" ? paintRaw.widgetNodeId : void 0
           } : void 0;
+          const sheetDumpRaw = msg.cssomSheetDump;
+          const cssomSheetDumpReq = typeof sheetDumpRaw === "object" && sheetDumpRaw !== null ? {
+            nestedContextId: typeof sheetDumpRaw.nestedContextId === "number" ? sheetDumpRaw.nestedContextId : void 0
+          } : void 0;
           void ensureProjection().then(async (p) => {
             const ctx = p.snapshotContext(contextId);
             const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
@@ -6889,6 +7036,7 @@
                 widgetPaintReason: paint.reason
               };
             }
+            const cssomSheetDump = cssomSheetDumpReq ? p.probeCssomSheetDump(cssomSheetDumpReq.nestedContextId ?? contextId) : void 0;
             ws?.send(
               JSON.stringify({
                 type: "client.snapshotResult",
@@ -6906,7 +7054,8 @@
                 ...nestedPeek !== void 0 ? { nestedPeek } : {},
                 ...registryProbe !== void 0 ? { registryProbe } : {},
                 ...rectLadder !== void 0 ? { rectLadder } : {},
-                ...paintProbe !== void 0 ? { paintProbe } : {}
+                ...paintProbe !== void 0 ? { paintProbe } : {},
+                ...cssomSheetDump !== void 0 ? { cssomSheetDump } : {}
               })
             );
           });

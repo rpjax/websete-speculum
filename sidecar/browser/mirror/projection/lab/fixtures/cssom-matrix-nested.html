@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CSSOM matrix nested</title>
+    <style>
+      :root {
+        --card-accent: #e85d04;
+      }
+      body {
+        margin: 1rem;
+        font-family: system-ui, sans-serif;
+        background: #eef2ff;
+      }
+      h1 {
+        font-size: 1rem;
+        margin: 0 0 8px;
+      }
+      iframe {
+        width: 320px;
+        height: 200px;
+        border: 2px solid #333;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>CSSOM matrix nested (root)</h1>
+    <iframe id="nested" title="matrix-inner"></iframe>
+    <script>
+      (async function () {
+        let xoOrigin = 'http://127.0.0.1:4078';
+        try {
+          const res = await fetch('/lab/config.json');
+          if (res.ok) {
+            const cfg = await res.json();
+            if (cfg.crossOriginOrigin) xoOrigin = cfg.crossOriginOrigin;
+          }
+        } catch {
+          /* fallback port */
+        }
+        document.getElementById('nested').src =
+          'cssom-matrix-nested-inner.html?xoOrigin=' + encodeURIComponent(xoOrigin);
+      })();
+    </script>
+  </body>
+</html>

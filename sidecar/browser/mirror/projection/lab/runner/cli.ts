@@ -12,6 +12,11 @@ import { executeBlueprint } from './execute';
 import { reportExitCode } from '../dossier/types';
 import { LAB_TELEMETRY_DEFAULTS } from '@speculum/page-projection/core/telemetry';
 import { pipeFixtureFile } from '../fixtureServe';
+import {
+  createCrossOriginFixtureServer,
+  labConfigJson,
+  type CrossOriginFixtureServer,
+} from '../crossOriginFixtureServer';
 
 type Args = {
   blueprint: string;
@@ -93,15 +98,32 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
-async function startFixtureHttp(): Promise<{ origin: string; close: () => Promise<void> }> {
+async function startFixtureHttp(): Promise<{
+  origin: string;
+  crossOriginOrigin: string;
+  close: () => Promise<void>;
+}> {
   const { fixturesDir } = labAssetRoots();
+  let xoServer: CrossOriginFixtureServer | null = null;
+  try {
+    xoServer = await createCrossOriginFixtureServer('127.0.0.1');
+  } catch (err) {
+    console.warn('[lab-cli] cross-origin fixture server failed:', err);
+  }
+  const crossOriginOrigin = xoServer?.origin ?? 'http://127.0.0.1:4078';
+
   const server = http.createServer((req, res) => {
     const url = req.url ?? '/';
+    const pathname = url.split('?')[0] ?? url;
+    if (pathname === '/lab/config.json') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(labConfigJson(crossOriginOrigin)));
+      return;
+    }
     if (!url.startsWith('/fixtures/')) {
       res.writeHead(404).end();
       return;
     }
-    const pathname = url.split('?')[0] ?? url;
     const file = path.join(fixturesDir, decodeURIComponent(pathname.slice('/fixtures/'.length)));
     if (!file.startsWith(path.normalize(fixturesDir))) {
       res.writeHead(400).end('bad path');
@@ -114,10 +136,13 @@ async function startFixtureHttp(): Promise<{ origin: string; close: () => Promis
   if (!addr || typeof addr === 'string') throw new Error('fixture http: no port');
   return {
     origin: `http://127.0.0.1:${addr.port}`,
-    close: () =>
-      new Promise((resolve, reject) => {
+    crossOriginOrigin,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
-      }),
+      });
+      if (xoServer) await xoServer.close();
+    },
   };
 }
 

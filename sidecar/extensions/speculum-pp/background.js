@@ -369,6 +369,15 @@ function handleRuntimeMessage(port, msg) {
     // Every successful answer is a new document install → bump generation.
     const generation = nextGeneration++;
     void persistState();
+    const tabUrl = port.sender?.tab?.url ?? '';
+    const installKind = !tabUrl || tabUrl === 'about:blank' ? 'blank' : 'navigation';
+    c2Send({
+      kind: 'DocumentInstall',
+      generation,
+      url: tabUrl,
+      installKind,
+      t: new Date().toISOString(),
+    });
     port.postMessage({
       channel: RUNTIME_CHANNEL,
       kind: 'initContext-ok',

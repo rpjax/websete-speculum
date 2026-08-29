@@ -17,6 +17,7 @@ import {
   DOCUMENT_ID,
   SHADOW_INIT_FLAGS_MASK,
   SHADOW_MODE_OPEN,
+  SHADOW_MODE_CLOSED,
   type CheckOp,
   type FrameOp,
 } from './frame';
@@ -237,13 +238,13 @@ function validateOpPre(
   switch (op.op) {
     case OpCode.NodeNew: {
       if (op.kind !== NodeKind.ShadowRoot) return null;
-      if (op.mode !== SHADOW_MODE_OPEN) {
+      if (op.mode !== SHADOW_MODE_OPEN && op.mode !== SHADOW_MODE_CLOSED) {
         return failOp(
           i,
           'malformed',
           'nodeNew',
           op.id,
-          'NODE_NEW SHADOW_ROOT mode must be 0 (open) (frame-protocol.md §4.2)',
+          'NODE_NEW SHADOW_ROOT mode must be 0 (open) or 1 (closed) (frame-protocol.md §4.2)',
         );
       }
       if ((op.initFlags & ~SHADOW_INIT_FLAGS_MASK) !== 0) {

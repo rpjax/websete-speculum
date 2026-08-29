@@ -32,8 +32,9 @@ export const CONTEXT_ID_ROOT = 1;
 /** `before = 0` in `INSERT` means "insert at end" (§4.3). */
 export const INSERT_AT_END: DomNodeKey = 0;
 
-/** `NODE_NEW SHADOW_ROOT.mode` — open only this version (`1` closed is NIT malformed). */
+/** `NODE_NEW SHADOW_ROOT.mode` — `0` open, `1` closed. */
 export const SHADOW_MODE_OPEN = 0;
+export const SHADOW_MODE_CLOSED = 1;
 /** `initFlags` bit0 — `delegatesFocus`. */
 export const SHADOW_INIT_DELEGATES_FOCUS = 0x01;
 /** `initFlags` bit1 — `clonable`. */

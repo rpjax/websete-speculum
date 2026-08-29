@@ -20,7 +20,10 @@ export type ActionKind =
   | 'writeDossier'
   | 'injectFrame'
   | 'pushInput'
-  | 'probe.turnstile';
+  | 'probe.turnstile'
+  | 'probe.nestedApplyFailure'
+  | 'probe.turnstileRectLadder'
+  | 'probe.turnstilePaint';
 
 export type LabAction = {
   id: string;

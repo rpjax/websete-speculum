@@ -48,6 +48,10 @@ import { mapLocalHitToRootPoint } from '../core/input/localHit';
 import type { CssomPollStats } from './cssom/cssomPoller';
 import { applyScrollPositions } from './input/applyScrollPositions';
 import { NONE_DOM_NODE_KEY } from '../core/domNodeKey';
+import { installClosedShadowCapture } from './dom/closedShadowCapture';
+import { resolveShadowRoot } from '../core/closedShadowLookup';
+
+installClosedShadowCapture();
 
 /**
  * Nested cold seed: wait until the document is past `loading`, then two rAFs so
@@ -176,6 +180,56 @@ declare global {
           x?: number;
           y?: number;
         }) => Promise<{ ok: boolean; x?: number; y?: number; reason?: string }>;
+        measureNodeRect: (args: {
+          nodeId: number;
+          contextId?: number;
+        }) => Promise<{
+          ok: boolean;
+          reason?: string;
+          tagName?: string;
+          rect?: { x: number; y: number; width: number; height: number };
+          offsetWidth?: number;
+          offsetHeight?: number;
+          display?: string | null;
+          visibility?: string | null;
+          hasSrcAttr?: boolean;
+          src?: string | null;
+        }>;
+        measureNodePaint: (args: {
+          nodeId: number;
+          contextId?: number;
+        }) => Promise<{
+          ok: boolean;
+          reason?: string;
+          paint?: {
+            backgroundColor: string;
+            color: string;
+            opacity: string;
+            visibility: string;
+            display: string;
+            borderTopWidth: string;
+            borderTopColor: string;
+            borderTopStyle: string;
+            width: string;
+            height: string;
+          };
+        }>;
+        measureTurnstileRootRects: () => Promise<{
+          ok: boolean;
+          levels?: Array<{
+            name: string;
+            ok: boolean;
+            reason?: string;
+            tagName?: string;
+            rect?: { x: number; y: number; width: number; height: number };
+            offsetWidth?: number;
+            offsetHeight?: number;
+            display?: string | null;
+            visibility?: string | null;
+            hasSrcAttr?: boolean | null;
+            src?: string | null;
+          }>;
+        }>;
       }
     | undefined;
 }
@@ -357,6 +411,22 @@ void (async () => {
             y: a.y,
           });
         }
+        case 'measureNodeRect': {
+          const a = (args ?? {}) as { nodeId?: number; contextId?: number };
+          if (typeof a.nodeId !== 'number') {
+            throw new Error('measureNodeRect: missing nodeId');
+          }
+          return p.measureNodeRect({ nodeId: a.nodeId, contextId: a.contextId });
+        }
+        case 'measureTurnstileRootRects':
+          return p.measureTurnstileRootRects();
+        case 'measureNodePaint': {
+          const a = (args ?? {}) as { nodeId?: number; contextId?: number };
+          if (typeof a.nodeId !== 'number') {
+            throw new Error('measureNodePaint: missing nodeId');
+          }
+          return p.measureNodePaint({ nodeId: a.nodeId, contextId: a.contextId });
+        }
         case 'haltWorld':
           p.haltWorld();
           return { ok: true };
@@ -403,6 +473,9 @@ void (async () => {
     keyOfSelector: async () => ({ ok: false as const, reason: 'producer_booting' }),
     resolveElementHit: async () => ({ ok: false as const, reason: 'producer_booting' }),
     resolveNodeHit: async () => ({ ok: false as const, reason: 'producer_booting' }),
+    measureNodeRect: async () => ({ ok: false as const, reason: 'producer_booting' }),
+    measureNodePaint: async () => ({ ok: false as const, reason: 'producer_booting' }),
+    measureTurnstileRootRects: async () => ({ ok: false as const, reason: 'producer_booting' }),
     haltWorld: () => {},
     resumeWorld: () => {},
     flushFrame: () => ({ generation: identity.generation, sequence: 0 }),
@@ -615,6 +688,118 @@ void (async () => {
     return { ok: true as const, x, y };
   });
 
+  bus.onInvocation('measureNodeRect', (args: { nodeId: number }) => {
+    frameEmitter.flushNow();
+    const node = domNodes.get(args.nodeId);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+      return { ok: false as const, reason: 'not_element' };
+    }
+    const el = node as Element;
+    const r = el.getBoundingClientRect();
+    const win = document.defaultView;
+    const cs = win ? win.getComputedStyle(el) : null;
+    const htmlEl = el as HTMLElement;
+    return {
+      ok: true as const,
+      tagName: el.tagName.toLowerCase(),
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      offsetWidth: htmlEl.offsetWidth,
+      offsetHeight: htmlEl.offsetHeight,
+      display: cs?.display ?? null,
+      visibility: cs?.visibility ?? null,
+      hasSrcAttr: el.hasAttribute('src'),
+      src: el.getAttribute('src'),
+    };
+  });
+
+  bus.onInvocation('measureNodePaint', (args: { nodeId: number }) => {
+    frameEmitter.flushNow();
+    const node = domNodes.get(args.nodeId);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+      return { ok: false as const, reason: 'not_element' };
+    }
+    const el = node as Element;
+    const win = document.defaultView;
+    const cs = win ? win.getComputedStyle(el) : null;
+    if (!cs) return { ok: false as const, reason: 'no_computed_style' };
+    return {
+      ok: true as const,
+      paint: {
+        backgroundColor: cs.backgroundColor,
+        color: cs.color,
+        opacity: cs.opacity,
+        visibility: cs.visibility,
+        display: cs.display,
+        borderTopWidth: cs.borderTopWidth,
+        borderTopColor: cs.borderTopColor,
+        borderTopStyle: cs.borderTopStyle,
+        width: cs.width,
+        height: cs.height,
+      },
+    };
+  });
+
+  bus.onInvocation('measureTurnstileRootRects', () => {
+    frameEmitter.flushNow();
+    const sample = (el: Element | null, name: string) => {
+      if (!el) return { name, ok: false as const, reason: 'missing' as const };
+      const r = el.getBoundingClientRect();
+      const win = el.ownerDocument.defaultView;
+      const cs = win ? win.getComputedStyle(el) : null;
+      const htmlEl = el as HTMLElement;
+      const isIframe = el.tagName === 'IFRAME';
+      return {
+        name,
+        ok: true as const,
+        tagName: el.tagName.toLowerCase(),
+        rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+        offsetWidth: htmlEl.offsetWidth,
+        offsetHeight: htmlEl.offsetHeight,
+        display: cs?.display ?? null,
+        visibility: cs?.visibility ?? null,
+        hasSrcAttr: isIframe ? el.hasAttribute('src') : null,
+        src: isIframe ? el.getAttribute('src') : null,
+      };
+    };
+    const findCfIframe = (): { iframe: HTMLIFrameElement | null; shadowHost: Element | null } => {
+      const queue: Array<{ node: Node; shadowHost: Element | null }> = [
+        { node: document.documentElement, shadowHost: null },
+      ];
+      while (queue.length > 0) {
+        const { node: n, shadowHost } = queue.shift()!;
+        if (n.nodeType !== Node.ELEMENT_NODE) continue;
+        const el = n as Element;
+        if (el.tagName === 'IFRAME') {
+          const id = el.id || '';
+          const src = el.getAttribute('src') || '';
+          if (id.startsWith('cf-chl') || /challenges\.cloudflare\.com|turnstile/i.test(src)) {
+            const hostFromRoot =
+              shadowHost ??
+              (el.getRootNode() instanceof ShadowRoot
+                ? ((el.getRootNode() as ShadowRoot).host as Element)
+                : null);
+            return { iframe: el as HTMLIFrameElement, shadowHost: hostFromRoot };
+          }
+        }
+        const sr = resolveShadowRoot(el);
+        if (sr) {
+          for (const c of Array.from(sr.childNodes)) queue.push({ node: c, shadowHost: el });
+        }
+        for (const c of Array.from(el.childNodes)) queue.push({ node: c, shadowHost });
+      }
+      return { iframe: null, shadowHost: null };
+    };
+    const { iframe, shadowHost } = findCfIframe();
+    return {
+      ok: true as const,
+      levels: [
+        sample(iframe, 'nested_host_iframe_in_root'),
+        sample(shadowHost, 'root_shadow_host'),
+        sample(document.documentElement, 'root_documentElement'),
+      ],
+    };
+  });
+
   bus.onResyncRequest((req) => {
     if (req.contextId !== mine) return;
     frameEmitter.requestResync((seq) => {
@@ -823,6 +1008,17 @@ void (async () => {
       const contextId =
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
       return bus.requestResolveNodeHit(contextId, args.nodeId, args.localX, args.localY);
+    },
+    measureNodeRect: async (args) => {
+      const contextId =
+        typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+      return bus.requestMeasureNodeRect(contextId, args.nodeId);
+    },
+    measureTurnstileRootRects: async () => bus.requestMeasureTurnstileRootRects(CONTEXT_ID_ROOT),
+    measureNodePaint: async (args) => {
+      const contextId =
+        typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
+      return bus.requestMeasureNodePaint(contextId, args.nodeId);
     },
   };
   setBootOutcome('established', {

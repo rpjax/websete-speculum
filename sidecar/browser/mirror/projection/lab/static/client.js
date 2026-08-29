@@ -220,7 +220,7 @@
     "../packages/page-projection/dist/core/frame.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.spliceCssomBeforeCheck = exports.createFrame = exports.CSSOM_SCOPE_PIERCE_HOST = exports.CSSOM_SCOPE_MAIN = exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.SHADOW_INIT_FLAGS_MASK = exports.SHADOW_INIT_SERIALIZABLE = exports.SHADOW_INIT_CLONABLE = exports.SHADOW_INIT_DELEGATES_FOCUS = exports.SHADOW_MODE_OPEN = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
+      exports.spliceCssomBeforeCheck = exports.createFrame = exports.CSSOM_SCOPE_PIERCE_HOST = exports.CSSOM_SCOPE_MAIN = exports.CHECK_SCOPE_RANGE = exports.CHECK_SCOPE_TABLE = exports.SHADOW_INIT_FLAGS_MASK = exports.SHADOW_INIT_SERIALIZABLE = exports.SHADOW_INIT_CLONABLE = exports.SHADOW_INIT_DELEGATES_FOCUS = exports.SHADOW_MODE_CLOSED = exports.SHADOW_MODE_OPEN = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.NodeKind = void 0;
       var opcodes_1 = require_opcodes();
       Object.defineProperty(exports, "NodeKind", { enumerable: true, get: function() {
         return opcodes_1.NodeKind;
@@ -231,6 +231,7 @@
       exports.CONTEXT_ID_ROOT = 1;
       exports.INSERT_AT_END = 0;
       exports.SHADOW_MODE_OPEN = 0;
+      exports.SHADOW_MODE_CLOSED = 1;
       exports.SHADOW_INIT_DELEGATES_FOCUS = 1;
       exports.SHADOW_INIT_CLONABLE = 2;
       exports.SHADOW_INIT_SERIALIZABLE = 4;
@@ -519,8 +520,8 @@
               const host = r.u32();
               const mode = r.u8();
               const initFlags = r.u8();
-              if (mode !== frame_1.SHADOW_MODE_OPEN) {
-                throw new Error(`NODE_NEW SHADOW_ROOT mode ${mode} is not open (frame-protocol.md \xA74.2)`);
+              if (mode !== frame_1.SHADOW_MODE_OPEN && mode !== frame_1.SHADOW_MODE_CLOSED) {
+                throw new Error(`NODE_NEW SHADOW_ROOT mode ${mode} is invalid (frame-protocol.md \xA74.2)`);
               }
               if ((initFlags & ~frame_1.SHADOW_INIT_FLAGS_MASK) !== 0) {
                 throw new Error(`NODE_NEW SHADOW_ROOT initFlags ${initFlags} has reserved bits (frame-protocol.md \xA74.2)`);
@@ -1547,8 +1548,8 @@
           case opcodes_1.OpCode.NodeNew: {
             if (op.kind !== opcodes_1.NodeKind.ShadowRoot)
               return null;
-            if (op.mode !== frame_1.SHADOW_MODE_OPEN) {
-              return failOp(i, "malformed", "nodeNew", op.id, "NODE_NEW SHADOW_ROOT mode must be 0 (open) (frame-protocol.md \xA74.2)");
+            if (op.mode !== frame_1.SHADOW_MODE_OPEN && op.mode !== frame_1.SHADOW_MODE_CLOSED) {
+              return failOp(i, "malformed", "nodeNew", op.id, "NODE_NEW SHADOW_ROOT mode must be 0 (open) or 1 (closed) (frame-protocol.md \xA74.2)");
             }
             if ((op.initFlags & ~frame_1.SHADOW_INIT_FLAGS_MASK) !== 0) {
               return failOp(i, "malformed", "nodeNew", op.id, "NODE_NEW SHADOW_ROOT reserved initFlags (frame-protocol.md \xA74.2)");
@@ -1948,6 +1949,31 @@
     }
   });
 
+  // ../packages/page-projection/dist/core/closedShadowLookup.js
+  var require_closedShadowLookup = __commonJS({
+    "../packages/page-projection/dist/core/closedShadowLookup.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.resolveShadowRoot = exports.lookupClosedShadowRoot = exports.registerClosedShadowRoot = void 0;
+      var closedByHost = /* @__PURE__ */ new WeakMap();
+      function registerClosedShadowRoot(host, root) {
+        closedByHost.set(host, root);
+      }
+      exports.registerClosedShadowRoot = registerClosedShadowRoot;
+      function lookupClosedShadowRoot(host) {
+        return closedByHost.get(host) ?? null;
+      }
+      exports.lookupClosedShadowRoot = lookupClosedShadowRoot;
+      function resolveShadowRoot2(host) {
+        const open = host.shadowRoot;
+        if (open !== null)
+          return open;
+        return lookupClosedShadowRoot(host);
+      }
+      exports.resolveShadowRoot = resolveShadowRoot2;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/applyDom.js
   var require_applyDom = __commonJS({
     "../packages/page-projection/dist/projected/applyDom.js"(exports) {
@@ -1968,6 +1994,7 @@
       var nestedNav_1 = require_nestedNav();
       var scriptingOnPaintParity_1 = require_scriptingOnPaintParity();
       var projectedBlankIframe_1 = require_projectedBlankIframe();
+      var closedShadowLookup_1 = require_closedShadowLookup();
       var DomFrameApplier = class {
         queued = [];
         raf = null;
@@ -2074,7 +2101,9 @@
               if (!this.applyOp(op))
                 return false;
             } catch (err) {
-              const message = err instanceof Error ? `${err.name}: ${err.message} @op[${i}]=${op.op}` : `throw @op[${i}]=${op.op}`;
+              const opLabel = op.op === opcodes_1.OpCode.Insert ? `insert parent=${op.parent} before=${op.before} ids=[${op.ids.join(",")}]` : `op=${op.op}`;
+              const errText = err instanceof Error ? `${err.name}: ${err.message}` : typeof err === "object" && err !== null && "name" in err ? `${String(err.name)}: ${String(err.message ?? err)}` : String(err);
+              const message = `${errText} @op[${i}]=${op.op} ${opLabel}`;
               return this.failOp("malformed", "apply", "id" in op && typeof op.id === "number" ? op.id : 0, message);
             }
           }
@@ -2508,7 +2537,7 @@
             const el = host;
             if (el.shadowRoot)
               return this.fail("bad_target", "nodeNew", op.id);
-            const init = { mode: "open" };
+            const init = { mode: op.mode === frame_1.SHADOW_MODE_CLOSED ? "closed" : "open" };
             if ((op.initFlags & frame_1.SHADOW_INIT_DELEGATES_FOCUS) !== 0)
               init.delegatesFocus = true;
             const extra = init;
@@ -2518,6 +2547,9 @@
               extra.serializable = true;
             try {
               node = el.attachShadow(init);
+              if (init.mode === "closed") {
+                (0, closedShadowLookup_1.registerClosedShadowRoot)(el, node);
+              }
             } catch {
               return this.fail("malformed", "nodeNew", op.id);
             }
@@ -2811,6 +2843,7 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.PageProjectionRegistry = void 0;
+      var closedShadowLookup_1 = require_closedShadowLookup();
       var PageProjectionRegistry = class {
         nodesById = /* @__PURE__ */ new Map();
         idsByNode = /* @__PURE__ */ new WeakMap();
@@ -2864,7 +2897,7 @@
             for (const child of Array.from(node.childNodes))
               stack.push(child);
             if (node.nodeType === Node.ELEMENT_NODE) {
-              const sr = node.shadowRoot;
+              const sr = (0, closedShadowLookup_1.resolveShadowRoot)(node);
               if (sr)
                 stack.push(sr);
             }
@@ -5523,6 +5556,7 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.snapshotTree = void 0;
       var elementNs_1 = require_elementNs();
+      var closedShadowLookup_1 = require_closedShadowLookup();
       function snapshotTree2(root) {
         return walkNode(root ?? document);
       }
@@ -5555,8 +5589,8 @@
             const children = mapChildren(node);
             if (children.length > 0)
               result.children = children;
-            const sr = el.shadowRoot;
-            if (sr !== null && sr.mode === "open" && sr.slotAssignment !== "manual") {
+            const sr = (0, closedShadowLookup_1.resolveShadowRoot)(el);
+            if (sr !== null && sr.slotAssignment !== "manual") {
               const shadowKids = mapChildren(sr);
               result.shadow = { tag: "#shadow-root", ...shadowKids.length > 0 ? { children: shadowKids } : {} };
             }
@@ -5596,6 +5630,81 @@
   var import_ProjectionClient = __toESM(require_ProjectionClient());
   var import_frame = __toESM(require_frame());
   var import_tableDigest = __toESM(require_tableDigest());
+
+  // browser/mirror/projection/lab/probes/turnstilePierce.ts
+  var import_closedShadowLookup = __toESM(require_closedShadowLookup());
+  function sampleTurnstileElement(el, name) {
+    if (!el) return { name, ok: false, reason: "missing" };
+    const r = el.getBoundingClientRect();
+    const win = el.ownerDocument.defaultView;
+    const cs = win ? win.getComputedStyle(el) : null;
+    const html = el;
+    const isIframe = el.tagName === "IFRAME";
+    return {
+      name,
+      ok: true,
+      tagName: el.tagName.toLowerCase(),
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      offsetWidth: html.offsetWidth,
+      offsetHeight: html.offsetHeight,
+      display: cs?.display ?? null,
+      visibility: cs?.visibility ?? null,
+      hasSrcAttr: isIframe ? el.hasAttribute("src") : null,
+      src: isIframe ? el.getAttribute("src") : null
+    };
+  }
+  function sampleTurnstilePaint(el) {
+    if (!el) return null;
+    const win = el.ownerDocument.defaultView;
+    const cs = win ? win.getComputedStyle(el) : null;
+    if (!cs) return null;
+    return {
+      backgroundColor: cs.backgroundColor,
+      color: cs.color,
+      opacity: cs.opacity,
+      visibility: cs.visibility,
+      display: cs.display,
+      borderTopWidth: cs.borderTopWidth,
+      borderTopColor: cs.borderTopColor,
+      borderTopStyle: cs.borderTopStyle,
+      width: cs.width,
+      height: cs.height
+    };
+  }
+  function findCfTurnstileWithHost(doc) {
+    const root = doc.documentElement;
+    if (!root) return { iframe: null, shadowHost: null };
+    const queue = [{ node: root, shadowHost: null }];
+    while (queue.length > 0) {
+      const { node: n, shadowHost } = queue.shift();
+      if (n.nodeType !== Node.ELEMENT_NODE) continue;
+      const el = n;
+      if (el.tagName === "IFRAME") {
+        const id = el.id || "";
+        const src = el.getAttribute("src") || "";
+        if (id.startsWith("cf-chl") || /challenges\.cloudflare\.com|turnstile/i.test(src)) {
+          const hostFromRoot = shadowHost ?? (el.getRootNode() instanceof ShadowRoot ? el.getRootNode().host : null);
+          return { iframe: el, shadowHost: hostFromRoot };
+        }
+      }
+      const sr = (0, import_closedShadowLookup.resolveShadowRoot)(el);
+      if (sr) {
+        for (const c of Array.from(sr.childNodes)) queue.push({ node: c, shadowHost: el });
+      }
+      for (const c of Array.from(el.childNodes)) queue.push({ node: c, shadowHost });
+    }
+    return { iframe: null, shadowHost: null };
+  }
+  function measureTurnstileRootRectsFromDocument(doc) {
+    const { iframe, shadowHost } = findCfTurnstileWithHost(doc);
+    return [
+      sampleTurnstileElement(iframe, "nested_host_iframe_in_root"),
+      sampleTurnstileElement(shadowHost, "root_shadow_host"),
+      sampleTurnstileElement(doc.documentElement, "root_documentElement")
+    ];
+  }
+
+  // browser/mirror/projection/lab/client/LabProjectedHarness.ts
   var LabProjectedHarness = class _LabProjectedHarness {
     client;
     constructor(client) {
@@ -5647,6 +5756,147 @@
       return this.client.getLiveRegistry();
     }
     /**
+     * Lab diag — registry-grounded materialization probe for nested apply.
+     * Uses applier registry (has closed ShadowRoot refs), not body.childNodes —
+     * body as shadow host legitimately has 0 light children.
+     */
+    probeNestedRegistry(contextId, nodeIds) {
+      if (contextId === import_frame.CONTEXT_ID_ROOT) {
+        return {
+          contextId,
+          ok: false,
+          reason: "use_root_snapshot_for_context_1",
+          registrySize: 0,
+          applierSequence: 0,
+          applierGeneration: 0,
+          applierTableHash: "0",
+          applierTableRows: 0,
+          applierDesynced: false,
+          bodyLightChildCount: 0,
+          nodes: []
+        };
+      }
+      const nested = this.client.getNestedApply(contextId);
+      if (!nested) {
+        return {
+          contextId,
+          ok: false,
+          reason: "nested_context_missing",
+          registrySize: 0,
+          applierSequence: 0,
+          applierGeneration: 0,
+          applierTableHash: "0",
+          applierTableRows: 0,
+          applierDesynced: true,
+          bodyLightChildCount: 0,
+          nodes: []
+        };
+      }
+      const registry = nested.registry;
+      const snap = nested.snapshotTable();
+      const doc = nested.document;
+      const body = doc.body;
+      const bodyLightChildCount = body?.childNodes.length ?? 0;
+      const nodes = nodeIds.map((id) => {
+        const node = registry.get(id);
+        if (!node) {
+          return {
+            id,
+            present: false,
+            nodeType: null,
+            tagName: null,
+            childCount: null,
+            isShadowRoot: false,
+            shadowHostId: null,
+            hostMatchesId: null,
+            rect: null
+          };
+        }
+        const isShadowRoot = node.nodeType === Node.DOCUMENT_FRAGMENT_NODE;
+        let shadowHostId = null;
+        if (isShadowRoot) {
+          const host = node.host;
+          shadowHostId = host ? registry.idOf(host) ?? null : null;
+        }
+        let rect = null;
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const r = node.getBoundingClientRect();
+          rect = { x: r.x, y: r.y, width: r.width, height: r.height };
+        }
+        return {
+          id,
+          present: true,
+          nodeType: node.nodeType === Node.ELEMENT_NODE ? "ELEMENT" : node.nodeType === Node.TEXT_NODE ? "TEXT" : node.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? "SHADOW_ROOT" : String(node.nodeType),
+          tagName: node.nodeType === Node.ELEMENT_NODE ? node.tagName.toLowerCase() : null,
+          childCount: node.childNodes.length,
+          isShadowRoot,
+          shadowHostId,
+          hostMatchesId: shadowHostId,
+          rect
+        };
+      });
+      return {
+        contextId,
+        ok: true,
+        registrySize: registry.size,
+        applierSequence: snap.sequence,
+        applierGeneration: snap.generation,
+        applierTableHash: snap.table.tableHash,
+        applierTableRows: snap.table.rowCount,
+        applierDesynced: nested.desynced,
+        bodyLightChildCount,
+        nodes
+      };
+    }
+    /**
+     * Lab diag — root Turnstile rects with closed-shadow pierce (symmetric to Virtual measureTurnstileRootRects).
+     */
+    measureTurnstileRootRects() {
+      return { ok: true, levels: measureTurnstileRootRectsFromDocument(this.client.document) };
+    }
+    /** Lab diag — computed style on nested widget node (registry ref, not querySelector). */
+    probeWidgetPaint(nestedContextId, widgetNodeId) {
+      const nested = this.client.getNestedApply(nestedContextId);
+      if (!nested) return { ok: false, reason: "nested_context_missing", paint: null };
+      const node = nested.registry.get(widgetNodeId);
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+        return { ok: false, reason: "widget_missing", paint: null };
+      }
+      return { ok: true, paint: sampleTurnstilePaint(node) };
+    }
+    /**
+     * Lab diag — rect ladder from nested widget up to root projected surface.
+     * Root levels 3–5 use closed-shadow pierce (symmetric to Virtual).
+     */
+    probeRectLadder(nestedContextId, widgetNodeId) {
+      const toLevel = (sample, level) => ({
+        level,
+        name: sample.name,
+        ok: sample.ok,
+        reason: sample.reason,
+        tagName: sample.tagName ?? null,
+        rect: sample.rect ?? null,
+        offsetWidth: sample.offsetWidth ?? null,
+        offsetHeight: sample.offsetHeight ?? null,
+        display: sample.display ?? null,
+        visibility: sample.visibility ?? null,
+        hasSrcAttr: sample.hasSrcAttr ?? null,
+        src: sample.src ?? null
+      });
+      const nested = this.client.getNestedApply(nestedContextId);
+      if (!nested) {
+        return { contextId: nestedContextId, ok: false, reason: "nested_context_missing", levels: [] };
+      }
+      const widgetNode = nested.registry.get(widgetNodeId);
+      const widgetEl = widgetNode && widgetNode.nodeType === Node.ELEMENT_NODE ? widgetNode : null;
+      const nestedLevels = [
+        toLevel(sampleTurnstileElement(widgetEl, "nested_widget_div"), 1),
+        toLevel(sampleTurnstileElement(nested.document.documentElement, "nested_documentElement"), 2)
+      ];
+      const rootLevels = this.measureTurnstileRootRects().levels.map((s, i) => toLevel(s, i + 3));
+      return { contextId: nestedContextId, ok: true, levels: [...nestedLevels, ...rootLevels] };
+    }
+    /**
      * Lab diag — peek nested host bookkeeping (awaiting load vs bound nested).
      */
     peekNestedHosts() {
@@ -5657,12 +5907,21 @@
         let compat = null;
         let bodyLen = 0;
         let docIsLive = null;
+        let bodyChildCount = null;
+        let registryHasDocument = null;
+        let tableRowCount = null;
+        let tableHash = null;
         try {
           const live = s.hostIframe.contentDocument;
           compat = live?.compatMode ?? null;
           bodyLen = live?.body?.innerHTML?.length ?? 0;
+          bodyChildCount = live?.body?.childNodes?.length ?? 0;
           const regDoc = s.registry.get(1) ?? null;
           docIsLive = live != null && regDoc === live;
+          registryHasDocument = regDoc != null;
+          const snap = s.snapshotTable();
+          tableRowCount = snap.table.rowCount;
+          tableHash = snap.table.tableHash;
         } catch {
           compat = "xo";
         }
@@ -5674,7 +5933,11 @@
           generation: s.getGeneration(),
           compat,
           bodyLen,
-          docIsLive
+          docIsLive,
+          bodyChildCount,
+          registryHasDocument,
+          tableRowCount,
+          tableHash
         };
       });
       return {
@@ -6593,13 +6856,39 @@
         if (msg.type === "requestSnapshot") {
           const contextId = typeof msg.contextId === "number" && msg.contextId >= 1 ? msg.contextId : 1;
           const includeNestedPeek = msg.includeNestedPeek === true;
-          void ensureProjection().then((p) => {
+          const registryProbeNodeIds = Array.isArray(msg.registryProbeNodeIds) ? msg.registryProbeNodeIds.filter((n) => typeof n === "number") : [];
+          const rectLadderRaw = msg.rectLadderProbe;
+          const rectLadderProbe = typeof rectLadderRaw === "object" && rectLadderRaw !== null && typeof rectLadderRaw.nestedContextId === "number" ? {
+            nestedContextId: rectLadderRaw.nestedContextId,
+            widgetNodeId: typeof rectLadderRaw.widgetNodeId === "number" ? rectLadderRaw.widgetNodeId : void 0
+          } : void 0;
+          const paintRaw = msg.paintProbe;
+          const paintProbeReq = typeof paintRaw === "object" && paintRaw !== null && typeof paintRaw.nestedContextId === "number" ? {
+            nestedContextId: paintRaw.nestedContextId,
+            widgetNodeId: typeof paintRaw.widgetNodeId === "number" ? paintRaw.widgetNodeId : void 0
+          } : void 0;
+          void ensureProjection().then(async (p) => {
             const ctx = p.snapshotContext(contextId);
             const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
             const tree = doc ? (0, import_domTreeSnapshot.snapshotTree)(doc) : null;
             const cascade = doc ? probeCssomPaintBoundary(doc) : null;
             const formProps = doc ? (0, import_formControlSnapshot.snapshotFormControls)(doc) : null;
             const nestedPeek = includeNestedPeek && contextId === 1 ? p.peekNestedHosts() : void 0;
+            const registryProbe = contextId >= 2 && registryProbeNodeIds.length > 0 ? p.probeNestedRegistry(contextId, registryProbeNodeIds) : void 0;
+            const rectLadder = rectLadderProbe ? p.probeRectLadder(
+              rectLadderProbe.nestedContextId,
+              rectLadderProbe.widgetNodeId ?? 21
+            ) : void 0;
+            let paintProbe;
+            if (paintProbeReq) {
+              const wId = paintProbeReq.widgetNodeId ?? 21;
+              const paint = p.probeWidgetPaint(paintProbeReq.nestedContextId, wId);
+              paintProbe = {
+                widgetPaint: paint.paint,
+                widgetPaintOk: paint.ok,
+                widgetPaintReason: paint.reason
+              };
+            }
             ws?.send(
               JSON.stringify({
                 type: "client.snapshotResult",
@@ -6614,7 +6903,10 @@
                 resyncInFlight: ctx.resyncInFlight,
                 cascade,
                 formProps,
-                ...nestedPeek !== void 0 ? { nestedPeek } : {}
+                ...nestedPeek !== void 0 ? { nestedPeek } : {},
+                ...registryProbe !== void 0 ? { registryProbe } : {},
+                ...rectLadder !== void 0 ? { rectLadder } : {},
+                ...paintProbe !== void 0 ? { paintProbe } : {}
               })
             );
           });

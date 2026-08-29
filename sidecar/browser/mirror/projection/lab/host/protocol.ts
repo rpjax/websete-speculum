@@ -67,6 +67,29 @@ export type LabClientMessage =
           docIsLive: boolean | null;
         }>;
       } | null;
+      registryProbe?: {
+        contextId: number;
+        ok: boolean;
+        reason?: string;
+        registrySize: number;
+        applierSequence: number;
+        applierGeneration: number;
+        applierTableHash: string;
+        applierTableRows: number;
+        applierDesynced: boolean;
+        bodyLightChildCount: number;
+        nodes: Array<{
+          id: number;
+          present: boolean;
+          nodeType: string | null;
+          tagName: string | null;
+          childCount: number | null;
+          isShadowRoot: boolean;
+          shadowHostId: number | null;
+          hostMatchesId: number | null;
+          rect: { x: number; y: number; width: number; height: number } | null;
+        }>;
+      } | null;
     }
   | { type: 'client.requestResync'; reason?: string; contextId?: number }
   | { type: 'client.intent'; intent: Record<string, unknown> }
@@ -137,7 +160,19 @@ export type LabHostMessage =
       errorCode?: string;
       message?: string;
     }
-  | { type: 'requestSnapshot'; contextId: number; includeNestedPeek?: boolean }
+  | {
+      type: 'requestSnapshot';
+      contextId: number;
+      includeNestedPeek?: boolean;
+      /** Lab-only — probe materialization via nested applier registry (not body.childNodes). */
+      registryProbeNodeIds?: number[];
+      /** Lab-only — Virtual vs Projected rect ladder for Turnstile render diag. */
+      rectLadderProbe?: { nestedContextId: number; widgetNodeId?: number };
+      paintProbe?: {
+        nestedContextId: number;
+        widgetNodeId?: number;
+      };
+    }
   | { type: 'lab.tamper'; kind: 'ghostRule' }
   | { type: 'lab.injectFrame'; bytes: string }
   | { type: 'console'; level: number; text: string; t: number }

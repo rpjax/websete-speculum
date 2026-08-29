@@ -514,6 +514,134 @@ export class VirtualDomainBus implements IContextBus {
     return { ok: false, reason: result.error?.message ?? 'resolve_hit_failed' };
   }
 
+  /** Lab diag — element geometry + visibility in this context's viewport. */
+  async requestMeasureNodeRect(
+    contextId: number,
+    nodeId: number,
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    tagName?: string;
+    rect?: { x: number; y: number; width: number; height: number };
+    offsetWidth?: number;
+    offsetHeight?: number;
+    display?: string | null;
+    visibility?: string | null;
+    hasSrcAttr?: boolean;
+    src?: string | null;
+  }> {
+    if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+      return { ok: false, reason: 'context_not_found' };
+    }
+    const result = await this.bus.invoke<
+      { nodeId: number },
+      {
+        ok: boolean;
+        reason?: string;
+        tagName?: string;
+        rect?: { x: number; y: number; width: number; height: number };
+        offsetWidth?: number;
+        offsetHeight?: number;
+        display?: string | null;
+        visibility?: string | null;
+        hasSrcAttr?: boolean;
+        src?: string | null;
+      }
+    >('measureNodeRect', { nodeId }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+    if (result.ok) return result.value;
+    return { ok: false, reason: result.error?.message ?? 'measure_rect_failed' };
+  }
+
+  /** Lab diag — CF Turnstile iframe + shadow host rects in root Virtual (pierces closed shadow). */
+  async requestMeasureTurnstileRootRects(contextId: number): Promise<{
+    ok: boolean;
+    reason?: string;
+    levels?: Array<{
+      name: string;
+      ok: boolean;
+      reason?: string;
+      tagName?: string;
+      rect?: { x: number; y: number; width: number; height: number };
+      offsetWidth?: number;
+      offsetHeight?: number;
+      display?: string | null;
+      visibility?: string | null;
+      hasSrcAttr?: boolean | null;
+      src?: string | null;
+    }>;
+  }> {
+    if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+      return { ok: false, reason: 'context_not_found' };
+    }
+    const result = await this.bus.invoke<
+      Record<string, never>,
+      {
+        ok: boolean;
+        reason?: string;
+        levels?: Array<{
+          name: string;
+          ok: boolean;
+          reason?: string;
+          tagName?: string;
+          rect?: { x: number; y: number; width: number; height: number };
+          offsetWidth?: number;
+          offsetHeight?: number;
+          display?: string | null;
+          visibility?: string | null;
+          hasSrcAttr?: boolean | null;
+          src?: string | null;
+        }>;
+      }
+    >('measureTurnstileRootRects', {}, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+    if (result.ok) return result.value;
+    return { ok: false, reason: result.error?.message ?? 'measure_turnstile_root_failed' };
+  }
+
+  async requestMeasureNodePaint(
+    contextId: number,
+    nodeId: number,
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    paint?: {
+      backgroundColor: string;
+      color: string;
+      opacity: string;
+      visibility: string;
+      display: string;
+      borderTopWidth: string;
+      borderTopColor: string;
+      borderTopStyle: string;
+      width: string;
+      height: string;
+    };
+  }> {
+    if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+      return { ok: false, reason: 'context_not_found' };
+    }
+    const result = await this.bus.invoke<
+      { nodeId: number },
+      {
+        ok: boolean;
+        reason?: string;
+        paint?: {
+          backgroundColor: string;
+          color: string;
+          opacity: string;
+          visibility: string;
+          display: string;
+          borderTopWidth: string;
+          borderTopColor: string;
+          borderTopStyle: string;
+          width: string;
+          height: string;
+        };
+      }
+    >('measureNodePaint', { nodeId }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+    if (result.ok) return result.value;
+    return { ok: false, reason: result.error?.message ?? 'measure_paint_failed' };
+  }
+
   setApplyScrollHandler(
     handler: (
       positions: import('../../core/input/unifiedIntentTypes').ScrollPositionEntry[],

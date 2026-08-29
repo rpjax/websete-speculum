@@ -994,7 +994,36 @@ export function bootLabClient(): void {
       if (msg.type === 'requestSnapshot') {
         const contextId = typeof msg.contextId === 'number' && msg.contextId >= 1 ? msg.contextId : 1;
         const includeNestedPeek = msg.includeNestedPeek === true;
-        void ensureProjection().then((p) => {
+        const registryProbeNodeIds = Array.isArray(msg.registryProbeNodeIds)
+          ? msg.registryProbeNodeIds.filter((n): n is number => typeof n === 'number')
+          : [];
+        const rectLadderRaw = msg.rectLadderProbe;
+        const rectLadderProbe =
+          typeof rectLadderRaw === 'object' &&
+          rectLadderRaw !== null &&
+          typeof (rectLadderRaw as { nestedContextId?: unknown }).nestedContextId === 'number'
+            ? {
+                nestedContextId: (rectLadderRaw as { nestedContextId: number }).nestedContextId,
+                widgetNodeId:
+                  typeof (rectLadderRaw as { widgetNodeId?: unknown }).widgetNodeId === 'number'
+                    ? (rectLadderRaw as { widgetNodeId: number }).widgetNodeId
+                    : undefined,
+              }
+            : undefined;
+        const paintRaw = msg.paintProbe;
+        const paintProbeReq =
+          typeof paintRaw === 'object' &&
+          paintRaw !== null &&
+          typeof (paintRaw as { nestedContextId?: unknown }).nestedContextId === 'number'
+            ? {
+                nestedContextId: (paintRaw as { nestedContextId: number }).nestedContextId,
+                widgetNodeId:
+                  typeof (paintRaw as { widgetNodeId?: unknown }).widgetNodeId === 'number'
+                    ? (paintRaw as { widgetNodeId: number }).widgetNodeId
+                    : undefined,
+              }
+            : undefined;
+        void ensureProjection().then(async (p) => {
           const ctx = p.snapshotContext(contextId);
           const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
           const tree = doc ? snapshotTree(doc) : null;
@@ -1002,6 +1031,32 @@ export function bootLabClient(): void {
           const formProps = doc ? snapshotFormControls(doc) : null;
           const nestedPeek =
             includeNestedPeek && contextId === 1 ? p.peekNestedHosts() : undefined;
+          const registryProbe =
+            contextId >= 2 && registryProbeNodeIds.length > 0
+              ? p.probeNestedRegistry(contextId, registryProbeNodeIds)
+              : undefined;
+          const rectLadder = rectLadderProbe
+            ? p.probeRectLadder(
+                rectLadderProbe.nestedContextId,
+                rectLadderProbe.widgetNodeId ?? 21,
+              )
+            : undefined;
+          let paintProbe:
+            | {
+                widgetPaint: ReturnType<typeof p.probeWidgetPaint>['paint'];
+                widgetPaintOk: boolean;
+                widgetPaintReason?: string;
+              }
+            | undefined;
+          if (paintProbeReq) {
+            const wId = paintProbeReq.widgetNodeId ?? 21;
+            const paint = p.probeWidgetPaint(paintProbeReq.nestedContextId, wId);
+            paintProbe = {
+              widgetPaint: paint.paint,
+              widgetPaintOk: paint.ok,
+              widgetPaintReason: paint.reason,
+            };
+          }
           ws?.send(
             JSON.stringify({
               type: 'client.snapshotResult',
@@ -1017,6 +1072,9 @@ export function bootLabClient(): void {
               cascade,
               formProps,
               ...(nestedPeek !== undefined ? { nestedPeek } : {}),
+              ...(registryProbe !== undefined ? { registryProbe } : {}),
+              ...(rectLadder !== undefined ? { rectLadder } : {}),
+              ...(paintProbe !== undefined ? { paintProbe } : {}),
             }),
           );
         });

@@ -13,10 +13,27 @@ import { loadBlueprint } from '../runner/loadBlueprint';
 import { executeBlueprint } from '../runner/execute';
 import { labAssetRoots } from '../assetRoots';
 import { reportExitCode } from '../dossier/types';
+import { captureProjectedViewportClip } from './labProjectedCapture';
 
 export type WsLabOptions = {
   headless: boolean;
   publicOrigin: string;
+};
+
+type SnapshotRequest = {
+  contextId: number;
+  timeoutMs: number;
+  options?: {
+    includeNestedPeek?: boolean;
+    registryProbeNodeIds?: number[];
+    rectLadderProbe?: { nestedContextId: number; widgetNodeId?: number };
+    paintProbe?: {
+      nestedContextId: number;
+      widgetNodeId?: number;
+    };
+  };
+  resolve: (snap: ClientStateSnapshot | null) => void;
+  timer: ReturnType<typeof setTimeout> | null;
 };
 
 export class WsLabConnection {
@@ -29,10 +46,8 @@ export class WsLabConnection {
   private closed = false;
   private runInFlight = false;
   private debugProbeTimer: ReturnType<typeof setInterval> | null = null;
-  private pendingSnapshot: {
-    resolve: (snap: ClientStateSnapshot | null) => void;
-    timer: ReturnType<typeof setTimeout>;
-  } | null = null;
+  private snapshotQueue: SnapshotRequest[] = [];
+  private snapshotInFlight: SnapshotRequest | null = null;
   private pendingTamper: {
     resolve: (result: { ok: boolean; reason?: string } | null) => void;
     timer: ReturnType<typeof setTimeout>;
@@ -41,6 +56,8 @@ export class WsLabConnection {
     resolve: (result: import('../runner/execute').InjectAck | null) => void;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
+  /** CDP endpoint for the browser tab running client.html (Projected surface). */
+  private projectedCdpUrl: string | null = null;
 
   constructor(client: WebSocket, opts: WsLabOptions) {
     this.opts = opts;
@@ -155,22 +172,126 @@ export class WsLabConnection {
   async requestClientSnapshot(
     contextId: number,
     timeoutMs = 5000,
-    options?: { includeNestedPeek?: boolean },
+    options?: {
+      includeNestedPeek?: boolean;
+      registryProbeNodeIds?: number[];
+      rectLadderProbe?: { nestedContextId: number; widgetNodeId?: number };
+      paintProbe?: {
+        nestedContextId: number;
+        widgetNodeId?: number;
+      };
+    },
   ): Promise<ClientStateSnapshot | null> {
     if (this.client === null || this.client.readyState !== this.client.OPEN) return null;
-    if (this.pendingSnapshot !== null) return null;
     return new Promise<ClientStateSnapshot | null>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingSnapshot = null;
-        resolve(null);
-      }, timeoutMs);
-      this.pendingSnapshot = { resolve, timer };
-      this.send({
-        type: 'requestSnapshot',
+      this.snapshotQueue.push({
         contextId,
-        includeNestedPeek: options?.includeNestedPeek === true,
+        timeoutMs,
+        options,
+        resolve,
+        timer: null,
       });
+      this.pumpSnapshotQueue();
     });
+  }
+
+  private pumpSnapshotQueue(): void {
+    if (this.snapshotInFlight !== null || this.snapshotQueue.length === 0) return;
+    if (this.client === null || this.client.readyState !== this.client.OPEN) {
+      this.flushSnapshotQueue(null);
+      return;
+    }
+    const req = this.snapshotQueue.shift()!;
+    req.timer = setTimeout(() => {
+      if (this.snapshotInFlight === req) {
+        this.snapshotInFlight = null;
+        req.resolve(null);
+        this.pumpSnapshotQueue();
+      }
+    }, req.timeoutMs);
+    this.snapshotInFlight = req;
+    this.send({
+      type: 'requestSnapshot',
+      contextId: req.contextId,
+      includeNestedPeek: req.options?.includeNestedPeek === true,
+      registryProbeNodeIds: req.options?.registryProbeNodeIds,
+      rectLadderProbe: req.options?.rectLadderProbe,
+      paintProbe: req.options?.paintProbe,
+    });
+  }
+
+  private flushSnapshotQueue(result: ClientStateSnapshot | null): void {
+    if (this.snapshotInFlight) {
+      if (this.snapshotInFlight.timer) clearTimeout(this.snapshotInFlight.timer);
+      this.snapshotInFlight.resolve(result);
+      this.snapshotInFlight = null;
+    }
+    for (const req of this.snapshotQueue) {
+      if (req.timer) clearTimeout(req.timer);
+      req.resolve(result);
+    }
+    this.snapshotQueue.length = 0;
+  }
+
+  private parseClientSnapshotResult(msg: {
+    contextId?: number;
+    tree?: unknown;
+    table?: unknown;
+    sequence?: number | null;
+    generation?: number | null;
+    desynced?: boolean;
+    applyError?: string | null;
+    armed?: boolean;
+    resyncInFlight?: boolean;
+    cascade?: unknown;
+    formProps?: unknown;
+    nestedPeek?: unknown;
+    registryProbe?: unknown;
+    rectLadder?: unknown;
+    paintProbe?: unknown;
+  }): ClientStateSnapshot {
+    const tableRaw = msg.table;
+    const table =
+      typeof tableRaw === 'object' &&
+      tableRaw !== null &&
+      typeof (tableRaw as { rowCount?: unknown }).rowCount === 'number' &&
+      typeof (tableRaw as { tableHash?: unknown }).tableHash === 'string'
+        ? (tableRaw as ReplicatedTableDigest)
+        : null;
+    return {
+      contextId: typeof msg.contextId === 'number' ? msg.contextId : 1,
+      tree: (msg.tree as TreeNode) ?? null,
+      table,
+      sequence: msg.sequence ?? null,
+      generation: typeof msg.generation === 'number' ? msg.generation : null,
+      desynced: msg.desynced === true,
+      applyError: typeof msg.applyError === 'string' ? msg.applyError : null,
+      armed: msg.armed === true,
+      resyncInFlight: msg.resyncInFlight === true,
+      cascade:
+        typeof msg.cascade === 'object' && msg.cascade !== null
+          ? (msg.cascade as ClientStateSnapshot['cascade'])
+          : null,
+      formProps: Array.isArray(msg.formProps)
+        ? (msg.formProps as ClientStateSnapshot['formProps'])
+        : null,
+      nestedPeek:
+        typeof msg.nestedPeek === 'object' && msg.nestedPeek !== null
+          ? (msg.nestedPeek as ClientStateSnapshot['nestedPeek'])
+          : null,
+      registryProbe:
+        typeof msg.registryProbe === 'object' && msg.registryProbe !== null
+          ? (msg.registryProbe as ClientStateSnapshot['registryProbe'])
+          : null,
+      rectLadder:
+        typeof msg.rectLadder === 'object' && msg.rectLadder !== null
+          ? (msg.rectLadder as ClientStateSnapshot['rectLadder'])
+          : null,
+      paintProbe:
+        typeof msg.paintProbe === 'object' && msg.paintProbe !== null
+          ? (msg.paintProbe as ClientStateSnapshot['paintProbe'])
+          : undefined,
+    };
   }
 
   async requestTamper(timeoutMs = 2000): Promise<{ ok: boolean; reason?: string } | null> {
@@ -341,7 +462,16 @@ export class WsLabConnection {
             iso?: boolean;
             invariants?: boolean;
             outDir?: string;
+            projectedCdpUrl?: string;
           };
+          const projectedCdp =
+            typeof overrides.projectedCdpUrl === 'string' && overrides.projectedCdpUrl.trim()
+              ? overrides.projectedCdpUrl.trim()
+              : typeof process.env.SPECULUM_LAB_PROJECTED_CDP_URL === 'string' &&
+                  process.env.SPECULUM_LAB_PROJECTED_CDP_URL.trim()
+                ? process.env.SPECULUM_LAB_PROJECTED_CDP_URL.trim()
+                : null;
+          this.projectedCdpUrl = projectedCdp;
           const result = await executeBlueprint(bp, {
             chassis: this.chassis,
             resolveUrl: (u) => this.resolveUrl(u),
@@ -349,6 +479,9 @@ export class WsLabConnection {
               this.requestClientSnapshot(contextId, 5000, options),
             requestTamper: () => this.requestTamper(),
             injectClientFrame: (bytes) => this.injectClientFrame(bytes),
+            captureProjectedViewportClip: projectedCdp
+              ? (clip) => captureProjectedViewportClip(projectedCdp, clip, this.opts.publicOrigin)
+              : undefined,
             overrides,
             onProgress: (p) => {
               this.send({
@@ -512,41 +645,14 @@ export class WsLabConnection {
         return;
       }
       case 'client.snapshotResult': {
-        const pending = this.pendingSnapshot;
-        if (pending !== null) {
-          this.pendingSnapshot = null;
-          clearTimeout(pending.timer);
-          const tableRaw = msg.table;
-          const table =
-            typeof tableRaw === 'object' &&
-            tableRaw !== null &&
-            typeof (tableRaw as { rowCount?: unknown }).rowCount === 'number' &&
-            typeof (tableRaw as { tableHash?: unknown }).tableHash === 'string'
-              ? (tableRaw as ReplicatedTableDigest)
-              : null;
-          pending.resolve({
-            contextId: typeof msg.contextId === 'number' ? msg.contextId : 1,
-            tree: (msg.tree as TreeNode) ?? null,
-            table,
-            sequence: msg.sequence ?? null,
-            generation: typeof msg.generation === 'number' ? msg.generation : null,
-            desynced: msg.desynced === true,
-            applyError: typeof msg.applyError === 'string' ? msg.applyError : null,
-            armed: msg.armed === true,
-            resyncInFlight: msg.resyncInFlight === true,
-            cascade:
-              typeof msg.cascade === 'object' && msg.cascade !== null
-                ? (msg.cascade as ClientStateSnapshot['cascade'])
-                : null,
-            formProps: Array.isArray(msg.formProps)
-              ? (msg.formProps as ClientStateSnapshot['formProps'])
-              : null,
-            nestedPeek:
-              typeof msg.nestedPeek === 'object' && msg.nestedPeek !== null
-                ? (msg.nestedPeek as ClientStateSnapshot['nestedPeek'])
-                : null,
-          });
-        }
+        const inflight = this.snapshotInFlight;
+        if (inflight === null) return;
+        const contextId = typeof msg.contextId === 'number' ? msg.contextId : 1;
+        if (contextId !== inflight.contextId) return;
+        if (inflight.timer) clearTimeout(inflight.timer);
+        this.snapshotInFlight = null;
+        inflight.resolve(this.parseClientSnapshotResult(msg));
+        this.pumpSnapshotQueue();
         return;
       }
       case 'client.tamperResult': {
@@ -623,11 +729,7 @@ export class WsLabConnection {
     if (this.closed) return;
     this.closed = true;
     this.stopDebugProbe();
-    if (this.pendingSnapshot) {
-      clearTimeout(this.pendingSnapshot.timer);
-      this.pendingSnapshot.resolve(null);
-      this.pendingSnapshot = null;
-    }
+    this.flushSnapshotQueue(null);
     if (this.pendingTamper) {
       clearTimeout(this.pendingTamper.timer);
       this.pendingTamper.resolve(null);

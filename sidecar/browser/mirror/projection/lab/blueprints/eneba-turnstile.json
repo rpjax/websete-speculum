@@ -35,9 +35,24 @@
           "dependsOn": ["wait-challenge"]
         },
         {
+          "id": "probe-nested-apply",
+          "type": "probe.nestedApplyFailure",
+          "dependsOn": ["probe-turnstile"]
+        },
+        {
+          "id": "probe-rect-ladder",
+          "type": "probe.turnstileRectLadder",
+          "dependsOn": ["probe-nested-apply"]
+        },
+        {
+          "id": "probe-paint",
+          "type": "probe.turnstilePaint",
+          "dependsOn": ["probe-rect-ladder"]
+        },
+        {
           "id": "fold",
           "type": "fold",
-          "dependsOn": ["probe-turnstile"],
+          "dependsOn": ["probe-paint"],
           "params": { "ruleset": "turnstile" }
         },
         { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }

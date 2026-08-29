@@ -233,22 +233,9 @@ export function kitNavigatorSpoofSource(args: {
   const UNMASKED_RENDERER_WEBGL = 0x9246;
   function patchWebGl(proto) {
     if (!proto) return;
-    if (!proto.__speculumWebglOrigGetParam) {
-      try {
-        Object.defineProperty(proto, '__speculumWebglOrigGetParam', {
-          value: proto.getParameter,
-          configurable: true,
-        });
-        Object.defineProperty(proto, '__speculumWebglOrigGetExt', {
-          value: proto.getExtension,
-          configurable: true,
-        });
-      } catch (_) {
-        return;
-      }
-    }
-    const origGetParam = proto.__speculumWebglOrigGetParam;
-    const origGetExt = proto.__speculumWebglOrigGetExt;
+    const origGetParam = proto.getParameter;
+    const origGetExt = proto.getExtension;
+    if (typeof origGetParam !== 'function' || typeof origGetExt !== 'function') return;
     Object.defineProperty(proto, 'getParameter', {
       value: function (param) {
         if (param === GL_VENDOR) return webglVendor;
@@ -379,22 +366,9 @@ export function kitStealthInitSource(args: {
   const UNMASKED_RENDERER_WEBGL = 0x9246;
   function patchWebGl(proto) {
     if (!proto) return;
-    if (!proto.__speculumWebglOrigGetParam) {
-      try {
-        Object.defineProperty(proto, '__speculumWebglOrigGetParam', {
-          value: proto.getParameter,
-          configurable: true,
-        });
-        Object.defineProperty(proto, '__speculumWebglOrigGetExt', {
-          value: proto.getExtension,
-          configurable: true,
-        });
-      } catch (_) {
-        return;
-      }
-    }
-    const origGetParam = proto.__speculumWebglOrigGetParam;
-    const origGetExt = proto.__speculumWebglOrigGetExt;
+    const origGetParam = proto.getParameter;
+    const origGetExt = proto.getExtension;
+    if (typeof origGetParam !== 'function' || typeof origGetExt !== 'function') return;
     Object.defineProperty(proto, 'getParameter', {
       value: function (param) {
         if (param === GL_VENDOR) return webglVendor;

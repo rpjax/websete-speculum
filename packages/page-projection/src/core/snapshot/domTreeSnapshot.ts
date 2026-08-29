@@ -13,6 +13,7 @@
 
 import type { TreeNode } from '../treeNode';
 import { elementNsSnapshotLabel } from '../elementNs';
+import { resolveShadowRoot } from '../closedShadowLookup';
 
 /** `root` defaults to the calling context's own `document` — the case `page.evaluate` needs. */
 export function snapshotTree(root?: Node): TreeNode {
@@ -43,8 +44,8 @@ function walkNode(node: Node): TreeNode {
       if (attrs.length > 0) result.attrs = attrs;
       const children = mapChildren(node);
       if (children.length > 0) result.children = children;
-      const sr = el.shadowRoot;
-      if (sr !== null && sr.mode === 'open' && sr.slotAssignment !== 'manual') {
+      const sr = resolveShadowRoot(el);
+      if (sr !== null && sr.slotAssignment !== 'manual') {
         const shadowKids = mapChildren(sr);
         result.shadow = { tag: '#shadow-root', ...(shadowKids.length > 0 ? { children: shadowKids } : {}) };
       }

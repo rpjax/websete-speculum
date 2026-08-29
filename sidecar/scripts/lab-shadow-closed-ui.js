@@ -1,19 +1,14 @@
 /**
- * Eneba → Sim → Turnstile with Projected apply surface (dual-plane diagnostic).
- * CLI lab:run alone cannot prove Turnstile — this drives lab UI like lab-iframe-open-ui.js.
- *
- * Run: npm run lab:eneba-turnstile
+ * Drive lab UI as the DOM apply surface for blueprint shadow-closed.
+ * CLI lab:run has no DOM client — closed shadow iso is unproven without this.
+ * Run: node scripts/lab-shadow-closed-ui.js
  */
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { chromium } = require('patchright');
 
-const PORT = process.env.SPECULUM_LAB_PORT || '4108';
+const PORT = process.env.SPECULUM_LAB_PORT || '4099';
 const HOST = process.env.SPECULUM_LAB_HOST || '127.0.0.1';
-const BLUEPRINT = 'eneba-turnstile';
-const RUN_TIMEOUT_MS = 420_000;
-/** Fixed port for Projected client CDP clip capture during blueprint probes. */
-const PROJECTED_CDP_PORT = Number(process.env.SPECULUM_LAB_PROJECTED_CDP_PORT || '9333');
 
 function wait(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -33,11 +28,8 @@ async function waitHealth(timeoutMs) {
   throw new Error('lab health timeout');
 }
 
-async function runTurnstileUi() {
-  const browser = await chromium.launch({
-    headless: true,
-    args: [`--remote-debugging-port=${PROJECTED_CDP_PORT}`],
-  });
+async function runShadowClosedUi() {
+  const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   try {
     await page.goto(`http://${HOST}:${PORT}/`, { waitUntil: 'domcontentloaded' });
@@ -45,39 +37,39 @@ async function runTurnstileUi() {
     await page.waitForFunction(
       () => /connected|live/i.test(document.getElementById('chipPhase')?.textContent ?? ''),
       null,
-      { timeout: 20_000 },
+      { timeout: 15_000 },
     );
     await page.click('[data-mode="run"]');
     await page.waitForFunction(
-      (bp) => [...document.querySelectorAll('#blueprint option')].some((o) => o.value === bp),
-      BLUEPRINT,
-      { timeout: 20_000 },
+      () => [...document.querySelectorAll('#blueprint option')].some((o) => o.value === 'shadow-closed'),
+      null,
+      { timeout: 15_000 },
     );
-    await page.selectOption('#blueprint', BLUEPRINT);
+    await page.selectOption('#blueprint', 'shadow-closed');
     await page.click('#runStart');
 
-    const deadline = Date.now() + RUN_TIMEOUT_MS;
+    const deadline = Date.now() + 120_000;
     while (Date.now() < deadline) {
       const hint = (await page.textContent('#progressHint')) ?? '';
       const dossier = (await page.textContent('#runDossier')) ?? '';
       const chip = (await page.textContent('#chipPhase')) ?? '';
-      const finished =
-        /Run finished with/i.test(hint) || /Run finished — no fails/i.test(hint);
-      if (finished) {
+      if (/finished with .* fail/i.test(hint)) {
+        const activity = (await page.textContent('#activity')) ?? '';
         const verdicts = (await page.textContent('#runVerdicts')) ?? '';
-        console.log(`[eneba-turnstile-ui] done hint=${hint.trim()}`);
-        console.log(verdicts);
-        if (!dossier.trim()) {
-          throw new Error('run finished but dossier path missing');
-        }
-        return dossier.trim();
+        throw new Error(
+          `shadow-closed failed hint=${hint} chip=${chip} dossier=${dossier}\n${verdicts}\n${activity}`,
+        );
+      }
+      if (/no fails in summary/i.test(hint)) {
+        console.log(`[shadow-closed-ui] pass dossier=${dossier.trim()}`);
+        return;
       }
       if (/fault/i.test(chip) && !/run in flight/i.test(chip)) {
         throw new Error(`UI fault: ${chip}`);
       }
-      await wait(300);
+      await wait(250);
     }
-    throw new Error(`${BLUEPRINT} UI run timed out`);
+    throw new Error('shadow-closed UI run timed out');
   } finally {
     await browser.close();
   }
@@ -85,20 +77,12 @@ async function runTurnstileUi() {
 
 async function main() {
   const root = path.join(__dirname, '..');
-  const projectedCdpUrl = `http://127.0.0.1:${PROJECTED_CDP_PORT}`;
-  const labEnv = {
-    ...process.env,
-    SPECULUM_LAB_HOST: HOST,
-    SPECULUM_LAB_PORT: String(PORT),
-    SPECULUM_LAB_HEADED: process.env.SPECULUM_LAB_HEADED ?? '1',
-    SPECULUM_LAB_PROJECTED_CDP_URL: projectedCdpUrl,
-  };
   const lab = spawn(
     process.execPath,
     [path.join(root, 'dist', 'browser', 'mirror', 'projection', 'lab', 'host', 'index.js')],
     {
       cwd: root,
-      env: labEnv,
+      env: { ...process.env, SPECULUM_LAB_HOST: HOST, SPECULUM_LAB_PORT: String(PORT) },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -111,11 +95,10 @@ async function main() {
   });
 
   try {
-    await waitHealth(90_000);
-    const dossier = await runTurnstileUi();
-    console.log(`[eneba-turnstile-ui] artifact probes/turnstile-diagnostic.json under ${dossier}`);
+    await waitHealth(60_000);
+    await runShadowClosedUi();
   } catch (err) {
-    console.error('[eneba-turnstile-ui] failed', err);
+    console.error('[shadow-closed-ui] failed', err);
     console.error(stderr);
     process.exitCode = 1;
   } finally {

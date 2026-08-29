@@ -1,6 +1,6 @@
 # PageProjection — shadow
 
-**Status:** shipped (open / named). Closed / UA / manual slot remain NIT.  
+**Status:** shipped (open / named / closed programmatic). UA / manual slot remain NIT.  
 **Feature 1 of [subtrees.md](subtrees.md).** Protocol: [frame-protocol.md](frame-protocol.md).  
 **Tracker:** [seal-gaps.md](seal-gaps.md) `SEAL-DOM-P1-SHADOW` (closed).  
 **Not this file:** nested browsing contexts — [multi-document.md](multi-document.md).
@@ -15,7 +15,7 @@ Project the shadow **as a real `ShadowRoot`**. Interior mutates like any tree. D
 
 Observe is local. Interior ops are the existing ones. The only new wire is naming the root (`NODE_NEW` kind `SHADOW_ROOT`). No `SHADOW_*` mutation opcodes.
 
-This version: **open** + **named** slot only (`element.shadowRoot` readable, `slotAssignment !== 'manual'`). **Closed**, **UA**, and **manual slot** are **NIT** — explicit unsupported, never soft-skip. Not CDP. Not iframe.
+This version: **open** + **named** slot + **programmatic closed** (`attachShadow({ mode: 'closed' })` captured at creation via Virtual hook; Projected applies with `mode: 'closed'` and WeakMap lookup). **UA** and **manual slot** are **NIT** — explicit unsupported, never soft-skip. Declarative closed shadow (`shadowrootmode="closed"`) is NIT. Not CDP. Not iframe.
 
 ---
 
@@ -46,7 +46,7 @@ Move **between** light and shadow (a node, not the root) is a normal `INSERT` (u
 
 `attachShadow` is not a mutation record. Document MO does not see inside a root.
 
-**Discover.** Each tick, for connected `ELEMENT` rows that do not yet own a `SHADOW_ROOT`, read `.shadowRoot`. If null, closed, or `slotAssignment === 'manual'`: skip (NIT). Else first admit **this frame**: `NODE_NEW` the root **after** the host already has a row, `initFlags` from the live root (missing `clonable`/`serializable` ⇒ bit off), walk `shadowRoot.childNodes` with existing `prepareChild` / INSERT batching, then observe that root.
+**Discover.** Each tick, for connected `ELEMENT` rows that do not yet own a `SHADOW_ROOT`, resolve shadow via `.shadowRoot` or closed capture lookup. If null or `slotAssignment === 'manual'`: skip (NIT). Else first admit **this frame**: `NODE_NEW` the root **after** the host already has a row, `initFlags` from the live root (missing `clonable`/`serializable` ⇒ bit off), `mode` `0` open / `1` closed, walk shadow children with existing `prepareChild` / INSERT batching, then observe that root.
 
 **Observe.** Same record **buffer** as the document. **One `MutationObserver` per admitted root** (plus the existing document one). Same `takeRecords` into that buffer. When the host/root dies: `disconnect` that root’s observer. Do not `disconnect` the document observer.
 
@@ -58,7 +58,7 @@ Move **between** light and shadow (a node, not the root) is a normal `INSERT` (u
 
 ## Apply
 
-Phase 2 `NODE_NEW SHADOW_ROOT`: `host.attachShadow({ mode: 'open', delegatesFocus, clonable, serializable })` from `initFlags`. Not `insertBefore`. Host element must already exist in the registry (same-frame: host `NODE_NEW` first). Detached host is legal.
+Phase 2 `NODE_NEW SHADOW_ROOT`: `host.attachShadow({ mode: 'open'|'closed', delegatesFocus, clonable, serializable })` from wire `mode` + `initFlags`. Closed roots register in shared WeakMap for later lookup. Not `insertBefore`. Host element must already exist in the registry (same-frame: host `NODE_NEW` first). Detached host is legal.
 
 `INSERT` / `REMOVE` whose parent is the root go into that `ShadowRoot`. Light ops on the host unchanged. Browser slots (`named`).
 
@@ -70,7 +70,7 @@ Registry holds the `ShadowRoot` as the node for that id.
 
 Kind `SHADOW_ROOT = 7`. Frame **version stays 2**.
 
-`NODE_NEW`: `host: u32`, `mode: u8` (`0` only; `1` NIT `malformed`), `initFlags: u8`:
+`NODE_NEW`: `host: u32`, `mode: u8` (`0` open, `1` closed; other values `malformed`), `initFlags: u8`:
 
 | Bit | Meaning |
 |-----|---------|
@@ -86,7 +86,7 @@ Shadow uses a **`SHADOW_ROOT` row** ([shadow.md](shadow.md)). Early-draft `NODE_
 
 ## Probes
 
-O2 and tree iso **enter** each open `.shadowRoot` (second list, not smashed into light `child_order`). Closed/manual fixture: **fail explicit unsupported**.
+O2 and tree iso **enter** each admitted `.shadowRoot` (open or closed; second list, not smashed into light `child_order`). Manual slot fixture: **fail explicit unsupported**.
 
 ---
 
@@ -100,7 +100,8 @@ DOM walk without this poll leaves web components unstyled. The implementation pl
 
 ## NIT (not this version)
 
-- Closed / UA
+- UA shadow
+- Declarative closed shadow (`shadowrootmode="closed"` in HTML)
 - `slotAssignment: 'manual'` and `slot.assign` sync
 
 Do not observe `contentDocument`.

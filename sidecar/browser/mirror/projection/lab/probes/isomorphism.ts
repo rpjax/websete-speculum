@@ -207,6 +207,56 @@ export type ClientStateSnapshot = {
       docIsLive: boolean | null;
     }>;
   } | null;
+  /** Lab-only registry materialization probe (`LabProjectedHarness.probeNestedRegistry`). */
+  registryProbe?: {
+    contextId: number;
+    ok: boolean;
+    reason?: string;
+    registrySize: number;
+    applierSequence: number;
+    applierGeneration: number;
+    applierTableHash: string;
+    applierTableRows: number;
+    applierDesynced: boolean;
+    bodyLightChildCount: number;
+    nodes: Array<{
+      id: number;
+      present: boolean;
+      nodeType: string | null;
+      tagName: string | null;
+      childCount: number | null;
+      isShadowRoot: boolean;
+      shadowHostId: number | null;
+      hostMatchesId: number | null;
+      rect: { x: number; y: number; width: number; height: number } | null;
+    }>;
+  } | null;
+  /** Lab-only rect ladder (`LabProjectedHarness.probeRectLadder`). */
+  rectLadder?: {
+    contextId: number;
+    ok: boolean;
+    reason?: string;
+    levels: Array<{
+      level: number;
+      name: string;
+      ok: boolean;
+      reason?: string;
+      tagName?: string | null;
+      rect: { x: number; y: number; width: number; height: number } | null;
+      offsetWidth?: number | null;
+      offsetHeight?: number | null;
+      display?: string | null;
+      visibility?: string | null;
+      hasSrcAttr?: boolean | null;
+      src?: string | null;
+    }>;
+  } | null;
+  /** Lab-only widget computedStyle via registry pierce (nested ctx). */
+  paintProbe?: {
+    widgetPaint: import('./turnstilePierce').TurnstilePaintSample | null;
+    widgetPaintOk: boolean;
+    widgetPaintReason?: string;
+  };
 };
 
 export type IsomorphismResult = {

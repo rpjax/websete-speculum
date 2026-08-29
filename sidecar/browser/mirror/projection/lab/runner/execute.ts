@@ -22,6 +22,7 @@ import { foldApplyHonestyDesync } from '../blueprints/fold/applyHonestyDesync';
 import { foldCspNavLocale } from '../blueprints/fold/cspNavLocale';
 import { foldTurnstile } from '../blueprints/fold/turnstile';
 import { runTurnstileDiagnostic } from '../probes/turnstileDiagnostic';
+import { runNestedApplyFailureDiagnostic } from '../probes/nestedApplyFailureDiagnostic';
 import type { HostileKind } from './hostileFrames';
 import {
   encodeAttrDesyncFrame,
@@ -44,10 +45,24 @@ export type ExecuteHooks = {
   resolveUrl: (url: string) => string;
   requestClientSnapshot?: (
     contextId: number,
-    options?: { includeNestedPeek?: boolean },
+    options?: {
+      includeNestedPeek?: boolean;
+      registryProbeNodeIds?: number[];
+      rectLadderProbe?: { nestedContextId: number; widgetNodeId?: number };
+      paintProbe?: {
+        nestedContextId: number;
+        widgetNodeId?: number;
+      };
+    },
   ) => Promise<import('../probes/isomorphism').ClientStateSnapshot | null>;
   requestTamper?: () => Promise<{ ok: boolean; reason?: string } | null>;
   injectClientFrame?: (bytes: Uint8Array) => Promise<InjectAck | null>;
+  captureProjectedViewportClip?: (clip: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => Promise<{ ok: boolean; base64?: string; reason?: string; byteLength?: number }>;
   onProgress?: (p: {
     actionId: string;
     queue: string;
@@ -592,6 +607,96 @@ export async function executeBlueprint(
         }
         chassis.journal.acts.push({ name: 'probe.turnstile', ok: true });
         return finish(true, `contexts=${diagnostic.contextIds.join(',')}`);
+      }
+      case 'probe.nestedApplyFailure': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const diagnostic = await runNestedApplyFailureDiagnostic({
+          chassis,
+          session,
+          frameCapture: chassis.frameCapture,
+          getClientSnapshot: hooks.requestClientSnapshot
+            ? (contextId, options) => hooks.requestClientSnapshot!(contextId, options)
+            : undefined,
+        });
+        (chassis.journal as { nestedApplyFailure?: unknown }).nestedApplyFailure = diagnostic;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            'probes/nested-apply-failure.json',
+            diagnostic,
+            'probes.nestedApplyFailure',
+          );
+          await writeJson(
+            chassis.dossierHandle,
+            'wire/frame-capture.json',
+            chassis.frameCapture.toJSON(),
+            'wire.frameCapture',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.nestedApplyFailure', ok: true });
+        const hint = diagnostic.hypothesis[0] ?? `insertFailures=${diagnostic.insertFailures.length}`;
+        return finish(true, hint);
+      }
+      case 'probe.turnstileRectLadder': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const { runTurnstileRectLadder } = await import('../probes/turnstileRectLadder');
+        const diagnostic = await runTurnstileRectLadder({
+          chassis,
+          session,
+          getClientRectLadder: hooks.requestClientSnapshot
+            ? async (nestedContextId, widgetNodeId) => {
+                const snap = await hooks.requestClientSnapshot!(1, {
+                  rectLadderProbe: { nestedContextId, widgetNodeId },
+                });
+                return snap?.rectLadder ?? null;
+              }
+            : undefined,
+        });
+        (chassis.journal as { turnstileRectLadder?: unknown }).turnstileRectLadder = diagnostic;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            'probes/turnstile-rect-ladder.json',
+            diagnostic,
+            'probes.turnstileRectLadder',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.turnstileRectLadder', ok: true });
+        return finish(true, diagnostic.hypothesis[0] ?? 'rect ladder captured');
+      }
+      case 'probe.turnstilePaint': {
+        const session = chassis.browser;
+        if (!session) return finish(false, 'no session');
+        const { runTurnstilePaintDiagnostic } = await import('../probes/turnstilePaintDiagnostic');
+        const diagnostic = await runTurnstilePaintDiagnostic({
+          chassis,
+          session,
+          dossier: chassis.dossierHandle,
+          captureProjectedViewportClip: hooks.captureProjectedViewportClip,
+          getClientPaintProbe: hooks.requestClientSnapshot
+            ? async ({ nestedContextId, widgetNodeId }) => {
+                const snap = await hooks.requestClientSnapshot!(1, {
+                  paintProbe: { nestedContextId, widgetNodeId },
+                });
+                if (!snap?.paintProbe) return null;
+                const { widgetPaint, widgetPaintOk, widgetPaintReason } = snap.paintProbe;
+                return { widgetPaint, widgetPaintOk, widgetPaintReason };
+              }
+            : undefined,
+        });
+        (chassis.journal as { turnstilePaint?: unknown }).turnstilePaint = diagnostic;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            'probes/turnstile-paint.json',
+            diagnostic,
+            'probes.turnstilePaint',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.turnstilePaint', ok: true });
+        return finish(true, diagnostic.hypothesis[0] ?? 'paint probe captured');
       }
       case 'collect.enable':
         return finish(true, 'collectors always on chassis');

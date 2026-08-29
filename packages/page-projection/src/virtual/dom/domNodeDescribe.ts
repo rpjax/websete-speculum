@@ -7,7 +7,7 @@
 
 import { classifyElementNs, ElementNs } from '../../core/elementNs';
 import { NodeKind, OpCode } from '../../core/opcodes';
-import { SHADOW_MODE_OPEN, type AttrPair, type FrameOp } from '../../core/frame';
+import { SHADOW_MODE_OPEN, SHADOW_MODE_CLOSED, type AttrPair, type FrameOp } from '../../core/frame';
 import type { DomNodeKey } from '../../core/domNodeKey';
 import { shadowInitFlags } from './shadowAdmit';
 
@@ -67,7 +67,7 @@ export function describeNodeNew(
       id,
       kind: NodeKind.ShadowRoot,
       host: hostId ?? 0,
-      mode: SHADOW_MODE_OPEN,
+      mode: sr.mode === 'closed' ? SHADOW_MODE_CLOSED : SHADOW_MODE_OPEN,
       initFlags: shadowInitFlags(sr),
     };
   }

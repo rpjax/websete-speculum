@@ -26,6 +26,7 @@
     "lab:cssom-heavy": "node scripts/cssom-heavy.js",
     "lab:csp-nav-locale": "node scripts/csp-nav-locale.js",
     "lab:iframe-open": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node scripts/lab-iframe-open-ui.js",
+    "lab:shadow-closed": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node scripts/lab-shadow-closed-ui.js",
     "lab:eneba-turnstile": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node scripts/lab-eneba-turnstile-ui.js",
     "smoke:projection-lab": "npm run check:page-projection-boundaries && npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node scripts/smoke-projection-lab.js",
     "smoke": "npm run build && node dist/smoke.js",

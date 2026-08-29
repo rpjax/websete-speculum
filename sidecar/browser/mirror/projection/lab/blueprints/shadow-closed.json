@@ -1,6 +1,6 @@
 {
   "id": "shadow-closed",
-  "description": "Closed shadow NIT — explicit unsupported fail (PP-F-4)",
+  "description": "Closed shadow — attachShadow capture hook, tree iso enters shadow interior",
   "sessionPolicy": "cold",
   "fold": "shadow-closed",
   "queues": [
@@ -8,8 +8,9 @@
       "name": "main",
       "actions": [
         { "id": "boot", "type": "boot", "params": { "url": "fixtures/shadow-closed.html" } },
-        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 800 } },
-        { "id": "fold", "type": "fold", "dependsOn": ["wait-settle"], "params": { "ruleset": "shadow-closed" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 1200 } },
+        { "id": "iso", "type": "iso", "dependsOn": ["wait-settle"] },
+        { "id": "fold", "type": "fold", "dependsOn": ["iso"], "params": { "ruleset": "shadow-closed" } },
         { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
       ]
     }

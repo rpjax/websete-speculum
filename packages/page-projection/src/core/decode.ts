@@ -28,6 +28,7 @@ import {
   INSERT_AT_END,
   SHADOW_INIT_FLAGS_MASK,
   SHADOW_MODE_OPEN,
+  SHADOW_MODE_CLOSED,
   type AttrPair,
   type FrameOp,
 } from './frame';
@@ -318,8 +319,8 @@ function decodeOp(
         const host = r.u32();
         const mode = r.u8();
         const initFlags = r.u8();
-        if (mode !== SHADOW_MODE_OPEN) {
-          throw new Error(`NODE_NEW SHADOW_ROOT mode ${mode} is not open (frame-protocol.md §4.2)`);
+        if (mode !== SHADOW_MODE_OPEN && mode !== SHADOW_MODE_CLOSED) {
+          throw new Error(`NODE_NEW SHADOW_ROOT mode ${mode} is invalid (frame-protocol.md §4.2)`);
         }
         if ((initFlags & ~SHADOW_INIT_FLAGS_MASK) !== 0) {
           throw new Error(`NODE_NEW SHADOW_ROOT initFlags ${initFlags} has reserved bits (frame-protocol.md §4.2)`);

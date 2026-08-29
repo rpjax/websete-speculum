@@ -112,6 +112,7 @@ import {
   SHADOW_INIT_FLAGS_MASK,
   SHADOW_INIT_SERIALIZABLE,
   SHADOW_MODE_OPEN,
+  SHADOW_MODE_CLOSED,
 } from '@speculum/page-projection/core/frame';
 import { diffTrees } from './browser/mirror/projection/lab/probes/structuralDiff';
 import { decodeFramePart, peekFrameHeader, PersistentStringTable } from '@speculum/page-projection/core/decode';
@@ -2668,29 +2669,38 @@ function testShadowRootWire(): void {
   console.log('[unit] SHADOW_ROOT wire encode/decode version 2 ok');
 }
 
-function testShadowRootModeClosedMalformed(): void {
+function testShadowRootModeClosedWire(): void {
   const op: FrameOp = {
     op: OpCode.NodeNew,
     id: 20,
     kind: NodeKind.ShadowRoot,
     host: 10,
-    mode: SHADOW_MODE_OPEN,
+    mode: SHADOW_MODE_CLOSED,
     initFlags: 0,
   };
   const bytes = new BinaryFrameEncoder().encode(createFrame({ generation: 1, sequence: 1, ops: [op] }))[0]!;
-  const kindAt = skipToNodeNewKind(bytes);
-  assert.strictEqual(bytes[kindAt], NodeKind.ShadowRoot);
-  const modeAt = kindAt + 1 + 4; // kind + host u32
-  const patched = bytes.slice();
-  patched[modeAt] = 1;
-  const decoded = decodeFramePart(patched, new PersistentStringTable());
-  assert.strictEqual(decoded.ok, false);
-  if (!decoded.ok) assert.strictEqual(decoded.reason, 'malformed');
+  const decoded = decodeFramePart(bytes, new PersistentStringTable());
+  assert.ok(decoded.ok, 'SHADOW_ROOT closed mode must decode');
+  if (!decoded.ok) return;
+  const got = decoded.part.ops[0];
+  assert.strictEqual(got?.op, OpCode.NodeNew);
+  if (got?.op !== OpCode.NodeNew || got.kind !== NodeKind.ShadowRoot) return;
+  assert.strictEqual(got.mode, SHADOW_MODE_CLOSED);
 
   const table = new ReplicatedTable();
   table.createElementRow(10, 'div', []);
+  const apply = applyFrameToTableChecked(table, false, [op]);
+  assert.strictEqual(apply.ok, true);
+  assert.strictEqual(table.has(20), true);
+  assert.strictEqual(table.getRow(20)?.kind, NodeKind.ShadowRoot);
+  console.log('[unit] SHADOW_ROOT mode closed wire ok');
+}
+
+function testShadowRootModeInvalidMalformed(): void {
+  const table = new ReplicatedTable();
+  table.createElementRow(10, 'div', []);
   const apply = applyFrameToTableChecked(table, false, [
-    { op: OpCode.NodeNew, id: 20, kind: NodeKind.ShadowRoot, host: 10, mode: 1, initFlags: 0 },
+    { op: OpCode.NodeNew, id: 20, kind: NodeKind.ShadowRoot, host: 10, mode: 2, initFlags: 0 },
   ]);
   assert.strictEqual(apply.ok, false);
   if (!apply.ok && apply.opName !== 'check') {
@@ -2698,7 +2708,7 @@ function testShadowRootModeClosedMalformed(): void {
     assert.strictEqual(apply.opName, 'nodeNew');
   } else assert.fail(JSON.stringify(apply));
   assert.strictEqual(table.has(20), false);
-  console.log('[unit] SHADOW_ROOT mode closed malformed ok');
+  console.log('[unit] SHADOW_ROOT mode invalid malformed ok');
 }
 
 function testShadowRootInitFlagsReservedBitMalformed(): void {
@@ -4228,7 +4238,8 @@ async function main(): Promise<void> {
   testContextIdMintAndChildScopes();
   testNestedHostNavAttrSkip();
   testShadowRootWire();
-  testShadowRootModeClosedMalformed();
+  testShadowRootModeClosedWire();
+  testShadowRootModeInvalidMalformed();
   testShadowRootInitFlagsReservedBitMalformed();
   testCreateShadowRootNotInLightChildOrder();
   testDropSubtreeIncludesShadowRoot();

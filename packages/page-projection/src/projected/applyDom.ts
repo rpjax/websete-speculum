@@ -29,6 +29,7 @@ import {
   SHADOW_INIT_CLONABLE,
   SHADOW_INIT_DELEGATES_FOCUS,
   SHADOW_INIT_SERIALIZABLE,
+  SHADOW_MODE_CLOSED,
   type AttrPair,
   type FrameOp,
   type PropSetOp,
@@ -52,6 +53,7 @@ import {
 import {
   stampProjectedStandardsSrcdoc,
 } from './projectedBlankIframe';
+import { registerClosedShadowRoot } from '../core/closedShadowLookup';
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -213,10 +215,16 @@ export class DomFrameApplier {
       try {
         if (!this.applyOp(op)) return false;
       } catch (err) {
-        const message =
+        const opLabel = op.op === OpCode.Insert
+          ? `insert parent=${op.parent} before=${op.before} ids=[${op.ids.join(',')}]`
+          : `op=${op.op}`;
+        const errText =
           err instanceof Error
-            ? `${err.name}: ${err.message} @op[${i}]=${op.op}`
-            : `throw @op[${i}]=${op.op}`;
+            ? `${err.name}: ${err.message}`
+            : typeof err === 'object' && err !== null && 'name' in err
+              ? `${String((err as { name?: unknown }).name)}: ${String((err as { message?: unknown }).message ?? err)}`
+              : String(err);
+        const message = `${errText} @op[${i}]=${op.op} ${opLabel}`;
         return this.failOp('malformed', 'apply', 'id' in op && typeof (op as { id?: number }).id === 'number'
           ? (op as { id: number }).id
           : 0, message);
@@ -662,13 +670,16 @@ export class DomFrameApplier {
       if (!host || host.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'nodeNew', op.host);
       const el = host as Element;
       if (el.shadowRoot) return this.fail('bad_target', 'nodeNew', op.id);
-      const init: ShadowRootInit = { mode: 'open' };
+      const init: ShadowRootInit = { mode: op.mode === SHADOW_MODE_CLOSED ? 'closed' : 'open' };
       if ((op.initFlags & SHADOW_INIT_DELEGATES_FOCUS) !== 0) init.delegatesFocus = true;
       const extra = init as ShadowRootInit & { clonable?: boolean; serializable?: boolean };
       if ((op.initFlags & SHADOW_INIT_CLONABLE) !== 0) extra.clonable = true;
       if ((op.initFlags & SHADOW_INIT_SERIALIZABLE) !== 0) extra.serializable = true;
       try {
         node = el.attachShadow(init);
+        if (init.mode === 'closed') {
+          registerClosedShadowRoot(el, node as ShadowRoot);
+        }
       } catch {
         return this.fail('malformed', 'nodeNew', op.id);
       }

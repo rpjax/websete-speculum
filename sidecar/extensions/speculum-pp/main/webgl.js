@@ -19,18 +19,9 @@
 
     function patchContext(proto) {
         if (!proto) return;
-        if (!proto.__speculumWebglOrigGetParam) {
-            Object.defineProperty(proto, '__speculumWebglOrigGetParam', {
-                value: proto.getParameter,
-                configurable: true,
-            });
-            Object.defineProperty(proto, '__speculumWebglOrigGetExt', {
-                value: proto.getExtension,
-                configurable: true,
-            });
-        }
-        const origGetParam = proto.__speculumWebglOrigGetParam;
-        const origGetExt = proto.__speculumWebglOrigGetExt;
+        const origGetParam = proto.getParameter;
+        const origGetExt = proto.getExtension;
+        if (typeof origGetParam !== 'function' || typeof origGetExt !== 'function') return;
 
         Object.defineProperty(proto, 'getParameter', {
             value: function (param) {
@@ -60,7 +51,9 @@
         });
     }
 
-    patchContext(WebGLRenderingContext.prototype);
+    if (typeof WebGLRenderingContext !== 'undefined') {
+        patchContext(WebGLRenderingContext.prototype);
+    }
     if (typeof WebGL2RenderingContext !== 'undefined') {
         patchContext(WebGL2RenderingContext.prototype);
     }

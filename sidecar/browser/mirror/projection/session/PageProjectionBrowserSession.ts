@@ -1013,6 +1013,132 @@ export class PageProjectionBrowserSession {
     }
   }
 
+  /** Lab diag — geometry probe routed to a Virtual context via loopback. */
+  async measureNodeRect(
+    contextId: number,
+    nodeId: number,
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    tagName?: string;
+    rect?: { x: number; y: number; width: number; height: number };
+    offsetWidth?: number;
+    offsetHeight?: number;
+    display?: string | null;
+    visibility?: string | null;
+    hasSrcAttr?: boolean;
+    src?: string | null;
+  }> {
+    try {
+      const r = await this.dataPlane.invoke('measureNodeRect', { contextId, nodeId });
+      if (!r.ok) {
+        return { ok: false, reason: r.error?.message ?? 'measure_invoke_failed' };
+      }
+      const payload = r.value as { ok: boolean; reason?: string } & Record<string, unknown>;
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, reason: 'measure_empty' };
+      }
+      return payload as Awaited<ReturnType<PageProjectionBrowserSession['measureNodeRect']>>;
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** Lab diag — root Virtual Turnstile iframe chain (pierces closed shadow). */
+  async measureTurnstileRootRects(): Promise<{
+    ok: boolean;
+    reason?: string;
+    levels?: Array<{
+      name: string;
+      ok: boolean;
+      reason?: string;
+      tagName?: string;
+      rect?: { x: number; y: number; width: number; height: number };
+      offsetWidth?: number;
+      offsetHeight?: number;
+      display?: string | null;
+      visibility?: string | null;
+      hasSrcAttr?: boolean | null;
+      src?: string | null;
+    }>;
+  }> {
+    try {
+      const r = await this.dataPlane.invoke('measureTurnstileRootRects', { contextId: 1 });
+      if (!r.ok) {
+        return { ok: false, reason: r.error?.message ?? 'measure_invoke_failed' };
+      }
+      const payload = r.value as { ok: boolean; reason?: string; levels?: unknown[] };
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, reason: 'measure_empty' };
+      }
+      return payload as Awaited<ReturnType<PageProjectionBrowserSession['measureTurnstileRootRects']>>;
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async measureNodePaint(
+    contextId: number,
+    nodeId: number,
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    paint?: {
+      backgroundColor: string;
+      color: string;
+      opacity: string;
+      visibility: string;
+      display: string;
+      borderTopWidth: string;
+      borderTopColor: string;
+      borderTopStyle: string;
+      width: string;
+      height: string;
+    };
+  }> {
+    try {
+      const r = await this.dataPlane.invoke('measureNodePaint', { contextId, nodeId });
+      if (!r.ok) {
+        return { ok: false, reason: r.error?.message ?? 'paint_invoke_failed' };
+      }
+      const payload = r.value as { ok: boolean; reason?: string; paint?: unknown };
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, reason: 'paint_empty' };
+      }
+      return payload as Awaited<ReturnType<PageProjectionBrowserSession['measureNodePaint']>>;
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** Lab diag — CDP viewport clip PNG (K1 diag only). */
+  async captureViewportClip(clip: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<{ ok: boolean; base64?: string; reason?: string; byteLength?: number }> {
+    try {
+      const cdp = await this.ensureCdp();
+      const result = (await cdp.send('Page.captureScreenshot', {
+        format: 'png',
+        clip: {
+          x: Math.max(0, clip.x),
+          y: Math.max(0, clip.y),
+          width: Math.max(1, clip.width),
+          height: Math.max(1, clip.height),
+          scale: 1,
+        },
+      })) as { data?: string };
+      if (typeof result.data !== 'string' || result.data.length === 0) {
+        return { ok: false, reason: 'empty_screenshot' };
+      }
+      return { ok: true, base64: result.data, byteLength: result.data.length };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async startCpuProfile(): Promise<{ ok: boolean; reason?: string }> {
     if (!this.cpuAllowed) return { ok: false, reason: 'cpuProfiling disabled at launch' };
     if (this.cpuRunning) return { ok: false, reason: 'cpu profile already running' };

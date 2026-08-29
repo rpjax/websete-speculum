@@ -27,6 +27,7 @@ import {
 } from '../dossier/write';
 import type { LabSessionRecord, LabVerdict } from '../dossier/types';
 import { FrameInvariantMonitor } from '../probes/frameInvariantMonitor';
+import { FrameCaptureRing } from '../probes/frameCaptureRing';
 import { MetricsAggregator } from '../probes/metricsAggregator';
 import { NodeTableApplier } from '../probes/nodeTableApply';
 import type { ClientStateSnapshot } from '../probes/isomorphism';
@@ -204,6 +205,7 @@ export class LabChassis {
 
   readonly metrics = new MetricsAggregator();
   readonly contextIndex = new ContextIndex();
+  readonly frameCapture = new FrameCaptureRing();
   private readonly invariantMonitors = new Map<number, FrameInvariantMonitor>();
   /** Root-context wire monitor — legacy alias for CLI folds that expect a single monitor. */
   get invariantMonitor(): FrameInvariantMonitor {
@@ -496,6 +498,7 @@ export class LabChassis {
     this.contextIndex.observeFrameHeader(hdr);
     if (hdr) {
       this.monitorFor(hdr.contextId).observeFrameBytes(b);
+      this.frameCapture.observeFrameBytes(hdr.contextId, b);
       if (hdr.contextId === CONTEXT_ID_ROOT) {
         this.stats.lastGeneration = hdr.generation;
         this.stats.lastSequence = hdr.sequence;
@@ -633,6 +636,7 @@ export class LabChassis {
     this.browseSnapEpoch += 1;
     this.contextIndex.noteBoot();
     this.invariantMonitors.clear();
+    this.frameCapture.reset();
     Object.keys(this.eventCounts).forEach((k) => delete this.eventCounts[k]);
     this.desyncs.length = 0;
 

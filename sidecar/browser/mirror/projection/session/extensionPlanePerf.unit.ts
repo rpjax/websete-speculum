@@ -9,6 +9,8 @@ import {
   LOOPBACK_SOCKET_CONNECTING,
   LOOPBACK_SOCKET_OPEN,
   type LoopbackSocket,
+  type LoopbackSocketEventMap,
+  type LoopbackSocketListener,
 } from '@speculum/page-projection/core/loopback/socket';
 import { LoopbackDataPlane } from '@speculum/page-projection/virtual/transport/loopbackDataPlane';
 
@@ -17,17 +19,11 @@ const GENERATION = 1;
 const ROUNDS = 200;
 const FRAME = new Uint8Array(16 * 1024); // 16 KiB — typical small frame payload size for smoke
 
-type MockListener = (ev: unknown) => void;
-
-/**
- * Direct mock socket vs hop mock (extension plane: postMessage+Port latency simulated).
- * Design unchanged — only measures hop cost of the sealed tunnel shape.
- */
 class DirectMockSocket implements LoopbackSocket {
-  private openL: MockListener[] = [];
-  private messageL: MockListener[] = [];
-  private closeL: MockListener[] = [];
-  private errorL: MockListener[] = [];
+  private openL: LoopbackSocketListener<'open'>[] = [];
+  private messageL: LoopbackSocketListener<'message'>[] = [];
+  private closeL: LoopbackSocketListener<'close'>[] = [];
+  private errorL: LoopbackSocketListener<'error'>[] = [];
   private _readyState = LOOPBACK_SOCKET_CONNECTING;
   binaryType: 'arraybuffer' = 'arraybuffer';
 
@@ -43,18 +39,18 @@ class DirectMockSocket implements LoopbackSocket {
   private ensureOpen(): void {
     if (this._readyState !== LOOPBACK_SOCKET_CONNECTING) return;
     this._readyState = LOOPBACK_SOCKET_OPEN;
-    for (const fn of this.openL) fn({});
+    for (const fn of this.openL) fn({} as Event);
   }
 
   deliver(bytes: Uint8Array): void {
     const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    for (const fn of this.messageL) fn({ data: ab });
+    for (const fn of this.messageL) fn({ data: ab } as MessageEvent<ArrayBuffer>);
   }
 
   close(): void {
     if (this._readyState === LOOPBACK_SOCKET_CLOSED) return;
     this._readyState = LOOPBACK_SOCKET_CLOSED;
-    for (const fn of this.closeL) fn({});
+    for (const fn of this.closeL) fn({} as CloseEvent);
   }
 
   send(data: ArrayBuffer | ArrayBufferView): void {
@@ -64,16 +60,24 @@ class DirectMockSocket implements LoopbackSocket {
     this.onSend(bytes);
   }
 
-  addEventListener(type: string, listener: MockListener): void {
+  addEventListener<K extends keyof LoopbackSocketEventMap>(
+    type: K,
+    listener: LoopbackSocketListener<K>,
+    _options?: boolean | AddEventListenerOptions,
+  ): void {
     if (type === 'open') {
-      this.openL.push(listener);
+      (this.openL as LoopbackSocketListener<K>[]).push(listener);
       this.ensureOpen();
-    } else if (type === 'message') this.messageL.push(listener);
-    else if (type === 'close') this.closeL.push(listener);
-    else if (type === 'error') this.errorL.push(listener);
+    } else if (type === 'message') (this.messageL as LoopbackSocketListener<K>[]).push(listener);
+    else if (type === 'close') (this.closeL as LoopbackSocketListener<K>[]).push(listener);
+    else if (type === 'error') (this.errorL as LoopbackSocketListener<K>[]).push(listener);
   }
 
-  removeEventListener(): void {
+  removeEventListener<K extends keyof LoopbackSocketEventMap>(
+    _type: K,
+    _listener: LoopbackSocketListener<K>,
+    _options?: boolean | EventListenerOptions,
+  ): void {
     /* unused */
   }
 }

@@ -10,20 +10,20 @@ import {
   LOOPBACK_SOCKET_CONNECTING,
   LOOPBACK_SOCKET_OPEN,
   type LoopbackSocket,
+  type LoopbackSocketEventMap,
+  type LoopbackSocketListener,
 } from '@speculum/page-projection/core/loopback/socket';
 import { LoopbackDataPlane } from '@speculum/page-projection/virtual/transport/loopbackDataPlane';
 
 const SESSION = 'unit-virtual-loopback';
 const GENERATION = 1;
 
-type MockListener = (ev: unknown) => void;
-
 /** In-process mock socket for establish handshake tests. */
 class MockEstablishSocket implements LoopbackSocket {
-  private openListeners: MockListener[] = [];
-  private messageListeners: MockListener[] = [];
-  private closeListeners: MockListener[] = [];
-  private errorListeners: MockListener[] = [];
+  private openListeners: LoopbackSocketListener<'open'>[] = [];
+  private messageListeners: LoopbackSocketListener<'message'>[] = [];
+  private closeListeners: LoopbackSocketListener<'close'>[] = [];
+  private errorListeners: LoopbackSocketListener<'error'>[] = [];
 
   private _readyState = LOOPBACK_SOCKET_CONNECTING;
   binaryType: 'arraybuffer' = 'arraybuffer';
@@ -36,7 +36,7 @@ class MockEstablishSocket implements LoopbackSocket {
   private ensureOpen(): void {
     if (this._readyState !== LOOPBACK_SOCKET_CONNECTING) return;
     this._readyState = LOOPBACK_SOCKET_OPEN;
-    for (const fn of this.openListeners) fn({});
+    for (const fn of this.openListeners) fn({} as Event);
   }
 
   get readyState(): number {
@@ -49,13 +49,15 @@ class MockEstablishSocket implements LoopbackSocket {
 
   deliverMessage(bytes: Uint8Array): void {
     const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    for (const fn of this.messageListeners) fn({ data: ab });
+    for (const fn of this.messageListeners) {
+      fn({ data: ab } as MessageEvent<ArrayBuffer>);
+    }
   }
 
   close(): void {
     if (this._readyState === LOOPBACK_SOCKET_CLOSED) return;
     this._readyState = LOOPBACK_SOCKET_CLOSED;
-    for (const fn of this.closeListeners) fn({});
+    for (const fn of this.closeListeners) fn({} as CloseEvent);
   }
 
   /** Simulate extension open-ok arriving before whenOpen arms its listener. */
@@ -74,7 +76,12 @@ class MockEstablishSocket implements LoopbackSocket {
     this.onSend(bytes);
   }
 
-  addEventListener(type: string, listener: MockListener, options?: { once?: boolean }): void {
+  addEventListener<K extends keyof LoopbackSocketEventMap>(
+    type: K,
+    listener: LoopbackSocketListener<K>,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
+    const once = typeof options === 'object' && options !== null && options.once === true;
     const list =
       type === 'open'
         ? this.openListeners
@@ -86,19 +93,23 @@ class MockEstablishSocket implements LoopbackSocket {
               ? this.errorListeners
               : null;
     if (!list) return;
-    list.push(listener);
-    if (type === 'open') this.ensureOpen();
-    if (options?.once) {
-      const wrapped = (ev: unknown) => {
+    if (once) {
+      const wrapped = ((ev: LoopbackSocketEventMap[K]) => {
         listener(ev);
-        const idx = list.indexOf(wrapped);
-        if (idx >= 0) list.splice(idx, 1);
-      };
-      list[list.length - 1] = wrapped;
+        this.removeEventListener(type, wrapped as LoopbackSocketListener<K>);
+      }) as LoopbackSocketListener<K>;
+      (list as LoopbackSocketListener<K>[]).push(wrapped);
+    } else {
+      (list as LoopbackSocketListener<K>[]).push(listener);
     }
+    if (type === 'open') this.ensureOpen();
   }
 
-  removeEventListener(type: string, listener: MockListener): void {
+  removeEventListener<K extends keyof LoopbackSocketEventMap>(
+    type: K,
+    listener: LoopbackSocketListener<K>,
+    _options?: boolean | EventListenerOptions,
+  ): void {
     const list =
       type === 'open'
         ? this.openListeners
@@ -110,7 +121,7 @@ class MockEstablishSocket implements LoopbackSocket {
               ? this.errorListeners
               : null;
     if (!list) return;
-    const idx = list.indexOf(listener);
+    const idx = (list as LoopbackSocketListener<K>[]).indexOf(listener);
     if (idx >= 0) list.splice(idx, 1);
   }
 }

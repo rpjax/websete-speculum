@@ -7,6 +7,8 @@
  * No anchor-attribute / establish-checksum machinery here — that was the Node-mirror
  * resync path (contracts/07-recovery.md), dead and superseded by frame-protocol.md §5.8.
  */
+import { resolveShadowRoot } from '../core/closedShadowLookup';
+
 export class PageProjectionRegistry {
   private readonly nodesById = new Map<number, Node>();
   private readonly idsByNode = new WeakMap<Node, number>();
@@ -65,7 +67,7 @@ export class PageProjectionRegistry {
       }
       for (const child of Array.from(node.childNodes)) stack.push(child);
       if (node.nodeType === Node.ELEMENT_NODE) {
-        const sr = (node as Element).shadowRoot;
+        const sr = resolveShadowRoot(node as Element);
         if (sr) stack.push(sr);
       }
     }

@@ -24,6 +24,16 @@ Projected capture (sparse: event.target → idOf + localX/Y in target box, no po
 
 No census fan-out. No ABS uinput. No `os-abs` adapter.
 
+### Turnstile / challenge accept (2026-08-29)
+
+| Verdict | Criterion |
+|---------|-----------|
+| **Pass** | Token emitted on **Virtual** — `cf-turnstile-response` populated and/or site callback fired (K5: site JS runs on Virtual). |
+| **Parity** | Projected reflects that state as PROP (1:1 perceived). |
+| **Not accept** | Click delivered at the correct pixel alone — that is **precondition only**, not pass. |
+
+Measure token on Virtual first; Projected parity second. Do not sign off from sidecar resolve coords or `elementFromPoint` alone.
+
 ---
 
 <details>
@@ -173,6 +183,7 @@ variants now coexist behind `EventApplier` (§2.1, `clickDelivery.ts`); this sec
 - Launch/resize geometry: `applyNativeWindowBounds` places the **content** box at display (0,0) size W×H (chrome pushed off-screen). That is window setup, not input-path calibration.
 - Display+ABS capacity is over-alloc **R** (`viewportPolicy.maxWidth`/`maxHeight`, D-UI-04/11) — session logical W×H is a **soft-resizing subset** of that R, not an identity display size (`PageProjectionBrowserSession.launch()`). **Corrected 2026-08-27** — this line previously said cutover capacity was identity W×H with over-alloc R as D-UI-05/11 future work; R-as-launch-capacity already shipped, this was stale prose only (no behavior change).
 - Nested iframe pointers: client maps to **root viewport** before enqueue; local % is computed in the **event window** before frame-hop.
+- **Manual click diagnostic (lab browse):** after a Projected pointer on the widget, run `__speculumLabDumpInputClick()` in devtools — one dump with `projectedCapture`, `sidecarRejects`, `lastIntent` (`contextId`, `nodeId`), `lastResolve` (`x`, `y`), and root `elementFromPoint` via loopback MAIN eval. Written to `probes/input-click-diag.json` on Stop / diag request.
 
 ---
 

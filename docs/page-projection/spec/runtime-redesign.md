@@ -767,3 +767,26 @@ risk of a stray tab is owned by single-tab (sidecar + MAIN), not a C2 tab-id fie
 6. V3 stealth spike with criterion fixed beforehand.
 7. M4 when useful (history checkout OK).
 8. Optional live two-session Chrome proof (unit already covers endpoint isolation).
+
+---
+
+## 15.7 CDP boot carrier residue — **FIXED 2026-08-29**
+
+**Symptom:** same-site cross-origin nested frames (lab fixture 4077→4078) showed
+`chrome-error://chromewebdata/`; nested Virtual never booted; XO blueprints red with
+`context_not_found`. Isolated repro: any `context.addInitScript` on boot (including two
+budget integers) broke the child frame. OOPIF real sites (Turnstile) could still boot —
+breakage is **not universal**.
+
+**Cause:** `PageProjectionBrowserSession` still called `context.addInitScript` to set
+`__SPECULUM_CONFIG_GATE_BUDGET_MS` and `__SPECULUM_INIT_CONTEXT_BUDGET_MS` after the
+runtime redesign moved delivery to the extension. That was the last CDP
+`Page.addScriptToEvaluateOnNewDocument` on the PP establish path.
+
+**Fix:** delete the `addInitScript`; carry `configGateTimeoutMs` + `initContextTimeoutMs` in
+SessionConfig (`pushSessionConfig`); `runtime-bridge.js` reads budgets from the config object,
+not globals. Guard: `check:page-projection-boundaries` fails if session code reintroduces
+`addInitScript` / `addScriptToEvaluateOnNewDocument`.
+
+**Lesson:** do not leave “just two integers” on the old carrier — it cost a day of inconclusive
+lab probes. If a value must reach every frame, it goes through SessionConfig + extension MAIN.

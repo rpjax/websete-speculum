@@ -1,0 +1,40 @@
+{
+  "id": "input-iframe-xo-click",
+  "description": "sparse-cdp — cross-origin nested context click via viewport chain compose",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-iframe-xo.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 6500 } },
+        {
+          "id": "click-inner",
+          "type": "pushInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [
+              {
+                "type": "resolveAndClick",
+                "selector": "#inner-click",
+                "contextId": 2
+              }
+            ]
+          }
+        },
+        { "id": "wait-click", "type": "sleep", "dependsOn": ["click-inner"], "params": { "ms": 900 } },
+        {
+          "id": "assert-inner",
+          "type": "evaluate",
+          "dependsOn": ["wait-click"],
+          "params": {
+            "virtual": true,
+            "contextId": 2,
+            "expression": "(() => { const st = document.getElementById('inner-status')?.getAttribute('data-state'); if (st !== 'clicked') throw new Error('xo inner status=' + st); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-inner"] }
+      ]
+    }
+  ]
+}

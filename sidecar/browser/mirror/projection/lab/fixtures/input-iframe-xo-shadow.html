@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Nested iframe in closed shadow</title>
+    <style>
+      body { margin: 304px 0 0 24px; font-family: Georgia, serif; background: #f7f4ee; }
+      #state { margin: 0 0 8px; font: 14px/1.4 sans-serif; color: #432; }
+    </style>
+  </head>
+  <body>
+    <h1>Closed shadow + cross-port iframe</h1>
+    <p id="state">state: boot</p>
+    <div id="shadow-mount"></div>
+    <script>
+      (function () {
+        const setState = (text) => {
+          const el = document.getElementById('state');
+          if (el) el.textContent = text;
+        };
+        const mount = document.getElementById('shadow-mount');
+        if (!mount) return;
+        const host = document.createElement('div');
+        host.id = 'cf-shadow-host';
+        mount.appendChild(host);
+        const sr = host.attachShadow({ mode: 'closed' });
+        const iframe = document.createElement('iframe');
+        iframe.id = 'xo-child';
+        iframe.title = 'shadow-nested-child';
+        iframe.style.cssText = 'width:320px;height:140px;border:2px solid #432;background:#fff;';
+        iframe.src = 'http://127.0.0.1:4078/fixtures/input-xo/inner.html';
+        sr.appendChild(iframe);
+        iframe.addEventListener('load', () => setState('state: iframe-ready'));
+      })();
+    </script>
+  </body>
+</html>

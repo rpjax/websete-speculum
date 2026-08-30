@@ -27,14 +27,24 @@ const CORS_ROUTES = new Set([
   '/fixtures/cssom-matrix/xo-cors.css',
 ]);
 
-function resolveCssFile(fixturesDir: string, pathname: string): string | null {
+const MIME: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+};
+
+function resolveFixtureFile(
+  fixturesDir: string,
+  pathname: string,
+): { file: string; contentType: string } | null {
   const clean = pathname.split('?')[0] ?? pathname;
   let rel = clean.replace(/^\/+/, '');
   if (rel.startsWith('fixtures/')) rel = rel.slice('fixtures/'.length);
-  if (!rel.startsWith('cssom-matrix/')) return null;
+  if (!rel.startsWith('cssom-matrix/') && !rel.startsWith('input-xo/')) return null;
   const full = path.normalize(path.join(fixturesDir, rel));
   if (!full.startsWith(path.normalize(fixturesDir))) return null;
-  return full;
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return null;
+  const ext = path.extname(full).toLowerCase();
+  return { file: full, contentType: MIME[ext] ?? 'application/octet-stream' };
 }
 
 export async function createCrossOriginFixtureServer(
@@ -47,13 +57,13 @@ export async function createCrossOriginFixtureServer(
   const server = http.createServer((req, res) => {
     const url = req.url ?? '/';
     const pathname = url.split('?')[0] ?? url;
-    const file = resolveCssFile(fixturesDir, pathname);
-    if (file === null || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    const resolved = resolveFixtureFile(fixturesDir, pathname);
+    if (resolved === null) {
       res.writeHead(404).end('not found');
       return;
     }
     const headers: Record<string, string> = {
-      'Content-Type': 'text/css; charset=utf-8',
+      'Content-Type': resolved.contentType,
       'Cache-Control': 'no-store',
     };
     const corsPath = pathname.startsWith('/fixtures/') ? pathname.slice('/fixtures'.length) : pathname;
@@ -61,7 +71,7 @@ export async function createCrossOriginFixtureServer(
       headers['Access-Control-Allow-Origin'] = '*';
     }
     res.writeHead(200, headers);
-    fs.createReadStream(file).pipe(res);
+    fs.createReadStream(resolved.file).pipe(res);
   });
 
   await new Promise<void>((resolve, reject) => {

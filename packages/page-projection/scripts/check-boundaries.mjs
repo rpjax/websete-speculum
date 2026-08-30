@@ -56,6 +56,14 @@ function checkSessionFile(file) {
       violations.push(`session/${rel} imports lab: ${spec}`);
     }
   }
+  if (/\baddInitScript\b/.test(text)) {
+    violations.push(`session/${rel} uses addInitScript (forbidden on PP boot — runtime-redesign.md §15.7)`);
+  }
+  if (/addScriptToEvaluateOnNewDocument/.test(text)) {
+    violations.push(
+      `session/${rel} uses addScriptToEvaluateOnNewDocument (forbidden on PP boot — runtime-redesign.md §15.7)`,
+    );
+  }
 }
 
 walk(src, checkPackageFile);

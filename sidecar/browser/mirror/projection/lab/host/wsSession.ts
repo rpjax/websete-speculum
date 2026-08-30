@@ -403,6 +403,23 @@ export class WsLabConnection {
         }
         return;
       }
+      case 'browse.inputDiag': {
+        if (msg.inputCapture != null) {
+          this.chassis.setInputCaptureMetrics(msg.inputCapture);
+        }
+        try {
+          const diagnostic = await this.chassis.captureInputClickDiagnostic(msg.inputCapture ?? null);
+          console.log('[lab] input-click-diag', JSON.stringify(diagnostic, null, 2));
+          this.send({ type: 'input.diag', diagnostic });
+        } catch (err) {
+          this.send({
+            type: 'error',
+            message: err instanceof Error ? err.message : String(err),
+            code: 'input_diag_failed',
+          });
+        }
+        return;
+      }
       case 'browse.stop': {
         const sid = this.chassis.sessionId ?? this.id;
         let dossierDir: string | undefined;
@@ -410,6 +427,11 @@ export class WsLabConnection {
         const wallMs = this.chassis.sessionWallMs();
         if (msg.inputCapture != null) {
           this.chassis.setInputCaptureMetrics(msg.inputCapture);
+        }
+        try {
+          await this.chassis.captureInputClickDiagnostic(msg.inputCapture ?? null);
+        } catch {
+          /* session may already be faulted — stop still proceeds */
         }
         // Close Virtual first so a hung browse snap / CDP evaluate cannot block Stop.
         // Stored snaps validate from journal (no live dump). Export writes files after close.

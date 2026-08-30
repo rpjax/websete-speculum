@@ -238,6 +238,8 @@ export class LabChassis {
   private lastInputPipelineMetrics: unknown = null;
   /** Client capture counters from browse.stop payload. */
   private lastInputCaptureMetrics: unknown = null;
+  /** Last manual / stop input click diagnostic (projected + sidecar + elementFromPoint). */
+  private lastInputClickDiagnostic: unknown = null;
   private getClientSnapshotFn:
     | ((contextId: number) => Promise<ClientStateSnapshot | null>)
     | null = null;
@@ -585,6 +587,9 @@ export class LabChassis {
             : fault.errorCode === 'browser_disconnected'
               ? 'browser'
               : 'lab';
+        console.error(
+          `[projection-lab] session_crash errorCode=${fault.errorCode} phase=${fault.phase} message=${fault.message}`,
+        );
         this.recordCrash({
           errorCode: fault.errorCode,
           message: fault.message,
@@ -775,6 +780,22 @@ export class LabChassis {
   /** Client capture snapshot from browse.stop — written into input-pipeline probe. */
   setInputCaptureMetrics(metrics: unknown): void {
     this.lastInputCaptureMetrics = metrics ?? null;
+  }
+
+  /** One-shot click diagnostic after manual Projected pointer (browse.inputDiag). */
+  async captureInputClickDiagnostic(projectedCapture: unknown): Promise<Record<string, unknown>> {
+    const session = this.session as {
+      dumpInputClickDiagnostic?: (capture: unknown) => Promise<Record<string, unknown>>;
+    } | null;
+    if (!session || typeof session.dumpInputClickDiagnostic !== 'function') {
+      throw new Error('input click diagnostic unavailable (session not live)');
+    }
+    const diagnostic = await session.dumpInputClickDiagnostic(projectedCapture ?? null);
+    this.lastInputClickDiagnostic = diagnostic;
+    if (this.dossier) {
+      await writeJson(this.dossier, 'probes/input-click-diag.json', diagnostic, 'probes.inputClickDiag');
+    }
+    return diagnostic;
   }
 
   /**
@@ -1055,6 +1076,7 @@ export class LabChassis {
         backend: 'cdp',
         path: 'eventApplier+sparseCdp',
         capture: this.lastInputCaptureMetrics,
+        clickDiag: this.lastInputClickDiagnostic,
         journal: {
           total: intents.length,
           ok: intents.filter((x) => x.ok).length,

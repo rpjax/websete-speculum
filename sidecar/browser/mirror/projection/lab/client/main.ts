@@ -212,6 +212,7 @@ export function bootLabClient(): void {
       __labDiagForceLoadAfterDrop?: (
         contextId?: number,
       ) => ReturnType<LabProjectedHarness['forceLoadAfterDropRaceForDiag']> | null;
+      __speculumLabDumpInputClick?: () => void;
     }
   ).__labDiagProjectedPeek = () => (projection ? projection.peekNestedHosts() : null);
   (
@@ -222,6 +223,11 @@ export function bootLabClient(): void {
     }
   ).__labDiagForceLoadAfterDrop = (contextId = 99) =>
     projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
+  (
+    window as unknown as { __speculumLabDumpInputClick?: () => void }
+  ).__speculumLabDumpInputClick = () => {
+    /* replaced once sendInputClickDiag is defined */
+  };
 
   function disposeViewportSync(): void {
     viewportSync?.dispose();
@@ -330,6 +336,24 @@ export function bootLabClient(): void {
       logActivity(`intent ${formatIntentShort(intent as unknown as Record<string, unknown>)}`);
     }
   }
+
+  function sendInputClickDiag(): void {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      logActivity('input.diag skipped (no ws)');
+      return;
+    }
+    ws.send(
+      JSON.stringify({
+        type: 'browse.inputDiag',
+        inputCapture: inputCaptureMetrics.snapshot(),
+      }),
+    );
+    logActivity('input.diag requested…');
+  }
+
+  (window as unknown as { __speculumLabDumpInputClick?: () => void }).__speculumLabDumpInputClick =
+    sendInputClickDiag;
+  document.addEventListener('speculum-input-diag', () => sendInputClickDiag());
 
   function bindInputSurfaces(client: LabProjectedHarness): void {
     for (const detach of inputDetachers.values()) detach();
@@ -1166,6 +1190,7 @@ export function bootLabClient(): void {
         browseSnapCount = 0;
         $('streamSnaps').textContent = '0';
         logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+        logActivity('click diag: __speculumLabDumpInputClick() in devtools after pointer click');
         startViewportSync();
         if (msg.mode === 'browse') startAutoSnap();
         syncButtons();
@@ -1184,6 +1209,21 @@ export function bootLabClient(): void {
         if (!runInFlight && phase !== 'complete' && phase !== 'fault') phase = 'connected';
         logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ''}`);
         syncButtons();
+        return;
+      }
+      if (msg.type === 'input.diag') {
+        const diagnostic = msg.diagnostic as Record<string, unknown>;
+        console.log('[input-click-diag]', diagnostic);
+        const intent = diagnostic.lastIntent as Record<string, unknown> | null | undefined;
+        const resolve = diagnostic.lastResolve as Record<string, unknown> | null | undefined;
+        const capture = diagnostic.projectedCapture as { emittedByType?: Record<string, number> } | null;
+        const rejects = diagnostic.sidecarRejects as { total?: number } | null;
+        logActivity(
+          `input.diag ctx=${intent?.contextId ?? '?'} node=${intent?.nodeId ?? '?'} ` +
+            `xy=${resolve?.ok === true ? `${resolve.x},${resolve.y}` : resolve?.reason ?? '—'} ` +
+            `efp=${String(diagnostic.rootElementFromPoint ?? 'null')} ` +
+            `emit=${JSON.stringify(capture?.emittedByType ?? {})} rejects=${rejects?.total ?? 0}`,
+        );
         return;
       }
       if (msg.type === 'debug.probe') {

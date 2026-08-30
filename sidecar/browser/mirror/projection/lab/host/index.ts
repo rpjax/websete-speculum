@@ -4,19 +4,13 @@
 
 import { createLabServer, type LabServerOptions } from './server';
 import { installLabProcessCrashHooks } from './chassis';
-
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
+import { LAB_HOST, LAB_PORT } from '../labDefaults';
 
 async function main(): Promise<void> {
   installLabProcessCrashHooks();
   const opts: LabServerOptions = {
-    host: process.env.SPECULUM_LAB_HOST ?? '127.0.0.1',
-    port: envInt('SPECULUM_LAB_PORT', 4077),
+    host: process.env.SPECULUM_LAB_HOST ?? LAB_HOST,
+    port: LAB_PORT,
     headless: process.env.SPECULUM_LAB_HEADED !== '1',
   };
 
@@ -36,6 +30,13 @@ async function main(): Promise<void> {
   };
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
+
+  process.on('beforeExit', (code) => {
+    const exitCode = code ?? process.exitCode ?? 0;
+    if (exitCode !== 0) {
+      console.error(`[projection-lab] process beforeExit exitCode=${exitCode} (no explicit shutdown — see crash.json if any)`);
+    }
+  });
 }
 
 main().catch((err) => {

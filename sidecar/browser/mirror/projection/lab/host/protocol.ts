@@ -18,6 +18,7 @@ export type LabClientMessage =
       device?: Record<string, unknown>;
     }
   | { type: 'browse.stop'; exportDossier?: boolean; inputCapture?: unknown }
+  | { type: 'browse.inputDiag'; inputCapture?: unknown }
   | { type: 'browse.navigate'; url: string }
   | {
       type: 'run.start';
@@ -194,7 +195,8 @@ export type LabHostMessage =
       fail: number;
       skipped: number;
       dossierPath?: string;
-    };
+    }
+  | { type: 'input.diag'; diagnostic: Record<string, unknown> };
 
 export function parseClientMessage(raw: unknown): LabClientMessage | { error: string; code: string } {
   if (!raw || typeof raw !== 'object') return { error: 'invalid JSON control message', code: 'invalid_json' };
@@ -205,6 +207,7 @@ export function parseClientMessage(raw: unknown): LabClientMessage | { error: st
     case 'hello':
     case 'browse.start':
     case 'browse.stop':
+    case 'browse.inputDiag':
     case 'browse.navigate':
     case 'run.start':
     case 'run.abort':

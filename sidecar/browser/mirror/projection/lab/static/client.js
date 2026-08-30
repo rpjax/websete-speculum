@@ -6330,6 +6330,8 @@
     let bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
     window.__labDiagProjectedPeek = () => projection ? projection.peekNestedHosts() : null;
     window.__labDiagForceLoadAfterDrop = (contextId = 99) => projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
+    window.__speculumLabDumpInputClick = () => {
+    };
     function disposeViewportSync() {
       viewportSync?.dispose();
       viewportSync = null;
@@ -6426,6 +6428,21 @@
         logActivity(`intent ${formatIntentShort(intent)}`);
       }
     }
+    function sendInputClickDiag() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        logActivity("input.diag skipped (no ws)");
+        return;
+      }
+      ws.send(
+        JSON.stringify({
+          type: "browse.inputDiag",
+          inputCapture: inputCaptureMetrics.snapshot()
+        })
+      );
+      logActivity("input.diag requested\u2026");
+    }
+    window.__speculumLabDumpInputClick = sendInputClickDiag;
+    document.addEventListener("speculum-input-diag", () => sendInputClickDiag());
     function bindInputSurfaces(client) {
       for (const detach of inputDetachers.values()) detach();
       inputDetachers.clear();
@@ -7133,6 +7150,7 @@
           browseSnapCount = 0;
           $("streamSnaps").textContent = "0";
           logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+          logActivity("click diag: __speculumLabDumpInputClick() in devtools after pointer click");
           startViewportSync();
           if (msg.mode === "browse") startAutoSnap();
           syncButtons();
@@ -7151,6 +7169,18 @@
           if (!runInFlight && phase !== "complete" && phase !== "fault") phase = "connected";
           logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ""}`);
           syncButtons();
+          return;
+        }
+        if (msg.type === "input.diag") {
+          const diagnostic = msg.diagnostic;
+          console.log("[input-click-diag]", diagnostic);
+          const intent = diagnostic.lastIntent;
+          const resolve = diagnostic.lastResolve;
+          const capture = diagnostic.projectedCapture;
+          const rejects = diagnostic.sidecarRejects;
+          logActivity(
+            `input.diag ctx=${intent?.contextId ?? "?"} node=${intent?.nodeId ?? "?"} xy=${resolve?.ok === true ? `${resolve.x},${resolve.y}` : resolve?.reason ?? "\u2014"} efp=${String(diagnostic.rootElementFromPoint ?? "null")} emit=${JSON.stringify(capture?.emittedByType ?? {})} rejects=${rejects?.total ?? 0}`
+          );
           return;
         }
         if (msg.type === "debug.probe") {

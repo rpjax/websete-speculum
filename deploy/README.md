@@ -96,6 +96,22 @@ take a minute before Traefik comes up.
 
 Generated compose lives under `out/dev/` (gitignored). Do not hand-edit it.
 
+## PageProjection lab (sidecar only — not dockup)
+
+V4 engine dev surface — **no gRPC, no Api**. Port **4077** (XO fixtures **4078**).
+
+```bash
+cd sidecar
+npm run lab:restart          # local: kill 4077, rebuild, start host
+# Docker (from repo root):
+docker compose -f sidecar/docker-compose.lab.yml up --build
+# UI: http://127.0.0.1:4077/
+```
+
+Turnstile widget parity probe (after Browse live): lab UI DevTools →
+`document.dispatchEvent(new CustomEvent('speculum-widget-parity'))`.
+Details: [sidecar/README.md](../sidecar/README.md#pageprojection-lab-local).
+
 ## Host resources (admin uncap)
 
 Sidecar Docker `shm_size` starts at **2gb** (Chrome IPC floor). Admins can raise

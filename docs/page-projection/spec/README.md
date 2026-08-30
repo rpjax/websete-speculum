@@ -7,26 +7,36 @@
 
 ---
 
-## Now (2026-08-29) — start a new chat here
+## Now (2026-08-30) — start a new chat here
 
-**Shipped (recent):** Extension plane EP-15 · Virtual assets V1 · Input sparse-cdp V1 (local % click) · nested iframe click. Nested-host **load-after-drop** cancel still required ([multi-document.md](multi-document.md) §4.1).
+**Motor 0.3.0:** in progress — scope [../releases/motor-0.3.0.md](../releases/motor-0.3.0.md). PP engine **lab-proven** on Eneba `/br/` browse; **not** full M1 accept (canvas gate 7 open).
 
-**Runtime inject:** Cutover landed — unified `speculum-pp` extension + C2 SessionConfig/ACK + MessagePort ContextBus + `initContext`. Normative: [runtime-redesign.md](runtime-redesign.md) §0. Stealth spike on real antibot still required before calling accept (V3).
+**Shipped (2026-08-29…30):**
+- **Loopback `document.install`** — same-socket hello: higher gen adopts; idempotent re-hello; lower gen rejected. Session chains `waitEstablished({ afterGeneration })` after install. Units: `nodeDataPlane.unit.ts`.
+- **Projected apply gate** — `ProjectedApplyGate` queues frames during async recreate/cold resync (`flightDepth`, `draining`, cap **64** sized for ~59 ms cold apply class, overflow streak **3** → `apply_gate_overflow_loop`). `discardPending()` on generation bump only; full `clear()` on reset/dispose only. Units: `projectedApplyGate.unit.ts`.
+- **Cold resync on armed surface** — `everArmed && resync && sequence === 1` → `recreateForGenerationAsync` (not standby async racing increments).
 
-**Input:** sparse-cdp only — click = `nodeId` + **local %** in target box (`localX`/`localY`), not absolute CSS hit. Do **not** reopen purged CDP Mode A/B/C letters. Reopening OS ABS requires redesign + decision-log. Journal `intent ok:true` ≠ Virtual apply succeeded.
+**Eneba lab proof (2026-08-30):** dossier `sidecar/lab-runs/2026-08-30T06-10-17-942Z-www.eneba.com` — `/br/` browse ~28 s: **0 desync**, 96 apply ok, input 44/44, wire invariants green. **Not yet proven:** `/` → `/br/` redirect gen-bump path (pre-fix storm class).
 
-**Lab UI:** `npm run lab:docker` in `sidecar` → **http://127.0.0.1:4103/**. PP lab does **not** require `/dev/uinput` for input. Always name the full blueprint id + description + fixture when asking a human to run something.
+**Still open before accept / M1:**
+1. **Canvas** (gate 7) — last engine feature ([roadmap.md](roadmap.md)).
+2. **Nested gen mint** — revert interim `(rootGen << 16) | installIndex` pack → SW monotonic mint, **root → nested via bus** (no nested→SW direct). Separate commit; see [open.md](open.md) **PP-NESTED-GEN-PACK**.
+3. **PP-HARDNAV-PLANE-ACK** — SW-owned loopback across hard nav ([open.md](open.md)).
+4. MotorAssert compose `MirrorMode.PageProjection`.
+5. Parity oracles on browse (empty `verdicts.json` ≠ accept).
 
-**Next product work (ordered):**
-1. ~~Re-prove Eneba / heavy CF on sparse-cdp~~ — done (Rodrigo 2026-08-27).
-2. ~~Extension plane accept (EP-15)~~ — closed 2026-08-28 ([extension-plane.md](extension-plane.md) · [open.md](open.md)).
-3. ~~Virtual assets on real sites~~ — closed 2026-08-28 (`npm run lab:assets-stress`; [virtual-assets.md](virtual-assets.md)). Residual: **PP-ASSET-XFO** pinned in [open.md](open.md).
-4. **Runtime redesign impl** — [runtime-redesign.md](runtime-redesign.md) §12 (P0 catch → C2 extension → MessagePort / `initContext` → kill `EPOCH_RESET`).
-5. **Canvas content projection** — last engine feature ([roadmap.md](roadmap.md) gate 7).
-6. MotorAssert compose seed `MirrorMode.PageProjection`.
-7. Input fine-tuning (touch, IME) — after canvas unlocks more visual parity.
+**Runtime inject:** unified `speculum-pp` extension + C2 + ContextBus + `initContext` ([runtime-redesign.md](runtime-redesign.md)). Stealth spike on real antibot still required before calling accept sealed.
 
-Open named shadow / form PROP / SVG / session shape / **gate 10 surface** / **nested iframe click** — closed. **Inject boot** = redesign in progress (CDP seal superseded). Do **not** reopen apply honesty ([observability.md](observability.md) §7).
+**Input:** sparse-cdp only — `nodeId` + local % (`localX`/`localY`). Journal `intent ok:true` ≠ Virtual apply succeeded.
+
+**Lab UI:** `cd sidecar && npm run lab:restart` (headed default via `SPECULUM_LAB_HEADED=1`) → **http://127.0.0.1:4077/**. Agent: `npm run lab:run -- …`. Do **not** use 4103 unless an old process is still bound there.
+
+**Next ordered work:**
+1. Close 0.3.0 checklist ([../releases/motor-0.3.0.md](../releases/motor-0.3.0.md)) — Eneba redirect path + SW mint revert + telemetry kinds.
+2. Canvas content projection (gate 7).
+3. MotorAssert Live deep path.
+
+Open named shadow / form PROP / SVG / session shape / gate 10 surface / nested iframe click / extension plane / virtual assets — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7) or ad-hoc establish/sync paths ([acceptance.md](acceptance.md) T3).
 
 
 

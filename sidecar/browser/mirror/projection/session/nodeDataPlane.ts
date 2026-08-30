@@ -381,6 +381,19 @@ export class NodeDataPlane implements DataPlane {
     const wasEstablished = this.state === 'established' && canonical !== null;
 
     if (wasEstablished && canonical === socket) {
+      if (incomingGen < this.expectedGeneration) {
+        reject('generation_mismatch');
+        return;
+      }
+      if (incomingGen > this.expectedGeneration) {
+        // Same canonical socket, newer install (doc churn without a new TCP attach).
+        this.expectedGeneration = incomingGen;
+        cspDiagLog('data plane generation supersede', {
+          sessionId: this.sessionId,
+          generation: this.expectedGeneration,
+        });
+        this.resolveEstablishedWaiters(this.expectedGeneration);
+      }
       try {
         socket.send(
           Buffer.from(encodeLoopbackHelloAck(this.sessionId, this.expectedGeneration)),

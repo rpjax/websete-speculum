@@ -33,6 +33,10 @@ Open http://127.0.0.1:4077/ → **Connect**.
 - **Browse** — fixture + editable URL; Start Virtual / Navigate / Stop (export dossier).
 - **Run** — blueprint picker (URL locked); soak may override duration/cpu/iso; Progress tab for timeline + verdicts; cold boot; Virtual stops when done.
 
+**Restart:** `npm run lab:restart` (rebuild + host on 4077).
+
+**Widget parity probe** (Turnstile silent divergence): DevTools on lab UI → `document.dispatchEvent(new CustomEvent('speculum-widget-parity'))` or `npm run lab:widget-parity`. Artifact: `probes/turnstile-widget-parity.json` / `lab-runs/widget-parity-last.json`.
+
 ## Agent CLI
 
 ```bash

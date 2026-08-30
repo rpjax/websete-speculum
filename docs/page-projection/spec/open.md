@@ -56,6 +56,18 @@ DOM-table path was green through seal lab. **PP-TABLE-SUBTREE-WALK** (recursive 
 |----|---------|-------|
 | **PP-LOOPBACK-ESTABLISH** | `input_reject … data plane not open` while Virtual reports WS open; sidecar `isOpen=false`; attach churn after nav. | **Fix:** [loopback.md](loopback.md) LB-08…19 — handshake `hello`/`hello-ack`, symmetric `establishConnection`/`waitEstablished`, canonical socket, `detach(true)`. Units: `nodeDataPlane.unit.ts`, `runDataPlaneNavChurnUnitTests`, `chromeLnaPolicy.unit.ts`. LNA policy-only (`["*"]`). |
 
+### BUG — loopback `document.install` / same-socket generation (**CLOSED 2026-08-30**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-LOOPBACK-DOC-INSTALL** | After Turnstile → Eneba redirect: `input_reject … data plane not established`; Projected stuck on CF while Virtual on real page. | **Fix:** `nodeDataPlane.ts` — same socket: higher `hello.generation` → adopt + ack; equal gen → idempotent; lower gen → `hello-reject`. `PageProjectionBrowserSession` chains `waitEstablished({ afterGeneration: prior })` after `document.install`. Units: `testSameSocketGenerationSupersedes`, etc. Dossier class: Eneba Turnstile lab 2026-08-29. |
+
+### BUG — Projected cold-resync apply overrun / self-inflicted `sequence_gap` (**CLOSED 2026-08-30**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-APPLY-GATE-OVERRUN** | After `/br/` cold resync on armed surface: burst `sequence_gap` at gen=7 — frames seq 2+ arrive while `recreateForGenerationAsync` awaits `surface.reset()` with stale `lastSequence=0`; not wire loss. | **Fix:** `ProjectedApplyGate` in `packages/page-projection/src/projected/projectedApplyGate.ts` — queue during async flight (`flightDepth`, `draining`); cap **64** (Eneba cold apply ~59 ms class); `discardPending()` on gen bump; overflow streak **3** → `apply_gate_overflow_loop` without resync storm. Wired in `ProjectionClient` + `NestedProjectedApply`. Unit: `projectedApplyGate.unit.ts`. **Proof:** dossier `2026-08-30T06-10-17-942Z-www.eneba.com` — 0 desync on `/br/` browse. **Residual:** `/` → `/br/` redirect path not re-run after fix — 0.3.0 checklist. |
+
 ### BUG — virtual assets / third-party framed identity (PINNED 2026-08-25)
 
 | Id | Symptom | Notes |
@@ -149,6 +161,13 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | 6 | Dual live paths (`LivePageProjection` vs lab engine) | **DONE (path)** — sealed factory + stub-delete LivePageProjection; product canvas/antibot still open |
 | 7 | Lab probe: `NODE_NEW` in frame S ⇒ `isConnected` — **closed** as **SEAL-DOM-P0-PROBE** (`frameNewNodes` / legacy `probe.nodeNewConnected` + `iso.tree` fail-with-client). Halt iso alone still does not prove the class. | No |
 | 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — nested SO closed 2026-08-19. Open: XO/NIT; nested cssomO2 QA; CSS paint iso; scale. |
+| 9 | Lab telemetry: `applyGateDrain` / `applyGateOverflow` / `applyGateOverflowLoop` kinds in dossier fold | Wire kinds exist on client; lab sink/fold not yet cataloguing — observability only. |
+
+### RESIDUAL — nested generation interim pack (**OPEN 2026-08-30**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-NESTED-GEN-PACK** | Nested contexts show `generation = (rootGen << 16) \| installIndex` (e.g. `65537`) via `virtualDomainBus.setRootGeneration`. | **Interim** to avoid nested ctx2 `gen=1` colliding after root bump. **Must revert** before accept: SW monotonic mint; root passes gen to child via ContextBus — nested **must not** talk to SW directly (flake 4/10 / SW hibernate class). Tracked on Motor **0.3.0** checklist — [../releases/motor-0.3.0.md](../releases/motor-0.3.0.md). |
 
 ---
 
@@ -168,6 +187,8 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 
 | Date | Item |
 |------|------|
+| 2026-08-30 | **PP-APPLY-GATE-OVERRUN** — `ProjectedApplyGate`; cold resync queue; cap 64; overflow anti-loop. Eneba `/br/` 0 desync. |
+| 2026-08-30 | **PP-LOOPBACK-DOC-INSTALL** — same-socket hello generation supersede + session `waitEstablished` after install. |
 | 2026-08-28 | **PP inject boot SEALED** — onNewDocument happy path; main-world; arm; lateBoot miss-detect (fail-closed + token). Dual-boot isolate probe closed. [browser-session.md](browser-session.md) |
 | 2026-08-13 | Establish deleted; cold start = resync frame |
 | 2026-08-13 | OPEN-5 recovery design |

@@ -38,6 +38,7 @@ import {
   stampProjectedStandardsSrcdoc,
   whenProjectedStandardsReady,
 } from './projectedBlankIframe';
+import { ProjectedApplyGate, PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK } from './projectedApplyGate';
 
 export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -139,6 +140,10 @@ export class ProjectionClient {
   private readonly nestedHostAwaitingLoad = new Map<number, NestedHostPendingLoad>();
   /** Supersedes in-flight async surface reset / resync standby birth. */
   private surfaceEpoch = 0;
+  /** Holds assembled frames while async recreate / resync build runs (apply overrun race). */
+  private readonly applyGate: ProjectedApplyGate;
+  /** Consecutive apply-gate overflows — overflow→cold-resync can re-trigger itself. */
+  private applyGateOverflowStreak = 0;
 
   private constructor(opts: ProjectionClientOptions, surface: SurfaceHost) {
     this.surface = surface;
@@ -154,6 +159,10 @@ export class ProjectionClient {
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
     this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+    this.applyGate = new ProjectedApplyGate({
+      onOverflow: (info) => this.handleApplyGateOverflow(info),
+      onFlightEnd: (info) => this.handleApplyGateFlightEnd(info),
+    });
   }
 
   /** Composition-root entry — surface iframe is born with standards srcdoc before use. */
@@ -444,6 +453,8 @@ export class ProjectionClient {
     for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
       this.cancelPendingNestedHost(contextId);
     }
+    this.applyGate.clear();
+    this.applyGateOverflowStreak = 0;
     const epoch = ++this.surfaceEpoch;
     await this.surface.reset();
     if (epoch !== this.surfaceEpoch) return;
@@ -480,6 +491,77 @@ export class ProjectionClient {
   }
 
   private applyAssembled(frame: AssembledFrame): void {
+    if (this.applyGate.blocked) {
+      this.applyGate.push(frame);
+      return;
+    }
+    this.applyAssembledNow(frame);
+  }
+
+  private beginAsyncSurfaceApply(frame: AssembledFrame, run: () => Promise<void>): void {
+    this.applyGate.begin();
+    void run().finally(() => {
+      this.applyGate.finishFlight((next) => this.applyAssembledNow(next));
+    });
+  }
+
+  private handleApplyGateOverflow(info: { cap: number; attemptedDepth: number }): void {
+    this.applyGateOverflowStreak++;
+    const streak = this.applyGateOverflowStreak;
+    this.onTelemetry?.({
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
+      kind: 'applyGateOverflow',
+      t: performance.now(),
+      generation: this.generation,
+      sequence: this.lastSequence,
+      cap: info.cap,
+      attemptedDepth: info.attemptedDepth,
+      streak,
+    });
+    if (streak >= PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
+      this.resyncExhausted = true;
+      this.onTelemetry?.({
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
+        kind: 'applyGateOverflowLoop',
+        t: performance.now(),
+        generation: this.generation,
+        sequence: this.lastSequence,
+        streak,
+        cap: info.cap,
+      });
+      this.desync('apply_gate_overflow_loop', { requestResync: false });
+      return;
+    }
+    this.desync('apply_gate_overflow');
+  }
+
+  private handleApplyGateFlightEnd(info: {
+    maxDepth: number;
+    waitMs: number;
+    drained: number;
+    overflow: boolean;
+  }): void {
+    if (info.drained > 0 && !info.overflow) {
+      this.applyGateOverflowStreak = 0;
+    }
+    if (info.maxDepth === 0 && info.drained === 0 && !info.overflow) return;
+    this.onTelemetry?.({
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: CONTEXT_ID_ROOT,
+      kind: 'applyGateDrain',
+      t: performance.now(),
+      generation: this.generation,
+      sequence: this.lastSequence,
+      maxDepth: info.maxDepth,
+      waitMs: info.waitMs,
+      drained: info.drained,
+      overflow: info.overflow,
+    });
+  }
+
+  private applyAssembledNow(frame: AssembledFrame): void {
     if (frame.generation !== this.generation) {
       // runtime-redesign.md §7 — the header already states the generation; there is no leading
       // op to corroborate it. A different generation means a different document install, so the
@@ -487,7 +569,7 @@ export class ProjectionClient {
       // than reset item by item. A fresh install restarts sequence numbering, so adopt this
       // frame's own sequence context instead of carrying the old generation's count.
       this.lastSequence = frame.sequence - 1;
-      void this.recreateForGenerationAsync(frame);
+      this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
       return;
     }
 
@@ -498,8 +580,12 @@ export class ProjectionClient {
       // frame's own sequence context exactly like the generation-change branch above does, rather
       // than special-casing the ordinary gap check below.
       this.lastSequence = frame.sequence - 1;
+      if (this.everArmed && frame.sequence === 1) {
+        this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
+        return;
+      }
       if (this.everArmed) {
-        void this.beginResyncTargetAsync(frame);
+        this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
         return;
       }
     }
@@ -521,6 +607,9 @@ export class ProjectionClient {
    * racing a surface that no longer describes anything.
    */
   private async recreateForGenerationAsync(frame: AssembledFrame): Promise<void> {
+    if (frame.generation !== this.generation) {
+      this.applyGate.discardPending();
+    }
     this.abandonResyncAttempt();
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
@@ -813,6 +902,8 @@ export class ProjectionClient {
       actual?: bigint;
       /** Overrides the `errorCode → phase` default — see `DomDesyncInfo.phase` (applyDom.ts). */
       phase?: TelemetryPhase;
+      /** Default true — overflow-loop exhaustion must not re-request cold resync. */
+      requestResync?: boolean;
     },
   ): void {
     if (this.lastDesyncReason === null) {
@@ -840,6 +931,7 @@ export class ProjectionClient {
       actual: extra?.actual?.toString(),
     });
     this.onDesyncCb?.(reason);
+    if (extra?.requestResync === false) return;
     // Stage 4 — every desync condition requests a resync (frame-protocol.md §5.8: "id
     // unresolved, sequence gap, generation mismatch, missing part, decode error, CHECK mismatch"
     // all share the one mechanism), bounded/backed-off, never silent indefinite retrying.

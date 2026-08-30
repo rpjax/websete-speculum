@@ -127,6 +127,8 @@ export class VirtualDomainBus implements IContextBus {
   private pendingIdentity: PendingIdentityRequest[] = [];
   /** Install counter per child address — the source of `generation` (§6, §7). */
   private readonly childInstalls = new Map<number, number>();
+  /** Root document install — packed into nested `generation` so a root reboot cannot reuse ids. */
+  private rootGeneration = 1;
   /** One install = one port = one `generation`; a retried `initContext` is idempotent. */
   private readonly grantedGeneration = new WeakMap<MessagePort, InitContextResult>();
   private disposed = false;
@@ -844,6 +846,17 @@ export class VirtualDomainBus implements IContextBus {
     this.handleDomainSideEffects(envelope, 'parent');
   }
 
+  /** Root bootstrap / bfcache restore — nested generations must not collide across root installs. */
+  setRootGeneration(generation: number): void {
+    this.rootGeneration = generation >>> 0;
+  }
+
+  private composeChildGeneration(installIndex: number): number {
+    const root = this.rootGeneration & 0xffff;
+    const install = installIndex & 0xffff;
+    return root === 0 ? install : (root << 16) | install;
+  }
+
   private answerIdentity(req: PendingIdentityRequest): boolean {
     const already = this.grantedGeneration.get(req.port);
     if (already !== undefined) {
@@ -855,8 +868,9 @@ export class VirtualDomainBus implements IContextBus {
     if (contextId === undefined) return false;
 
     this.hub.bindContext(contextId, req.source);
-    const generation = (this.childInstalls.get(contextId) ?? 0) + 1;
-    this.childInstalls.set(contextId, generation);
+    const installIndex = (this.childInstalls.get(contextId) ?? 0) + 1;
+    this.childInstalls.set(contextId, installIndex);
+    const generation = this.composeChildGeneration(installIndex);
     const granted: InitContextResult = { contextId, generation };
     this.grantedGeneration.set(req.port, granted);
     this.respondOnPort(req, req.name === 'initContext' ? granted : contextId);

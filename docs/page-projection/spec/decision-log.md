@@ -321,3 +321,28 @@ Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not ifram
 **Impl cutover (2026-08-21):** sidecar `createSealedBrowserSessionFactory` selects PP vs `VideoStreamingBrowserSession` at Launch `mirrorMode`; `LivePageProjection` deleted (stub throw); proto drops `GetPageProjectionResync` / `ReportPageProjectionClientState`, adds `RequestResync` + lab clock/snapshot RPCs. Product leftovers (canvas, antibot, asset store) tracked in [CUTOVER-WORKSPACE.md](../CUTOVER-WORKSPACE.md) — do not block contract shape.
 
 | 2026-08-23 | **D-UI-27 ContextBus cutover** — `projectionBus.ts` deleted; `ContextBus` + `VirtualDomainBus` + loopback mux wire (§10.1c). |
+
+## L. Projected apply gate during async recreate (2026-08-30) — DECIDED
+
+**Status:** DECIDED (Rodrigo + review). Closes **PP-APPLY-GATE-OVERRUN**.
+
+| Topic | Decision |
+|-------|----------|
+| Problem | Cold resync / gen-bump runs `await surface.reset()`; frames seq 2+ arrive with stale `lastSequence` → self-inflicted `sequence_gap` storm (Eneba gen=7 class). |
+| Fix | `ProjectedApplyGate`: queue while `flightDepth > 0`; `draining` prevents parallel drain; only outermost `finishFlight` drains. |
+| Cap | **64** pending frames — holds seq-2+ over ~59 ms cold apply window (Eneba lab measurement). |
+| Gen bump | `discardPending()` at `recreateForGenerationAsync` start **only when generation changes** — same-gen cold resync keeps valid queued increments. |
+| Full reset | `clear()` only on client `reset()` / nested `dispose()` — **not** mid-flight (would drop `flightDepth` and reopen race). |
+| Overflow | Cap exceeded → discard queue → `apply_gate_overflow` → resync; streak **3** → `apply_gate_overflow_loop` with `requestResync: false`. |
+| Ad-hoc ban | No second apply path, no DomMap bootstrap after stream seed — queue is part of the designed resync path ([acceptance.md](acceptance.md) T3). |
+
+## M. Motor 0.3.0 scope (2026-08-30) — DECIDED
+
+**Status:** DECIDED (Rodrigo). Normative checklist: [../releases/motor-0.3.0.md](../releases/motor-0.3.0.md).
+
+| Topic | Decision |
+|-------|----------|
+| Semver | Motor **0.3.0** — PP session path lab-proven; **not** M1 accept / not canvas-complete. |
+| Ships | `@speculum/page-projection`, sealed session factory, extension-plane loopback, sparse-cdp input, apply gate, Eneba browse proof. |
+| Does not ship | Accept 1:1 sealed, canvas gate 7, SW mint revert (tracked as 0.3.0 exit item **PP-NESTED-GEN-PACK**). |
+| Performance | E6 steady-state OK on Eneba browse (~1% CPU profile our-code); adversarial prepend-stress remains ceiling test. |

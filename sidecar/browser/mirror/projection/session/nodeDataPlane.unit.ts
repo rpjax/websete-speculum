@@ -78,6 +78,8 @@ export async function runNodeDataPlaneUnitTests(): Promise<void> {
   await testHelloHandshakeEstablished();
   await testGenerationMismatchReject();
   await testNewerGenerationSupersedesEstablished();
+  await testSameSocketGenerationSupersedes();
+  await testSameSocketIdempotentHello();
   await testStaleCloseDoesNotKillSuccessor();
   await testInvokeOnlyWhenEstablished();
   await testWaitEstablishedSurvivesIntermediateClose();
@@ -154,6 +156,47 @@ async function testNewerGenerationSupersedesEstablished(): Promise<void> {
     assert.strictEqual(clientB.readyState, WebSocket.OPEN);
     assert.strictEqual(clientA.readyState, WebSocket.CLOSED, 'predecessor closes on gen supersede');
     clientB.close();
+  });
+}
+
+async function testSameSocketGenerationSupersedes(): Promise<void> {
+  await withServer(async (url, wss) => {
+    const plane = new NodeDataPlane();
+    plane.setExpectedSession({ sessionId: SESSION, generation: GENERATION });
+
+    wss.once('connection', (ws) => plane.attach(ws));
+    const client = await connectClient(url);
+    client.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION)), { binary: true });
+    await wait(30);
+    assert.strictEqual(plane.isEstablished, true);
+    assert.strictEqual(plane.status.generation, GENERATION);
+
+    client.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION + 1)), { binary: true });
+    await wait(30);
+    assert.strictEqual(plane.isEstablished, true);
+    assert.strictEqual(plane.status.generation, GENERATION + 1);
+    assert.strictEqual(client.readyState, WebSocket.OPEN);
+    client.close();
+  });
+}
+
+async function testSameSocketIdempotentHello(): Promise<void> {
+  await withServer(async (url, wss) => {
+    const plane = new NodeDataPlane();
+    plane.setExpectedSession({ sessionId: SESSION, generation: GENERATION });
+
+    wss.once('connection', (ws) => plane.attach(ws));
+    const client = await connectClient(url);
+    client.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION)), { binary: true });
+    await wait(30);
+    assert.strictEqual(plane.isEstablished, true);
+
+    client.send(Buffer.from(encodeLoopbackHello(SESSION, GENERATION)), { binary: true });
+    await wait(20);
+    assert.strictEqual(plane.isEstablished, true);
+    assert.strictEqual(plane.status.generation, GENERATION);
+    assert.strictEqual(client.readyState, WebSocket.OPEN);
+    client.close();
   });
 }
 

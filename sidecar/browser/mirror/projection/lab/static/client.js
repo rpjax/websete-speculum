@@ -3344,6 +3344,108 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/projectedApplyGate.js
+  var require_projectedApplyGate = __commonJS({
+    "../packages/page-projection/dist/projected/projectedApplyGate.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ProjectedApplyGate = exports.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK = exports.PROJECTED_APPLY_GATE_MAX_PENDING = void 0;
+      exports.PROJECTED_APPLY_GATE_MAX_PENDING = 64;
+      exports.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK = 3;
+      var ProjectedApplyGate = class {
+        flightDepth = 0;
+        draining = false;
+        pending = [];
+        maxPending;
+        onOverflow;
+        onFlightEnd;
+        flightStartMs = 0;
+        maxDepth = 0;
+        drained = 0;
+        overflow = false;
+        constructor(callbacks = {}) {
+          this.maxPending = callbacks.maxPending ?? exports.PROJECTED_APPLY_GATE_MAX_PENDING;
+          this.onOverflow = callbacks.onOverflow;
+          this.onFlightEnd = callbacks.onFlightEnd;
+        }
+        get blocked() {
+          return this.flightDepth > 0 || this.draining;
+        }
+        begin() {
+          if (this.flightDepth === 0) {
+            this.flightStartMs = performance.now();
+            this.maxDepth = this.pending.length;
+            this.drained = 0;
+            this.overflow = false;
+          }
+          this.flightDepth++;
+        }
+        push(frame) {
+          if (this.pending.length >= this.maxPending) {
+            this.overflow = true;
+            const attemptedDepth = this.pending.length + 1;
+            this.pending.length = 0;
+            this.onOverflow?.({ cap: this.maxPending, attemptedDepth });
+            return;
+          }
+          this.pending.push(frame);
+          if (this.pending.length > this.maxDepth) {
+            this.maxDepth = this.pending.length;
+          }
+        }
+        /** Drop queued frames superseded by a generation bump — never apply stale headers. */
+        discardPending() {
+          this.pending.length = 0;
+        }
+        /** Full reset — client reset / dispose only. */
+        clear() {
+          this.flightDepth = 0;
+          this.draining = false;
+          this.pending.length = 0;
+          this.flightStartMs = 0;
+          this.maxDepth = 0;
+          this.drained = 0;
+          this.overflow = false;
+        }
+        finishFlight(drain) {
+          if (this.flightDepth === 0)
+            return;
+          this.flightDepth--;
+          if (this.flightDepth > 0)
+            return;
+          this.drainLoop(drain);
+          if (this.flightStartMs > 0) {
+            this.onFlightEnd?.({
+              maxDepth: this.maxDepth,
+              waitMs: performance.now() - this.flightStartMs,
+              drained: this.drained,
+              overflow: this.overflow
+            });
+          }
+          this.flightStartMs = 0;
+        }
+        drainLoop(drain) {
+          if (this.draining)
+            return;
+          this.draining = true;
+          try {
+            while (this.pending.length > 0 && this.flightDepth === 0) {
+              const next = this.pending.shift();
+              this.drained += 1;
+              drain(next);
+            }
+          } finally {
+            this.draining = false;
+          }
+          if (this.flightDepth === 0 && this.pending.length > 0) {
+            this.drainLoop(drain);
+          }
+        }
+      };
+      exports.ProjectedApplyGate = ProjectedApplyGate;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/nestedProjectedApply.js
   var require_nestedProjectedApply = __commonJS({
     "../packages/page-projection/dist/projected/nestedProjectedApply.js"(exports) {
@@ -3358,6 +3460,7 @@
       var tableDigest_1 = require_tableDigest();
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
+      var projectedApplyGate_1 = require_projectedApplyGate();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -3380,6 +3483,8 @@
         lastDesyncReason = null;
         lastDesyncMessage = null;
         surfaceEpoch = 0;
+        applyGate;
+        applyGateOverflowStreak = 0;
         onArmedCb;
         onNestedHostCb;
         onNestedHostDropCb;
@@ -3401,6 +3506,10 @@
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, opts.document);
           this.live = { applier: this.createApplier(opts.document, registry, true), registry };
+          this.applyGate = new projectedApplyGate_1.ProjectedApplyGate({
+            onOverflow: (info) => this.handleApplyGateOverflow(info),
+            onFlightEnd: (info) => this.handleApplyGateFlightEnd(info)
+          });
         }
         get isArmed() {
           return this.armed;
@@ -3460,6 +3569,8 @@
         }
         dispose() {
           this.abandonResyncAttempt();
+          this.applyGate.clear();
+          this.applyGateOverflowStreak = 0;
           void this.surface.reset();
           this.live.applier.dispose();
         }
@@ -3530,15 +3641,82 @@
           });
         }
         applyAssembled(frame) {
+          if (this.applyGate.blocked) {
+            this.applyGate.push(frame);
+            return;
+          }
+          this.applyAssembledNow(frame);
+        }
+        beginAsyncSurfaceApply(frame, run) {
+          this.applyGate.begin();
+          void run().finally(() => {
+            this.applyGate.finishFlight((next) => this.applyAssembledNow(next));
+          });
+        }
+        handleApplyGateOverflow(info) {
+          this.applyGateOverflowStreak++;
+          const streak = this.applyGateOverflowStreak;
+          this.onTelemetry?.({
+            v: telemetry_1.TELEMETRY_WIRE_VERSION,
+            contextId: this.contextId,
+            kind: "applyGateOverflow",
+            t: performance.now(),
+            generation: this.generation,
+            sequence: this.lastSequence,
+            cap: info.cap,
+            attemptedDepth: info.attemptedDepth,
+            streak
+          });
+          if (streak >= projectedApplyGate_1.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
+            this.resyncExhausted = true;
+            this.onTelemetry?.({
+              v: telemetry_1.TELEMETRY_WIRE_VERSION,
+              contextId: this.contextId,
+              kind: "applyGateOverflowLoop",
+              t: performance.now(),
+              generation: this.generation,
+              sequence: this.lastSequence,
+              streak,
+              cap: info.cap
+            });
+            this.desync("apply_gate_overflow_loop", { requestResync: false });
+            return;
+          }
+          this.desync("apply_gate_overflow");
+        }
+        handleApplyGateFlightEnd(info) {
+          if (info.drained > 0 && !info.overflow) {
+            this.applyGateOverflowStreak = 0;
+          }
+          if (info.maxDepth === 0 && info.drained === 0 && !info.overflow)
+            return;
+          this.onTelemetry?.({
+            v: telemetry_1.TELEMETRY_WIRE_VERSION,
+            contextId: this.contextId,
+            kind: "applyGateDrain",
+            t: performance.now(),
+            generation: this.generation,
+            sequence: this.lastSequence,
+            maxDepth: info.maxDepth,
+            waitMs: info.waitMs,
+            drained: info.drained,
+            overflow: info.overflow
+          });
+        }
+        applyAssembledNow(frame) {
           if (frame.generation !== this.generation) {
             this.lastSequence = frame.sequence - 1;
-            void this.recreateForGenerationAsync(frame);
+            this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
             return;
           }
           if (frame.resync) {
             this.lastSequence = frame.sequence - 1;
+            if (this.everArmed && frame.sequence === 1) {
+              this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
+              return;
+            }
             if (this.everArmed) {
-              void this.beginResyncTargetAsync(frame);
+              this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
               return;
             }
           }
@@ -3551,6 +3729,9 @@
           target.applier.enqueue(frame);
         }
         async recreateForGenerationAsync(frame) {
+          if (frame.generation !== this.generation) {
+            this.applyGate.discardPending();
+          }
           this.abandonResyncAttempt();
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
@@ -3742,6 +3923,8 @@
             expected: extra?.expected?.toString(),
             actual: extra?.actual?.toString()
           });
+          if (extra?.requestResync === false)
+            return;
           this.scheduleResyncAttempt(reason);
         }
       };
@@ -3854,6 +4037,7 @@
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
       var projectedBlankIframe_1 = require_projectedBlankIframe();
+      var projectedApplyGate_1 = require_projectedApplyGate();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -3898,6 +4082,10 @@
         nestedHostAwaitingLoad = /* @__PURE__ */ new Map();
         /** Supersedes in-flight async surface reset / resync standby birth. */
         surfaceEpoch = 0;
+        /** Holds assembled frames while async recreate / resync build runs (apply overrun race). */
+        applyGate;
+        /** Consecutive apply-gate overflows — overflow→cold-resync can re-trigger itself. */
+        applyGateOverflowStreak = 0;
         constructor(opts, surface) {
           this.surface = surface;
           this.onTelemetry = opts.onTelemetry;
@@ -3911,6 +4099,10 @@
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, this.surface.document);
           this.live = { applier: this.createApplier(this.surface.document, registry, true), registry };
+          this.applyGate = new projectedApplyGate_1.ProjectedApplyGate({
+            onOverflow: (info) => this.handleApplyGateOverflow(info),
+            onFlightEnd: (info) => this.handleApplyGateFlightEnd(info)
+          });
         }
         /** Composition-root entry — surface iframe is born with standards srcdoc before use. */
         static async create(opts) {
@@ -4151,6 +4343,8 @@
           for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
             this.cancelPendingNestedHost(contextId);
           }
+          this.applyGate.clear();
+          this.applyGateOverflowStreak = 0;
           const epoch = ++this.surfaceEpoch;
           await this.surface.reset();
           if (epoch !== this.surfaceEpoch)
@@ -4187,15 +4381,82 @@
           this.applyAssembled(assembled);
         }
         applyAssembled(frame) {
+          if (this.applyGate.blocked) {
+            this.applyGate.push(frame);
+            return;
+          }
+          this.applyAssembledNow(frame);
+        }
+        beginAsyncSurfaceApply(frame, run) {
+          this.applyGate.begin();
+          void run().finally(() => {
+            this.applyGate.finishFlight((next) => this.applyAssembledNow(next));
+          });
+        }
+        handleApplyGateOverflow(info) {
+          this.applyGateOverflowStreak++;
+          const streak = this.applyGateOverflowStreak;
+          this.onTelemetry?.({
+            v: telemetry_1.TELEMETRY_WIRE_VERSION,
+            contextId: frame_1.CONTEXT_ID_ROOT,
+            kind: "applyGateOverflow",
+            t: performance.now(),
+            generation: this.generation,
+            sequence: this.lastSequence,
+            cap: info.cap,
+            attemptedDepth: info.attemptedDepth,
+            streak
+          });
+          if (streak >= projectedApplyGate_1.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
+            this.resyncExhausted = true;
+            this.onTelemetry?.({
+              v: telemetry_1.TELEMETRY_WIRE_VERSION,
+              contextId: frame_1.CONTEXT_ID_ROOT,
+              kind: "applyGateOverflowLoop",
+              t: performance.now(),
+              generation: this.generation,
+              sequence: this.lastSequence,
+              streak,
+              cap: info.cap
+            });
+            this.desync("apply_gate_overflow_loop", { requestResync: false });
+            return;
+          }
+          this.desync("apply_gate_overflow");
+        }
+        handleApplyGateFlightEnd(info) {
+          if (info.drained > 0 && !info.overflow) {
+            this.applyGateOverflowStreak = 0;
+          }
+          if (info.maxDepth === 0 && info.drained === 0 && !info.overflow)
+            return;
+          this.onTelemetry?.({
+            v: telemetry_1.TELEMETRY_WIRE_VERSION,
+            contextId: frame_1.CONTEXT_ID_ROOT,
+            kind: "applyGateDrain",
+            t: performance.now(),
+            generation: this.generation,
+            sequence: this.lastSequence,
+            maxDepth: info.maxDepth,
+            waitMs: info.waitMs,
+            drained: info.drained,
+            overflow: info.overflow
+          });
+        }
+        applyAssembledNow(frame) {
           if (frame.generation !== this.generation) {
             this.lastSequence = frame.sequence - 1;
-            void this.recreateForGenerationAsync(frame);
+            this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
             return;
           }
           if (frame.resync) {
             this.lastSequence = frame.sequence - 1;
+            if (this.everArmed && frame.sequence === 1) {
+              this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
+              return;
+            }
             if (this.everArmed) {
-              void this.beginResyncTargetAsync(frame);
+              this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
               return;
             }
           }
@@ -4215,6 +4476,9 @@
          * racing a surface that no longer describes anything.
          */
         async recreateForGenerationAsync(frame) {
+          if (frame.generation !== this.generation) {
+            this.applyGate.discardPending();
+          }
           this.abandonResyncAttempt();
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
@@ -4508,6 +4772,8 @@
             actual: extra?.actual?.toString()
           });
           this.onDesyncCb?.(reason);
+          if (extra?.requestResync === false)
+            return;
           this.scheduleResyncAttempt(reason);
         }
       };

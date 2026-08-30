@@ -6,9 +6,10 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const { chromium } = require('patchright');
+const { LAB_HOST, LAB_PORT } = require('./lab-ports');
 
-const PORT = process.env.SPECULUM_LAB_PORT || '4110';
-const HOST = process.env.SPECULUM_LAB_HOST || '127.0.0.1';
+const PORT = LAB_PORT;
+const HOST = LAB_HOST;
 const TIMEOUT_MS = 300_000;
 
 function wait(ms) {

@@ -33,7 +33,7 @@ All of this is *telemetry* in the product sense. They are **not interchangeable*
 
 | Kind | Who pushes | When it costs | What it is for |
 |------|------------|---------------|----------------|
-| **Events** | Producer or client **pushes** on `PlaneChannel.Telemetry` / lab WS (`frameEmitted`, `applyResult`, `desync`, aggregates, clock) | Zero when the matching capability is off at inject (`__SPECULUM_PROJECTION__`) | Time-series: plot, percentiles, investigation, O3 *inputs* |
+| **Events** | Producer or client **pushes** on `PlaneChannel.Telemetry` / lab WS (`frameEmitted`, `applyResult`, `desynced`, `applyOverrun`, `applyGateDrain`, `applyGateOverflow`, `applyGateOverflowLoop`, `resyncRequested`, `resyncCompleted`, `resyncFailed`, aggregates, clock) | Zero when the matching capability is off at inject (`__SPECULUM_PROJECTION__`) | Time-series: plot, percentiles, investigation, O3 *inputs* |
 | **Embedded** | Rides an existing artefact (e.g. `buildMs` / `encodeMs` on `frameEmitted`; hashes already on the frame) | Paid only if that artefact is produced | Same as events, without a second channel |
 | **Probes** | **Caller invokes** a session method (`getStateSnapshot`, `haltClocks` / `resumeClocks`, `emitFrame`, CDP `startCpuProfile`/`stopCpuProfile`, client `requestSnapshot`) | Zero in production if nobody calls | **Deterministic fetch of state** at a named moment |
 
@@ -56,6 +56,18 @@ Right:
 - **Form control properties (`PP-PROP-1`)** — Virtual vs Projected `.value` / `.checked` / `.selected` at S **at settle** (nobody typing). Lab `forms-state` / `iso.formProps`. Tree iso does **not** include live properties (tags/attrs can match with a stale `.value`). A green `CHECK` while the Projected field is dirty is **not** a fail. CLI without a DOM client skips the Projected side explicitly — do not pass from a Virtual-only read.
 
 `applyResult.ok`, desync counts, and `lastTableSize` in metrics remain **diagnostic**. A green event stream with a broken surface still fails [acceptance.md](acceptance.md).
+
+### 3.1 Projected apply gate events (2026-08-30)
+
+While an async surface rebuild runs (`recreateForGenerationAsync`, cold resync seq=1 on armed surface), `lastSequence` is stale until the seed frame applies. The client **queues** later assembled frames instead of rejecting them as `sequence_gap` ([open.md](open.md) **PP-APPLY-GATE-OVERRUN**).
+
+| Kind | When | Fields (diagnostic) |
+|------|------|---------------------|
+| `applyGateDrain` | Outermost async flight ended | `maxDepth`, `waitMs`, `drained`, `overflow` |
+| `applyGateOverflow` | Pending cap exceeded (default **64**) | `cap`, `attemptedDepth`, `streak` |
+| `applyGateOverflowLoop` | Overflow streak ≥ **3** — resync suppressed | `streak`, `cap` |
+
+Cap **64** is sized for Eneba-class cold apply (~59 ms, lab 2026-08-30 gen=7 dossier class). Events are **investigation only** — never iso pass/fail. Lab dossier fold: kinds not yet in default `telemetry/counts.json` (residual #9 in [open.md](open.md)).
 
 ---
 

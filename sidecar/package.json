@@ -18,6 +18,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node index.ts",
     "lab:projection": "npm run build:virtual && npm run build:lab-client && npm run build:snapshot && tsc && node dist/browser/mirror/projection/lab/host/index.js",
+    "lab:restart": "node scripts/lab-restart.js",
+    "lab:widget-parity": "node scripts/lab-widget-parity-run.js",
     "lab:docker": "docker compose -f docker-compose.lab.yml up --build",
     "lab:run": "node scripts/lab-run.js",
     "lab:assets-stress": "node scripts/lab-assets-stress.js",

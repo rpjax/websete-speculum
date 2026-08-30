@@ -15,7 +15,8 @@ services:
       # Do not set SPECULUM_DIAG_CSP here — page probe is observe-only, but lab
       # default must not inject diag into the product session path.
       SPECULUM_LAB_HOST: 0.0.0.0
-      SPECULUM_LAB_PORT: "4103"
+      SPECULUM_LAB_PORT: "4077"
+      SPECULUM_LAB_XO_PORT: "4078"
       SPECULUM_LAB_HEADED: "1"
       # Dual-boot / sequence diagnostics (Virtual console + sidecar lateBoot).
       SPECULUM_DIAG_BOOT: "1"
@@ -24,7 +25,8 @@ services:
       CHROME_EXECUTABLE: /usr/bin/google-chrome
       DISPLAY: ":99"
     ports:
-      - "4103:4103"
+      - "4077:4077"
+      - "4078:4078"
     volumes:
       - ./lab-runs:/app/lab-runs
     healthcheck:

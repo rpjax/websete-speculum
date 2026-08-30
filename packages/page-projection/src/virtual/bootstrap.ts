@@ -242,6 +242,20 @@ declare global {
           contextId?: number;
           expression: string;
         }) => Promise<{ ok: boolean; value?: unknown; reason?: string }>;
+        listChildScopeHosts: () => Promise<{
+          ok: boolean;
+          reason?: string;
+          generation: number;
+          hosts: Array<{
+            contextId: number;
+            hostNodeId: number;
+            domId: string | null;
+            src: string;
+            w: number;
+            h: number;
+            isConnected: boolean;
+          }>;
+        }>;
       }
     | undefined;
 }
@@ -406,6 +420,9 @@ void (async () => {
 
   const mine = identity.contextId;
   domNodes.setGeneration(identity.generation);
+  if (isRoot && rootRuntime !== null) {
+    rootRuntime.bus.setRootGeneration(identity.generation);
+  }
   bus.setMine(mine);
 
   // Register invoke BEFORE establish/hello so sidecar probes during the open race
@@ -507,6 +524,8 @@ void (async () => {
             expression: a.expression ?? '',
           });
         }
+        case 'listChildScopeHosts':
+          return p.listChildScopeHosts();
         default:
           throw new Error(`unknown loopback invoke: ${name}`);
       }
@@ -533,6 +552,7 @@ void (async () => {
     measureNodeRect: async () => ({ ok: false as const, reason: 'producer_booting' }),
     measureNodePaint: async () => ({ ok: false as const, reason: 'producer_booting' }),
     measureTurnstileRootRects: async () => ({ ok: false as const, reason: 'producer_booting' }),
+    listChildScopeHosts: async () => ({ ok: false as const, reason: 'producer_booting', hosts: [], generation: 0 }),
     haltWorld: () => {},
     resumeWorld: () => {},
     flushFrame: () => ({ generation: identity.generation, sequence: 0 }),
@@ -749,6 +769,59 @@ void (async () => {
     if (nodeId === NONE_DOM_NODE_KEY) return { ok: false as const, reason: 'node_unmapped' };
     return { ok: true as const, nodeId };
   });
+
+  function listChildScopeHostsSnapshot(): {
+    ok: true;
+    generation: number;
+    hosts: Array<{
+      contextId: number;
+      hostNodeId: number;
+      domId: string | null;
+      src: string;
+      w: number;
+      h: number;
+      isConnected: boolean;
+    }>;
+  } {
+    frameEmitter.flushNow();
+    const hosts: Array<{
+      contextId: number;
+      hostNodeId: number;
+      domId: string | null;
+      src: string;
+      w: number;
+      h: number;
+      isConnected: boolean;
+    }> = [];
+    childScopes.forEachBinding((contextId, nodeId) => {
+      const node = domNodes.get(nodeId);
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+        hosts.push({
+          contextId,
+          hostNodeId: nodeId,
+          domId: null,
+          src: '',
+          w: 0,
+          h: 0,
+          isConnected: false,
+        });
+        return;
+      }
+      const el = node as HTMLElement;
+      hosts.push({
+        contextId,
+        hostNodeId: nodeId,
+        domId: el.id || null,
+        src: (el.getAttribute('src') || '').slice(0, 512),
+        w: el.offsetWidth,
+        h: el.offsetHeight,
+        isConnected: el.isConnected,
+      });
+    });
+    return { ok: true, generation: domNodes.generation, hosts };
+  }
+
+  bus.onInvocation('listChildScopeHosts', () => listChildScopeHostsSnapshot());
 
   bus.onInvocation('evaluateExpression', (args: { expression: string }) => {
     try {
@@ -1041,7 +1114,10 @@ void (async () => {
         bus.dispose();
         return;
       }
-      if (rootRuntime !== null) await rootRuntime.establishConnection(again.generation);
+      if (rootRuntime !== null) {
+        await rootRuntime.establishConnection(again.generation);
+        rootRuntime.bus.setRootGeneration(again.generation);
+      }
       domNodes.setGeneration(again.generation);
       bus.publishResyncRequest({ contextId: mine, reason: 'bfcache_restore' });
       frameEmitter.start();
@@ -1173,6 +1249,7 @@ void (async () => {
       }
       return bus.requestEvaluateExpression(contextId, args.expression);
     },
+    listChildScopeHosts: async () => listChildScopeHostsSnapshot(),
   };
   const timingBag = (globalThis as { __SPECULUM_LAUNCH_TIMING__?: Record<string, unknown> })
     .__SPECULUM_LAUNCH_TIMING__;

@@ -5,7 +5,7 @@
 
 **Remote browser isolation** for the Websete (W7S) platform. A real Chromium instance runs on the server; users interact through a low-latency JPEG screencast in a React canvas. Runtime motor configuration lives in **SQLite** and is managed through the Admin API and admin UI.
 
-> **Development status:** Speculum **V1.0.0** is **in active development** — not released yet. There are no semver tags, release branches, or changelog entries until launch is announced. The codebase does **not** carry backward-compatibility bridges; config/API shape changes are allowed until then.
+> **Development status:** Speculum **V1.0.0** is **in active development** — not released yet. Motor semver is tracked in [version.txt](version.txt) (currently **0.3.0** — see [docs/releases/motor-0.3.0.md](docs/releases/motor-0.3.0.md)). There are no semver tags until launch is announced. The codebase does **not** carry backward-compatibility bridges; config/API shape changes are allowed until then.
 
 ---
 

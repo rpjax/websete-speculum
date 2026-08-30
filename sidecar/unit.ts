@@ -63,6 +63,7 @@ import { runChildScopeBusRouteUnitTests } from './browser/mirror/projection/bus/
 import { runPortCarrierUnitTests } from './browser/mirror/projection/bus/portCarrier.unit';
 import { runMintHoldUnitTests } from './browser/mirror/projection/bus/mintHold.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
+import { runProjectedApplyGateUnitTests } from './browser/mirror/projection/projected/projectedApplyGate.unit';
 import { runCdpConsoleRelayUnitTests } from './browser/patchright/cdpConsoleRelay.unit';
 import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
 import { runSparseCdpInputAdapterUnitTests } from './browser/input/adapters/sparseCdpInputAdapter.unit';
@@ -4289,6 +4290,7 @@ async function main(): Promise<void> {
   await runPortCarrierUnitTests();
   await runMintHoldUnitTests();
   runScriptingOnPaintParityUnitTests();
+  await runProjectedApplyGateUnitTests();
   runCdpConsoleRelayUnitTests();
   await runEventApplierUnitTests();
   await runSparseCdpInputAdapterUnitTests();

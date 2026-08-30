@@ -420,6 +420,23 @@ export class WsLabConnection {
         }
         return;
       }
+      case 'browse.widgetParity': {
+        try {
+          const diagnostic = await this.chassis.captureWidgetParityDiagnostic(
+            (msg.projectedHosts as import('../probes/turnstileWidgetParity').ProjectedWidgetHostPayload | null) ??
+              null,
+          );
+          console.log('[lab] widget-parity-diag', JSON.stringify(diagnostic, null, 2));
+          this.send({ type: 'widget.diag', diagnostic });
+        } catch (err) {
+          this.send({
+            type: 'error',
+            message: err instanceof Error ? err.message : String(err),
+            code: 'widget_parity_failed',
+          });
+        }
+        return;
+      }
       case 'browse.stop': {
         const sid = this.chassis.sessionId ?? this.id;
         let dossierDir: string | undefined;

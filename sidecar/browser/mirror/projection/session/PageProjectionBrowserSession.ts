@@ -154,6 +154,8 @@ export class PageProjectionBrowserSession {
   private readonly planeBridgeToken: string;
   private launchBudget: LaunchBudget | null = null;
   private readonly installEvents: DocumentInstallEvent[] = [];
+  /** Serializes loopback re-establish across rapid `document.install` events (loopback.md §8.2). */
+  private documentInstallEstablishChain: Promise<void> = Promise.resolve();
   private readonly inputRejectMetrics = new InputRejectMetrics();
   private lastInputIntent: LastInputIntentRecord | null = null;
   private lastClickResolve: LastClickResolveRecord | null = null;
@@ -208,7 +210,40 @@ export class PageProjectionBrowserSession {
         0,
         `[document.install] gen=${evt.generation} kind=${evt.installKind} url=${evt.url}`,
       );
+      this.documentInstallEstablishChain = this.documentInstallEstablishChain
+        .then(() => this.awaitDocumentInstallEstablish(evt))
+        .catch(() => undefined);
     });
+  }
+
+  /**
+   * In-page document replacement (Turnstile, 202→200, bfcache) bumps SW generation without
+   * `page.goto`. Sidecar must observe the new hello before arming input (loopback.md §8.2).
+   */
+  private async awaitDocumentInstallEstablish(evt: DocumentInstallEvent): Promise<void> {
+    if (!this.open) return;
+    const prior = this.generation;
+    if (evt.generation <= prior) return;
+    const budget = this.launchBudget ?? new LaunchBudget();
+    try {
+      await this.dataPlane.waitEstablished({
+        afterGeneration: prior,
+        timeoutMs: budget.deadlineMs('HelloEstablish'),
+      });
+      this.generation = this.dataPlane.establishedGeneration;
+      cspDiagLog('document.install establish ok', {
+        generation: this.generation,
+        prior,
+        url: evt.url,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.events.onConsole(
+        3,
+        `[document.install] establish failed gen=${evt.generation}: ${message}`,
+      );
+      throw err;
+    }
   }
 
   /** Lab / diagnostics — document install stream from extension SW. */
@@ -862,6 +897,32 @@ export class PageProjectionBrowserSession {
     });
     await this.eventApplier.flush();
     return { status: 'dispatched' };
+  }
+
+  /** Lab — Virtual child-scope host bindings (nodeId ↔ contextId). */
+  async listVirtualChildScopeHosts(): Promise<{
+    ok: boolean;
+    reason?: string;
+    generation?: number;
+    hosts?: Array<{
+      contextId: number;
+      hostNodeId: number;
+      domId: string | null;
+      src: string;
+      w: number;
+      h: number;
+      isConnected: boolean;
+    }>;
+  }> {
+    return this.loopbackInvoke('listChildScopeHosts', {});
+  }
+
+  /** Lab — Virtual DOM selector → table nodeId (root context). */
+  async loopbackKeyOfSelector(
+    selector: string,
+    contextId: number = CONTEXT_ID_ROOT,
+  ): Promise<{ ok?: boolean; reason?: string; nodeId?: number }> {
+    return this.loopbackInvoke('keyOfSelector', { selector, contextId });
   }
 
   /** Lab manual click diagnostic — projected capture + sidecar rejects + resolve + root hit-test. */

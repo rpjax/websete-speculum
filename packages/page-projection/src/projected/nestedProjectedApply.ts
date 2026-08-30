@@ -17,6 +17,7 @@ import { DOCUMENT_ID } from '../core/frame';
 import { digestReplicatedTable } from '../core/tableDigest';
 import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
 import { stampAttrAuth, stampCssTextAuth } from './sessionBindingAuth';
+import { ProjectedApplyGate, PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK } from './projectedApplyGate';
 
 export type NestedProjectedApplyOptions = {
   hostIframe: HTMLIFrameElement;
@@ -66,6 +67,8 @@ export class NestedProjectedApply {
   private lastDesyncReason: string | null = null;
   private lastDesyncMessage: string | null = null;
   private surfaceEpoch = 0;
+  private readonly applyGate: ProjectedApplyGate;
+  private applyGateOverflowStreak = 0;
   private readonly onArmedCb?: () => void;
   private readonly onNestedHostCb?: NestedProjectedApplyOptions['onNestedHost'];
   private readonly onNestedHostDropCb?: NestedProjectedApplyOptions['onNestedHostDrop'];
@@ -88,6 +91,10 @@ export class NestedProjectedApply {
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, opts.document);
     this.live = { applier: this.createApplier(opts.document, registry, true), registry };
+    this.applyGate = new ProjectedApplyGate({
+      onOverflow: (info) => this.handleApplyGateOverflow(info),
+      onFlightEnd: (info) => this.handleApplyGateFlightEnd(info),
+    });
   }
 
   get isArmed(): boolean {
@@ -162,6 +169,8 @@ export class NestedProjectedApply {
 
   dispose(): void {
     this.abandonResyncAttempt();
+    this.applyGate.clear();
+    this.applyGateOverflowStreak = 0;
     void this.surface.reset();
     this.live.applier.dispose();
   }
@@ -234,20 +243,97 @@ export class NestedProjectedApply {
   }
 
   private applyAssembled(frame: AssembledFrame): void {
+    if (this.applyGate.blocked) {
+      this.applyGate.push(frame);
+      return;
+    }
+    this.applyAssembledNow(frame);
+  }
+
+  private beginAsyncSurfaceApply(frame: AssembledFrame, run: () => Promise<void>): void {
+    this.applyGate.begin();
+    void run().finally(() => {
+      this.applyGate.finishFlight((next) => this.applyAssembledNow(next));
+    });
+  }
+
+  private handleApplyGateOverflow(info: { cap: number; attemptedDepth: number }): void {
+    this.applyGateOverflowStreak++;
+    const streak = this.applyGateOverflowStreak;
+    this.onTelemetry?.({
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
+      kind: 'applyGateOverflow',
+      t: performance.now(),
+      generation: this.generation,
+      sequence: this.lastSequence,
+      cap: info.cap,
+      attemptedDepth: info.attemptedDepth,
+      streak,
+    });
+    if (streak >= PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
+      this.resyncExhausted = true;
+      this.onTelemetry?.({
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
+        kind: 'applyGateOverflowLoop',
+        t: performance.now(),
+        generation: this.generation,
+        sequence: this.lastSequence,
+        streak,
+        cap: info.cap,
+      });
+      this.desync('apply_gate_overflow_loop', { requestResync: false });
+      return;
+    }
+    this.desync('apply_gate_overflow');
+  }
+
+  private handleApplyGateFlightEnd(info: {
+    maxDepth: number;
+    waitMs: number;
+    drained: number;
+    overflow: boolean;
+  }): void {
+    if (info.drained > 0 && !info.overflow) {
+      this.applyGateOverflowStreak = 0;
+    }
+    if (info.maxDepth === 0 && info.drained === 0 && !info.overflow) return;
+    this.onTelemetry?.({
+      v: TELEMETRY_WIRE_VERSION,
+      contextId: this.contextId,
+      kind: 'applyGateDrain',
+      t: performance.now(),
+      generation: this.generation,
+      sequence: this.lastSequence,
+      maxDepth: info.maxDepth,
+      waitMs: info.waitMs,
+      drained: info.drained,
+      overflow: info.overflow,
+    });
+  }
+
+  private applyAssembledNow(frame: AssembledFrame): void {
     if (frame.generation !== this.generation) {
       // runtime-redesign.md §7 — inner navigation keeps the `contextId` and replaces the install.
       // Destroy this instance's applier and rebuild on a clean host document instead of resetting
       // its state piecemeal; the resync frame carrying the new generation then behaves as a cold
       // start for this context.
       this.lastSequence = frame.sequence - 1;
-      void this.recreateForGenerationAsync(frame);
+      this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
       return;
     }
 
     if (frame.resync) {
       this.lastSequence = frame.sequence - 1;
+      // Cold resync seq=1 after an earlier install (same or new generation header) is a document
+      // replacement — full teardown, not a standby build racing live increments.
+      if (this.everArmed && frame.sequence === 1) {
+        this.beginAsyncSurfaceApply(frame, () => this.recreateForGenerationAsync(frame));
+        return;
+      }
       if (this.everArmed) {
-        void this.beginResyncTargetAsync(frame);
+        this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
         return;
       }
     }
@@ -262,6 +348,9 @@ export class NestedProjectedApply {
   }
 
   private async recreateForGenerationAsync(frame: AssembledFrame): Promise<void> {
+    if (frame.generation !== this.generation) {
+      this.applyGate.discardPending();
+    }
     this.abandonResyncAttempt();
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
@@ -448,6 +537,7 @@ export class NestedProjectedApply {
       expected?: bigint;
       actual?: bigint;
       phase?: TelemetryPhase;
+      requestResync?: boolean;
     },
   ): void {
     if (this.lastDesyncReason === null) {
@@ -473,6 +563,7 @@ export class NestedProjectedApply {
       expected: extra?.expected?.toString(),
       actual: extra?.actual?.toString(),
     });
+    if (extra?.requestResync === false) return;
     this.scheduleResyncAttempt(reason);
   }
 }

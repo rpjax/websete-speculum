@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0] — unreleased
+
+### PageProjection (motor)
+
+- **Apply gate** — queue assembled frames during async recreate/cold resync; `flightDepth` + `draining`; cap 64; overflow anti-loop (streak 3). Fixes self-inflicted `sequence_gap` on Eneba-class cold resync (PP-APPLY-GATE-OVERRUN).
+- **Loopback `document.install`** — same-socket hello generation supersede; session `waitEstablished({ afterGeneration })` after install (PP-LOOPBACK-DOC-INSTALL).
+- **Cold resync on armed surface** — `everArmed && resync && sequence === 1` → full surface recreate, not standby-only async.
+- **Lab proof** — Eneba `/br/` browse dossier `2026-08-30T06-10-17-942Z-www.eneba.com`: 0 desync, input 44/44, ~1% CPU our-code.
+
+### Known gaps (0.3.0 exit checklist)
+
+- Eneba `/` → `/br/` redirect path re-proof after apply gate.
+- SW monotonic mint — revert interim nested gen pack (PP-NESTED-GEN-PACK).
+- Canvas content projection (M1 gate 7) — not in 0.3.0.
+
+See [docs/releases/motor-0.3.0.md](docs/releases/motor-0.3.0.md).
+
 ## [0.2.0](https://github.com/rpjax/websete-speculum/compare/v0.1.0...v0.2.0) (2026-08-04)
 
 

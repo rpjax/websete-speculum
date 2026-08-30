@@ -45,6 +45,17 @@ Open **http://127.0.0.1:4077/** → **Connect**.
 | **Run → Start run** | Cold blueprint run; progress + verdicts; stops Virtual when done |
 | **Clear surface** | Empties the projected iframe |
 
+**Restart after code changes:** `npm run lab:restart` (kill port 4077, rebuild, start host).
+
+**Turnstile widget parity (a readoption vs b dead nested):** with Browse live and Projected diverged, DevTools on the **lab UI tab** (not Virtual Chrome):
+
+```javascript
+document.dispatchEvent(new CustomEvent('speculum-widget-parity'))
+// or: __speculumLabWidgetParity()
+```
+
+Or one-shot (lab must already be live + connected): `npm run lab:widget-parity` → `lab-runs/widget-parity-last.json`.
+
 Bind: `SPECULUM_LAB_HOST` (default `127.0.0.1`), `SPECULUM_LAB_PORT` (default `4077`). Fixtures: `http://127.0.0.1:4077/fixtures/demo.html`.
 
 This is **not** the gRPC sidecar. Do not point `Sidecar:GrpcAddress` at 4077.

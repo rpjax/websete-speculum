@@ -6,9 +6,10 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('patchright');
+const { LAB_HOST, LAB_PORT } = require('./lab-ports');
 
-const PORT = process.env.SPECULUM_LAB_PORT || '4108';
-const HOST = process.env.SPECULUM_LAB_HOST || '127.0.0.1';
+const PORT = LAB_PORT;
+const HOST = LAB_HOST;
 const BLUEPRINT = 'eneba-turnstile';
 const RUN_TIMEOUT_MS = 420_000;
 const PROJECTED_CDP_PORT = Number(process.env.SPECULUM_LAB_PROJECTED_CDP_PORT || '9333');

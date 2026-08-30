@@ -21,28 +21,30 @@ V4 lab (DOM table, single document, no production)
 
 ---
 
-## Current position (2026-08-21)
+## Current position (2026-08-30)
 
 | Piece | Status |
 |-------|--------|
 | V4 protocol spec | **In force** — [frame-protocol.md](frame-protocol.md) |
 | Session / mirror contracts | **SEALED + shape cutover** — [browser-session.md](browser-session.md); factory + PP class on Live |
-| V4 algorithm `packages/page-projection` + sidecar callers | **Lab + Live session path:** DOM table, shadow, CSSOM poll+apply (**same instance loop** in root + nested SO), form `PROP_SET`, nested iframe (OPEN-6), observability, resync, **OS unified input** ([input.md](input.md); [input-v2.md](input-v2.md) superseded). **Not** canvas, XO/NIT flavours. **`web/` on `@speculum/page-projection/projected`** (gate 10 surface). |
-| Lab host/UI | **Shipped** 2026-08-16 — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. Stream tab: per-`contextId` metrics. |
-| Production session path | **PP sealed factory** — `mirrorMode=pageProjection` → `PageProjectionBrowserSession`. Video = `VideoStreamingBrowserSession` (Patchright lift). Legado `LivePageProjection` **gone**. |
-| M1 overall | **Blocked** on canvas + `web/` Integration (session **path** flipped; product-complete law still applies) |
+| V4 algorithm `packages/page-projection` + sidecar callers | **Lab + Live session path:** DOM table, shadow, CSSOM poll+apply (**same instance loop** in root + nested SO), form `PROP_SET`, nested iframe (OPEN-6), observability, resync, **sparse-cdp input**. **Apply gate** shipped 2026-08-30. **Not** canvas, XO/NIT flavours. **`web/` on `@speculum/page-projection/projected`** (gate 10 surface). |
+| Lab host/UI | **Shipped** — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. CPU profile probe in dossier. |
+| Production session path | **PP sealed factory** — `mirrorMode=pageProjection` → `PageProjectionBrowserSession`. Video = `VideoStreamingBrowserSession`. |
+| **Motor 0.3.0** | **In progress** — [../releases/motor-0.3.0.md](../releases/motor-0.3.0.md). PP lab-proven Eneba browse; not M1 accept. |
+| M1 overall | **Blocked** on canvas (gate 7) + formal accept oracles |
 | M2 / M3 | Blocked on M1 cutover |
 
-### Completeness (honest, 2026-08-21)
+### Completeness (honest, 2026-08-30)
 
-**Do not mix these lenses.** Algorithm = same code per context. Contract shape cutover ≠ product-complete M1.
+**Do not mix these lenses.** Algorithm = same code per context. Contract shape cutover ≠ product-complete M1. Motor 0.3.0 ≠ M1.
 
 | Lens | ~% | What counts |
 |------|-----|-------------|
-| **V4 core algorithm (lab)** | **~95%** | Shipped ISA complete (§4 lacre). One bootstrap × N contexts: DOM, CSSOM, shadow, PROP_SET, OPEN-6 SO, resync, **OS unified input lab**. Open: canvas, scale (perf), CSS paint iso probe, XO/NIT context types. |
-| **Lab QA / asserts** | **~75%** | DOM/cssom foundation + nested DOM iso + input blueprints shipped. Open: explicit nested `cssomO2` in blueprint, remaining matrix rows. |
-| **Session contract / Live path** | **~90% shape** | Sealed factory + `PageProjectionBrowserSession`; GetResync/ReportClientState dropped; `RequestResync`. Open: antibot kits, asset store, IDB/localStorage restore, frame-queue backpressure. |
-| **Production cutover (M1 exit)** | **~75%** | Session path is PP; web Integration surface (gate 10) landed. Still needs: canvas content (gate 7), MotorAssert compose MirrorMode for deep Live E2E. CSSOM/shadow/OPEN-6/input already on the PP session algorithm. |
+| **V4 core algorithm (lab)** | **~95%** | Shipped ISA complete (§4 lacre). DOM, CSSOM, shadow, PROP_SET, OPEN-6 SO, resync, sparse-cdp input, apply gate. Open: canvas, XO/NIT, SW mint revert (PP-NESTED-GEN-PACK). |
+| **Lab QA / asserts** | **~78%** | Eneba `/br/` browse green (protocol + input); wire invariants. Open: redirect path re-proof, widget parity on browse, nested `cssomO2` blueprint. |
+| **Session contract / Live path** | **~90% shape** | Sealed factory + `PageProjectionBrowserSession`. Open: antibot kits, asset store, frame-queue backpressure. |
+| **Production cutover (M1 exit)** | **~78%** | Session path + web surface. Still needs: canvas (gate 7), MotorAssert Live E2E, accept oracles. |
+| **Performance (E6 budget)** | **OK on Eneba browse** | Instrumented algo ~2.5% wall; CPU profile our-code ~1% wall (dossier 2026-08-30). Not adversarial prepend-stress ceiling. |
 
 **Cutover gates (product, not “another CSSOM algorithm”):**
 

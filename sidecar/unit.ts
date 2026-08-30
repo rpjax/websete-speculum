@@ -56,6 +56,7 @@ import { runExtensionPlanePerfSmokeUnitTests } from './browser/mirror/projection
 import { runLoopbackDataPlaneUnitTests } from './browser/mirror/projection/session/loopbackDataPlane.unit';
 import { runChromeLnaPolicyUnitTests } from './browser/patchright/chromeLnaPolicy.unit';
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
+import { runViewportChainUnitTests } from './browser/mirror/projection/input/viewportChain.unit';
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
 import { runChildScopeBusRouteUnitTests } from './browser/mirror/projection/bus/childScopeBusRoute.unit';
@@ -4307,6 +4308,7 @@ async function main(): Promise<void> {
   await runLoopbackDataPlaneUnitTests();
   runChromeLnaPolicyUnitTests();
   await runPageProjectionSessionUnitTests();
+  runViewportChainUnitTests();
   await runPageProjectionInputClickUnitTests();
   console.log('[unit] all passed');
 }

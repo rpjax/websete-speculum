@@ -19,6 +19,7 @@ import {
   type ContextBusCarrier,
   type InvokeResult,
 } from './types';
+import { CONTEXT_ID_ROOT } from '../../core/frame';
 
 export type ResyncRequestEvent = {
   contextId: number;
@@ -450,9 +451,25 @@ export class VirtualDomainBus implements IContextBus {
     return { ok: false, reason: result.error?.message ?? 'key_of_failed' };
   }
 
+  /** Lab probe — eval in target context's realm (cross-origin nested cannot use root contentWindow.eval). */
+  async requestEvaluateExpression(
+    contextId: number,
+    expression: string,
+  ): Promise<{ ok: boolean; value?: unknown; reason?: string }> {
+    if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+      return { ok: false, reason: 'context_not_found' };
+    }
+    const result = await this.bus.invoke<
+      { expression: string },
+      { ok: boolean; value?: unknown; reason?: string }
+    >('evaluateExpression', { expression }, { destination: contextId, timeoutMs: RESUME_TIMEOUT_MS });
+    if (result.ok) return result.value;
+    return { ok: false, reason: result.error?.message ?? 'evaluate_failed' };
+  }
+
   /**
-   * Lab resolve — element hit in root Virtual viewport CSS (Mode A) + local viewport scroll.
-   * Nested contexts walk frameElement offsets to top.
+   * Lab resolve — element hit in this context's local viewport + scroll.
+   * Root producer composes nested hits to root viewport via one-hop RPC chain.
    */
   async requestResolveElementHit(
     contextId: number,
@@ -498,13 +515,32 @@ export class VirtualDomainBus implements IContextBus {
     nodeId: number,
     localX?: number,
     localY?: number,
-  ): Promise<{ ok: boolean; x?: number; y?: number; reason?: string }> {
+  ): Promise<{
+    ok: boolean;
+    x?: number;
+    y?: number;
+    reason?: string;
+    firstHopContextId?: number;
+    hostNodeId?: number;
+  }> {
     if (this.isDeliverableDestination && !this.isDeliverableDestination(contextId)) {
+      try {
+        console.warn(`[speculum-context] deliverable_miss contextId=${contextId}`);
+      } catch {
+        /* */
+      }
       return { ok: false, reason: 'context_not_found' };
     }
     const result = await this.bus.invoke<
       { nodeId: number; localX?: number; localY?: number },
-      { ok: boolean; x?: number; y?: number; reason?: string }
+      {
+        ok: boolean;
+        x?: number;
+        y?: number;
+        reason?: string;
+        firstHopContextId?: number;
+        hostNodeId?: number;
+      }
     >(
       'resolveNodeHit',
       { nodeId, localX, localY },
@@ -512,6 +548,43 @@ export class VirtualDomainBus implements IContextBus {
     );
     if (result.ok) return result.value;
     return { ok: false, reason: result.error?.message ?? 'resolve_hit_failed' };
+  }
+
+  /** One hop — child iframe content-box origin in this (parent) document's viewport. */
+  async requestChildViewportOriginInMe(
+    parentContextId: number,
+    childContextId: number,
+  ): Promise<{ ok: boolean; dx?: number; dy?: number; scale?: number; reason?: string }> {
+    if (this.isDeliverableDestination && !this.isDeliverableDestination(parentContextId)) {
+      return { ok: false, reason: 'context_not_found' };
+    }
+    const result = await this.bus.invoke<
+      { childContextId: number },
+      { ok: boolean; dx?: number; dy?: number; scale?: number; reason?: string }
+    >(
+      'childViewportOriginInMe',
+      { childContextId },
+      { destination: parentContextId, timeoutMs: RESUME_TIMEOUT_MS },
+    );
+    if (result.ok) return result.value;
+    return { ok: false, reason: result.error?.message ?? 'viewport_origin_failed' };
+  }
+
+  /** Nested scope admit — register parent link on root-owned lineage index. */
+  async requestRegisterScopeLineage(
+    childContextId: number,
+    parentContextId: number,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const result = await this.bus.invoke<
+      { childContextId: number; parentContextId: number },
+      { ok: boolean; reason?: string }
+    >(
+      'registerScopeLineage',
+      { childContextId, parentContextId },
+      { destination: CONTEXT_ID_ROOT, timeoutMs: RESUME_TIMEOUT_MS },
+    );
+    if (result.ok) return result.value;
+    return { ok: false, reason: result.error?.message ?? 'register_lineage_failed' };
   }
 
   /** Lab diag — element geometry + visibility in this context's viewport. */

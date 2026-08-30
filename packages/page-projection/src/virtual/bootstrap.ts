@@ -46,6 +46,13 @@ import type { CssomTableLiveOracleResult } from '../core/cssomTableLiveOracle';
 import { compareTableToLiveDom } from './dom/tableLiveOracle';
 import { PlaneChannel, type DataPlane } from '../core/plane';
 import { mapLocalHitToRootPoint } from '../core/input/localHit';
+import {
+  elementLocalViewportRect,
+  iframeContentBoxOrigin,
+  mapPointAcrossHop,
+  type ViewportHop,
+} from '../core/input/viewportChain';
+import { ContextLineageIndex } from './dom/contextLineage';
 import type { CssomPollStats } from './cssom/cssomPoller';
 import { applyScrollPositions } from './input/applyScrollPositions';
 import { NONE_DOM_NODE_KEY } from '../core/domNodeKey';
@@ -303,9 +310,29 @@ void (async () => {
     mintFn = createMintPort({ requestMint: () => bus.requestMint() });
   }
 
+  const lineage = isRoot ? new ContextLineageIndex() : null;
+
   const childScopes = new ChildScopeIndex(mintFn, {
     // A queued child `initContext` becomes answerable the instant its host row is admitted.
-    onAdmit: () => bus.noteChildScopeChanged(),
+    onAdmit: (childContextId, hostNodeId) => {
+      bus.noteChildScopeChanged();
+      const parentContextId = bus.contextId;
+      if (lineage) {
+        lineage.register(childContextId, parentContextId);
+      } else {
+        void bus.requestRegisterScopeLineage(childContextId, parentContextId);
+      }
+      if (isRoot) {
+        const deliverable = childScopes.windowOf(childContextId, nodeOf) != null;
+        try {
+          console.log(
+            `[speculum-context] scope_admitted childContextId=${childContextId} parentContextId=${parentContextId} hostNodeId=${hostNodeId} deliverable=${deliverable}`,
+          );
+        } catch {
+          /* */
+        }
+      }
+    },
     // Host row gone (inner nav / removal): the dead install's port must not survive it (§8).
     onDrop: (contextId) => bus.closeChildChannel(contextId),
   });
@@ -618,50 +645,99 @@ void (async () => {
 
   bus.setApplyScrollHandler((positions) => applyScrollPositions(domNodes, document, positions));
 
-  function rootViewportFrameOffset(): { dx: number; dy: number } {
-    let dx = 0;
-    let dy = 0;
-    let walk: Window | null = document.defaultView;
-    while (walk && walk !== walk.top) {
-      let frameEl: Element | null = null;
-      try {
-        frameEl = walk.frameElement;
-      } catch {
-        break;
+  function clientPointInLocalViewport(el: Element): { x: number; y: number } {
+    const rect = el.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  function isHitOnHostComposedPath(hit: Element | null, host: Element): boolean {
+    // Retarget only walks outward: elementFromPoint returns an ancestor of the
+    // real target, never a descendant — walk from host toward document root.
+    let el: Element | null = host;
+    while (el) {
+      if (el === hit) return true;
+      const root = el.getRootNode();
+      if (root instanceof ShadowRoot) {
+        el = root.host;
+        continue;
       }
-      if (!frameEl) break;
-      const fr = frameEl.getBoundingClientRect();
-      dx += fr.left;
-      dy += fr.top;
-      try {
-        walk = walk.parent;
-      } catch {
-        break;
-      }
+      el = el.parentElement;
     }
-    return { dx, dy };
+    return false;
   }
 
-  function clientPointInRootViewport(el: Element): { x: number; y: number } {
-    const rect = el.getBoundingClientRect();
-    const { dx, dy } = rootViewportFrameOffset();
-    return { x: rect.left + rect.width / 2 + dx, y: rect.top + rect.height / 2 + dy };
+  function verifyHostAtPoint(x: number, y: number, hostNodeId: number): { ok: boolean; reason?: string } {
+    const host = domNodes.get(hostNodeId);
+    if (!host || host.nodeType !== Node.ELEMENT_NODE) return { ok: false, reason: 'host_not_found' };
+    const hit = document.elementFromPoint(x, y);
+    if (!isHitOnHostComposedPath(hit, host as Element)) {
+      return { ok: false, reason: 'point_outside_host' };
+    }
+    return { ok: true };
   }
 
-  function elementRectInRootViewport(el: Element): {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-  } {
-    const rect = el.getBoundingClientRect();
-    const { dx, dy } = rootViewportFrameOffset();
-    return {
-      left: rect.left + dx,
-      top: rect.top + dy,
-      right: rect.right + dx,
-      bottom: rect.bottom + dy,
-    };
+  async function composeViewportPointToRoot(
+    leafContextId: number,
+    localX: number,
+    localY: number,
+  ): Promise<{
+    ok: boolean;
+    x?: number;
+    y?: number;
+    reason?: string;
+    firstHopContextId?: number;
+    hostNodeId?: number;
+  }> {
+    if (!lineage) return { ok: false, reason: 'no_lineage' };
+    if (leafContextId === CONTEXT_ID_ROOT) {
+      return { ok: true, x: localX, y: localY, firstHopContextId: CONTEXT_ID_ROOT };
+    }
+    const chain = lineage.chainLeafToRoot(leafContextId);
+    if (chain.length === 0) return { ok: false, reason: 'lineage_missing' };
+    let x = localX;
+    let y = localY;
+    for (const childCtx of chain) {
+      const parentCtx = lineage.getParent(childCtx);
+      if (parentCtx === undefined) return { ok: false, reason: 'lineage_missing' };
+      const hopR = await bus.requestChildViewportOriginInMe(parentCtx, childCtx);
+      if (!hopR.ok || hopR.dx === undefined || hopR.dy === undefined) {
+        return { ok: false, reason: hopR.reason ?? 'hop_failed' };
+      }
+      const hop: ViewportHop = {
+        dx: hopR.dx,
+        dy: hopR.dy,
+        scale: hopR.scale ?? 1,
+      };
+      ({ x, y } = mapPointAcrossHop(x, y, hop));
+    }
+    const firstHop = lineage.directChildOfRootOnPath(leafContextId);
+    const hostNodeId = firstHop === CONTEXT_ID_ROOT ? undefined : childScopes.nodeIdOf(firstHop);
+    if (hostNodeId !== undefined) {
+      const verify = verifyHostAtPoint(x, y, hostNodeId);
+      if (!verify.ok) return { ok: false, reason: verify.reason };
+    }
+    return { ok: true, x, y, firstHopContextId: firstHop, hostNodeId };
+  }
+
+  bus.onInvocation('childViewportOriginInMe', (args: { childContextId: number }) => {
+    const nodeId = childScopes.nodeIdOf(args.childContextId);
+    if (nodeId === undefined) return { ok: false as const, reason: 'child_not_found' };
+    const node = domNodes.get(nodeId);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+      return { ok: false as const, reason: 'host_not_element' };
+    }
+    const hop = iframeContentBoxOrigin(node as HTMLElement);
+    return { ok: true as const, dx: hop.dx, dy: hop.dy, scale: hop.scale };
+  });
+
+  if (lineage) {
+    bus.onInvocation(
+      'registerScopeLineage',
+      (args: { childContextId: number; parentContextId: number }) => {
+        lineage.register(args.childContextId, args.parentContextId);
+        return { ok: true as const };
+      },
+    );
   }
 
   bus.onInvocation('keyOfSelector', (args: { selector: string }) => {
@@ -674,11 +750,24 @@ void (async () => {
     return { ok: true as const, nodeId };
   });
 
+  bus.onInvocation('evaluateExpression', (args: { expression: string }) => {
+    try {
+      // Lab-only — trusted fixture probe from sidecar.
+      const value = (0, eval)(args.expression);
+      return { ok: true as const, value };
+    } catch (err) {
+      return {
+        ok: false as const,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
   bus.onInvocation('resolveElementHit', (args: { selector: string }) => {
     frameEmitter.flushNow();
     const el = document.querySelector(args.selector);
     if (!el) return { ok: false as const, reason: 'selector_miss' };
-    const { x, y } = clientPointInRootViewport(el);
+    const { x, y } = clientPointInLocalViewport(el);
     const win = document.defaultView;
     const scrollX = win?.scrollX || document.scrollingElement?.scrollLeft || 0;
     const scrollY = win?.scrollY || document.scrollingElement?.scrollTop || 0;
@@ -707,14 +796,14 @@ void (async () => {
       && Number.isFinite(args.localY);
     if (hasLocal) {
       const mapped = mapLocalHitToRootPoint(
-        elementRectInRootViewport(el),
+        elementLocalViewportRect(el),
         args.localX as number,
         args.localY as number,
       );
       if (!mapped) return { ok: false as const, reason: 'bad_local' };
       return { ok: true as const, x: mapped.x, y: mapped.y };
     }
-    const { x, y } = clientPointInRootViewport(el);
+    const { x, y } = clientPointInLocalViewport(el);
     return { ok: true as const, x, y };
   });
 
@@ -1034,12 +1123,28 @@ void (async () => {
     resolveElementHit: async (args) => {
       const contextId =
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
-      return bus.requestResolveElementHit(contextId, args.selector);
+      const local = await bus.requestResolveElementHit(contextId, args.selector);
+      if (!local.ok || local.x === undefined || local.y === undefined) return local;
+      if (contextId === CONTEXT_ID_ROOT) return local;
+      const composed = await composeViewportPointToRoot(contextId, local.x, local.y);
+      if (!composed.ok) return composed;
+      return { ...local, x: composed.x, y: composed.y };
     },
     resolveNodeHit: async (args) => {
       const contextId =
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
-      return bus.requestResolveNodeHit(contextId, args.nodeId, args.localX, args.localY);
+      const local = await bus.requestResolveNodeHit(contextId, args.nodeId, args.localX, args.localY);
+      if (!local.ok || local.x === undefined || local.y === undefined) return local;
+      if (contextId === CONTEXT_ID_ROOT) return local;
+      const composed = await composeViewportPointToRoot(contextId, local.x, local.y);
+      if (!composed.ok) return composed;
+      return {
+        ok: true as const,
+        x: composed.x,
+        y: composed.y,
+        firstHopContextId: composed.firstHopContextId,
+        hostNodeId: composed.hostNodeId,
+      };
     },
     measureNodeRect: async (args) => {
       const contextId =
@@ -1058,16 +1163,15 @@ void (async () => {
     }) => {
       const contextId =
         typeof args.contextId === 'number' && args.contextId > 0 ? args.contextId : CONTEXT_ID_ROOT;
-      const win =
-        contextId === CONTEXT_ID_ROOT ? window : childScopes.windowOf(contextId, nodeOf) ?? null;
-      if (!win) return { ok: false, reason: 'context_window_missing' };
-      try {
-        // Lab-only — expression is trusted fixture probe script from sidecar.
-        const value = (win as Window & { eval: (source: string) => unknown }).eval(args.expression);
-        return { ok: true, value };
-      } catch (err) {
-        return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+      if (contextId === CONTEXT_ID_ROOT) {
+        try {
+          const value = (0, eval)(args.expression);
+          return { ok: true as const, value };
+        } catch (err) {
+          return { ok: false as const, reason: err instanceof Error ? err.message : String(err) };
+        }
       }
+      return bus.requestEvaluateExpression(contextId, args.expression);
     },
   };
   const timingBag = (globalThis as { __SPECULUM_LAUNCH_TIMING__?: Record<string, unknown> })
@@ -1089,6 +1193,13 @@ void (async () => {
     sequence: frameEmitter.currentSequence,
     isRoot: window.parent === window,
   });
+  try {
+    console.log(
+      `[speculum-context] boot_established contextId=${mine} isRoot=${window.parent === window} href=${location.href}`,
+    );
+  } catch {
+    /* */
+  }
 
   producerApi = globalThis.__speculumProjection ?? null;
   } catch (err) {

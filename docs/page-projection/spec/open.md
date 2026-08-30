@@ -163,11 +163,11 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — nested SO closed 2026-08-19. Open: XO/NIT; nested cssomO2 QA; CSS paint iso; scale. |
 | 9 | Lab telemetry: `applyGateDrain` / `applyGateOverflow` / `applyGateOverflowLoop` kinds in dossier fold | Wire kinds exist on client; lab sink/fold not yet cataloguing — observability only. |
 
-### RESIDUAL — nested generation interim pack (**OPEN 2026-08-30**)
+### RESIDUAL — nested generation interim pack (**0.3.0 GATE — wire**)
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-NESTED-GEN-PACK** | Nested contexts show `generation = (rootGen << 16) \| installIndex` (e.g. `65537`) via `virtualDomainBus.setRootGeneration`. | **Interim** to avoid nested ctx2 `gen=1` colliding after root bump. **Must revert** before accept: SW monotonic mint; root passes gen to child via ContextBus — nested **must not** talk to SW directly (flake 4/10 / SW hibernate class). Tracked on Motor **0.3.0** checklist — [motor-0.3.0.md](motor-0.3.0.md). |
+| **PP-NESTED-GEN-PACK** | Nested contexts show `generation = (rootGen << 16) \| installIndex` (e.g. `65537`) via `virtualDomainBus.setRootGeneration`. | **Interim on wire** — **0.3.0 GATE:** revert before tag or encoding becomes compat surface. SW monotonic mint; root → nested via ContextBus only. [motor-0.3.0.md](motor-0.3.0.md). |
 
 ---
 

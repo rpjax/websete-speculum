@@ -9,7 +9,7 @@
 
 ## Now (2026-08-30) — start a new chat here
 
-**Motor 0.3.0:** in progress — scope [motor-0.3.0.md](motor-0.3.0.md). PP engine **lab-proven** on Eneba `/br/` browse; **not** full M1 accept (canvas gate 7 open).
+**Motor 0.3.0:** in progress — **[motor milestone only](motor-0.3.0.md)** (not production RBI). Opus/Rodrigo 2026-08-30: PP **core** lab-proven; tag gates = gen-pack revert, Eneba redirect proof, B3 if red, full Windows gates. **B1 done** · **B2 withdrawn** · dirty tree **committed**.
 
 **Shipped (2026-08-29…30):**
 - **Loopback `document.install`** — same-socket hello: higher gen adopts; idempotent re-hello; lower gen rejected. Session chains `waitEstablished({ afterGeneration })` after install. Units: `nodeDataPlane.unit.ts`.
@@ -18,12 +18,13 @@
 
 **Eneba lab proof (2026-08-30):** dossier `sidecar/lab-runs/2026-08-30T06-10-17-942Z-www.eneba.com` — `/br/` browse ~28 s: **0 desync**, 96 apply ok, input 44/44, wire invariants green. **Not yet proven:** `/` → `/br/` redirect gen-bump path (pre-fix storm class).
 
-**Still open before accept / M1:**
-1. **Canvas** (gate 7) — last engine feature ([roadmap.md](roadmap.md)).
-2. **Nested gen mint** — revert interim `(rootGen << 16) | installIndex` pack → SW monotonic mint, **root → nested via bus** (no nested→SW direct). Separate commit; see [open.md](open.md) **PP-NESTED-GEN-PACK**.
-3. **PP-HARDNAV-PLANE-ACK** — SW-owned loopback across hard nav ([open.md](open.md)).
-4. MotorAssert compose `MirrorMode.PageProjection`.
-5. Parity oracles on browse (empty `verdicts.json` ≠ accept).
+**Still open before tag (gates — see [motor-0.3.0.md](motor-0.3.0.md)):**
+1. **PP-NESTED-GEN-PACK revert** — wire encoding; **before tag**, not after.
+2. Eneba **`/` → `/br/`** dossier (redirect gen bump).
+3. B3 dotnet test if red on `main`.
+4. Full Windows gates.
+
+**Not 0.3.0 gates:** B1 (done 2026-08-29) · B2/`managedTabId` (withdrawn) · antibot stealth · multi-session density · accept 1:1 sealed.
 
 **Runtime inject:** unified `speculum-pp` extension + C2 + ContextBus + `initContext` ([runtime-redesign.md](runtime-redesign.md)). Stealth spike on real antibot still required before calling accept sealed.
 
@@ -31,10 +32,10 @@
 
 **Lab UI:** `cd sidecar && npm run lab:restart` (headed default via `SPECULUM_LAB_HEADED=1`) → **http://127.0.0.1:4077/**. Agent: `npm run lab:run -- …`. Do **not** use 4103 unless an old process is still bound there.
 
-**Next ordered work:**
-1. Close 0.3.0 checklist ([motor-0.3.0.md](motor-0.3.0.md)) — Eneba redirect path + SW mint revert + telemetry kinds.
-2. Canvas content projection (gate 7).
-3. MotorAssert Live deep path.
+**Next ordered work (post-0.3.0 tag / M1):**
+1. Canvas content projection (gate 7).
+2. MotorAssert Live deep path.
+3. PP-HARDNAV-PLANE-ACK · stealth spike V3 · accept oracles.
 
 Open named shadow / form PROP / SVG / session shape / gate 10 surface / nested iframe click / extension plane / virtual assets — closed. Do **not** reopen apply honesty ([observability.md](observability.md) §7) or ad-hoc establish/sync paths ([acceptance.md](acceptance.md) T3).
 

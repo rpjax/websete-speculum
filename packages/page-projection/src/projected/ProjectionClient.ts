@@ -33,7 +33,11 @@ import {
   stampAttrAuth,
   stampCssTextAuth,
 } from './sessionBindingAuth';
-import { isProjectedStandardsDocument, stripProjectedSkeleton } from './projectedBlankIframe';
+import {
+  isProjectedStandardsSkeleton,
+  stampProjectedStandardsSrcdoc,
+  whenProjectedStandardsReady,
+} from './projectedBlankIframe';
 
 export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -75,11 +79,10 @@ type ApplyTarget = {
 /** In-flight resync build (`ApplyTarget` plus which attempt number produced it). */
 type ResyncBuild = ApplyTarget & { attempt: number };
 
-/** Nested host waiting for about:blank `load` — drop must cancel this, not only delete the map entry. */
+/** Nested host waiting for K4 skeleton via {@link whenProjectedStandardsReady}. */
 type NestedHostPendingLoad = {
   iframe: HTMLIFrameElement;
-  bind: () => void;
-  cancelled: boolean;
+  abort: AbortController;
 };
 
 const MAX_RESYNC_ATTEMPTS = 3;
@@ -132,7 +135,7 @@ export class ProjectionClient {
   private lastDesyncReason: string | null = null;
   private readonly nested = new Map<number, NestedProjectedApply>();
   private readonly pendingNestedFrames = new Map<number, Uint8Array[]>();
-  /** contextId → host waiting for initial about:blank `load` before apply binds. */
+  /** contextId → host waiting for stamped srcdoc skeleton before nested apply binds. */
   private readonly nestedHostAwaitingLoad = new Map<number, NestedHostPendingLoad>();
   /** Supersedes in-flight async surface reset / resync standby birth. */
   private surfaceEpoch = 0;
@@ -163,121 +166,123 @@ export class ProjectionClient {
   }
 
   private installNestedHost(iframe: HTMLIFrameElement, contextId: number): void {
+    const liveDoc = iframe.contentDocument;
     const existing = this.nested.get(contextId);
     if (existing) {
-      // Same element still live — nothing to do. Replaced/moved host — drop and rebind
-      // (keep pending frames; same contextId, new browsing context).
+      // Invariant: host document identity unchanged → keep session; else rebind.
       try {
         if (
           existing.hostIframe === iframe
-          && iframe.contentDocument != null
-          && existing.registry.get(DOCUMENT_ID) === iframe.contentDocument
-          && iframe.contentDocument.defaultView != null
+          && liveDoc != null
+          && existing.registry.get(DOCUMENT_ID) === liveDoc
+          && liveDoc.defaultView != null
         ) {
           return;
         }
       } catch {
         /* rebind */
       }
-      this.cancelPendingNestedHost(contextId);
       existing.dispose();
       this.nested.delete(contextId);
     }
-    const existingPending = this.nestedHostAwaitingLoad.get(contextId);
-    if (existingPending) {
-      existingPending.iframe = iframe;
-      existingPending.bind();
-      return;
+
+    this.cancelPendingNestedHost(contextId);
+
+    if (!isProjectedStandardsSkeleton(liveDoc)) {
+      stampProjectedStandardsSrcdoc(iframe);
     }
-    // Host was stamped with PROJECTED_STANDARDS_SRCDOC at NODE_NEW (before INSERT). Wait for
-    // that load, strip the skeleton, then bind. Keep frames in pendingNestedFrames until then.
-    const pending: NestedHostPendingLoad = { iframe, bind: () => undefined, cancelled: false };
-    let scheduled = false;
-    const bind = (): void => {
-      if (pending.cancelled) return;
-      if (this.nested.has(contextId)) {
-        this.nestedHostAwaitingLoad.delete(contextId);
-        return;
-      }
-      if (!iframe.isConnected) {
-        scheduled = false;
-        return;
-      }
-      // Adopt synchronously on this turn — no Promise.then gap after strip (that raced and
-      // left NestedProjectedApply on an orphaned Document).
-      const liveDoc = iframe.contentDocument;
-      if (!isProjectedStandardsDocument(liveDoc)) {
-        scheduled = false;
-        iframe.addEventListener('load', scheduleBind, { once: true });
-        return;
-      }
-      stripProjectedSkeleton(liveDoc);
-      if (iframe.contentDocument !== liveDoc || liveDoc.defaultView == null) {
-        scheduled = false;
-        iframe.addEventListener('load', scheduleBind, { once: true });
-        return;
-      }
-      const liveWin = iframe.contentWindow;
-      if (!liveWin) {
-        scheduled = false;
-        iframe.addEventListener('load', scheduleBind, { once: true });
-        return;
-      }
-      const session = new NestedProjectedApply({
-        hostIframe: iframe,
-        document: liveDoc,
-        contextId,
-        getToken: () => this.resolveToken(),
-        getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
-        onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
-        onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
-        onTelemetry: (msg) => this.onTelemetry?.(msg),
-        onArmed: () => {
-          try {
-            (liveWin as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed =
-              true;
-          } catch {
-            /* ignore */
-          }
-        },
-        onRequestResync: (info) =>
-          this.onRequestResyncCb?.({
-            generation: info.generation,
-            sequence: info.sequence,
-            reason: info.reason,
-            contextId: info.contextId,
-          }),
-      });
-      this.nested.set(contextId, session);
-      this.nestedHostAwaitingLoad.delete(contextId);
-      const queued = this.pendingNestedFrames.get(contextId);
-      if (queued) {
-        this.pendingNestedFrames.delete(contextId);
-        for (let i = 0; i < queued.length; i++) session.ingest(queued[i]!);
-      }
-      session.flush();
-    };
-    /** Never bind/flush nested apply on the parent applyInsert stack (depth≥2 re-entrancy). */
-    const scheduleBind = (): void => {
-      if (pending.cancelled || scheduled) return;
-      scheduled = true;
-      setTimeout(() => {
-        scheduled = false;
-        bind();
-      }, 0);
-    };
-    pending.bind = scheduleBind;
+
+    const abort = new AbortController();
+    const pending: NestedHostPendingLoad = { iframe, abort };
     this.nestedHostAwaitingLoad.set(contextId, pending);
-    iframe.addEventListener('load', scheduleBind, { once: true });
-    // Always one deferred attempt — covers load-already-fired before we subscribed.
-    scheduleBind();
+
+    void whenProjectedStandardsReady(iframe, { signal: abort.signal })
+      .then((doc) => {
+        if (this.nestedHostAwaitingLoad.get(contextId) !== pending) return;
+        this.nestedHostAwaitingLoad.delete(contextId);
+        if (abort.signal.aborted || !iframe.isConnected) return;
+        if (iframe.contentDocument !== doc || doc.defaultView == null) {
+          this.installNestedHost(iframe, contextId);
+          return;
+        }
+        this.bindNestedHostSession(iframe, doc, contextId);
+      })
+      .catch((err: unknown) => {
+        if (this.nestedHostAwaitingLoad.get(contextId) !== pending) return;
+        this.nestedHostAwaitingLoad.delete(contextId);
+        if (abort.signal.aborted) return;
+        const errorCode =
+          typeof err === 'object' && err !== null && 'errorCode' in err
+            ? String((err as { errorCode: unknown }).errorCode)
+            : 'projected_standards_ready_invalid';
+        this.onTelemetry?.({
+          kind: 'nestedHostEstablishFailed',
+          contextId,
+          errorCode,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }
+
+  private bindNestedHostSession(
+    iframe: HTMLIFrameElement,
+    doc: Document,
+    contextId: number,
+  ): void {
+    const existing = this.nested.get(contextId);
+    if (existing) {
+      try {
+        if (existing.hostIframe === iframe && existing.registry.get(DOCUMENT_ID) === doc) {
+          return;
+        }
+      } catch {
+        /* rebind */
+      }
+      existing.dispose();
+      this.nested.delete(contextId);
+    }
+
+    const liveWin = iframe.contentWindow;
+    if (!liveWin) return;
+
+    const session = new NestedProjectedApply({
+      hostIframe: iframe,
+      document: doc,
+      contextId,
+      getToken: () => this.resolveToken(),
+      getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
+      onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
+      onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+      onTelemetry: (msg) => this.onTelemetry?.(msg),
+      onArmed: () => {
+        try {
+          (liveWin as Window & { __speculumNestedApplyArmed?: boolean }).__speculumNestedApplyArmed =
+            true;
+        } catch {
+          /* ignore */
+        }
+      },
+      onRequestResync: (info) =>
+        this.onRequestResyncCb?.({
+          generation: info.generation,
+          sequence: info.sequence,
+          reason: info.reason,
+          contextId: info.contextId,
+        }),
+    });
+    this.nested.set(contextId, session);
+    const queued = this.pendingNestedFrames.get(contextId);
+    if (queued) {
+      this.pendingNestedFrames.delete(contextId);
+      for (let i = 0; i < queued.length; i++) session.ingest(queued[i]!);
+    }
+    session.flush();
   }
 
   private cancelPendingNestedHost(contextId: number): void {
     const pending = this.nestedHostAwaitingLoad.get(contextId);
     if (!pending) return;
-    pending.cancelled = true;
-    pending.iframe.removeEventListener('load', pending.bind);
+    pending.abort.abort();
     this.nestedHostAwaitingLoad.delete(contextId);
   }
 

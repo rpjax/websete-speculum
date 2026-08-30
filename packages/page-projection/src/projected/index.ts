@@ -13,8 +13,10 @@ export { createSurfaceHost, type SurfaceHost } from './surface';
 export {
   PROJECTED_STANDARDS_SRCDOC,
   PROJECTED_STANDARDS_READY_TIMEOUT_MS,
+  PROJECTED_SKELETON_META_NAME,
   stampProjectedStandardsSrcdoc,
   stripProjectedSkeleton,
+  isProjectedStandardsSkeleton,
   isProjectedStandardsDocument,
   whenProjectedStandardsReady,
   type ProjectedStandardsReadyError,

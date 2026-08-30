@@ -10,9 +10,12 @@
  * {@link whenProjectedStandardsReady} → apply into the stripped document.
  */
 
+/** Identity marker — only our stamped srcdoc carries this meta; real navigations do not. */
+export const PROJECTED_SKELETON_META_NAME = 'speculum-projected-skeleton';
+
 /** Minimal HTML5 document — parses CSS1Compat; skeleton is stripped before table apply. */
 export const PROJECTED_STANDARDS_SRCDOC =
-  '<!DOCTYPE html><html><head></head><body></body></html>';
+  '<!DOCTYPE html><html><head><meta name="speculum-projected-skeleton" content="1"></head><body></body></html>';
 
 /**
  * Budget for srcdoc birth → live CSS1Compat document.
@@ -51,12 +54,27 @@ export function stripProjectedSkeleton(doc: Document): void {
 }
 
 /**
- * True when the iframe's live document is standards mode with a browsing context.
- * Sync `contentDocument` right after insert is often still the transient `about:blank`
- * (BackCompat) — do not adopt that; wait for load / this predicate.
+ * True when `doc` is the live stamped srcdoc skeleton — not merely CSS1Compat.
+ * Sync `contentDocument` right after insert is often still transient `about:blank`;
+ * do not adopt that; wait for load / this predicate.
  */
+export function isProjectedStandardsSkeleton(doc: Document | null | undefined): doc is Document {
+  if (doc == null || doc.defaultView == null) return false;
+  const head = doc.head;
+  if (!head) return false;
+  const metas = head.getElementsByTagName('meta');
+  for (let i = 0; i < metas.length; i++) {
+    const m = metas[i]!;
+    if (m.getAttribute('name') === PROJECTED_SKELETON_META_NAME && m.getAttribute('content') === '1') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** @deprecated Use {@link isProjectedStandardsSkeleton}. */
 export function isProjectedStandardsDocument(doc: Document | null | undefined): doc is Document {
-  return doc != null && doc.defaultView != null && doc.compatMode === 'CSS1Compat';
+  return isProjectedStandardsSkeleton(doc);
 }
 
 export type WhenProjectedStandardsReadyOpts = {
@@ -66,8 +84,8 @@ export type WhenProjectedStandardsReadyOpts = {
 };
 
 /**
- * After srcdoc birth (or re-stamp): wait until the live document is CSS1Compat with a
- * browsing context, strip the skeleton, return that document.
+ * After srcdoc birth (or re-stamp): wait until the live document is our stamped skeleton,
+ * strip it, return the empty document ready for table apply.
  *
  * Always settles: load, adopt-already-ready, timeout, abort, or invalid load document.
  * Removes the `load` listener and clears the deadline timer on settle.
@@ -94,7 +112,7 @@ export function whenProjectedStandardsReady(
 
     const adopt = (): boolean => {
       const doc = iframe.contentDocument;
-      if (!isProjectedStandardsDocument(doc)) return false;
+      if (!isProjectedStandardsSkeleton(doc)) return false;
       stripProjectedSkeleton(doc);
       settle(() => resolve(doc));
       return true;
@@ -106,7 +124,7 @@ export function whenProjectedStandardsReady(
         reject(
           fault(
             'projected_standards_ready_invalid',
-            'projected blank: load without live CSS1Compat document',
+            'projected blank: load without stamped skeleton document',
           ),
         ),
       );

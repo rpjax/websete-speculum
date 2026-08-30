@@ -17,7 +17,7 @@ export type NestedResyncSurface = {
 
 import { attachProjectedNativeGuard } from './input/projectedNativeGuard';
 import {
-  isProjectedStandardsDocument,
+  isProjectedStandardsSkeleton,
   stampProjectedStandardsSrcdoc,
   stripProjectedSkeleton,
   whenProjectedStandardsReady,
@@ -31,7 +31,7 @@ function docOf(iframe: HTMLIFrameElement): Document {
 
 async function reseedHostDocument(iframe: HTMLIFrameElement): Promise<Document> {
   const live = iframe.contentDocument;
-  if (isProjectedStandardsDocument(live)) {
+  if (isProjectedStandardsSkeleton(live)) {
     stripProjectedSkeleton(live);
     attachProjectedNativeGuard(live);
     return live;

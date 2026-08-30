@@ -1878,8 +1878,9 @@
     "../packages/page-projection/dist/projected/projectedBlankIframe.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = void 0;
-      exports.PROJECTED_STANDARDS_SRCDOC = "<!DOCTYPE html><html><head></head><body></body></html>";
+      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_SKELETON_META_NAME = void 0;
+      exports.PROJECTED_SKELETON_META_NAME = "speculum-projected-skeleton";
+      exports.PROJECTED_STANDARDS_SRCDOC = '<!DOCTYPE html><html><head><meta name="speculum-projected-skeleton" content="1"></head><body></body></html>';
       exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = 5e3;
       function fault(errorCode, message) {
         const err = new Error(message);
@@ -1896,8 +1897,24 @@
           doc.removeChild(doc.firstChild);
       }
       exports.stripProjectedSkeleton = stripProjectedSkeleton;
+      function isProjectedStandardsSkeleton(doc) {
+        if (doc == null || doc.defaultView == null)
+          return false;
+        const head = doc.head;
+        if (!head)
+          return false;
+        const metas = head.getElementsByTagName("meta");
+        for (let i = 0; i < metas.length; i++) {
+          const m = metas[i];
+          if (m.getAttribute("name") === exports.PROJECTED_SKELETON_META_NAME && m.getAttribute("content") === "1") {
+            return true;
+          }
+        }
+        return false;
+      }
+      exports.isProjectedStandardsSkeleton = isProjectedStandardsSkeleton;
       function isProjectedStandardsDocument(doc) {
-        return doc != null && doc.defaultView != null && doc.compatMode === "CSS1Compat";
+        return isProjectedStandardsSkeleton(doc);
       }
       exports.isProjectedStandardsDocument = isProjectedStandardsDocument;
       function whenProjectedStandardsReady(iframe, opts = {}) {
@@ -1918,7 +1935,7 @@
           };
           const adopt = () => {
             const doc = iframe.contentDocument;
-            if (!isProjectedStandardsDocument(doc))
+            if (!isProjectedStandardsSkeleton(doc))
               return false;
             stripProjectedSkeleton(doc);
             settle(() => resolve(doc));
@@ -1927,7 +1944,7 @@
           const onLoad = () => {
             if (adopt())
               return;
-            settle(() => reject(fault("projected_standards_ready_invalid", "projected blank: load without live CSS1Compat document")));
+            settle(() => reject(fault("projected_standards_ready_invalid", "projected blank: load without stamped skeleton document")));
           };
           const onAbort = () => {
             settle(() => reject(fault("projected_standards_ready_aborted", "projected blank: standards ready wait aborted")));
@@ -2792,7 +2809,7 @@
       }
       async function reseedHostDocument(iframe) {
         const live = iframe.contentDocument;
-        if ((0, projectedBlankIframe_1.isProjectedStandardsDocument)(live)) {
+        if ((0, projectedBlankIframe_1.isProjectedStandardsSkeleton)(live)) {
           (0, projectedBlankIframe_1.stripProjectedSkeleton)(live);
           (0, projectedNativeGuard_1.attachProjectedNativeGuard)(live);
           return live;
@@ -3877,7 +3894,7 @@
         lastDesyncReason = null;
         nested = /* @__PURE__ */ new Map();
         pendingNestedFrames = /* @__PURE__ */ new Map();
-        /** contextId → host waiting for initial about:blank `load` before apply binds. */
+        /** contextId → host waiting for stamped srcdoc skeleton before nested apply binds. */
         nestedHostAwaitingLoad = /* @__PURE__ */ new Map();
         /** Supersedes in-flight async surface reset / resync standby birth. */
         surfaceEpoch = 0;
@@ -3904,107 +3921,102 @@
           return new _ProjectionClient(opts, surface);
         }
         installNestedHost(iframe, contextId) {
+          const liveDoc = iframe.contentDocument;
           const existing = this.nested.get(contextId);
           if (existing) {
             try {
-              if (existing.hostIframe === iframe && iframe.contentDocument != null && existing.registry.get(frame_1.DOCUMENT_ID) === iframe.contentDocument && iframe.contentDocument.defaultView != null) {
+              if (existing.hostIframe === iframe && liveDoc != null && existing.registry.get(frame_1.DOCUMENT_ID) === liveDoc && liveDoc.defaultView != null) {
                 return;
               }
             } catch {
             }
-            this.cancelPendingNestedHost(contextId);
             existing.dispose();
             this.nested.delete(contextId);
           }
-          const existingPending = this.nestedHostAwaitingLoad.get(contextId);
-          if (existingPending) {
-            existingPending.iframe = iframe;
-            existingPending.bind();
-            return;
+          this.cancelPendingNestedHost(contextId);
+          if (!(0, projectedBlankIframe_1.isProjectedStandardsSkeleton)(liveDoc)) {
+            (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
           }
-          const pending = { iframe, bind: () => void 0, cancelled: false };
-          let scheduled = false;
-          const bind = () => {
-            if (pending.cancelled)
-              return;
-            if (this.nested.has(contextId)) {
-              this.nestedHostAwaitingLoad.delete(contextId);
-              return;
-            }
-            if (!iframe.isConnected) {
-              scheduled = false;
-              return;
-            }
-            const liveDoc = iframe.contentDocument;
-            if (!(0, projectedBlankIframe_1.isProjectedStandardsDocument)(liveDoc)) {
-              scheduled = false;
-              iframe.addEventListener("load", scheduleBind, { once: true });
-              return;
-            }
-            (0, projectedBlankIframe_1.stripProjectedSkeleton)(liveDoc);
-            if (iframe.contentDocument !== liveDoc || liveDoc.defaultView == null) {
-              scheduled = false;
-              iframe.addEventListener("load", scheduleBind, { once: true });
-              return;
-            }
-            const liveWin = iframe.contentWindow;
-            if (!liveWin) {
-              scheduled = false;
-              iframe.addEventListener("load", scheduleBind, { once: true });
-              return;
-            }
-            const session = new nestedProjectedApply_1.NestedProjectedApply({
-              hostIframe: iframe,
-              document: liveDoc,
-              contextId,
-              getToken: () => this.resolveToken(),
-              getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
-              onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
-              onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
-              onTelemetry: (msg) => this.onTelemetry?.(msg),
-              onArmed: () => {
-                try {
-                  liveWin.__speculumNestedApplyArmed = true;
-                } catch {
-                }
-              },
-              onRequestResync: (info) => this.onRequestResyncCb?.({
-                generation: info.generation,
-                sequence: info.sequence,
-                reason: info.reason,
-                contextId: info.contextId
-              })
-            });
-            this.nested.set(contextId, session);
-            this.nestedHostAwaitingLoad.delete(contextId);
-            const queued = this.pendingNestedFrames.get(contextId);
-            if (queued) {
-              this.pendingNestedFrames.delete(contextId);
-              for (let i = 0; i < queued.length; i++)
-                session.ingest(queued[i]);
-            }
-            session.flush();
-          };
-          const scheduleBind = () => {
-            if (pending.cancelled || scheduled)
-              return;
-            scheduled = true;
-            setTimeout(() => {
-              scheduled = false;
-              bind();
-            }, 0);
-          };
-          pending.bind = scheduleBind;
+          const abort = new AbortController();
+          const pending = { iframe, abort };
           this.nestedHostAwaitingLoad.set(contextId, pending);
-          iframe.addEventListener("load", scheduleBind, { once: true });
-          scheduleBind();
+          void (0, projectedBlankIframe_1.whenProjectedStandardsReady)(iframe, { signal: abort.signal }).then((doc) => {
+            if (this.nestedHostAwaitingLoad.get(contextId) !== pending)
+              return;
+            this.nestedHostAwaitingLoad.delete(contextId);
+            if (abort.signal.aborted || !iframe.isConnected)
+              return;
+            if (iframe.contentDocument !== doc || doc.defaultView == null) {
+              this.installNestedHost(iframe, contextId);
+              return;
+            }
+            this.bindNestedHostSession(iframe, doc, contextId);
+          }).catch((err) => {
+            if (this.nestedHostAwaitingLoad.get(contextId) !== pending)
+              return;
+            this.nestedHostAwaitingLoad.delete(contextId);
+            if (abort.signal.aborted)
+              return;
+            const errorCode = typeof err === "object" && err !== null && "errorCode" in err ? String(err.errorCode) : "projected_standards_ready_invalid";
+            this.onTelemetry?.({
+              kind: "nestedHostEstablishFailed",
+              contextId,
+              errorCode,
+              message: err instanceof Error ? err.message : String(err)
+            });
+          });
+        }
+        bindNestedHostSession(iframe, doc, contextId) {
+          const existing = this.nested.get(contextId);
+          if (existing) {
+            try {
+              if (existing.hostIframe === iframe && existing.registry.get(frame_1.DOCUMENT_ID) === doc) {
+                return;
+              }
+            } catch {
+            }
+            existing.dispose();
+            this.nested.delete(contextId);
+          }
+          const liveWin = iframe.contentWindow;
+          if (!liveWin)
+            return;
+          const session = new nestedProjectedApply_1.NestedProjectedApply({
+            hostIframe: iframe,
+            document: doc,
+            contextId,
+            getToken: () => this.resolveToken(),
+            getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
+            onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
+            onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
+            onTelemetry: (msg) => this.onTelemetry?.(msg),
+            onArmed: () => {
+              try {
+                liveWin.__speculumNestedApplyArmed = true;
+              } catch {
+              }
+            },
+            onRequestResync: (info) => this.onRequestResyncCb?.({
+              generation: info.generation,
+              sequence: info.sequence,
+              reason: info.reason,
+              contextId: info.contextId
+            })
+          });
+          this.nested.set(contextId, session);
+          const queued = this.pendingNestedFrames.get(contextId);
+          if (queued) {
+            this.pendingNestedFrames.delete(contextId);
+            for (let i = 0; i < queued.length; i++)
+              session.ingest(queued[i]);
+          }
+          session.flush();
         }
         cancelPendingNestedHost(contextId) {
           const pending = this.nestedHostAwaitingLoad.get(contextId);
           if (!pending)
             return;
-          pending.cancelled = true;
-          pending.iframe.removeEventListener("load", pending.bind);
+          pending.abort.abort();
           this.nestedHostAwaitingLoad.delete(contextId);
         }
         dropNestedHost(contextId) {
@@ -5494,7 +5506,7 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
@@ -5521,11 +5533,17 @@
       Object.defineProperty(exports, "PROJECTED_STANDARDS_READY_TIMEOUT_MS", { enumerable: true, get: function() {
         return projectedBlankIframe_1.PROJECTED_STANDARDS_READY_TIMEOUT_MS;
       } });
+      Object.defineProperty(exports, "PROJECTED_SKELETON_META_NAME", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.PROJECTED_SKELETON_META_NAME;
+      } });
       Object.defineProperty(exports, "stampProjectedStandardsSrcdoc", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stampProjectedStandardsSrcdoc;
       } });
       Object.defineProperty(exports, "stripProjectedSkeleton", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stripProjectedSkeleton;
+      } });
+      Object.defineProperty(exports, "isProjectedStandardsSkeleton", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.isProjectedStandardsSkeleton;
       } });
       Object.defineProperty(exports, "isProjectedStandardsDocument", { enumerable: true, get: function() {
         return projectedBlankIframe_1.isProjectedStandardsDocument;

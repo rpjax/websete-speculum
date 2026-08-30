@@ -19,6 +19,7 @@ export type LabClientMessage =
     }
   | { type: 'browse.stop'; exportDossier?: boolean; inputCapture?: unknown }
   | { type: 'browse.inputDiag'; inputCapture?: unknown }
+  | { type: 'browse.widgetParity'; projectedHosts?: unknown }
   | { type: 'browse.navigate'; url: string }
   | {
       type: 'run.start';
@@ -66,6 +67,7 @@ export type LabClientMessage =
           compat: string | null;
           bodyLen: number;
           docIsLive: boolean | null;
+          tableRowCount?: number | null;
         }>;
       } | null;
       registryProbe?: {
@@ -196,7 +198,8 @@ export type LabHostMessage =
       skipped: number;
       dossierPath?: string;
     }
-  | { type: 'input.diag'; diagnostic: Record<string, unknown> };
+  | { type: 'input.diag'; diagnostic: Record<string, unknown> }
+  | { type: 'widget.diag'; diagnostic: Record<string, unknown> };
 
 export function parseClientMessage(raw: unknown): LabClientMessage | { error: string; code: string } {
   if (!raw || typeof raw !== 'object') return { error: 'invalid JSON control message', code: 'invalid_json' };
@@ -208,6 +211,7 @@ export function parseClientMessage(raw: unknown): LabClientMessage | { error: st
     case 'browse.start':
     case 'browse.stop':
     case 'browse.inputDiag':
+    case 'browse.widgetParity':
     case 'browse.navigate':
     case 'run.start':
     case 'run.abort':

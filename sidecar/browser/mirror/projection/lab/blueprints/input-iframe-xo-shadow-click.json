@@ -1,17 +1,28 @@
 {
   "id": "input-iframe-xo-shadow-click",
-  "description": "sparse-cdp — cross-port iframe inside closed shadow (Turnstile-class verifyHostAtPoint)",
+  "description": "sparse-cdp — cross-port iframe inside closed shadow (verifyHostAtPoint)",
   "sessionPolicy": "cold",
+  "fold": "input-iframe-xo-shadow",
+  "humanNotes": [
+    "Requires lab UI + Projected client. probe.nestedHostReady must pass before click.",
+    "Proves nested render in Projected, not just Virtual resolveAndClick by nodeId."
+  ],
   "queues": [
     {
       "name": "main",
       "actions": [
         { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-iframe-xo-shadow.html" } },
-        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 6500 } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 4000 } },
+        {
+          "id": "probe-nested-ready",
+          "type": "probe.nestedHostReady",
+          "dependsOn": ["wait"],
+          "params": { "contextId": 2 }
+        },
         {
           "id": "click-inner",
           "type": "pushInput",
-          "dependsOn": ["wait"],
+          "dependsOn": ["probe-nested-ready"],
           "params": {
             "sequence": [
               {
@@ -33,7 +44,13 @@
             "expression": "(() => { const st = document.getElementById('inner-status')?.getAttribute('data-state'); if (st !== 'clicked') throw new Error('shadow xo inner status=' + st); return 'ok'; })()"
           }
         },
-        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-inner"] }
+        {
+          "id": "fold",
+          "type": "fold",
+          "dependsOn": ["assert-inner"],
+          "params": { "ruleset": "input-iframe-xo-shadow" }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
       ]
     }
   ]

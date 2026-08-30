@@ -290,6 +290,39 @@ export class ProjectionClient {
     this.nested.delete(contextId);
   }
 
+  /**
+   * Pending nested frames while the root surface is armed and the context is not bound —
+   * host materialized without installNestedHost completing (silent divergence).
+   */
+  private auditPendingNestedHostBindings(applier: DomFrameApplier): void {
+    if (this.lastDesyncReason !== null || !this.armed) return;
+    let pendingCount = 0;
+    for (const [, queue] of this.pendingNestedFrames) pendingCount += queue.length;
+    if (pendingCount > 0) {
+      const unmarked = applier.unmarkedNestedHostCandidateIds();
+      if (unmarked.length > 0) {
+        this.desync('precondition', {
+          phase: 'apply',
+          message: `pending nested frames with unmarked host candidates [${unmarked.join(',')}] (${pendingCount} queued)`,
+        });
+        return;
+      }
+    }
+    for (const [contextId, queue] of this.pendingNestedFrames) {
+      if (queue.length === 0) continue;
+      if (this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId)) continue;
+      const hostNodeId = applier.nestedHostNodeForContext(contextId);
+      this.desync('precondition', {
+        phase: 'apply',
+        message:
+          hostNodeId !== undefined
+            ? `pending nested frames ctx${contextId} host node ${hostNodeId} never bound (${queue.length} queued)`
+            : `pending nested frames ctx${contextId} with no nested bind (${queue.length} queued)`,
+      });
+      return;
+    }
+  }
+
   get isArmed(): boolean {
     return this.armed;
   }
@@ -562,6 +595,7 @@ export class ProjectionClient {
       onApplied: (frame, applyMs) => {
         if (state.swapped) {
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
+          this.auditPendingNestedHostBindings(applier);
           if (!this.armed) this.notifyLiveSurfaceReady();
         } else {
           state.swapped = true;

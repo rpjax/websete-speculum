@@ -9,6 +9,7 @@ import {
   type ProjectionClientOptions,
 } from '@speculum/page-projection/projected/ProjectionClient';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
+import { resolveShadowRoot } from '@speculum/page-projection/core/closedShadowLookup';
 import { digestReplicatedTable } from '@speculum/page-projection/core/tableDigest';
 import {
   measureTurnstileRootRectsFromDocument,
@@ -421,6 +422,143 @@ export class LabProjectedHarness {
       awaiting: [...c.nestedHostAwaitingLoad.keys()].sort((a, b) => a - b),
       pendingFrames,
       sessions,
+    };
+  }
+
+  /**
+   * Lab diag — CF/Turnstile host bindings on Projected (registry nodeId ↔ nested contextId).
+   * Pair with {@link runTurnstileWidgetParity} on the lab host for (a) readoption vs (b) dead nested.
+   */
+  probeWidgetHostBindings(): {
+    capturedAt: string;
+    rootGeneration: number;
+    hosts: Array<{
+      domId: string | null;
+      src: string;
+      w: number;
+      h: number;
+      registryNodeId: number | null;
+      nestedContextId: number | null;
+      awaitingLoad: boolean;
+      pendingFrameCount: number;
+      inNestedMap: boolean;
+      isConnected: boolean | null;
+      nestedLive: {
+        bodyLen: number | null;
+        iframeCount: number | null;
+        generation: number | null;
+        armed: boolean | null;
+        desynced: boolean | null;
+        docIsLive: boolean | null;
+      } | null;
+    }>;
+    nestedPeek: ReturnType<LabProjectedHarness['peekNestedHosts']>;
+  } {
+    const c = this.client as unknown as {
+      nested: Map<
+        number,
+        {
+          hostIframe: HTMLIFrameElement;
+          isArmed: boolean;
+          desynced: boolean;
+          getGeneration(): number;
+          registry: { get(id: number): Node | undefined; idOf(node: Node): number | undefined };
+          document: Document;
+        }
+      >;
+      nestedHostAwaitingLoad: Map<number, { iframe: HTMLIFrameElement }>;
+      pendingNestedFrames: Map<number, Uint8Array[]>;
+      getLiveRegistry(): { idOf(node: Node): number | undefined };
+    };
+
+    const iframeToContext = new Map<HTMLIFrameElement, number>();
+    for (const [contextId, nested] of c.nested) {
+      iframeToContext.set(nested.hostIframe, contextId);
+    }
+    const awaitingByIframe = new Map<HTMLIFrameElement, number>();
+    for (const [contextId, pending] of c.nestedHostAwaitingLoad) {
+      awaitingByIframe.set(pending.iframe, contextId);
+    }
+
+    const isCfIframe = (el: HTMLIFrameElement): boolean => {
+      const id = el.id || '';
+      const src = el.getAttribute('src') || '';
+      return id.startsWith('cf-chl') || /challenges\.cloudflare\.com|turnstile/i.test(src);
+    };
+
+    const collectCfIframes = (doc: Document): HTMLIFrameElement[] => {
+      const root = doc.documentElement;
+      if (!root) return [];
+      const out: HTMLIFrameElement[] = [];
+      const queue: Node[] = [root];
+      while (queue.length > 0) {
+        const n = queue.shift()!;
+        if (n.nodeType !== Node.ELEMENT_NODE) continue;
+        const el = n as Element;
+        if (el.tagName === 'IFRAME' && isCfIframe(el as HTMLIFrameElement)) {
+          out.push(el as HTMLIFrameElement);
+        }
+        const sr = resolveShadowRoot(el);
+        if (sr) {
+          for (const child of Array.from(sr.childNodes)) queue.push(child);
+        }
+        for (const child of Array.from(el.childNodes)) queue.push(child);
+      }
+      return out;
+    };
+
+    const rootRegistry = c.getLiveRegistry();
+    const nestedPeek = this.peekNestedHosts();
+    const hosts = collectCfIframes(this.client.document).map((iframe) => {
+      const nestedContextId = iframeToContext.get(iframe) ?? awaitingByIframe.get(iframe) ?? null;
+      let registry: { idOf(node: Node): number | undefined } = rootRegistry;
+      if (nestedContextId != null) {
+        const nested = c.nested.get(nestedContextId);
+        if (nested) registry = nested.registry;
+      }
+      const registryNodeId = registry.idOf(iframe) ?? null;
+      let nestedLive: {
+        bodyLen: number | null;
+        iframeCount: number | null;
+        generation: number | null;
+        armed: boolean | null;
+        desynced: boolean | null;
+        docIsLive: boolean | null;
+      } | null = null;
+      if (nestedContextId != null) {
+        const nested = c.nested.get(nestedContextId);
+        const peek = nestedPeek.sessions.find((s) => s.contextId === nestedContextId);
+        nestedLive = {
+          bodyLen: peek?.bodyLen ?? null,
+          iframeCount: null,
+          generation: nested?.getGeneration() ?? null,
+          armed: nested?.isArmed ?? null,
+          desynced: nested?.desynced ?? null,
+          docIsLive: peek?.docIsLive ?? null,
+        };
+      }
+      const pendingFrameCount =
+        nestedContextId != null ? (c.pendingNestedFrames.get(nestedContextId)?.length ?? 0) : 0;
+      return {
+        domId: iframe.id || null,
+        src: (iframe.getAttribute('src') || '').slice(0, 512),
+        w: iframe.offsetWidth,
+        h: iframe.offsetHeight,
+        registryNodeId,
+        nestedContextId,
+        awaitingLoad: awaitingByIframe.has(iframe),
+        pendingFrameCount,
+        inNestedMap: nestedContextId != null && c.nested.has(nestedContextId),
+        isConnected: iframe.isConnected,
+        nestedLive,
+      };
+    });
+
+    return {
+      capturedAt: new Date().toISOString(),
+      rootGeneration: this.client.getGeneration(),
+      hosts,
+      nestedPeek,
     };
   }
 

@@ -28,9 +28,9 @@
         iframe.id = 'xo-child';
         iframe.title = 'shadow-nested-child';
         iframe.style.cssText = 'width:320px;height:140px;border:2px solid #432;background:#fff;';
-        iframe.src = 'http://127.0.0.1:4078/fixtures/input-xo/inner.html';
         sr.appendChild(iframe);
-        iframe.addEventListener('load', () => setState('state: iframe-ready'));
+        iframe.src = 'http://127.0.0.1:4078/fixtures/input-xo/inner.html';
+        iframe.addEventListener('load', () => setState('state: iframe-ready'), { once: true });
       })();
     </script>
   </body>

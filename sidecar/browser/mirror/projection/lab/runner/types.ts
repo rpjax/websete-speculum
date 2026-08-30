@@ -22,6 +22,7 @@ export type ActionKind =
   | 'pushInput'
   | 'probe.turnstile'
   | 'probe.nestedApplyFailure'
+  | 'probe.nestedHostReady'
   | 'probe.turnstileRectLadder'
   | 'probe.turnstilePaint'
   | 'probe.cssomSheetDump'

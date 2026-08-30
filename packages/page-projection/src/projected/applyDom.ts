@@ -189,6 +189,32 @@ export class DomFrameApplier {
     this.propDirty.mark(id);
   }
 
+  /** Lab/diag — node id bound to a nested context on this applier. */
+  nestedHostNodeForContext(contextId: number): number | undefined {
+    for (const [nodeId, ctx] of this.childScopes) {
+      if (ctx === contextId) return nodeId;
+    }
+    return undefined;
+  }
+
+  /** Lab/diag — whether installNestedHost was triggered for this host row. */
+  isNestedHostMarked(nodeId: number): boolean {
+    return this.nestedHostIds.has(nodeId);
+  }
+
+  /** iframe/object/embed rows materialized but not yet marked nested-host on this applier. */
+  unmarkedNestedHostCandidateIds(): number[] {
+    const out: number[] = [];
+    this.registry.forEachId((id, node) => {
+      if (this.nestedHostIds.has(id)) return;
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = (node as Element).localName.toLowerCase();
+      if (tag !== 'iframe' && tag !== 'object' && tag !== 'embed') return;
+      out.push(id);
+    });
+    return out;
+  }
+
   /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
   private applyFrame(frame: AssembledFrame): boolean {
     const start = performance.now();
@@ -747,6 +773,7 @@ export class DomFrameApplier {
     if (!applyAttrs(node as Element, attrs, this.options.stampUrl)) {
       return this.fail('malformed', 'attrSet', op.node);
     }
+    this.maybeInstallNestedHost(op.node, node);
     return true;
   }
 
@@ -788,6 +815,11 @@ export class DomFrameApplier {
     return true;
   }
 
+  /**
+   * Install nested apply when the row is a marked host with a live browsing context.
+   * Invariant: install is a function of host state (marked + contentWindow), not which op
+   * revealed it (NODE_NEW, AttrSet, INSERT, …).
+   */
   private maybeInstallNestedHost(id: number, node: Node): void {
     if (!this.nestedHostIds.has(id)) return;
     const childScopeId = this.childScopes.get(id);

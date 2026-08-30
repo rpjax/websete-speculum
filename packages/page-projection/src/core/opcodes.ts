@@ -12,6 +12,7 @@ export enum OpCode {
 
   NodeNew = 0x20,
   NodeDrop = 0x21,
+  // 0x22 retired — nested host mark rides NODE_NEW (tag admit; Projected waits on load).
 
   Insert = 0x40,
   Remove = 0x41,

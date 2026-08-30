@@ -122,12 +122,12 @@ export class TableFrameBuilder implements FrameBuilder {
     return r;
   }
 
-  /** Resync deferral — host re-described on the next tick once mint completes. */
+  /** Resync deferral — mint RPC in flight; re-described on the next tick once id settles (§0 #4). */
   notePendingNestedHost(el: Element): void {
     this.pendingHosts.add(el);
   }
 
-  /** Held frame / queued host — the pipe must give this a boundary even with no new records. */
+  /** Held frame / mint-pending host — frameEmitter must re-drive when settled. */
   hasHeldWork(): boolean {
     return this.heldOps !== null || this.pendingHosts.size > 0;
   }
@@ -389,7 +389,9 @@ export class TableFrameBuilder implements FrameBuilder {
   private prepareChild(node: Node, ops: FrameOp[]): DomNodeKey {
     if (!node.isConnected) return NONE_DOM_NODE_KEY;
     const existingId = this.domNodes.keyOf(node);
-    if (existingId !== NONE_DOM_NODE_KEY) return existingId; // reused/moved — subtree already indexed too
+    if (existingId !== NONE_DOM_NODE_KEY) {
+      return existingId; // reused/moved — subtree already indexed too
+    }
 
     const kind = nodeKindOf(node);
     if (kind === null) return NONE_DOM_NODE_KEY;
@@ -401,20 +403,26 @@ export class TableFrameBuilder implements FrameBuilder {
     if (kind === NodeKind.Element && this.childScopes) {
       const admitted = this.childScopes.admit(id, node);
       if (admitted.kind === 'pending') {
-        this.formIndex.remove(node);
-        this.createdThisTick.delete(node);
-        this.domNodes.release(node);
-        this.visited.delete(node);
+        this.releaseDeferredChild(node, id);
         this.pendingHosts.add(node as Element);
         this.mintHeld = true;
         return NONE_DOM_NODE_KEY;
       }
-      if (admitted.kind === 'host') nested = { childScopeId: admitted.contextId };
+      if (admitted.kind === 'host') {
+        nested = { childScopeId: admitted.contextId };
+      }
     }
     ops.push(describeNodeNew(id, kind, node, undefined, nested));
     this.walkSiblingRun(node.childNodes, id, ops);
     if (kind === NodeKind.Element) this.admitShadowIfAny(node as Element, id, ops);
     return id;
+  }
+
+  private releaseDeferredChild(node: Node, id: DomNodeKey): void {
+    this.formIndex.remove(node);
+    this.createdThisTick.delete(node);
+    this.domNodes.release(node);
+    this.visited.delete(node);
   }
 
   /**
@@ -468,6 +476,9 @@ export class TableFrameBuilder implements FrameBuilder {
    */
   private emitDeferredRemoves(ops: FrameOp[]): void {
     for (const [node, oldParent] of this.removedThisTick) {
+      if (node instanceof Element) {
+        this.pendingHosts.delete(node);
+      }
       if (node.isConnected) continue;
       const id = this.domNodes.keyOf(node);
       if (id === NONE_DOM_NODE_KEY) continue;

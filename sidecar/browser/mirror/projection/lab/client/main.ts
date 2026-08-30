@@ -351,9 +351,29 @@ export function bootLabClient(): void {
     logActivity('input.diag requested…');
   }
 
+  function sendWidgetParityDiag(): void {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      logActivity('widget.diag skipped (no ws)');
+      return;
+    }
+    if (!projection) {
+      logActivity('widget.diag skipped (no projection)');
+      return;
+    }
+    if (widgetParityInFlight) return;
+    widgetParityInFlight = true;
+    syncButtons();
+    const projectedHosts = projection.probeWidgetHostBindings();
+    ws.send(JSON.stringify({ type: 'browse.widgetParity', projectedHosts }));
+    logActivity('widget.diag requested…');
+  }
+
   (window as unknown as { __speculumLabDumpInputClick?: () => void }).__speculumLabDumpInputClick =
     sendInputClickDiag;
+  (window as unknown as { __speculumLabWidgetParity?: () => void }).__speculumLabWidgetParity =
+    sendWidgetParityDiag;
   document.addEventListener('speculum-input-diag', () => sendInputClickDiag());
+  document.addEventListener('speculum-widget-parity', () => sendWidgetParityDiag());
 
   function bindInputSurfaces(client: LabProjectedHarness): void {
     for (const detach of inputDetachers.values()) detach();
@@ -408,6 +428,7 @@ export function bootLabClient(): void {
   let opsTotal = 0;
   let browseSnapCount = 0;
   let snapInFlight = false;
+  let widgetParityInFlight = false;
   let autoSnapTimer: ReturnType<typeof setInterval> | null = null;
   const byContext = new Map<number, ContextStreamStats>();
 
@@ -601,6 +622,8 @@ export function bootLabClient(): void {
     ($('browseNavigate') as HTMLButtonElement).disabled = !open || mode !== 'browse' || !sessionLive || runInFlight;
     ($('browseSnap') as HTMLButtonElement).disabled =
       !open || mode !== 'browse' || !sessionLive || runInFlight || snapInFlight;
+    ($('browseWidgetParity') as HTMLButtonElement).disabled =
+      !open || mode !== 'browse' || !sessionLive || runInFlight || widgetParityInFlight || !projection;
     ($('browseValidate') as HTMLButtonElement).disabled =
       !open || mode !== 'browse' || !sessionLive || runInFlight || browseSnapCount < 1 || snapInFlight;
     ($('browseStop') as HTMLButtonElement).disabled = !open || !sessionLive || mode !== 'browse' || runInFlight;
@@ -1211,6 +1234,18 @@ export function bootLabClient(): void {
         syncButtons();
         return;
       }
+      if (msg.type === 'widget.diag') {
+        const diagnostic = msg.diagnostic as Record<string, unknown>;
+        console.log('[widget-parity-diag]', diagnostic);
+        widgetParityInFlight = false;
+        const verdict = diagnostic.verdict as string | undefined;
+        const hypothesis = diagnostic.hypothesis as string[] | undefined;
+        logActivity(
+          `widget.diag verdict=${verdict ?? '?'} ${(hypothesis ?? []).slice(0, 2).join(' | ') || ''}`,
+        );
+        syncButtons();
+        return;
+      }
       if (msg.type === 'input.diag') {
         const diagnostic = msg.diagnostic as Record<string, unknown>;
         console.log('[input-click-diag]', diagnostic);
@@ -1319,6 +1354,11 @@ export function bootLabClient(): void {
           syncButtons();
           return;
         }
+        if (msg.code === 'widget_parity_failed') {
+          widgetParityInFlight = false;
+          syncButtons();
+          return;
+        }
         if (
           msg.code === 'input_dispatch_failed'
           || msg.code === 'input_unavailable'
@@ -1405,6 +1445,9 @@ export function bootLabClient(): void {
   });
   $('browseSnap').addEventListener('click', () => {
     requestBrowseSnap('manual');
+  });
+  $('browseWidgetParity').addEventListener('click', () => {
+    sendWidgetParityDiag();
   });
   $('browseValidate').addEventListener('click', () => {
     if (!ws || ws.readyState !== WebSocket.OPEN || browseSnapCount < 1) return;

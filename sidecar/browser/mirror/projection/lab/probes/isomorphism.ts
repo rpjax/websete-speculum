@@ -205,6 +205,7 @@ export type ClientStateSnapshot = {
       compat: string | null;
       bodyLen: number;
       docIsLive: boolean | null;
+      tableRowCount?: number | null;
     }>;
   } | null;
   /** Lab-only registry materialization probe (`LabProjectedHarness.probeNestedRegistry`). */

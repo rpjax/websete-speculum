@@ -333,7 +333,7 @@ header; the client rebuilds its applier ([runtime-redesign.md](runtime-redesign.
 `Table`: drops each row **and all its descendants** (a detached row may still have children). For an `ELEMENT`, descendants include the light `prevSibling` chain **and** the owned `SHADOW_ROOT` (if any).
 `DOM`: none — the subtree is already detached.
 
-**`0x22`–`0x3F`:** reserved in the table range.
+**`0x22`–`0x3F`:** reserved in the table range (`0x22` was a retired nested-host mark — admission rides `NODE_NEW`).
 
 ### 4.3 Structure
 

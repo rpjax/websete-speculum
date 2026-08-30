@@ -23,6 +23,8 @@ import { foldCspNavLocale } from '../blueprints/fold/cspNavLocale';
 import { foldTurnstile } from '../blueprints/fold/turnstile';
 import { foldCssomMatrixNested } from '../blueprints/fold/cssomMatrixNested';
 import { foldDocumentChurn } from '../blueprints/fold/documentChurn';
+import { foldInputIframeXoShadow } from '../blueprints/fold/inputIframeXoShadow';
+import { runNestedHostReadyProbe } from '../probes/nestedHostReady';
 import { runTurnstileDiagnostic } from '../probes/turnstileDiagnostic';
 import { runNestedApplyFailureDiagnostic } from '../probes/nestedApplyFailureDiagnostic';
 import { runCssomMatrixDiagnostic } from '../probes/cssomMatrixDiagnostic';
@@ -670,6 +672,29 @@ export async function executeBlueprint(
         const hint = diagnostic.hypothesis[0] ?? `insertFailures=${diagnostic.insertFailures.length}`;
         return finish(true, hint);
       }
+      case 'probe.nestedHostReady': {
+        const contextId = Number(params.contextId ?? 2);
+        if (!chassis.hasClientRelay || !hooks.requestClientSnapshot) {
+          return finish(false, 'no DOM client — nestedHostReady requires projected client');
+        }
+        const result = await runNestedHostReadyProbe({
+          contextId,
+          getClientSnapshot: () =>
+            hooks.requestClientSnapshot!(1, { includeNestedPeek: true }),
+        });
+        (chassis.journal as { nestedHostReady?: typeof result }).nestedHostReady = result;
+        if (chassis.dossierHandle) {
+          await writeJson(
+            chassis.dossierHandle,
+            'probes/nested-host-ready.json',
+            result,
+            'probes.nestedHostReady',
+          );
+        }
+        chassis.journal.acts.push({ name: 'probe.nestedHostReady', ok: result.ok });
+        if (!result.ok) return finish(false, result.reason ?? 'nested host not ready');
+        return finish(true, `ctx${contextId} bound bodyLen ok`);
+      }
       case 'probe.turnstileRectLadder': {
         const session = chassis.browser;
         if (!session) return finish(false, 'no session');
@@ -1062,6 +1087,8 @@ export async function executeBlueprint(
           verdicts = foldCssomMatrixNested(chassis);
         } else if (ruleset === 'document-churn' || ruleset === 'fold/documentChurn') {
           verdicts = foldDocumentChurn(chassis);
+        } else if (ruleset === 'input-iframe-xo-shadow' || ruleset === 'fold/inputIframeXoShadow') {
+          verdicts = foldInputIframeXoShadow(chassis);
         } else return finish(false, `unknown fold ruleset ${ruleset}`);
         return finish(true, `verdicts=${verdicts.length}`);
       }

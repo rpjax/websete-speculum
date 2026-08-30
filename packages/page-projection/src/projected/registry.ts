@@ -78,6 +78,10 @@ export class PageProjectionRegistry {
     return this.nodesById.size;
   }
 
+  forEachId(fn: (id: number, node: Node) => void): void {
+    for (const [id, node] of this.nodesById) fn(id, node);
+  }
+
   /**
    * Drops every `id → node` entry. A new document install gets a brand-new registry instead
    * (runtime-redesign.md §7); this stays for callers that reuse one registry across a wholesale

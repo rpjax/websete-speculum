@@ -798,6 +798,36 @@ export class LabChassis {
     return diagnostic;
   }
 
+  /** One-shot Turnstile widget parity (a readoption vs b dead nested) — browse.widgetParity. */
+  async captureWidgetParityDiagnostic(
+    projectedPayload: import('../probes/turnstileWidgetParity').ProjectedWidgetHostPayload | null,
+  ): Promise<import('../probes/turnstileWidgetParity').TurnstileWidgetParity> {
+    if (!this.session) throw new Error('chassis not booted');
+    const { runTurnstileWidgetParity } = await import('../probes/turnstileWidgetParity');
+    const diagnostic = await runTurnstileWidgetParity({
+      chassis: this,
+      session: this.session,
+      projectedPayload,
+      getClientSnapshot: this.getClientSnapshotFn
+        ? (contextId) => this.getClientSnapshotFn!(contextId)
+        : undefined,
+    });
+    (this.journal as { turnstileWidgetParity?: unknown }).turnstileWidgetParity = diagnostic;
+    if (this.dossier) {
+      await writeJson(
+        this.dossier,
+        'probes/turnstile-widget-parity.json',
+        diagnostic,
+        'probes.turnstileWidgetParity',
+      );
+    }
+    console.log(
+      '[lab] widget-parity',
+      JSON.stringify({ verdict: diagnostic.verdict, hypothesis: diagnostic.hypothesis }, null, 2),
+    );
+    return diagnostic;
+  }
+
   /**
    * Browse debug snap: digest/table pair for root + Projected nested contexts.
    * Full tree + cssom scan is blueprint iso only — on live Eneba it pins CDP for tens of seconds.

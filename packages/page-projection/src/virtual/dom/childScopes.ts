@@ -46,6 +46,11 @@ export class ChildScopeIndex {
     return this.byContext.get(contextId);
   }
 
+  /** Lab/diag — every admitted host binding (includes hosts whose window is not yet live). */
+  forEachBinding(fn: (contextId: number, nodeId: number) => void): void {
+    for (const [contextId, nodeId] of this.byContext) fn(contextId, nodeId);
+  }
+
   windowOf(
     contextId: number,
     nodeOf: (id: number) => Node | undefined,

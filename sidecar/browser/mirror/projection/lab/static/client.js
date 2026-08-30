@@ -1964,13 +1964,13 @@
         return closedByHost.get(host) ?? null;
       }
       exports.lookupClosedShadowRoot = lookupClosedShadowRoot;
-      function resolveShadowRoot2(host) {
+      function resolveShadowRoot3(host) {
         const open = host.shadowRoot;
         if (open !== null)
           return open;
         return lookupClosedShadowRoot(host);
       }
-      exports.resolveShadowRoot = resolveShadowRoot2;
+      exports.resolveShadowRoot = resolveShadowRoot3;
     }
   });
 
@@ -2081,6 +2081,33 @@
         /** Input plane marks this when the user is editing the control (§7.2). Unused in lab. */
         markPropDirty(id) {
           this.propDirty.mark(id);
+        }
+        /** Lab/diag — node id bound to a nested context on this applier. */
+        nestedHostNodeForContext(contextId) {
+          for (const [nodeId, ctx] of this.childScopes) {
+            if (ctx === contextId)
+              return nodeId;
+          }
+          return void 0;
+        }
+        /** Lab/diag — whether installNestedHost was triggered for this host row. */
+        isNestedHostMarked(nodeId) {
+          return this.nestedHostIds.has(nodeId);
+        }
+        /** iframe/object/embed rows materialized but not yet marked nested-host on this applier. */
+        unmarkedNestedHostCandidateIds() {
+          const out = [];
+          this.registry.forEachId((id, node) => {
+            if (this.nestedHostIds.has(id))
+              return;
+            if (node.nodeType !== Node.ELEMENT_NODE)
+              return;
+            const tag = node.localName.toLowerCase();
+            if (tag !== "iframe" && tag !== "object" && tag !== "embed")
+              return;
+            out.push(id);
+          });
+          return out;
         }
         /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
         applyFrame(frame) {
@@ -2613,6 +2640,7 @@
           if (!applyAttrs(node, attrs, this.options.stampUrl)) {
             return this.fail("malformed", "attrSet", op.node);
           }
+          this.maybeInstallNestedHost(op.node, node);
           return true;
         }
         applyAttrDel(op) {
@@ -2654,6 +2682,11 @@
           }
           return true;
         }
+        /**
+         * Install nested apply when the row is a marked host with a live browsing context.
+         * Invariant: install is a function of host state (marked + contentWindow), not which op
+         * revealed it (NODE_NEW, AttrSet, INSERT, …).
+         */
         maybeInstallNestedHost(id, node) {
           if (!this.nestedHostIds.has(id))
             return;
@@ -2906,6 +2939,10 @@
         /** Total registered ids — perf/soak signal. */
         get size() {
           return this.nodesById.size;
+        }
+        forEachId(fn) {
+          for (const [id, node] of this.nodesById)
+            fn(id, node);
         }
         /**
          * Drops every `id → node` entry. A new document install gets a brand-new registry instead
@@ -3979,6 +4016,39 @@
           existing.dispose();
           this.nested.delete(contextId);
         }
+        /**
+         * Pending nested frames while the root surface is armed and the context is not bound —
+         * host materialized without installNestedHost completing (silent divergence).
+         */
+        auditPendingNestedHostBindings(applier) {
+          if (this.lastDesyncReason !== null || !this.armed)
+            return;
+          let pendingCount = 0;
+          for (const [, queue] of this.pendingNestedFrames)
+            pendingCount += queue.length;
+          if (pendingCount > 0) {
+            const unmarked = applier.unmarkedNestedHostCandidateIds();
+            if (unmarked.length > 0) {
+              this.desync("precondition", {
+                phase: "apply",
+                message: `pending nested frames with unmarked host candidates [${unmarked.join(",")}] (${pendingCount} queued)`
+              });
+              return;
+            }
+          }
+          for (const [contextId, queue] of this.pendingNestedFrames) {
+            if (queue.length === 0)
+              continue;
+            if (this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId))
+              continue;
+            const hostNodeId = applier.nestedHostNodeForContext(contextId);
+            this.desync("precondition", {
+              phase: "apply",
+              message: hostNodeId !== void 0 ? `pending nested frames ctx${contextId} host node ${hostNodeId} never bound (${queue.length} queued)` : `pending nested frames ctx${contextId} with no nested bind (${queue.length} queued)`
+            });
+            return;
+          }
+        }
         get isArmed() {
           return this.armed;
         }
@@ -4211,6 +4281,7 @@
             onApplied: (frame, applyMs) => {
               if (state.swapped) {
                 this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
+                this.auditPendingNestedHostBindings(applier);
                 if (!this.armed)
                   this.notifyLiveSurfaceReady();
               } else {
@@ -5629,6 +5700,7 @@
   // browser/mirror/projection/lab/client/LabProjectedHarness.ts
   var import_ProjectionClient = __toESM(require_ProjectionClient());
   var import_frame = __toESM(require_frame());
+  var import_closedShadowLookup2 = __toESM(require_closedShadowLookup());
   var import_tableDigest = __toESM(require_tableDigest());
 
   // browser/mirror/projection/lab/probes/turnstilePierce.ts
@@ -6091,6 +6163,90 @@
       };
     }
     /**
+     * Lab diag — CF/Turnstile host bindings on Projected (registry nodeId ↔ nested contextId).
+     * Pair with {@link runTurnstileWidgetParity} on the lab host for (a) readoption vs (b) dead nested.
+     */
+    probeWidgetHostBindings() {
+      const c = this.client;
+      const iframeToContext = /* @__PURE__ */ new Map();
+      for (const [contextId, nested] of c.nested) {
+        iframeToContext.set(nested.hostIframe, contextId);
+      }
+      const awaitingByIframe = /* @__PURE__ */ new Map();
+      for (const [contextId, pending] of c.nestedHostAwaitingLoad) {
+        awaitingByIframe.set(pending.iframe, contextId);
+      }
+      const isCfIframe = (el) => {
+        const id = el.id || "";
+        const src = el.getAttribute("src") || "";
+        return id.startsWith("cf-chl") || /challenges\.cloudflare\.com|turnstile/i.test(src);
+      };
+      const collectCfIframes = (doc) => {
+        const root = doc.documentElement;
+        if (!root) return [];
+        const out = [];
+        const queue = [root];
+        while (queue.length > 0) {
+          const n = queue.shift();
+          if (n.nodeType !== Node.ELEMENT_NODE) continue;
+          const el = n;
+          if (el.tagName === "IFRAME" && isCfIframe(el)) {
+            out.push(el);
+          }
+          const sr = (0, import_closedShadowLookup2.resolveShadowRoot)(el);
+          if (sr) {
+            for (const child of Array.from(sr.childNodes)) queue.push(child);
+          }
+          for (const child of Array.from(el.childNodes)) queue.push(child);
+        }
+        return out;
+      };
+      const rootRegistry = c.getLiveRegistry();
+      const nestedPeek = this.peekNestedHosts();
+      const hosts = collectCfIframes(this.client.document).map((iframe) => {
+        const nestedContextId = iframeToContext.get(iframe) ?? awaitingByIframe.get(iframe) ?? null;
+        let registry = rootRegistry;
+        if (nestedContextId != null) {
+          const nested = c.nested.get(nestedContextId);
+          if (nested) registry = nested.registry;
+        }
+        const registryNodeId = registry.idOf(iframe) ?? null;
+        let nestedLive = null;
+        if (nestedContextId != null) {
+          const nested = c.nested.get(nestedContextId);
+          const peek = nestedPeek.sessions.find((s) => s.contextId === nestedContextId);
+          nestedLive = {
+            bodyLen: peek?.bodyLen ?? null,
+            iframeCount: null,
+            generation: nested?.getGeneration() ?? null,
+            armed: nested?.isArmed ?? null,
+            desynced: nested?.desynced ?? null,
+            docIsLive: peek?.docIsLive ?? null
+          };
+        }
+        const pendingFrameCount = nestedContextId != null ? c.pendingNestedFrames.get(nestedContextId)?.length ?? 0 : 0;
+        return {
+          domId: iframe.id || null,
+          src: (iframe.getAttribute("src") || "").slice(0, 512),
+          w: iframe.offsetWidth,
+          h: iframe.offsetHeight,
+          registryNodeId,
+          nestedContextId,
+          awaitingLoad: awaitingByIframe.has(iframe),
+          pendingFrameCount,
+          inNestedMap: nestedContextId != null && c.nested.has(nestedContextId),
+          isConnected: iframe.isConnected,
+          nestedLive
+        };
+      });
+      return {
+        capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        rootGeneration: this.client.getGeneration(),
+        hosts,
+        nestedPeek
+      };
+    }
+    /**
      * Lab diag — load-after-drop: drop must cancel the pending `load` bind so a later
      * navigation cannot leave a dangling awaiting-load entry. Relocated out of
      * {@link ProjectionClient} (product/web bundle) — same logic, driven through its private
@@ -6441,8 +6597,26 @@
       );
       logActivity("input.diag requested\u2026");
     }
+    function sendWidgetParityDiag() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        logActivity("widget.diag skipped (no ws)");
+        return;
+      }
+      if (!projection) {
+        logActivity("widget.diag skipped (no projection)");
+        return;
+      }
+      if (widgetParityInFlight) return;
+      widgetParityInFlight = true;
+      syncButtons();
+      const projectedHosts = projection.probeWidgetHostBindings();
+      ws.send(JSON.stringify({ type: "browse.widgetParity", projectedHosts }));
+      logActivity("widget.diag requested\u2026");
+    }
     window.__speculumLabDumpInputClick = sendInputClickDiag;
+    window.__speculumLabWidgetParity = sendWidgetParityDiag;
     document.addEventListener("speculum-input-diag", () => sendInputClickDiag());
+    document.addEventListener("speculum-widget-parity", () => sendWidgetParityDiag());
     function bindInputSurfaces(client) {
       for (const detach of inputDetachers.values()) detach();
       inputDetachers.clear();
@@ -6489,6 +6663,7 @@
     let opsTotal = 0;
     let browseSnapCount = 0;
     let snapInFlight = false;
+    let widgetParityInFlight = false;
     let autoSnapTimer = null;
     const byContext = /* @__PURE__ */ new Map();
     function stopAutoSnap() {
@@ -6643,6 +6818,7 @@
       $("browseStart").disabled = !open || mode !== "browse" || sessionLive || runInFlight;
       $("browseNavigate").disabled = !open || mode !== "browse" || !sessionLive || runInFlight;
       $("browseSnap").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || snapInFlight;
+      $("browseWidgetParity").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || widgetParityInFlight || !projection;
       $("browseValidate").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || browseSnapCount < 1 || snapInFlight;
       $("browseStop").disabled = !open || !sessionLive || mode !== "browse" || runInFlight;
       $("clearSurface").disabled = !open || runInFlight;
@@ -7171,6 +7347,18 @@
           syncButtons();
           return;
         }
+        if (msg.type === "widget.diag") {
+          const diagnostic = msg.diagnostic;
+          console.log("[widget-parity-diag]", diagnostic);
+          widgetParityInFlight = false;
+          const verdict = diagnostic.verdict;
+          const hypothesis = diagnostic.hypothesis;
+          logActivity(
+            `widget.diag verdict=${verdict ?? "?"} ${(hypothesis ?? []).slice(0, 2).join(" | ") || ""}`
+          );
+          syncButtons();
+          return;
+        }
         if (msg.type === "input.diag") {
           const diagnostic = msg.diagnostic;
           console.log("[input-click-diag]", diagnostic);
@@ -7274,6 +7462,11 @@
             syncButtons();
             return;
           }
+          if (msg.code === "widget_parity_failed") {
+            widgetParityInFlight = false;
+            syncButtons();
+            return;
+          }
           if (msg.code === "input_dispatch_failed" || msg.code === "input_unavailable" || msg.code === "input_dropped") {
             return;
           }
@@ -7352,6 +7545,9 @@
     });
     $("browseSnap").addEventListener("click", () => {
       requestBrowseSnap("manual");
+    });
+    $("browseWidgetParity").addEventListener("click", () => {
+      sendWidgetParityDiag();
     });
     $("browseValidate").addEventListener("click", () => {
       if (!ws || ws.readyState !== WebSocket.OPEN || browseSnapCount < 1) return;

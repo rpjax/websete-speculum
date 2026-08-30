@@ -30,6 +30,13 @@ import {
 import { resolveLaunchScripts, buildConfigPayload } from '../inject';
 import { ExtensionC2Host, type DocumentInstallEvent } from './extensionC2Host';
 import {
+  InputRejectMetrics,
+  probeRootElementFromPoint,
+  type InputClickDiagnostic,
+  type LastClickResolveRecord,
+  type LastInputIntentRecord,
+} from './inputClickDiagnostic';
+import {
   materializeSpeculumPpForSession,
   removeSpeculumPpSessionDir,
   speculumPpExtensionPath,
@@ -82,6 +89,9 @@ import { EventApplier } from '../../../input/EventApplier';
 import { ingressToUnifiedIntent } from '../../../input/ingressToUnifiedIntent';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import { LaunchBudget, mapBootReasonToErrorCode, resolveLaunchBudgetMs, configGateTimeoutMs, initContextTimeoutMs } from './launchBudget';
+
+/** K4 parity oracle — resolve vs projected intent must agree within a few px. */
+const INPUT_RESOLVE_ORACLE_TOL_PX = 4;
 
 export type { DocumentInstallEvent };
 
@@ -144,6 +154,9 @@ export class PageProjectionBrowserSession {
   private readonly planeBridgeToken: string;
   private launchBudget: LaunchBudget | null = null;
   private readonly installEvents: DocumentInstallEvent[] = [];
+  private readonly inputRejectMetrics = new InputRejectMetrics();
+  private lastInputIntent: LastInputIntentRecord | null = null;
+  private lastClickResolve: LastClickResolveRecord | null = null;
 
   constructor(
     readonly sessionId: string,
@@ -321,6 +334,7 @@ export class PageProjectionBrowserSession {
         }
       },
       onReject: (errorCode, phase) => {
+        this.inputRejectMetrics.noteReject(errorCode, phase);
         this.events.onConsole(3, `input_reject ${errorCode} ${phase}`);
       },
     });
@@ -701,6 +715,18 @@ export class PageProjectionBrowserSession {
     if (!intent) {
       return { status: 'dropped', reason: 'unsupported_intent' };
     }
+    if (intent.type === 'down' || intent.type === 'up') {
+      this.lastInputIntent = {
+        type: intent.type,
+        contextId: intent.contextId,
+        nodeId: intent.nodeId ?? null,
+        localX: intent.localX,
+        localY: intent.localY,
+        x: intent.x,
+        y: intent.y,
+        atMs: Date.now(),
+      };
+    }
     this.eventApplier.enqueue(intent);
     return { status: 'dispatched' };
   }
@@ -838,20 +864,85 @@ export class PageProjectionBrowserSession {
     return { status: 'dispatched' };
   }
 
+  /** Lab manual click diagnostic — projected capture + sidecar rejects + resolve + root hit-test. */
+  async dumpInputClickDiagnostic(projectedCapture: unknown): Promise<InputClickDiagnostic> {
+    if (this.eventApplier) await this.eventApplier.flush();
+    const lastResolve = this.lastClickResolve;
+    let rootElementFromPoint: string | null = null;
+    if (lastResolve?.ok && typeof lastResolve.x === 'number' && typeof lastResolve.y === 'number') {
+      rootElementFromPoint = await probeRootElementFromPoint(
+        (expr, contextId) => this.evaluateVirtualExpression(expr, contextId),
+        lastResolve.x,
+        lastResolve.y,
+      );
+    }
+    return {
+      capturedAt: new Date().toISOString(),
+      projectedCapture,
+      sidecarRejects: this.inputRejectMetrics.snapshot(),
+      lastIntent: this.lastInputIntent,
+      lastResolve,
+      rootElementFromPoint,
+    };
+  }
+
   private async resolveClickTarget(
     contextId: number,
     nodeId: number,
     localX: number | undefined,
     localY: number | undefined,
   ): Promise<{ ok: boolean; x?: number; y?: number; reason?: string }> {
-    const r = await this.loopbackInvoke<{ ok?: boolean; reason?: string; x?: number; y?: number }>(
+    const r = await this.loopbackInvoke<{
+      ok?: boolean;
+      reason?: string;
+      x?: number;
+      y?: number;
+      firstHopContextId?: number;
+      hostNodeId?: number;
+    }>(
       'resolveNodeHit',
       { contextId, nodeId, localX, localY },
     );
-    if (!r.ok || typeof r.x !== 'number' || typeof r.y !== 'number') {
-      return { ok: false, reason: r.reason ?? 'node_not_found' };
+    const record: LastClickResolveRecord = {
+      contextId,
+      nodeId,
+      localX,
+      localY,
+      ok: r.ok === true && typeof r.x === 'number' && typeof r.y === 'number',
+      x: typeof r.x === 'number' ? r.x : undefined,
+      y: typeof r.y === 'number' ? r.y : undefined,
+      reason: r.reason,
+      atMs: Date.now(),
+    };
+    this.lastClickResolve = record;
+    if (!record.ok) {
+      return { ok: false, reason: record.reason ?? 'node_not_found' };
     }
-    return { ok: true, x: r.x, y: r.y };
+    const intent = this.lastInputIntent;
+    if (
+      intent
+      && typeof intent.x === 'number'
+      && typeof intent.y === 'number'
+      && typeof record.x === 'number'
+      && typeof record.y === 'number'
+    ) {
+      const dx = Math.abs(record.x - intent.x);
+      const dy = Math.abs(record.y - intent.y);
+      if (dx > INPUT_RESOLVE_ORACLE_TOL_PX || dy > INPUT_RESOLVE_ORACLE_TOL_PX) {
+        console.warn('[pp-input-oracle] resolve/intent divergence', {
+          contextId,
+          nodeId,
+          intentX: intent.x,
+          intentY: intent.y,
+          resolveX: record.x,
+          resolveY: record.y,
+          dx,
+          dy,
+          tolPx: INPUT_RESOLVE_ORACLE_TOL_PX,
+        });
+      }
+    }
+    return { ok: true, x: record.x, y: record.y };
   }
 
   private async applyScrollSet(args: {
@@ -1371,6 +1462,7 @@ export class PageProjectionBrowserSession {
       telemetry,
       cssomPollHz: telemetry.cssomPoll === false ? 0 : 5,
       configGateTimeoutMs: configGateTimeoutMs(budget.budgetMs),
+      initContextTimeoutMs: initContextTimeoutMs(budget.budgetMs),
     });
     // ACK before any navigation — fail-closed (runtime-redesign.md §0 #3).
     await this.extensionC2.pushSessionConfig(
@@ -1378,9 +1470,6 @@ export class PageProjectionBrowserSession {
       budget.deadlineMs('SessionAck'),
     );
     await this.extensionC2.probeRuntimeReady(budget.deadlineMs('ConfigGate'));
-    await context.addInitScript({
-      content: `globalThis.__SPECULUM_CONFIG_GATE_BUDGET_MS=${configGateTimeoutMs(budget.budgetMs)};globalThis.__SPECULUM_INIT_CONTEXT_BUDGET_MS=${initContextTimeoutMs(budget.budgetMs)};`,
-    });
     await installDocumentResponseHook(this.cdpSession, {
       mutators: [cspDocumentMutator],
       context,

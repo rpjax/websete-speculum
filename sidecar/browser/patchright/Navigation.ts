@@ -184,6 +184,9 @@ export class Navigation {
   ) {}
 
   async setupSingleTab(context: BrowserContext): Promise<void> {
+    // PageProjection: single-tab law is enforced by speculum-pp `main/single-tab.js` (extension
+    // MAIN, all_frames). CDP addInitScript here is video-streaming only — same carrier family
+    // banned on PP boot (runtime-redesign.md §15.7).
     await context.addInitScript(`
             (function () {
                 'use strict';

@@ -24,6 +24,8 @@ export type ProjectionConfigPreScriptOptions = {
   cssomPollHz?: number;
   /** Config gate budget (ms) — extension runtime-bridge retry window. */
   configGateTimeoutMs?: number;
+  /** initContext retry budget (ms) — extension runtime-bridge root gate. */
+  initContextTimeoutMs?: number;
   /** Loopback socket carrier. Managed path is always `extension`. */
   loopbackCarrier?: LoopbackCarrier;
   /** Bridge token when transport is loopback (required). */
@@ -78,6 +80,7 @@ export function buildConfigPayload(opts: ProjectionConfigPreScriptOptions): Reco
   if (opts.telemetry !== undefined) payload.telemetry = opts.telemetry;
   if (opts.cssomPollHz !== undefined) payload.cssomPollHz = opts.cssomPollHz;
   if (opts.configGateTimeoutMs !== undefined) payload.configGateTimeoutMs = opts.configGateTimeoutMs;
+  if (opts.initContextTimeoutMs !== undefined) payload.initContextTimeoutMs = opts.initContextTimeoutMs;
   if (opts.diagBoot === true) payload.diagBoot = true;
   return payload;
 }

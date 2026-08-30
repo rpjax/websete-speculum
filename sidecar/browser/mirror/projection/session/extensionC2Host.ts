@@ -22,6 +22,7 @@ export type ExtensionSessionConfig = {
   telemetry?: Record<string, unknown>;
   cssomPollHz?: number;
   configGateTimeoutMs?: number;
+  initContextTimeoutMs?: number;
 };
 
 type C2Message = {

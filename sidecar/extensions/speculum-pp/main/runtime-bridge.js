@@ -11,6 +11,8 @@
   var TIMING_GLOBAL = '__SPECULUM_LAUNCH_TIMING__';
   /** Matches launch budget ConfigGate slice (25s * 0.68) until SessionConfig carries override. */
   var DEFAULT_CONFIG_GATE_MS = 17000;
+  /** Matches launch budget InitContext slice (25s * 0.8) until SessionConfig carries override. */
+  var DEFAULT_INIT_CONTEXT_MS = 20000;
   var nextReq = 1;
   var pending = new Map();
 
@@ -58,8 +60,15 @@
     });
   }
 
-  async function awaitSessionConfig(budgetMs) {
-    var deadline = Date.now() + budgetMs;
+  function resolveInitContextBudgetMs(config) {
+    if (config && typeof config.initContextTimeoutMs === 'number' && config.initContextTimeoutMs > 0) {
+      return config.initContextTimeoutMs;
+    }
+    return DEFAULT_INIT_CONTEXT_MS;
+  }
+
+  async function awaitSessionConfig() {
+    var deadline = Date.now() + DEFAULT_CONFIG_GATE_MS;
     var attempts = 0;
     while (Date.now() < deadline) {
       attempts += 1;
@@ -73,15 +82,9 @@
     return { config: null, attempts: attempts };
   }
 
-  function resolveConfigGateBudgetMs() {
-    var raw = globalThis.__SPECULUM_CONFIG_GATE_BUDGET_MS;
-    if (typeof raw === 'number' && raw > 0) return raw;
-    return DEFAULT_CONFIG_GATE_MS;
-  }
-
   var ready = (async function () {
     var gateStart = Date.now();
-    var result = await awaitSessionConfig(resolveConfigGateBudgetMs());
+    var result = await awaitSessionConfig();
     var durationMs = Date.now() - gateStart;
     recordTiming('configGate', { durationMs: durationMs, attempts: result.attempts, ok: result.config !== null });
     if (!result.config) return null;
@@ -93,14 +96,10 @@
 
   globalThis[UPWARD_GLOBAL] = {
     initContext: function () {
-      function resolveInitBudgetMs() {
-        var raw = globalThis.__SPECULUM_INIT_CONTEXT_BUDGET_MS;
-        if (typeof raw === 'number' && raw > 0) return raw;
-        return 20000;
-      }
       return (async function () {
+        var cfg = globalThis[CONFIG_GLOBAL];
         var initStart = Date.now();
-        var deadline = Date.now() + resolveInitBudgetMs();
+        var deadline = Date.now() + resolveInitContextBudgetMs(cfg);
         var attempts = 0;
         while (Date.now() < deadline) {
           attempts += 1;

@@ -395,6 +395,10 @@ function applySessionConfig(cfg) {
       typeof cfg.configGateTimeoutMs === 'number' && cfg.configGateTimeoutMs > 0
         ? Math.floor(cfg.configGateTimeoutMs)
         : undefined,
+    initContextTimeoutMs:
+      typeof cfg.initContextTimeoutMs === 'number' && cfg.initContextTimeoutMs > 0
+        ? Math.floor(cfg.initContextTimeoutMs)
+        : undefined,
   };
   void persistState();
   startSwKeepalive();

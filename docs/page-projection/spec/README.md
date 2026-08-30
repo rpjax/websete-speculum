@@ -9,7 +9,7 @@
 
 ## Now (2026-08-30) — start a new chat here
 
-**Motor 0.3.0:** in progress — scope [../releases/motor-0.3.0.md](../releases/motor-0.3.0.md). PP engine **lab-proven** on Eneba `/br/` browse; **not** full M1 accept (canvas gate 7 open).
+**Motor 0.3.0:** in progress — scope [motor-0.3.0.md](motor-0.3.0.md). PP engine **lab-proven** on Eneba `/br/` browse; **not** full M1 accept (canvas gate 7 open).
 
 **Shipped (2026-08-29…30):**
 - **Loopback `document.install`** — same-socket hello: higher gen adopts; idempotent re-hello; lower gen rejected. Session chains `waitEstablished({ afterGeneration })` after install. Units: `nodeDataPlane.unit.ts`.
@@ -32,7 +32,7 @@
 **Lab UI:** `cd sidecar && npm run lab:restart` (headed default via `SPECULUM_LAB_HEADED=1`) → **http://127.0.0.1:4077/**. Agent: `npm run lab:run -- …`. Do **not** use 4103 unless an old process is still bound there.
 
 **Next ordered work:**
-1. Close 0.3.0 checklist ([../releases/motor-0.3.0.md](../releases/motor-0.3.0.md)) — Eneba redirect path + SW mint revert + telemetry kinds.
+1. Close 0.3.0 checklist ([motor-0.3.0.md](motor-0.3.0.md)) — Eneba redirect path + SW mint revert + telemetry kinds.
 2. Canvas content projection (gate 7).
 3. MotorAssert Live deep path.
 
@@ -131,6 +131,7 @@ docs/page-projection/
     decision-log.md         append-only log (all eras, labeled)
     roadmap.md              M1/M2/M3 + cutover gates
     open.md                 bugs, OPEN-*, rulings, residuals
+    motor-0.3.0.md          Motor 0.3.0 release scope + exit checklist
     seal-gaps.md            lab tracker: QA / gaps / features (independent DOM vs CSSOM)
   archive/                  DO NOT IMPLEMENT FROM
 ```

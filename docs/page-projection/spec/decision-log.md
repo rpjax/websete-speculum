@@ -338,7 +338,7 @@ Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not ifram
 
 ## M. Motor 0.3.0 scope (2026-08-30) — DECIDED
 
-**Status:** DECIDED (Rodrigo). Normative checklist: [../releases/motor-0.3.0.md](../releases/motor-0.3.0.md).
+**Status:** DECIDED (Rodrigo). Normative checklist: [motor-0.3.0.md](motor-0.3.0.md).
 
 | Topic | Decision |
 |-------|----------|

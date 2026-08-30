@@ -15,7 +15,7 @@
 - SW monotonic mint — revert interim nested gen pack (PP-NESTED-GEN-PACK).
 - Canvas content projection (M1 gate 7) — not in 0.3.0.
 
-See [docs/releases/motor-0.3.0.md](docs/releases/motor-0.3.0.md).
+See [docs/page-projection/spec/motor-0.3.0.md](docs/page-projection/spec/motor-0.3.0.md).
 
 ## [0.2.0](https://github.com/rpjax/websete-speculum/compare/v0.1.0...v0.2.0) (2026-08-04)
 

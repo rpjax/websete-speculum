@@ -30,7 +30,7 @@ V4 lab (DOM table, single document, no production)
 | V4 algorithm `packages/page-projection` + sidecar callers | **Lab + Live session path:** DOM table, shadow, CSSOM poll+apply (**same instance loop** in root + nested SO), form `PROP_SET`, nested iframe (OPEN-6), observability, resync, **sparse-cdp input**. **Apply gate** shipped 2026-08-30. **Not** canvas, XO/NIT flavours. **`web/` on `@speculum/page-projection/projected`** (gate 10 surface). |
 | Lab host/UI | **Shipped** — [lab-design.md](lab-design.md). UI **http://127.0.0.1:4077/**. CPU profile probe in dossier. |
 | Production session path | **PP sealed factory** — `mirrorMode=pageProjection` → `PageProjectionBrowserSession`. Video = `VideoStreamingBrowserSession`. |
-| **Motor 0.3.0** | **In progress** — [../releases/motor-0.3.0.md](../releases/motor-0.3.0.md). PP lab-proven Eneba browse; not M1 accept. |
+| **Motor 0.3.0** | **In progress** — [motor-0.3.0.md](motor-0.3.0.md). PP lab-proven Eneba browse; not M1 accept. |
 | M1 overall | **Blocked** on canvas (gate 7) + formal accept oracles |
 | M2 / M3 | Blocked on M1 cutover |
 

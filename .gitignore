@@ -54,6 +54,10 @@ mono_crash.*
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
+# Product source under web/.../sessions/debug (not MSBuild [Dd]ebug/)
+!web/src/features/sessions/debug/
+!web/src/features/sessions/debug/**
+
 [Rr]elease/
 [Rr]eleases/
 x64/

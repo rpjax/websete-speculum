@@ -197,6 +197,51 @@ function route(req, res) {
       return;
     }
 
+    case '/permissions': {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html('Permissions', `
+<div id="speculum-probe" data-page="permissions">permissions</div>
+<div id="out" data-camera="pending" data-microphone="pending">pending</div>
+<script>
+  const runPermissionProbe = async () => {
+    const out = document.getElementById('out');
+    const probe = async (kind) => {
+      const name = kind;
+      if (navigator.permissions?.query) {
+        try {
+          const status = await navigator.permissions.query({ name });
+          if (status.state === 'granted') return 'granted';
+          if (status.state === 'denied') return 'denied';
+        } catch (_) { /* fall through to getUserMedia */ }
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        return 'unsupported';
+      }
+      try {
+        const constraints = kind === 'camera' ? { video: true } : { audio: true };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream.getTracks().forEach((t) => t.stop());
+        return 'granted';
+      } catch (e) {
+        if (e?.name === 'NotAllowedError' || e?.name === 'PermissionDeniedError') {
+          return 'denied';
+        }
+        return 'error:' + (e?.name || 'unknown');
+      }
+    };
+    const camera = await probe('camera');
+    const microphone = await probe('microphone');
+    out.setAttribute('data-camera', camera);
+    out.setAttribute('data-microphone', microphone);
+    out.textContent = 'camera=' + camera + ' mic=' + microphone;
+    return { camera, microphone };
+  };
+  window.__SPECULUM_PERMISSION_PROBE__ = runPermissionProbe;
+  void runPermissionProbe();
+</script>`));
+      return;
+    }
+
     case '/inject-probe': {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html('Inject probe', `

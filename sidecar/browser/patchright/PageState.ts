@@ -125,7 +125,7 @@ export class PageState {
   async export(cdp: CDPSession, page: Page): Promise<BrowserState> {
     const cookies = await this.exportCookies(cdp);
     const localStorage = await this.exportLocalStorage(page);
-    const idbRecords = await this.exportIndexedDb(cdp);
+    const idbRecords = await this.exportIndexedDb(cdp, page);
     const history = await this.exportHistory(cdp, page);
     return { cookies, localStorage, idbRecords, history };
   }
@@ -267,74 +267,168 @@ export class PageState {
     }
   }
 
-  private async exportIndexedDb(cdp: CDPSession): Promise<BrowserIdbRecordState[]> {
+  private async exportIndexedDb(cdp: CDPSession, page: Page): Promise<BrowserIdbRecordState[]> {
     const records: BrowserIdbRecordState[] = [];
+    const seen = new Set<string>();
+    const pushRecord = (record: BrowserIdbRecordState) => {
+      const key = `${record.origin}\0${record.databaseName}\0${record.storeName}\0${record.keyJson}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      records.push(record);
+    };
+
     try {
-      const originsResult = (await cdp.send('Target.getTargets')) as {
-        targetInfos?: Array<{ url?: string }>;
-      };
-      const origins = new Set<string>();
-      for (const t of originsResult.targetInfos ?? []) {
-        if (!t.url?.startsWith('http')) continue;
-        try {
-          origins.add(new URL(t.url).origin);
-        } catch {
-          /* skip */
+      let pageOrigin: string | undefined;
+      try {
+        const url = page.url();
+        if (url.startsWith('http')) {
+          pageOrigin = new URL(url).origin;
+        }
+      } catch {
+        /* skip */
+      }
+
+      if (pageOrigin) {
+        for (const record of await this.exportIndexedDbForPageOrigin(page, pageOrigin)) {
+          pushRecord(record);
         }
       }
 
-      for (const origin of origins) {
-        let databaseNames: string[] = [];
-        try {
-          const namesResult = (await cdp.send('IndexedDB.requestDatabaseNames', {
-            securityOrigin: origin,
-          })) as { databaseNames?: string[] };
-          databaseNames = namesResult.databaseNames ?? [];
-        } catch {
-          continue;
-        }
+      const origins = new Set<string>();
+      if (pageOrigin) origins.add(pageOrigin);
 
-        for (const databaseName of databaseNames) {
-          let db: { objectStores?: Array<{ name: string }> } | undefined;
+      try {
+        const originsResult = (await cdp.send('Target.getTargets')) as {
+          targetInfos?: Array<{ url?: string }>;
+        };
+        for (const t of originsResult.targetInfos ?? []) {
+          if (!t.url?.startsWith('http')) continue;
           try {
-            db = (await cdp.send('IndexedDB.requestDatabase', {
-              securityOrigin: origin,
-              databaseName,
-            })) as { objectStores?: Array<{ name: string }> };
+            origins.add(new URL(t.url).origin);
           } catch {
-            continue;
+            /* skip */
           }
+        }
+      } catch {
+        /* page-attached CDP may not expose Target.getTargets */
+      }
 
-          for (const store of db.objectStores ?? []) {
-            try {
-              const data = (await cdp.send('IndexedDB.requestData', {
-                securityOrigin: origin,
-                databaseName,
-                objectStoreName: store.name,
-                indexName: '',
-                skipCount: 0,
-                pageSize: 1000,
-              })) as {
-                objectData?: Array<{ key: unknown; primaryKey: unknown; value: unknown }>;
-              };
-
-              for (const entry of data.objectData ?? []) {
-                records.push({
-                  origin,
-                  databaseName,
-                  storeName: store.name,
-                  keyJson: JSON.stringify(entry.key ?? entry.primaryKey),
-                  valueJson: JSON.stringify(entry.value),
-                });
-              }
-            } catch {
-              /* skip store */
-            }
-          }
+      for (const origin of origins) {
+        if (origin === pageOrigin) continue;
+        for (const record of await this.exportIndexedDbViaCdp(cdp, origin)) {
+          pushRecord(record);
         }
       }
     } catch {
       /* best-effort */
+    }
+    return records;
+  }
+
+  /** Same execution context as import — reliable on page-attached CDP sessions. */
+  private async exportIndexedDbForPageOrigin(
+    page: Page,
+    origin: string,
+  ): Promise<BrowserIdbRecordState[]> {
+    try {
+      const rows = (await page.evaluate(`(async () => {
+        const out = [];
+        const list = typeof indexedDB.databases === 'function' ? await indexedDB.databases() : [];
+        for (const info of list) {
+          const db = await new Promise((res, rej) => {
+            const r = indexedDB.open(info.name);
+            r.onerror = () => rej(r.error);
+            r.onsuccess = () => res(r.result);
+          });
+          for (const storeName of Array.from(db.objectStoreNames)) {
+            await new Promise((resolve, reject) => {
+              const tx = db.transaction(storeName, 'readonly');
+              const store = tx.objectStore(storeName);
+              const req = store.openCursor();
+              req.onerror = () => reject(req.error);
+              req.onsuccess = () => {
+                const cursor = req.result;
+                if (!cursor) {
+                  resolve(undefined);
+                  return;
+                }
+                out.push({
+                  databaseName: info.name,
+                  storeName,
+                  keyJson: JSON.stringify(cursor.key),
+                  valueJson: JSON.stringify(cursor.value),
+                });
+                cursor.continue();
+              };
+            });
+          }
+          db.close();
+        }
+        return out;
+      })()`)) as Array<{
+        databaseName: string;
+        storeName: string;
+        keyJson: string;
+        valueJson: string;
+      }>;
+      return rows.map((row) => ({ origin, ...row }));
+    } catch {
+      return [];
+    }
+  }
+
+  private async exportIndexedDbViaCdp(
+    cdp: CDPSession,
+    origin: string,
+  ): Promise<BrowserIdbRecordState[]> {
+    const records: BrowserIdbRecordState[] = [];
+    let databaseNames: string[] = [];
+    try {
+      const namesResult = (await cdp.send('IndexedDB.requestDatabaseNames', {
+        securityOrigin: origin,
+      })) as { databaseNames?: string[] };
+      databaseNames = namesResult.databaseNames ?? [];
+    } catch {
+      return records;
+    }
+
+    for (const databaseName of databaseNames) {
+      let db: { objectStores?: Array<{ name: string }> } | undefined;
+      try {
+        db = (await cdp.send('IndexedDB.requestDatabase', {
+          securityOrigin: origin,
+          databaseName,
+        })) as { objectStores?: Array<{ name: string }> };
+      } catch {
+        continue;
+      }
+
+      for (const store of db.objectStores ?? []) {
+        try {
+          const data = (await cdp.send('IndexedDB.requestData', {
+            securityOrigin: origin,
+            databaseName,
+            objectStoreName: store.name,
+            indexName: '',
+            skipCount: 0,
+            pageSize: 1000,
+          })) as {
+            objectData?: Array<{ key: unknown; primaryKey: unknown; value: unknown }>;
+          };
+
+          for (const entry of data.objectData ?? []) {
+            records.push({
+              origin,
+              databaseName,
+              storeName: store.name,
+              keyJson: JSON.stringify(entry.key ?? entry.primaryKey),
+              valueJson: JSON.stringify(entry.value),
+            });
+          }
+        } catch {
+          /* skip store */
+        }
+      }
     }
     return records;
   }

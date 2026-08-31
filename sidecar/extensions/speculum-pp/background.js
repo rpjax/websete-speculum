@@ -112,6 +112,21 @@ function forwardToKey(key, msg) {
   }
 }
 
+/** Forward WS bytes using the live session socketId/token (survives nav socketId bump). */
+function forwardWsBytes(key, bytes) {
+  const session = planeSessions.get(key);
+  if (!session) return;
+  const portBytes = bytesToPort(bytes);
+  if (!portBytes) return;
+  forwardToKey(key, {
+    channel: PLANE_CHANNEL,
+    token: session.token,
+    kind: 'message',
+    socketId: session.socketId,
+    bytes: portBytes,
+  });
+}
+
 function flushPending(key) {
   const q = planePending.get(key);
   if (!q || q.length === 0) return;
@@ -135,6 +150,25 @@ function handleOpen(key, msg) {
   const { socketId, url, token } = msg;
   if (typeof url !== 'string' || typeof socketId !== 'number') return;
 
+  const existing = planeSessions.get(key);
+  if (
+    existing &&
+    existing.ws &&
+    existing.ws.readyState === WebSocket.OPEN &&
+    existing.url === url
+  ) {
+    // SW-owned loopback survives root hard nav — reuse canonical WS (runtime-redesign §5).
+    existing.socketId = socketId;
+    existing.token = token;
+    forwardToKey(key, {
+      channel: PLANE_CHANNEL,
+      token,
+      kind: 'open-ok',
+      socketId,
+    });
+    return;
+  }
+
   closeWsOnly(key);
 
   let ws;
@@ -155,10 +189,19 @@ function handleOpen(key, msg) {
   planeSessions.set(key, { ws, url, socketId, token });
 
   ws.addEventListener('open', () => {
-    forwardToKey(key, { channel: PLANE_CHANNEL, token, kind: 'open-ok', socketId });
+    const session = planeSessions.get(key);
+    if (!session || session.ws !== ws) return;
+    forwardToKey(key, {
+      channel: PLANE_CHANNEL,
+      token: session.token,
+      kind: 'open-ok',
+      socketId: session.socketId,
+    });
   });
 
   ws.addEventListener('message', (ev) => {
+    const session = planeSessions.get(key);
+    if (!session || session.ws !== ws) return;
     const data = ev.data;
     let bytes;
     if (data instanceof ArrayBuffer) {
@@ -168,36 +211,31 @@ function handleOpen(key, msg) {
     } else {
       return;
     }
-    const portBytes = bytesToPort(bytes);
-    if (!portBytes) return;
-    forwardToKey(key, {
-      channel: PLANE_CHANNEL,
-      token,
-      kind: 'message',
-      socketId,
-      bytes: portBytes,
-    });
+    forwardWsBytes(key, bytes);
   });
 
   ws.addEventListener('close', (ev) => {
+    const session = planeSessions.get(key);
+    if (!session || session.ws !== ws) return;
     forwardToKey(key, {
       channel: PLANE_CHANNEL,
-      token,
+      token: session.token,
       kind: 'close',
-      socketId,
+      socketId: session.socketId,
       code: ev.code,
       reason: ev.reason,
     });
-    const cur = planeSessions.get(key);
-    if (cur && cur.ws === ws) planeSessions.delete(key);
+    planeSessions.delete(key);
   });
 
   ws.addEventListener('error', () => {
+    const session = planeSessions.get(key);
+    if (!session || session.ws !== ws) return;
     forwardToKey(key, {
       channel: PLANE_CHANNEL,
-      token,
+      token: session.token,
       kind: 'error',
-      socketId,
+      socketId: session.socketId,
       message: 'websocket error',
     });
   });
@@ -206,6 +244,7 @@ function handleOpen(key, msg) {
 function handleSend(key, msg) {
   const session = planeSessions.get(key);
   if (!session || !session.ws || session.ws.readyState !== WebSocket.OPEN) return;
+  if (typeof msg.socketId === 'number' && msg.socketId !== session.socketId) return;
   const buf = toUint8Array(msg.bytes);
   if (!buf) return;
   try {
@@ -218,6 +257,8 @@ function handleSend(key, msg) {
 function handleClose(key, msg) {
   const session = planeSessions.get(key);
   if (!session || !session.ws) return;
+  // Superseded extension-plane socketIds after nav reuse must not tear down the SW WS.
+  if (typeof msg.socketId === 'number' && msg.socketId !== session.socketId) return;
   try {
     session.ws.close(msg.code, msg.reason);
   } catch {

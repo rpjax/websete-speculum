@@ -130,9 +130,16 @@ window.addEventListener('message', (ev) => {
   }
 });
 
-// Warm the runtime port so config is answerable as soon as MAIN asks.
+// Warm ports so config/plane are answerable as soon as MAIN asks (hard-nav Port race).
 try {
   ensureRuntimePort();
 } catch {
   /* SW not ready yet — first request reconnects */
+}
+if (isTop) {
+  try {
+    ensurePlanePort();
+  } catch {
+    /* SW not ready yet — first bind/open reconnects */
+  }
 }

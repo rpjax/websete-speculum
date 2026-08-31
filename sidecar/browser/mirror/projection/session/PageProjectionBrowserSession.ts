@@ -59,6 +59,9 @@ import {
   installSingleTabAdoption,
 } from './singleTab';
 import { attachCdpConsoleRelay } from '../../../patchright/cdpConsoleRelay';
+import { applyNavigationPolicyAtLaunch } from '../../../navigation/applyNavigationPolicy';
+import type { UrlResolver } from '../../../navigation/urlResolver';
+import { projectOutboundUrl } from '../../../navigation/urlResolver';
 import { EditableFocus } from '../../../patchright/EditableFocus';
 import { matchesAllowedDomain, isMainFrameNavigationBlocked } from '../../../patchright/Navigation';
 import { PageState } from '../../../patchright/PageState';
@@ -91,6 +94,22 @@ import { EventApplier } from '../../../input/EventApplier';
 import { ingressToUnifiedIntent } from '../../../input/ingressToUnifiedIntent';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import { LaunchBudget, mapBootReasonToErrorCode, resolveLaunchBudgetMs, configGateTimeoutMs, initContextTimeoutMs } from './launchBudget';
+import type { SharedAssetCacheL2 } from '../../../../host/SharedAssetCacheL2';
+
+function isHttpUrl(url: string | undefined | null): url is string {
+  return !!url && url !== 'about:blank' && (url.startsWith('http://') || url.startsWith('https://'));
+}
+
+function resolveTrackedUrl(live: string | undefined, fallback: string): string {
+  return isHttpUrl(live) ? live : fallback;
+}
+
+function pickHttpUrl(...candidates: (string | undefined | null)[]): string | undefined {
+  for (const u of candidates) {
+    if (isHttpUrl(u)) return u;
+  }
+  return undefined;
+}
 
 /** K4 parity oracle — resolve vs projected intent must agree within a few px. */
 const INPUT_RESOLVE_ORACLE_TOL_PX = 4;
@@ -122,6 +141,8 @@ export type PageProjectionFactoryOptions = {
   headless: boolean;
   probes?: PageProjectionProbes;
   extraHTTPHeaders?: Readonly<Record<string, string>>;
+  /** Host-wide shared asset tier (§5.12.2) — sessions receive a reference, never create it. */
+  sharedAssetTier?: SharedAssetCacheL2;
 };
 
 export class PageProjectionBrowserSession {
@@ -152,7 +173,7 @@ export class PageProjectionBrowserSession {
   private readonly extensionC2 = new ExtensionC2Host();
   /** Per-session copy of `speculum-pp` (owns c2-endpoint.json). */
   private extensionInstallDir: string | null = null;
-  private readonly assets = new AssetStore();
+  private readonly assets: AssetStore;
   private readonly rewriteHop = new FrameRewriteHop();
   private readonly probes: PageProjectionProbes;
   private readonly planeBridgeToken: string;
@@ -166,10 +187,11 @@ export class PageProjectionBrowserSession {
   private readonly pageState = new PageState();
   private pendingState: BrowserState | null = null;
   private permissionGate: PermissionGateHandle | null = null;
+  private urlResolver: UrlResolver | null = null;
 
   constructor(
     readonly sessionId: string,
-    private readonly events: BrowserSessionEvents,
+    private events: BrowserSessionEvents,
     factoryOpts: PageProjectionFactoryOptions,
   ) {
     this.headless = factoryOpts.headless;
@@ -177,6 +199,7 @@ export class PageProjectionBrowserSession {
     this.probes = factoryOpts.probes ?? {};
     this.planeBridgeToken = randomUUID();
     this.editableFocus = new EditableFocus(events);
+    this.assets = new AssetStore(factoryOpts.sharedAssetTier);
     const onPlane = (channel: number, payload: Uint8Array) => {
       if (channel === PlaneChannel.Frame) {
         const parts = this.rewriteHop.push(payload, {
@@ -214,7 +237,7 @@ export class PageProjectionBrowserSession {
     this.dataPlane.dataPlane.setHandler(onPlane);
     this.extensionC2.setDocumentInstallHandler((evt) => {
       this.installEvents.push(evt);
-      this.events.onConsole(
+      this.events.onConsole?.(
         0,
         `[document.install] gen=${evt.generation} kind=${evt.installKind} url=${evt.url}`,
       );
@@ -246,7 +269,7 @@ export class PageProjectionBrowserSession {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.events.onConsole(
+      this.events.onConsole?.(
         3,
         `[document.install] establish failed gen=${evt.generation}: ${message}`,
       );
@@ -277,6 +300,9 @@ export class PageProjectionBrowserSession {
 
   async launch(options: BrowserLaunchOptions): Promise<BrowserReadyInfo> {
     this.launchOpts = options;
+    const applied = applyNavigationPolicyAtLaunch(this.events, options);
+    this.events = applied.events;
+    this.urlResolver = applied.urlResolver;
     this.width = options.width;
     this.height = options.height;
     this.viewportPolicy = options.viewportPolicy;
@@ -379,7 +405,7 @@ export class PageProjectionBrowserSession {
       },
       onReject: (errorCode, phase) => {
         this.inputRejectMetrics.noteReject(errorCode, phase);
-        this.events.onConsole(3, `input_reject ${errorCode} ${phase}`);
+        this.events.onConsole?.(3, `input_reject ${errorCode} ${phase}`);
       },
     });
 
@@ -404,7 +430,7 @@ export class PageProjectionBrowserSession {
           return;
         }
         await launchPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-        this.url = launchPage.url() || url;
+        this.url = resolveTrackedUrl(launchPage.url(), url);
         this.events.onLocationChanged(this.url);
       };
       installSingleTabAdoption({
@@ -477,10 +503,11 @@ export class PageProjectionBrowserSession {
   }
 
   async getStatus(): Promise<BrowserStatus> {
+    const projected = projectOutboundUrl(this.urlResolver, this.url);
     return {
       isOpen: this.open,
       tabCount: this.open ? 1 : 0,
-      url: this.url,
+      url: projected ?? this.url,
       resizing: this.resizing,
       width: this.width,
       height: this.height,
@@ -547,7 +574,7 @@ export class PageProjectionBrowserSession {
       throw await this.enrichEstablishError(err);
     }
     this.generation = this.dataPlane.establishedGeneration;
-    this.url = this.page.url() || url;
+    this.url = resolveTrackedUrl(this.page.url(), url);
     this.events.onLocationChanged(this.url);
     await this.applyPendingStorageForCurrentPage();
     cspDiagLog('navigate complete', {
@@ -557,6 +584,26 @@ export class PageProjectionBrowserSession {
     });
     this.editableFocus.rebind(this.page);
     this.editableFocus.start(this.page);
+  }
+
+  async navigateClient(path: string, query: string): Promise<void> {
+    if (!this.urlResolver) {
+      throw Object.assign(new Error('Navigation policy is not configured'), {
+        code: 'FAILED_PRECONDITION',
+        errorCode: 'url_resolve_failed',
+        phase: 'Resolve',
+      });
+    }
+    const resolved = this.urlResolver.resolve(path, query ?? '');
+    if (!resolved.ok) {
+      throw Object.assign(new Error(resolved.errors.join('; ')), {
+        code: 'INVALID_ARGUMENT',
+        errorCode: 'url_resolve_failed',
+        phase: 'Resolve',
+        message: resolved.errors.join('; '),
+      });
+    }
+    await this.navigate(resolved.value);
   }
 
   async refresh(): Promise<void> {
@@ -747,6 +794,50 @@ export class PageProjectionBrowserSession {
             data,
           };
         }
+      } else if (op === 'startCpuProfile') {
+        const start = await this.startCpuProfile();
+        data.startCpuProfile = start;
+        if (!start.ok) {
+          return {
+            ok: false,
+            errorCode: 'start_cpu_profile_failed',
+            message: start.reason,
+            data,
+          };
+        }
+      } else if (op === 'resyncPermissions') {
+        if (!this.permissionGate) {
+          return {
+            ok: false,
+            errorCode: 'permission_gate_missing',
+            message: 'Permission gate is not attached',
+          };
+        }
+        // Unary probe must yield before nested Control permission RPC — grpc-js can
+        // starve the session Control inbound until this handler returns to the loop.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        let originUrl = pickHttpUrl(this.page?.url(), this.url);
+        if (!originUrl && this.cdpSession) {
+          try {
+            const raw = (await this.cdpSession.send('Runtime.evaluate', {
+              expression: 'location.href',
+              returnByValue: true,
+            })) as { result?: { value?: string } };
+            originUrl = pickHttpUrl(String(raw?.result?.value ?? ''));
+          } catch {
+            /* */
+          }
+        }
+        if (!originUrl) {
+          return {
+            ok: false,
+            errorCode: 'permission_origin_unknown',
+            message: 'No http(s) origin for permission resync',
+            data,
+          };
+        }
+        const decisions = await this.permissionGate.resyncAsync(originUrl);
+        data.resyncPermissions = { ok: true, ...decisions };
       }
     }
     return { ok: true, data };
@@ -754,9 +845,32 @@ export class PageProjectionBrowserSession {
 
   async evaluate(code: string): Promise<BrowserEvalResult> {
     try {
-      // Patchright isolated world — DOM OK; Virtual producer globals are NOT visible here.
-      // Producer RPC = loopback invoke (§10.1c), not CDP Runtime.evaluate.
       const page = this.requirePage();
+      const cdp = this.cdpSession;
+      if (cdp) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const raw = (await cdp.send('Runtime.evaluate', {
+            expression: code,
+            returnByValue: true,
+            awaitPromise: true,
+          })) as any;
+          if (raw?.exceptionDetails) {
+            const msg =
+              raw.exceptionDetails.exception?.description ??
+              raw.exceptionDetails.text ??
+              'evaluate failed';
+            return { ok: false, value: '', errorMessage: String(msg) };
+          }
+          const value = raw?.result?.value;
+          return {
+            ok: true,
+            value: typeof value === 'string' ? value : JSON.stringify(value ?? null),
+          };
+        } catch {
+          /* fall back to Patchright isolated world */
+        }
+      }
       const value = await page.evaluate(code);
       return { ok: true, value: typeof value === 'string' ? value : JSON.stringify(value) };
     } catch (err) {
@@ -1391,10 +1505,14 @@ export class PageProjectionBrowserSession {
     if (this.cpuRunning) return { ok: false, reason: 'cpu profile already running' };
     const start = this.probes.startCpuProfile;
     if (!start) return { ok: false, reason: 'startCpuProfile probe not registered' };
-    const cdp = await this.ensureCdp();
-    await start(cdp);
-    this.cpuRunning = true;
-    return { ok: true };
+    try {
+      const cdp = await this.ensureCdp();
+      await start(cdp);
+      this.cpuRunning = true;
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   async stopCpuProfile(): Promise<{
@@ -1514,6 +1632,11 @@ export class PageProjectionBrowserSession {
     let p: Page;
     try {
       p = await context.newPage();
+      // Publish the replacement primary before closing stale tabs — concurrent
+      // probes (startCpuProfile) call ensureCdp() and must not attach to the
+      // closing page (Target.attachToTarget: No target).
+      this.page = p;
+      this.cdpSession = await context.newCDPSession(p);
       const stale = context.pages().filter((x) => x !== p);
       for (const old of stale) {
         try {
@@ -1550,9 +1673,8 @@ export class PageProjectionBrowserSession {
       this.editableFocus.stop();
     });
     const telemetry = (options.projectionTelemetry ?? LAB_TELEMETRY_DEFAULTS) as Partial<ProjectionTelemetryConfig>;
-    this.cdpSession = await context.newCDPSession(p);
     // Patchright page.on('console') / pageerror are silent — CDP Runtime is the relay.
-    await attachCdpConsoleRelay(this.cdpSession, (level, text) => this.events.onConsole(level, text));
+    await attachCdpConsoleRelay(this.cdpSession, (level, text) => this.events.onConsole?.(level, text));
     // Launch scripts: gate lives in SessionConfig for the extension entry (customs in V1 via
     // TargetRules in the content-script entry when wired). Resolved here so C2 carries knobs.
     void (await resolveLaunchScripts(options.scripts ?? []));
@@ -1610,7 +1732,7 @@ export class PageProjectionBrowserSession {
         timeoutMs: navBudget.deadlineMs('HelloEstablish'),
       });
       this.generation = this.dataPlane.establishedGeneration;
-      this.url = p.url() || url;
+      this.url = resolveTrackedUrl(p.url(), url);
       this.events.onLocationChanged(this.url);
       await this.applyPendingStorageForCurrentPage();
       this.editableFocus.rebind(p);
@@ -1728,13 +1850,41 @@ export class PageProjectionBrowserSession {
     return this.launchOpts;
   }
 
+  private resolveLivePage(): Page | null {
+    const context = this.context;
+    if (!context) return null;
+    const page = this.page;
+    if (page && !page.isClosed()) return page;
+    const live = context.pages().filter((p) => !p.isClosed());
+    return live.length > 0 ? live[live.length - 1]! : null;
+  }
+
   private async ensureCdp(): Promise<CDPSession> {
     if (this.cdpSession) return this.cdpSession;
     const context = this.context;
-    const page = this.requirePage();
     if (!context) throw new Error('context not open');
-    this.cdpSession = await context.newCDPSession(page);
-    return this.cdpSession;
+
+    const deadline = Date.now() + 5_000;
+    let lastErr: unknown;
+    while (Date.now() < deadline) {
+      const page = this.resolveLivePage();
+      if (!page) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        continue;
+      }
+      try {
+        this.page = page;
+        this.cdpSession = await context.newCDPSession(page);
+        return this.cdpSession;
+      } catch (err) {
+        lastErr = err;
+        this.cdpSession = null;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/no target|target closed|attach/i.test(msg)) throw err;
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? 'cdp attach timed out'));
   }
 
   /** Sidecar → Virtual domain RPC via loopback mux (not CDP). */

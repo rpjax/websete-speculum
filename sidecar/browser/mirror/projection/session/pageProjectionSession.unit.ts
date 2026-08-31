@@ -447,22 +447,9 @@ ${link}
     const title = await session.evaluate(`document.getElementById('title')?.textContent ?? ''`);
     assert.strictEqual(title.value, 'B', 'in-page nav to huge meta-only /b');
 
-    // Hard-nav plane continuity: hello-ack can lose the Port race after document replace
-    // while Node already adopted the new generation (runtime-redesign SW-owned socket closes this).
-    // Cold load above already proved C2 + content-script carrier + establish on this CSP shape.
     const navPlane = await waitDataPlaneOpen(session, 15_000);
-    if (!navPlane.ok) {
-      const status = await session.probeLoopbackStatus();
-      assert.ok(
-        status.generation > 1,
-        `expected generation bump after hard nav, got gen=${status.generation}; plane=${navPlane.lastErr}`,
-      );
-      console.log(
-        '[unit] meta-only huge hard-nav plane still booting (ack/Port race) gen=%s err=%s — cold path proved carrier',
-        status.generation,
-        navPlane.lastErr,
-      );
-    }
+    assert.ok(navPlane.ok, `data plane after huge meta-only hard nav: ${navPlane.lastErr}`);
+    await assertLoopbackOracle(session, 'meta-only huge hard nav');
   } finally {
     await session.dispose();
     await new Promise<void>((resolve, reject) => {
@@ -533,26 +520,15 @@ async function runDataPlaneNavChurnUnitTests(): Promise<void> {
     assert.strictEqual(title.value, 'final', '202→200 churn lands on /final');
 
     const plane = await waitDataPlaneOpen(session, 15_000);
-    if (!plane.ok) {
-      const status = await session.probeLoopbackStatus();
-      assert.ok(
-        status.nodeEstablished || status.generation >= 1,
-        `post-churn expected some establish signal: ${plane.lastErr}`,
-      );
-      console.log(
-        '[unit] nav-churn plane still booting (hard-nav hello/Port race) gen=%s err=%s',
-        status.generation,
-        plane.lastErr,
-      );
-    } else {
-      const scroll = await session.measureApplyScrollSet({
-        contextId: 1,
-        nodeId: null,
-        scrollX: 0,
-        scrollY: 4,
-      });
-      assert.ok(scroll.ok, `scroll first-try after nav churn: ${scroll.error ?? ''}`);
-    }
+    assert.ok(plane.ok, `data plane after 202→200 nav churn: ${plane.lastErr}`);
+    await assertLoopbackOracle(session, 'nav churn');
+    const scroll = await session.measureApplyScrollSet({
+      contextId: 1,
+      nodeId: null,
+      scrollX: 0,
+      scrollY: 4,
+    });
+    assert.ok(scroll.ok, `scroll first-try after nav churn: ${scroll.error ?? ''}`);
   } finally {
     await session.dispose();
     await new Promise<void>((resolve, reject) => {

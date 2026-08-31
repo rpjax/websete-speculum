@@ -83,7 +83,7 @@ public sealed class ApiAuthMiddleware
             || path.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase)
             // Dom Projection assets + uploads: live-session binding auth
             // (SessionBindingAuth), not operator Bearer.
-            || IsDomAssetPath(path)
+            || IsVirtualAssetPath(path)
             || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/vhub", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/vhub/", StringComparison.OrdinalIgnoreCase);
@@ -92,7 +92,7 @@ public sealed class ApiAuthMiddleware
     /// Virtual Dom Projection asset GETs and uploads are gated by session binding
     /// query/header (<c>SessionBindingAuth</c>) — not operator Bearer.
     /// </summary>
-    private static bool IsDomAssetPath(string path)
+    private static bool IsVirtualAssetPath(string path)
     {
         if (path.StartsWith("/virtual-assets/", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/virtual-blob/", StringComparison.OrdinalIgnoreCase)

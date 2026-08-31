@@ -69,7 +69,7 @@ public static class PresentationServiceCollectionExtensions
         endpoints.MapScriptEndpoints();
         endpoints.MapProfileEndpoints();
         endpoints.MapSessionEndpoints();
-        endpoints.MapDomAssetEndpoints();
+        endpoints.MapVirtualAssetEndpoints();
         endpoints.MapHostResourceEndpoints();
         endpoints.MapMaintenanceEndpoints();
         endpoints.MapDiagnosticsProfileEndpoints();

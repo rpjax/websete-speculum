@@ -3,18 +3,18 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Sessions.Mirror;
-using Speculum.Api.Sessions.Mirror.PageProjection;
+using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 
 namespace Speculum.Api.Presentation.Sessions;
 
 /// <summary>
-/// Dom Projection virtual-asset / blob / data serve + file uploads.
+/// PageProjection virtual-asset / blob / data serve + file uploads.
 /// Paths are after PathBase <c>/w7s</c>.
 /// </summary>
-public static class DomAssetEndpoints
+public static class VirtualAssetEndpoints
 {
-    public static IEndpointRouteBuilder MapDomAssetEndpoints(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapVirtualAssetEndpoints(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
@@ -234,7 +234,7 @@ public static class DomAssetEndpoints
         CancellationToken ct)
     {
         var result = await live
-            .GetDomAssetAsync(key, ct, kind, string.IsNullOrWhiteSpace(rangeHeader) ? null : rangeHeader)
+            .GetVirtualAssetAsync(key, ct, kind, string.IsNullOrWhiteSpace(rangeHeader) ? null : rangeHeader)
             .ConfigureAwait(false);
         if (result.IsFailure)
         {
@@ -255,10 +255,10 @@ public static class DomAssetEndpoints
             ? "application/octet-stream"
             : asset.ContentType;
 
-        return new DomAssetHttpResult(asset, contentType, sessionToken);
+        return new VirtualAssetHttpResult(asset, contentType, sessionToken);
     }
 
-    private sealed class DomAssetHttpResult(DomAsset asset, string contentType, string? sessionToken) : IResult
+    private sealed class VirtualAssetHttpResult(VirtualResourceResponse asset, string contentType, string? sessionToken) : IResult
     {
         public async Task ExecuteAsync(HttpContext httpContext)
         {

@@ -18,6 +18,10 @@ import {
   type RewriteUrlResult,
   VIRTUAL_ASSETS_PREFIX,
 } from './urlForms';
+import {
+  SharedAssetCacheL2,
+  type SharedAssetShareabilityDescriptor,
+} from '../../../../host/SharedAssetCacheL2';
 
 export type DomAssetServeResult = {
   body: Uint8Array;
@@ -40,6 +44,8 @@ export class AssetStore {
   private readonly inFlight = new Map<string, Promise<void>>();
   private page: Page | null = null;
   private stopped = false;
+
+  constructor(private readonly sharedAssetTier?: SharedAssetCacheL2) {}
 
   bindPage(page: Page | null): void {
     this.page = page;
@@ -82,9 +88,21 @@ export class AssetStore {
     else if (kind === 'data') lookup = key.startsWith('_data/') ? key : `_data/${key}`;
 
     const rangeHeader = opts?.rangeHeader;
+    if (this.isSharedAssetCacheEligible(kind, rangeHeader)) {
+      const l2Hit = this.trySharedAssetTierAcquire(lookup);
+      if (l2Hit) return l2Hit;
+    }
+
     const hit = this.cache.get(lookup);
 
     if (hit && hit.body.byteLength > 0 && hit.mode === 'cache' && !rangeHeader) {
+      this.tryPutSharedAssetTier(
+        lookup,
+        hit.body,
+        hit.contentType,
+        200,
+        hit.shareability,
+      );
       return {
         body: hit.body,
         contentType: hit.contentType,
@@ -119,6 +137,23 @@ export class AssetStore {
       await Promise.race([pending, sleep(AWAIT_FILL_MS)]);
       const after = this.cache.get(lookup);
       if (after && after.body.byteLength > 0 && after.mode === 'cache') {
+        const served = {
+          body: after.body,
+          contentType: after.contentType,
+          statusCode: 200,
+          ...shareabilityFields(after.shareability),
+        };
+        this.tryPutSharedAssetTier(lookup, after.body, after.contentType, 200, after.shareability);
+        return served;
+      }
+    }
+
+    // Reconstruct https URL from key and try pass-through / fill.
+    const pt = await this.fetchPassThrough(lookup, rangeHeader);
+    if (!pt) return null;
+    if (!rangeHeader) {
+      const after = this.cache.get(lookup);
+      if (after && after.body.byteLength > 0 && after.mode === 'cache') {
         return {
           body: after.body,
           contentType: after.contentType,
@@ -127,10 +162,6 @@ export class AssetStore {
         };
       }
     }
-
-    // Reconstruct https URL from key and try pass-through / fill.
-    const pt = await this.fetchPassThrough(lookup, rangeHeader);
-    if (!pt) return null;
     return {
       body: pt.body,
       contentType: pt.contentType,
@@ -177,6 +208,15 @@ export class AssetStore {
         this.cache.put(key, body, contentType, { sourceUrl, mode: 'cache' });
         // Segment URLs inside need pass-through registration — kick from rewritten lines.
         this.registerManifestSegmentPassThroughs(body.toString('utf8'), sourceUrl);
+      } else if (
+        !rangeHeader
+        && res.ok()
+        && !isPassThroughUrl(sourceUrl, contentType)
+        && !isManifestUrl(sourceUrl, contentType)
+      ) {
+        const shareability = await this.captureShareability(page, sourceUrl, res.headers());
+        this.cache.put(key, body, contentType, { sourceUrl, mode: 'cache', shareability });
+        this.tryPutSharedAssetTier(key, body, contentType, res.status(), shareability);
       }
 
       const contentRange = res.headers()['content-range'];
@@ -236,10 +276,59 @@ export class AssetStore {
         this.cache.put(key, buf, ct, { sourceUrl: url, mode: 'pass-through', shareability });
       } else {
         this.cache.put(key, buf, ct, { sourceUrl: url, mode: 'cache', shareability });
+        this.tryPutSharedAssetTier(key, buf, ct, res.status(), shareability);
       }
     } catch {
       /* optional warm fill */
     }
+  }
+
+  private isSharedAssetCacheEligible(kind: string, rangeHeader?: string): boolean {
+    if (rangeHeader) return false;
+    return !kind || kind === 'asset';
+  }
+
+  private trySharedAssetTierAcquire(key: string): DomAssetServeResult | null {
+    const tier = this.sharedAssetTier;
+    if (!tier?.enabled) return null;
+    const handle = tier.tryAcquire(SharedAssetCacheL2.buildAssetKey(key));
+    if (!handle) return null;
+    const out: DomAssetServeResult = {
+      body: handle.body,
+      contentType: handle.contentType,
+      statusCode: handle.statusCode,
+    };
+    handle.release();
+    return out;
+  }
+
+  private tryPutSharedAssetTier(
+    key: string,
+    body: Buffer,
+    contentType: string,
+    statusCode: number,
+    shareability?: DomAssetShareability,
+  ): void {
+    const tier = this.sharedAssetTier;
+    if (!tier?.enabled || body.byteLength === 0) return;
+    const vary = shareability?.vary?.trim();
+    if (vary) return;
+    const descriptor: SharedAssetShareabilityDescriptor = {
+      requestHadCookie: !!shareability?.requestHadCookie,
+      requestHadAuthorization: !!shareability?.requestHadAuthorization,
+      cacheControlDirectives: splitHeaderList(shareability?.cacheControl),
+      varyValues: [],
+      statusCode,
+      kind: 'subresource',
+    };
+    if (!SharedAssetCacheL2.isShareable(descriptor)) return;
+    const handle = tier.put(
+      SharedAssetCacheL2.buildAssetKey(key),
+      body,
+      contentType,
+      statusCode,
+    );
+    handle.release();
   }
 
   /**
@@ -378,4 +467,9 @@ function shareabilityFields(s?: DomAssetShareability): {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function splitHeaderList(raw?: string): string[] {
+  if (!raw?.trim()) return [];
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }

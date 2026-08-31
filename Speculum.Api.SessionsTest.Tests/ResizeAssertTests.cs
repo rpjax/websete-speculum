@@ -9,6 +9,18 @@ public sealed class ResizeAssertTests : SessionsTestBase
 {
     public ResizeAssertTests(SessionsTestFixture fixture) : base(fixture) { }
 
+    public override async Task InitializeAsync()
+    {
+        await base.InitializeAsync();
+        await Fx.EnsureSessionsMirrorModeAsync("videoStreaming");
+    }
+
+    public override async Task DisposeAsync()
+    {
+        await Fx.EnsureSessionsMirrorModeAsync("pageProjection");
+        await base.DisposeAsync();
+    }
+
     private static DeviceProfile MobileDevice => new()
     {
         Mobile = true,

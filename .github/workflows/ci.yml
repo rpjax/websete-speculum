@@ -142,7 +142,8 @@ jobs:
             if curl -sf http://127.0.0.1:18090/health/ready >/dev/null \
               && docker compose -f deploy/compose/docker-compose.sessions-test.yml exec -T fixture \
                    node -e "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
-              && docker compose -f deploy/compose/docker-compose.sessions-test.yml ps --status running | grep -q sidecar; then
+              && docker compose -f deploy/compose/docker-compose.sessions-test.yml exec -T sidecar \
+                   curl -sf http://127.0.0.1:3001/ready >/dev/null; then
               ok=1
               break
             fi
@@ -160,19 +161,19 @@ jobs:
           SESSIONS_TEST_API_BASE=http://127.0.0.1:18090 \
             ./deploy/compose/seed-sessions-test.sh
 
-      - name: Run SessionsTest tests
-        env:
-          SESSIONS_TEST_API_BASE: http://127.0.0.1:18090
-        run: >
-          dotnet test Speculum.Api.SessionsTest.Tests/Speculum.Api.SessionsTest.Tests.csproj
-          -c Release --filter "Category=SessionsTest" --verbosity normal
-
       - name: Run PageProjection SessionsTest (product)
         env:
           SESSIONS_TEST_API_BASE: http://127.0.0.1:18090
         run: >
           dotnet test Speculum.Api.SessionsTest.Tests/Speculum.Api.SessionsTest.Tests.csproj
           -c Release --filter "Category=PageProjection" --verbosity normal
+
+      - name: Run SessionsTest tests
+        env:
+          SESSIONS_TEST_API_BASE: http://127.0.0.1:18090
+        run: >
+          dotnet test Speculum.Api.SessionsTest.Tests/Speculum.Api.SessionsTest.Tests.csproj
+          -c Release --filter "Category=SessionsTest&Category!=PageProjection" --verbosity normal
 
       - name: Collect compose logs on failure
         if: failure()

@@ -1,9 +1,9 @@
 using MessagePack;
 
-namespace Speculum.Api.Sessions.Mirror.PageProjection;
+namespace Speculum.Api.Sessions.Models;
 
 /// <summary>
-/// Element-targeted / motion Dom Projection intent (data-plane MessagePack).
+/// Element-targeted / motion PageProjection intent (data-plane MessagePack).
 /// </summary>
 [MessagePackObject]
 public sealed class PageProjectionIntent

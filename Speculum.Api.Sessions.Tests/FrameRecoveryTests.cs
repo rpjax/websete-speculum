@@ -16,10 +16,10 @@ public sealed class FrameRecoveryTests
     [Fact]
     public void ClientVisibleQueueDroppedStages_CoverChronologyBreakersOnly()
     {
-        Assert.True(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("api_fanout_backpressure"));
-        Assert.True(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("api_sequenced"));
         Assert.True(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("api_wire_stall"));
         Assert.True(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("api_fanout_pipe_closed"));
+        Assert.False(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("api_fanout_backpressure"));
+        Assert.False(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("api_sequenced"));
         Assert.False(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("api_fanout_no_target"));
         Assert.False(GrpcSessionConnection.IsClientVisibleQueueDroppedStage("sidecar_bridge"));
     }
@@ -86,11 +86,12 @@ public sealed class FrameRecoveryTests
     }
 
     [Fact]
-    public async Task FanOut_UnreadPipeFull_QueueDroppedCarriesBlockingPipeIdentity()
+    public async Task FanOut_UnreadPipeFull_ReportsConsumerPressure()
     {
         var connectionDiffs = Channel.CreateUnbounded<PageProjectionFrame>();
         var reports = new ConcurrentQueue<FanOutDropReport>();
-        var connection = new FanOutTestConnection(connectionDiffs, reports);
+        var pressureReports = new ConcurrentQueue<ConsumerPressureSnapshot>();
+        var connection = new FanOutTestConnection(connectionDiffs, reports, pressureReports: pressureReports);
         var streams = new ConcurrentDictionary<Guid, OutputStreamRegistration>();
         var blockingStreamId = Guid.NewGuid();
         var blockingConsumerId = Guid.CreateVersion7();
@@ -100,8 +101,7 @@ public sealed class FrameRecoveryTests
         Assert.True(streams.TryAdd(blockingStreamId, blocking));
         Assert.True(streams.TryAdd(secondStreamId, second));
 
-        // First stream frame Wait is full and never drained — Broadcast must block on it.
-        for (long seq = 1; seq <= SequencedDiffChannels.FanOutTargetCapacity; seq++)
+        for (long seq = 1; seq <= PageProjectionFrameChannels.FanOutTargetCapacity; seq++)
         {
             Assert.True(blocking.PageProjectionFrames.Writer.TryWrite(Diff(seq)));
         }
@@ -117,18 +117,13 @@ public sealed class FrameRecoveryTests
         fanOut.OnStreamRegistered(blockingStreamId);
         fanOut.OnStreamRegistered(secondStreamId);
 
-        await connectionDiffs.Writer.WriteAsync(Diff(SequencedDiffChannels.FanOutTargetCapacity + 1));
+        await connectionDiffs.Writer.WriteAsync(Diff(PageProjectionFrameChannels.FanOutTargetCapacity + 1));
 
         await WaitUntilAsync(
-            () => reports.Any(s => s.Stage == "api_fanout_backpressure"),
+            () => pressureReports.Any(p => p.QueuedFrames > 0),
             TimeSpan.FromSeconds(5));
 
-        var qd = reports.First(s => s.Stage == "api_fanout_backpressure");
-        Assert.Equal(blockingStreamId, qd.StreamId);
-        Assert.Equal(blockingConsumerId, qd.ConsumerId);
-        Assert.Equal("pageProjectionFrames", qd.Kind);
-        Assert.Equal(2, qd.TargetCount);
-        Assert.Equal(SequencedDiffChannels.FanOutTargetCapacity, qd.FrameChannelCount);
+        Assert.DoesNotContain(reports, s => s.Stage == "api_fanout_backpressure");
 
         lifetime.Cancel();
     }
@@ -219,8 +214,8 @@ public sealed class FrameRecoveryTests
     [Fact]
     public void FanOutTargetCapacity_StaysMuchSmallerThanConnectionDefault()
     {
-        Assert.True(SequencedDiffChannels.FanOutTargetCapacity <= 256);
-        Assert.True(SequencedDiffChannels.FanOutTargetCapacity < SequencedDiffChannels.DefaultCapacity / 8);
+        Assert.True(PageProjectionFrameChannels.FanOutTargetCapacity <= 256);
+        Assert.True(PageProjectionFrameChannels.FanOutTargetCapacity < PageProjectionFrameChannels.DefaultConnectionCapacity / 8);
     }
 
     private sealed record FanOutDropReport(
@@ -268,14 +263,18 @@ public sealed class FrameRecoveryTests
         private readonly ConcurrentQueue<FanOutDropReport> _reports;
         private readonly ConcurrentQueue<(Guid StreamId, Guid ConsumerId, string Kind, int TargetCount)>? _fanOut;
 
+        private readonly ConcurrentQueue<ConsumerPressureSnapshot>? _pressureReports;
+
         public FanOutTestConnection(
             Channel<PageProjectionFrame> diffs,
             ConcurrentQueue<FanOutDropReport> reports,
-            ConcurrentQueue<(Guid StreamId, Guid ConsumerId, string Kind, int TargetCount)>? fanOut = null)
+            ConcurrentQueue<(Guid StreamId, Guid ConsumerId, string Kind, int TargetCount)>? fanOut = null,
+            ConcurrentQueue<ConsumerPressureSnapshot>? pressureReports = null)
         {
             _diffs = diffs;
             _reports = reports;
             _fanOut = fanOut;
+            _pressureReports = pressureReports;
         }
 
         public Guid SessionId { get; } = Guid.NewGuid();
@@ -342,13 +341,31 @@ public sealed class FrameRecoveryTests
             long? frameEpoch = null)
             => _reports.Enqueue(new FanOutDropReport(stage, streamId, consumerId, kind, targetCount, frameChannelCount));
 
+        public int GetPageProjectionFrameConnectionQueueDepth()
+            => _diffs.Reader.CanCount ? _diffs.Reader.Count : 0;
+
+        public ulong GetPageProjectionFrameConnectionQueuedBytes() => 0;
+
+        public ulong GetPageProjectionFrameOldestQueuedMs() => 0;
+
+        public void NotifyPageProjectionFrameConnectionDequeued() { }
+
+        public void TrySendConsumerPressure(ConsumerPressureSnapshot snapshot)
+            => _pressureReports?.Enqueue(snapshot);
 
         public Task<IResult> CloseAsync(CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 
         public Task<IResult<BrowserReadyInfo>> LaunchBrowserAsync(
             SessionConfig? configuration,
+            string requestHost,
             CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<IResult> NavigateClientAsync(string path, string query, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public Task<IResult> StopBrowserAsync(CancellationToken ct = default)
@@ -360,9 +377,6 @@ public sealed class FrameRecoveryTests
         public Task<IResult<CookieNormalizeStats>> RestoreProfileStateAsync(
             ProfileState state,
             CancellationToken ct = default)
-            => throw new NotSupportedException();
-
-        public Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public Task<IResult> RefreshAsync(CancellationToken ct = default)
@@ -397,7 +411,7 @@ public sealed class FrameRecoveryTests
         public IResult<Task> ConsumeConsoleInputAsync(ChannelReader<ConsoleInput> channelReader)
             => Result<Task>.Failure("unused");
 
-        public Task<IResult<DomAsset>> GetDomAssetAsync(
+        public Task<IResult<VirtualResourceResponse>> GetVirtualAssetAsync(
             string key,
             CancellationToken ct = default,
             string? kind = null,

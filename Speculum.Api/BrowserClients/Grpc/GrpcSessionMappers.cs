@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Speculum.Api.Configurations.Models.Hosting;
 using Speculum.Api.Configurations.Models.Patterns;
+using Speculum.Api.Configurations.Services.Contracts;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Streaming;
 using Speculum.Api.Sidecar.V1;
 using DomainUrlMatchRule = Speculum.Api.Configurations.Models.Patterns.UrlMatchRule;
@@ -29,10 +32,13 @@ internal static class GrpcSessionMappers
         int height,
         SessionConfig configuration,
         Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
+        string requestHost,
+        EngineConfiguration engineConfiguration,
         double screencastMaxEncodeScale = 2)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(engineConfiguration);
         var request = new LaunchVideoStreamingRequest
         {
             SessionId = sessionId.ToString("D"),
@@ -43,6 +49,7 @@ internal static class GrpcSessionMappers
             DisplayWidth = policy.Maximum.Width,
             DisplayHeight = policy.Maximum.Height,
             ScreencastMaxEncodeScale = ClampScreencastMaxEncodeScale(screencastMaxEncodeScale),
+            NavigationPolicy = ToNavigationPolicy(engineConfiguration, requestHost),
         };
         ApplyCommonLaunchFields(request, configuration);
         return request;
@@ -54,11 +61,14 @@ internal static class GrpcSessionMappers
         int height,
         SessionConfig configuration,
         Speculum.Api.Configurations.Models.Sessions.ViewportPolicy policy,
-        int frameQueueCapacity = SequencedDiffChannels.DefaultCapacity,
+        string requestHost,
+        EngineConfiguration engineConfiguration,
+        int frameQueueCapacity = PageProjectionFrameChannels.DefaultConnectionCapacity,
         Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions? pageProjection = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(engineConfiguration);
         var pp = pageProjection ?? new Speculum.Api.Configurations.Models.Sessions.PageProjectionOptions();
         var request = new LaunchPageProjectionRequest
         {
@@ -78,13 +88,16 @@ internal static class GrpcSessionMappers
             HiddenRateHz = Math.Max(0, pp.HiddenRateHz),
             RateRecoverMs = Math.Max(0, pp.RateRecoverMs),
             FrameStallMs = Math.Max(0, pp.FrameStallMs),
-            // establish_chunk_bytes / client_state_ms: dead pre-V4 knobs — do not map (ignored on sidecar).
+            // establish_chunk_bytes / client_state_ms: removed M6.
             MirrorMaxBytes = Math.Max(0, pp.MirrorMaxBytes),
             AssetCacheL1MaxBytes = Math.Max(0, pp.AssetCacheL1MaxBytes),
+            AssetCacheL2MaxBytes = Math.Max(0, pp.AssetCacheL2MaxBytes),
+            AssetCacheL2Enabled = pp.AssetCacheL2Enabled,
             AssetPriorityViewportPx = Math.Max(0, pp.AssetPriorityViewportPx),
             AggregateIntervalMs = Math.Max(0, pp.AggregateIntervalMs),
             SwapTimeoutMs = Math.Max(0, pp.SwapTimeoutMs),
             ApplyBudgetMs = Math.Max(0, pp.ApplyBudgetMs),
+            NavigationPolicy = ToNavigationPolicy(engineConfiguration, requestHost),
         };
         foreach (var hz in pp.FrameRateLadder)
         {
@@ -211,7 +224,7 @@ internal static class GrpcSessionMappers
     {
         if (value < 64)
         {
-            return SequencedDiffChannels.DefaultCapacity;
+            return PageProjectionFrameChannels.DefaultConnectionCapacity;
         }
 
         return Math.Clamp(value, 64, 65_536);
@@ -262,6 +275,40 @@ internal static class GrpcSessionMappers
         }
 
         return proto;
+    }
+
+    private static Sidecar.V1.NavigationPolicy ToNavigationPolicy(
+        EngineConfiguration engineConfiguration,
+        string requestHost)
+    {
+        ArgumentNullException.ThrowIfNull(engineConfiguration);
+        if (string.IsNullOrWhiteSpace(requestHost))
+        {
+            throw new ArgumentException("Request host is required", nameof(requestHost));
+        }
+
+        var policy = new Sidecar.V1.NavigationPolicy
+        {
+            RequestHost = requestHost.Trim(),
+            DefaultTargetHost = engineConfiguration.Navigation.DefaultTargetHost.Trim().ToLowerInvariant(),
+            NavigationStateParam = UrlResolver.NavigationStateParameterName,
+        };
+
+        foreach (var domain in engineConfiguration.Hosting.Domains)
+        {
+            policy.Domains.Add(new Sidecar.V1.NavigationPolicyDomain
+            {
+                Domain = domain.Domain.Trim().ToLowerInvariant(),
+                IsSubdomainMirroringEnabled = domain.IsSubdomainMirroringEnabled,
+            });
+        }
+
+        foreach (var rule in engineConfiguration.Navigation.AllowedMainFrameUrls)
+        {
+            policy.AllowedMainFrameUrls.Add(ToProtoUrlMatchRule(rule));
+        }
+
+        return policy;
     }
 
     private static Sidecar.V1.UrlMatchRule ToProtoUrlMatchRule(DomainUrlMatchRule rule) => new()
@@ -642,233 +689,18 @@ internal static class GrpcSessionMappers
     }
 
     /// <summary>
-    /// Maps a sidecar Diff frame to the API wire shape. Redesign binary frames (PP-WIRE-1)
-    /// carry an opaque <see cref="DomainPageProjectionFrame.Body"/> with empty plane/operation — the
-    /// API relays those bytes without parsing. Only the legacy V1 JSON-body scheme (non-empty
-    /// plane and operation, JSON payload) is decoded into typed payloads below.
+    /// Maps a sidecar Diff frame to the API wire shape (PP-WIRE-1 / M4). Relays
+    /// <see cref="DomainPageProjectionFrame.Body"/> opaquely — never parses motor payload.
     /// </summary>
     public static DomainPageProjectionFrame? ToPageProjectionFrame(ProtoPageProjectionFrame frame)
     {
-        var plane = (frame.Plane ?? string.Empty).Trim();
-        var operation = (frame.Operation ?? string.Empty).Trim();
-
-        // Redesign binary wire (PP-WIRE-1): the sidecar leaves plane/operation empty for
-        // §5.5 binary frames — relay Body opaquely, never JSON-parse it. Only the legacy
-        // V1 JSON-body scheme (both plane and operation set) is decoded below.
-        if (string.IsNullOrWhiteSpace(plane) && string.IsNullOrWhiteSpace(operation))
-        {
-            if (frame.Body.IsEmpty)
-            {
-                // Empty envelope, no binary payload — nothing to relay or decode.
-                return null;
-            }
-
-            return new DomainPageProjectionFrame
-            {
-                Sequence = frame.Sequence,
-                Generation = frame.Generation,
-                Timestamp = frame.TimestampMs,
-                Plane = "",
-                Operation = "",
-                Body = frame.Body.ToByteArray(),
-                PartIndex = frame.PartIndex,
-                PartCount = frame.PartCount == 0 ? 1 : frame.PartCount,
-                Flags = frame.Flags,
-                Version = frame.Version == 0 ? 1 : frame.Version,
-                ContextId = frame.ContextId == 0 ? 1 : frame.ContextId,
-            };
-        }
-
-        if (string.IsNullOrWhiteSpace(plane) || string.IsNullOrWhiteSpace(operation))
-        {
-            // Partial envelope — neither a valid binary frame nor a valid V1 frame.
-            return null;
-        }
-
-        if (!string.Equals(plane, "dom", StringComparison.Ordinal)
-            && !string.Equals(plane, "cssom", StringComparison.Ordinal))
+        if (frame.Body.IsEmpty)
         {
             return null;
         }
 
-        JsonElement body = default;
-        var hasBody = false;
-        if (!frame.Body.IsEmpty)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(frame.Body.ToByteArray());
-                body = doc.RootElement.Clone();
-                hasBody = true;
-            }
-            catch (JsonException)
-            {
-                return null;
-            }
-        }
-
-        PageProjectionDocumentPayload? document = null;
-        PageProjectionChildListPayload? childList = null;
-        PageProjectionPatchPayload? patch = null;
-        PageProjectionScrollViewportPayload? scrollViewport = null;
-        PageProjectionScrollElementPayload? scrollElement = null;
-        PageProjectionCssomInstallPayload? install = null;
-        PageProjectionCssomSheetListPayload? sheetList = null;
-        PageProjectionCssomRuleListPayload? ruleList = null;
-        PageProjectionCssomPatchPayload? cssomPatch = null;
-
-        if (string.Equals(plane, "dom", StringComparison.Ordinal))
-        {
-            switch (operation)
-            {
-                case "document":
-                    if (!hasBody || !body.TryGetProperty("root", out var rootEl))
-                    {
-                        return null;
-                    }
-
-                    if (ParseDomNode(rootEl) is not { } root)
-                    {
-                        return null;
-                    }
-
-                    document = new PageProjectionDocumentPayload { Root = root };
-                    break;
-                case "childList":
-                    if (!hasBody || ParseDomSelector(body, "selector") is not { } parentSel)
-                    {
-                        return null;
-                    }
-
-                    if (ParseRemovedEntries(body) is not { } removed
-                        || ParseAddedEntries(body) is not { } added)
-                    {
-                        return null;
-                    }
-
-                    childList = new PageProjectionChildListPayload
-                    {
-                        Selector = parentSel,
-                        Removed = removed,
-                        Added = added,
-                    };
-                    break;
-                case "patch":
-                    if (!hasBody
-                        || ParseDomSelector(body, "selector") is not { } patchSel
-                        || !body.TryGetProperty("node", out var nodeEl)
-                        || ParseDomNode(nodeEl) is not { } patchNode)
-                    {
-                        return null;
-                    }
-
-                    // Patch snapshots omit children.
-                    patch = new PageProjectionPatchPayload
-                    {
-                        Selector = patchSel,
-                        Node = new DomNode
-                        {
-                            Anchor = patchNode.Anchor,
-                            Tag = patchNode.Tag,
-                            Attrs = patchNode.Attrs,
-                            Text = patchNode.Text,
-                            Children = null,
-                        },
-                    };
-                    break;
-                case "scrollViewport":
-                    if (!hasBody)
-                    {
-                        return null;
-                    }
-
-                    scrollViewport = new PageProjectionScrollViewportPayload
-                    {
-                        ScrollX = ReadDouble(body, "scrollX"),
-                        ScrollY = ReadDouble(body, "scrollY"),
-                    };
-                    break;
-                case "scrollElement":
-                    if (!hasBody || ParseDomSelector(body, "selector") is not { } scrollSel)
-                    {
-                        return null;
-                    }
-
-                    scrollElement = new PageProjectionScrollElementPayload
-                    {
-                        Selector = scrollSel,
-                        ScrollTop = ReadDouble(body, "scrollTop"),
-                        ScrollLeft = ReadDouble(body, "scrollLeft"),
-                    };
-                    break;
-                default:
-                    return null;
-            }
-        }
-        else
-        {
-            switch (operation)
-            {
-                case "install":
-                    if (!hasBody || ParseCssomSheets(body) is not { } sheets)
-                    {
-                        return null;
-                    }
-
-                    install = new PageProjectionCssomInstallPayload { Sheets = sheets };
-                    break;
-                case "sheetList":
-                    if (!hasBody
-                        || ParseCssomRemoved(body) is not { } cssomRemoved
-                        || ParseCssomAddedSheets(body) is not { } cssomAddedSheets)
-                    {
-                        return null;
-                    }
-
-                    sheetList = new PageProjectionCssomSheetListPayload
-                    {
-                        Removed = cssomRemoved,
-                        Added = cssomAddedSheets,
-                    };
-                    break;
-                case "ruleList":
-                    if (!hasBody || ParseCssomSelector(body, "selector") is not { } sheetSel)
-                    {
-                        return null;
-                    }
-
-                    if (ParseCssomRemoved(body) is not { } ruleRemoved
-                        || ParseCssomAddedRules(body) is not { } ruleAdded)
-                    {
-                        return null;
-                    }
-
-                    ruleList = new PageProjectionCssomRuleListPayload
-                    {
-                        Selector = sheetSel,
-                        Removed = ruleRemoved,
-                        Added = ruleAdded,
-                    };
-                    break;
-                case "patch":
-                    if (!hasBody
-                        || ParseCssomSelector(body, "selector") is not { } ruleSel
-                        || !body.TryGetProperty("rule", out var ruleEl)
-                        || ParseCssomRule(ruleEl) is not { } rule)
-                    {
-                        return null;
-                    }
-
-                    cssomPatch = new PageProjectionCssomPatchPayload
-                    {
-                        Selector = ruleSel,
-                        Rule = rule,
-                    };
-                    break;
-                default:
-                    return null;
-            }
-        }
+        var plane = string.Empty;
+        var operation = string.Empty;
 
         return new DomainPageProjectionFrame
         {
@@ -877,18 +709,12 @@ internal static class GrpcSessionMappers
             Timestamp = frame.TimestampMs,
             Plane = plane,
             Operation = operation,
+            Body = frame.Body.ToByteArray(),
             PartIndex = frame.PartIndex,
             PartCount = frame.PartCount == 0 ? 1 : frame.PartCount,
             Flags = frame.Flags,
-            Document = document,
-            ChildList = childList,
-            Patch = patch,
-            ScrollViewport = scrollViewport,
-            ScrollElement = scrollElement,
-            Install = install,
-            SheetList = sheetList,
-            RuleList = ruleList,
-            CssomPatch = cssomPatch,
+            Version = frame.Version == 0 ? 1 : frame.Version,
+            ContextId = frame.ContextId == 0 ? 1 : frame.ContextId,
         };
     }
 
@@ -914,7 +740,6 @@ internal static class GrpcSessionMappers
         {
             SessionId = sessionId.ToString("D"),
             Type = input.Type.Trim(),
-            Anchor = input.Anchor ?? "",
             PayloadJson = string.IsNullOrWhiteSpace(input.Payload) ? "{}" : input.Payload,
             Generation = input.Generation,
             TimestampClient = input.TimestampClient ?? 0,
@@ -948,7 +773,7 @@ internal static class GrpcSessionMappers
         return true;
     }
 
-    public static DomAsset ToDomAsset(GetDomAssetResponse response) => new()
+    public static VirtualResourceResponse ToVirtualResourceResponse(GetDomAssetResponse response) => new()
     {
         Body = response.Body.ToByteArray(),
         ContentType = string.IsNullOrWhiteSpace(response.ContentType)
@@ -962,432 +787,4 @@ internal static class GrpcSessionMappers
         CacheControl = string.IsNullOrWhiteSpace(response.CacheControl) ? null : response.CacheControl,
         Vary = string.IsNullOrWhiteSpace(response.Vary) ? null : response.Vary,
     };
-
-    private static DomSelectorWire? ParseDomSelector(JsonElement parent, string propertyName)
-    {
-        if (!parent.TryGetProperty(propertyName, out var selEl) || selEl.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var kind = ReadOptionalString(selEl, "kind");
-        var query = ReadOptionalString(selEl, "query");
-        if (string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(query))
-        {
-            return null;
-        }
-
-        int? index = null;
-        if (selEl.TryGetProperty("index", out var indexEl)
-            && indexEl.ValueKind == JsonValueKind.Number
-            && indexEl.TryGetInt32(out var i))
-        {
-            index = i;
-        }
-
-        // T7: exclusive variants — element{query} | childAt{query,index}.
-        if (string.Equals(kind, "element", StringComparison.Ordinal))
-        {
-            if (index is not null)
-            {
-                return null;
-            }
-        }
-        else if (string.Equals(kind, "childAt", StringComparison.Ordinal))
-        {
-            if (index is null || index < 0)
-            {
-                return null;
-            }
-        }
-        else
-        {
-            return null;
-        }
-
-        return new DomSelectorWire
-        {
-            Kind = kind,
-            Query = query,
-            Index = index,
-        };
-    }
-
-    /// <summary>
-    /// Parse childList <c>removed</c>. Missing property ⇒ empty list.
-    /// Malformed entry ⇒ null (reject envelope — T4/T6, no soft-skip).
-    /// </summary>
-    private static List<PageProjectionRemovedEntry>? ParseRemovedEntries(JsonElement body)
-    {
-        if (!body.TryGetProperty("removed", out var removedEl))
-        {
-            return [];
-        }
-
-        if (removedEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var list = new List<PageProjectionRemovedEntry>();
-        foreach (var entry in removedEl.EnumerateArray())
-        {
-            if (entry.ValueKind != JsonValueKind.Object
-                || ParseDomSelector(entry, "selector") is not { } sel)
-            {
-                return null;
-            }
-
-            list.Add(new PageProjectionRemovedEntry { Selector = sel });
-        }
-
-        return list;
-    }
-
-    /// <summary>
-    /// Parse childList <c>added</c>. Missing property ⇒ empty list.
-    /// Malformed entry ⇒ null (reject envelope — T4/T6, no soft-skip).
-    /// </summary>
-    private static List<PageProjectionAddedEntry>? ParseAddedEntries(JsonElement body)
-    {
-        if (!body.TryGetProperty("added", out var addedEl))
-        {
-            return [];
-        }
-
-        if (addedEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var list = new List<PageProjectionAddedEntry>();
-        foreach (var entry in addedEl.EnumerateArray())
-        {
-            if (entry.ValueKind != JsonValueKind.Object
-                || !entry.TryGetProperty("node", out var nodeEl)
-                || ParseDomNode(nodeEl) is not { } node)
-            {
-                return null;
-            }
-
-            var index = 0;
-            if (entry.TryGetProperty("index", out var indexEl))
-            {
-                if (indexEl.ValueKind != JsonValueKind.Number || !indexEl.TryGetInt32(out var i) || i < 0)
-                {
-                    return null;
-                }
-
-                index = i;
-            }
-
-            list.Add(new PageProjectionAddedEntry { Index = index, Node = node });
-        }
-
-        return list;
-    }
-
-    private static CssomSelectorWire? ParseCssomSelector(JsonElement parent, string propertyName)
-    {
-        if (!parent.TryGetProperty(propertyName, out var selEl) || selEl.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var kind = ReadOptionalString(selEl, "kind");
-        var id = ReadOptionalString(selEl, "id");
-        if (string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(id))
-        {
-            return null;
-        }
-
-        return new CssomSelectorWire { Kind = kind, Id = id };
-    }
-
-    private static List<CssomSheetWire>? ParseCssomSheets(JsonElement body)
-    {
-        if (!body.TryGetProperty("sheets", out var sheetsEl) || sheetsEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var sheets = new List<CssomSheetWire>();
-        foreach (var sheetEl in sheetsEl.EnumerateArray())
-        {
-            if (ParseCssomSheet(sheetEl) is not { } sheet)
-            {
-                return null;
-            }
-
-            sheets.Add(sheet);
-        }
-
-        return sheets;
-    }
-
-    private static CssomSheetWire? ParseCssomSheet(JsonElement sheetEl)
-    {
-        if (sheetEl.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var id = ReadOptionalString(sheetEl, "id");
-        if (string.IsNullOrWhiteSpace(id)
-            || !sheetEl.TryGetProperty("scope", out var scopeEl)
-            || ParseCssomScope(scopeEl) is not { } scope)
-        {
-            return null;
-        }
-
-        var rules = new List<CssomRuleWire>();
-        if (sheetEl.TryGetProperty("rules", out var rulesEl))
-        {
-            if (rulesEl.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            foreach (var ruleEl in rulesEl.EnumerateArray())
-            {
-                if (ParseCssomRule(ruleEl) is not { } rule)
-                {
-                    return null;
-                }
-
-                rules.Add(rule);
-            }
-        }
-
-        return new CssomSheetWire { Id = id, Scope = scope, Rules = rules };
-    }
-
-    private static CssomScopeWire? ParseCssomScope(JsonElement scopeEl)
-    {
-        if (scopeEl.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var kind = ReadOptionalString(scopeEl, "kind");
-        if (string.IsNullOrWhiteSpace(kind))
-        {
-            return null;
-        }
-
-        return new CssomScopeWire
-        {
-            Kind = kind,
-            HostAnchor = ReadOptionalString(scopeEl, "hostAnchor"),
-        };
-    }
-
-    private static CssomRuleWire? ParseCssomRule(JsonElement ruleEl)
-    {
-        if (ruleEl.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var id = ReadOptionalString(ruleEl, "id");
-        var cssText = ReadOptionalString(ruleEl, "cssText");
-        if (string.IsNullOrWhiteSpace(id) || cssText is null)
-        {
-            return null;
-        }
-
-        return new CssomRuleWire { Id = id, CssText = cssText };
-    }
-
-    /// <summary>
-    /// Parse Cssom <c>removed</c>. Missing property ⇒ empty list.
-    /// Malformed entry ⇒ null (reject envelope — no soft-skip).
-    /// </summary>
-    private static List<PageProjectionCssomRemovedEntry>? ParseCssomRemoved(JsonElement body)
-    {
-        if (!body.TryGetProperty("removed", out var removedEl))
-        {
-            return [];
-        }
-
-        if (removedEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var list = new List<PageProjectionCssomRemovedEntry>();
-        foreach (var entry in removedEl.EnumerateArray())
-        {
-            if (entry.ValueKind != JsonValueKind.Object
-                || ParseCssomSelector(entry, "selector") is not { } sel)
-            {
-                return null;
-            }
-
-            list.Add(new PageProjectionCssomRemovedEntry { Selector = sel });
-        }
-
-        return list;
-    }
-
-    private static List<PageProjectionCssomAddedSheetEntry>? ParseCssomAddedSheets(JsonElement body)
-    {
-        if (!body.TryGetProperty("added", out var addedEl))
-        {
-            return [];
-        }
-
-        if (addedEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var list = new List<PageProjectionCssomAddedSheetEntry>();
-        foreach (var entry in addedEl.EnumerateArray())
-        {
-            if (entry.ValueKind != JsonValueKind.Object
-                || !entry.TryGetProperty("sheet", out var sheetEl)
-                || ParseCssomSheet(sheetEl) is not { } sheet)
-            {
-                return null;
-            }
-
-            var index = 0;
-            if (entry.TryGetProperty("index", out var indexEl))
-            {
-                if (indexEl.ValueKind != JsonValueKind.Number || !indexEl.TryGetInt32(out var i) || i < 0)
-                {
-                    return null;
-                }
-
-                index = i;
-            }
-
-            list.Add(new PageProjectionCssomAddedSheetEntry { Index = index, Sheet = sheet });
-        }
-
-        return list;
-    }
-
-    private static List<PageProjectionCssomAddedRuleEntry>? ParseCssomAddedRules(JsonElement body)
-    {
-        if (!body.TryGetProperty("added", out var addedEl))
-        {
-            return [];
-        }
-
-        if (addedEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var list = new List<PageProjectionCssomAddedRuleEntry>();
-        foreach (var entry in addedEl.EnumerateArray())
-        {
-            if (entry.ValueKind != JsonValueKind.Object
-                || !entry.TryGetProperty("rule", out var ruleEl)
-                || ParseCssomRule(ruleEl) is not { } rule)
-            {
-                return null;
-            }
-
-            var index = 0;
-            if (entry.TryGetProperty("index", out var indexEl))
-            {
-                if (indexEl.ValueKind != JsonValueKind.Number || !indexEl.TryGetInt32(out var i) || i < 0)
-                {
-                    return null;
-                }
-
-                index = i;
-            }
-
-            list.Add(new PageProjectionCssomAddedRuleEntry { Index = index, Rule = rule });
-        }
-
-        return list;
-    }
-
-    private static double ReadDouble(JsonElement parent, string name)
-    {
-        if (!parent.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.Number)
-        {
-            return 0;
-        }
-
-        return el.TryGetDouble(out var value) ? value : 0;
-    }
-
-    private static DomNode? ParseDomNode(JsonElement nodeEl)
-    {
-        if (nodeEl.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        var tag = nodeEl.TryGetProperty("tag", out var tagEl) && tagEl.ValueKind == JsonValueKind.String
-            ? tagEl.GetString() ?? ""
-            : "";
-
-        // Text nodes may omit anchor.
-        var anchor = nodeEl.TryGetProperty("anchor", out var anchorEl)
-            && anchorEl.ValueKind == JsonValueKind.String
-            ? anchorEl.GetString() ?? ""
-            : "";
-
-        if (string.IsNullOrWhiteSpace(tag) && string.IsNullOrWhiteSpace(anchor)
-            && !nodeEl.TryGetProperty("text", out _))
-        {
-            return null;
-        }
-
-        Dictionary<string, string>? attrs = null;
-        if (nodeEl.TryGetProperty("attrs", out var attrsEl) && attrsEl.ValueKind == JsonValueKind.Object)
-        {
-            attrs = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var prop in attrsEl.EnumerateObject())
-            {
-                if (prop.Value.ValueKind == JsonValueKind.String)
-                {
-                    attrs[prop.Name] = prop.Value.GetString() ?? "";
-                }
-            }
-        }
-
-        List<DomNode>? children = null;
-        if (nodeEl.TryGetProperty("children", out var childrenEl))
-        {
-            if (childrenEl.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            children = [];
-            foreach (var childEl in childrenEl.EnumerateArray())
-            {
-                // T4/T6: malformed child rejects the whole envelope — never soft-skip
-                // (omitted child shifts F index space → ghost desync).
-                if (ParseDomNode(childEl) is not { } child)
-                {
-                    return null;
-                }
-
-                children.Add(child);
-            }
-        }
-
-        return new DomNode
-        {
-            Anchor = anchor,
-            Tag = tag,
-            Attrs = attrs,
-            Text = ReadOptionalString(nodeEl, "text"),
-            Children = children,
-        };
-    }
-
-    private static string? ReadOptionalString(JsonElement element, string name)
-        => element.TryGetProperty(name, out var valueEl) && valueEl.ValueKind == JsonValueKind.String
-            ? valueEl.GetString()
-            : null;
 }

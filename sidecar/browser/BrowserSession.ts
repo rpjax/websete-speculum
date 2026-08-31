@@ -98,12 +98,15 @@ export interface BrowserSessionEvents {
     scrollLeft?: number;
   }): void;
 
-  /**
-   * PageEpoch parity telemetry (opt-in Telemetry hop) — Virtual / Establish / Asset /
-   * Resync phase events. `payload` is JSON-serialized verbatim into the lifecycle
-   * envelope's `payloadJson` field; `kind` is one of the `parity_*` wire kinds.
-   */
-  onPageProjectionParity?(kind: string, payload: Record<string, unknown>): void;
+  /** Pre-warmed browser pool lifecycle (opt-in Telemetry hop). */
+  onSessionPoolAcquired?(event: {
+    maxWidth: number;
+    maxHeight: number;
+    poolSize: number;
+    waitMs: number;
+  }): void;
+
+  onSessionPoolReleased?(event: { heldMs: number }): void;
 
   /**
    * PageProjection telemetry pushed on the dataplane Telemetry channel (opt-in caps at launch).
@@ -265,6 +268,8 @@ export interface BrowserLaunchOptions {
   frameStallMs?: number;
   mirrorMaxBytes?: number;
   assetCacheL1MaxBytes?: number;
+  assetCacheL2MaxBytes?: number;
+  assetCacheL2Enabled?: boolean;
   assetPriorityViewportPx?: number;
   aggregateIntervalMs?: number;
   locale: string;
@@ -276,6 +281,8 @@ export interface BrowserLaunchOptions {
   scripts?: readonly BrowserScriptInjection[];
   /** Main-frame allowlist; matching and block notify are internal to the session. */
   allowedNavigationDomains?: readonly string[];
+  /** Immutable URL resolution policy injected at Launch (motor-migration M1). */
+  navigationPolicy?: import('./navigation/navigationPolicy').NavigationPolicy;
 }
 
 export interface BrowserGeolocation {
@@ -488,6 +495,8 @@ export interface BrowserSession {
   exportState(): Promise<BrowserState>;
 
   navigate(url: string): Promise<void>;
+  /** Resolve client path/query via Launch NavigationPolicy, then navigate. */
+  navigateClient?(path: string, query: string): Promise<void>;
   refresh(): Promise<void>;
   /** History — core (not {@link pushInput}). */
   goBack(): Promise<void>;

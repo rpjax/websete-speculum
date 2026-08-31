@@ -21,7 +21,7 @@ export class EventBridge implements BrowserSessionEvents {
   readonly audio = new DropOldestQueue<Uint8Array>(2);
   /**
    * PageProjection Dom+Cssom envelopes — sized for SPA boot churn (T5 DropAll on overflow).
-   * Default 8192 aligns with API SequencedDiffChannels.DefaultCapacity (BZ1).
+   * Default 8192 aligns with API PageProjectionFrameChannels.DefaultConnectionCapacity (BZ1).
    * Replaced at Launch via {@link configureDomCapacity} when Sessions config differs.
    */
   private _dom = new DropOldestQueue<{
@@ -80,7 +80,7 @@ export class EventBridge implements BrowserSessionEvents {
     reason?: string;
     generation?: number;
   }>(32);
-  /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped | parity_*) — DropOldest. */
+  /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped | session_pool_*) — DropOldest. */
   readonly pageProjectionLifecycle = new DropOldestQueue<{
     kind: string;
     fromGeneration: number;
@@ -94,8 +94,11 @@ export class EventBridge implements BrowserSessionEvents {
     sequence?: number;
     lowestDroppedSequence?: number;
     highestDroppedSequence?: number;
-    /** PageEpoch parity telemetry (parity_* kinds) — UTF-8 JSON of the kind's payload. */
-    payloadJson?: string;
+    displayWidth?: number;
+    displayHeight?: number;
+    poolSize?: number;
+    waitMs?: number;
+    heldMs?: number;
   }>(32);
   /** Opt-in allocation lifecycle for Telemetry.Sessions.Sidecar.* (DropOldest). */
   readonly allocationLifecycle = new DropOldestQueue<
@@ -155,6 +158,41 @@ export class EventBridge implements BrowserSessionEvents {
     this.updateDomBackpressureAfterWrite();
   }
 
+  /** M3: API reports consumer-side queue depth; motor decides pause/resync. */
+  onConsumerPressure(
+    pressure: {
+      queuedFrames?: number;
+      queuedBytes?: number;
+      oldestQueuedMs?: number;
+      draining?: boolean;
+    },
+    requestResync?: (req: { reason: string }) => Promise<void>,
+  ): void {
+    const frames = Math.max(0, Math.floor(Number(pressure.queuedFrames ?? 0)));
+    const capacity = this._dom.maxCapacity;
+    if (capacity <= 0) {
+      return;
+    }
+
+    const ratio = frames / capacity;
+    const oldestMs = Number(pressure.oldestQueuedMs ?? 0);
+
+    if (!this._domBackpressure && ratio > EventBridge.DomBackpressureRatio) {
+      this._domBackpressure = true;
+      this._onDomBackpressureChanged?.(true);
+    } else if (
+      this._domBackpressure
+      && (ratio <= EventBridge.DomBackpressureClearRatio || pressure.draining === true)
+    ) {
+      this._domBackpressure = false;
+      this._onDomBackpressureChanged?.(false);
+    }
+
+    if (requestResync && (oldestMs >= 5000 || ratio > 0.95)) {
+      void requestResync({ reason: 'consumer_pressure' }).catch(() => {});
+    }
+  }
+
   /** Called by Control stream to receive permission requests. Returns sink epoch. */
   setPermissionSink(sink: ((req: PermissionRequestMsg) => void) | null): number {
     this.permissionSink = sink;
@@ -211,7 +249,6 @@ export class EventBridge implements BrowserSessionEvents {
       return;
     }
 
-    // T5/D13: overflow → client sequence gap → desync (never silently truncated chronology).
     const { dropped, lowestSequence, highestSequence } = this.dom.tryWriteDropAllOnOverflow(diff);
     if (dropped > 0) {
       this.emitLifecycleQueueDropped({
@@ -316,31 +353,34 @@ export class EventBridge implements BrowserSessionEvents {
     });
   }
 
-  /**
-   * PageEpoch parity telemetry (Virtual / Establish / Asset / Resync `parity_*` kinds).
-   * Best-effort — shares the lifecycle DropOldest queue with generation_bumped/queue_dropped.
-   */
-  emitPageProjectionParity(kind: string, payload: Record<string, unknown>): void {
-    let payloadJson: string;
-    try {
-      payloadJson = JSON.stringify(payload);
-    } catch {
-      return;
-    }
-    const generation = payload['generation'];
-    const toGeneration = typeof generation === 'number' ? generation : 0;
+  onSessionPoolAcquired(event: {
+    maxWidth: number;
+    maxHeight: number;
+    poolSize: number;
+    waitMs: number;
+  }): void {
     this.pageProjectionLifecycle.tryWrite({
-      kind,
+      kind: 'session_pool_acquired',
       fromGeneration: 0,
-      toGeneration,
+      toGeneration: 0,
       reason: '',
       unixMs: Date.now(),
-      payloadJson,
+      displayWidth: event.maxWidth,
+      displayHeight: event.maxHeight,
+      poolSize: event.poolSize,
+      waitMs: event.waitMs,
     });
   }
 
-  onPageProjectionParity(kind: string, payload: Record<string, unknown>): void {
-    this.emitPageProjectionParity(kind, payload);
+  onSessionPoolReleased(event: { heldMs: number }): void {
+    this.pageProjectionLifecycle.tryWrite({
+      kind: 'session_pool_released',
+      fromGeneration: 0,
+      toGeneration: 0,
+      reason: '',
+      unixMs: Date.now(),
+      heldMs: event.heldMs,
+    });
   }
 
   onPageProjectionScrollEchoHit(event: {
@@ -479,7 +519,12 @@ export class EventBridge implements BrowserSessionEvents {
         resolve('deny');
         return;
       }
-      sink({ corrId, kind, sessionId: this.sessionId });
+      // Yield so nested unary handlers (e.g. probe resyncPermissions) do not block
+      // the Control stream from receiving PermissionReply on the same grpc worker.
+      setImmediate(() => {
+        if (!this.permissionWaiters.has(corrId)) return;
+        sink({ corrId, kind, sessionId: this.sessionId });
+      });
     });
   }
 }

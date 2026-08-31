@@ -10,6 +10,7 @@ import { createMockBrowserSessionFactory } from './browser/MockBrowserSession';
 import { createSealedBrowserSessionFactory } from './browser/createSealedBrowserSessionFactory';
 import type { BrowserSessionFactory } from './browser/BrowserSession';
 import { SessionRegistry } from './host/SessionRegistry';
+import { SharedAssetCacheL2 } from './host/SharedAssetCacheL2';
 import { isBenignBrowserRace } from './host/browserRace';
 import { getBrowserSessionService } from './grpc/loadProto';
 import { createBrowserSessionHandlers } from './grpc/BrowserSessionService';
@@ -76,15 +77,20 @@ export function createSidecarServer(options: {
   frameIntervalMs: number;
   factory: BrowserSessionFactory;
   maxGrpcMessageBytes?: number;
-}): { server: grpc.Server; registry: SessionRegistry } {
+  sharedAssetTier?: SharedAssetCacheL2;
+}): { server: grpc.Server; registry: SessionRegistry; sharedAssetTier: SharedAssetCacheL2 } {
+  const sharedAssetTier = options.sharedAssetTier ?? new SharedAssetCacheL2();
   const registry = new SessionRegistry(options.factory);
   const maxMessageBytes = options.maxGrpcMessageBytes ?? resolveGrpcMaxMessageBytes();
   const server = new grpc.Server({
     'grpc.max_receive_message_length': maxMessageBytes,
     'grpc.max_send_message_length': maxMessageBytes,
   });
-  server.addService(getBrowserSessionService(), createBrowserSessionHandlers(registry));
-  return { server, registry };
+  server.addService(
+    getBrowserSessionService(),
+    createBrowserSessionHandlers(registry, sharedAssetTier),
+  );
+  return { server, registry, sharedAssetTier };
 }
 
 export function bindAndStart(
@@ -178,11 +184,16 @@ async function main(): Promise<void> {
   const grpcPort = requireEnv('SPECULUM_GRPC_PORT');
   const healthPort = Number(requireEnv('SPECULUM_HEALTH_PORT'));
   const frameIntervalMs = mode === 'mock' ? 16 : 500;
-  const factory = resolveBrowserFactory({ emitFrames: true, frameIntervalMs });
+  const sharedAssetTier = new SharedAssetCacheL2();
+  const factory =
+    resolveBrowserMode() === 'mock'
+      ? resolveBrowserFactory({ emitFrames: true, frameIntervalMs })
+      : createSealedBrowserSessionFactory({ sharedAssetTier });
   const { server, registry } = createSidecarServer({
     emitFrames: true,
     frameIntervalMs,
     factory,
+    sharedAssetTier,
   });
   const health = startHealthServer(healthPort);
   const addr = await bindAndStart(server, `0.0.0.0:${grpcPort}`);

@@ -34,6 +34,7 @@ import type {
   IVideoStreamingBrowserSession,
   IVideoStreamingSessionSink,
 } from './contracts';
+import type { SharedAssetCacheL2 } from '../host/SharedAssetCacheL2';
 
 class DenyAllPermissions implements IBrowserPermissionHost {
   async requestPermission(): Promise<'granted' | 'denied'> {
@@ -206,11 +207,13 @@ class ModeSelectingSession implements BrowserSession {
 export function createSealedBrowserSessionFactory(options?: {
   headless?: boolean;
   displays?: DisplayAllocator;
+  sharedAssetTier?: SharedAssetCacheL2;
 }): BrowserSessionFactory & IBrowserSessionFactory {
   const displays = options?.displays ?? new DisplayAllocator();
   const ppOpts: PageProjectionFactoryOptions = {
     headless: options?.headless ?? true,
     probes: DEFAULT_PP_PROBES,
+    sharedAssetTier: options?.sharedAssetTier,
   };
 
   const legacy: BrowserSessionFactory = {

@@ -4,14 +4,28 @@ namespace Speculum.SessionsTest.Tests;
 
 /// <summary>
 /// MATRIX C1–C12 input effect asserts against motor-fixture via Refactor SessionHub +
-/// sessions harness HTTP admit (product input is data-plane VideoStreamingInput; harness
-/// calls AdmitVideoStreamingInput directly). Journal InputApplied enabled only via explicit seed.
+/// sessions harness HTTP admit (legacy VideoStreamingInput path). Journal InputApplied
+/// enabled only via explicit seed. Requires explicit <c>MirrorMode.VideoStreaming</c>
+/// after product default flipped to PageProjection.
 /// </summary>
 [Collection(nameof(SessionsTestCollection))]
 [Trait("Category", "SessionsTest")]
+[Trait("Category", "VideoStreaming")]
 public sealed class InputAssertTests : SessionsTestBase
 {
     public InputAssertTests(SessionsTestFixture fixture) : base(fixture) { }
+
+    public override async Task InitializeAsync()
+    {
+        await base.InitializeAsync();
+        await Fx.EnsureSessionsMirrorModeAsync("videoStreaming");
+    }
+
+    public override async Task DisposeAsync()
+    {
+        await Fx.EnsureSessionsMirrorModeAsync("pageProjection");
+        await base.DisposeAsync();
+    }
 
     private static DeviceProfile MobileDevice => new()
     {

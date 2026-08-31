@@ -52,7 +52,7 @@ export const SESSIONS_BASELINE: JsonObject = {
   detachedSessionTimeout: '00:30:00',
   isJsBridgeEnabled: true,
   dataStreamTransport: 'webTransport',
-  mirrorMode: 'videoStreaming',
+  mirrorMode: 'pageProjection',
   frameQueueCapacity: 8192,
   viewportPolicy: {
     minimum: {
@@ -464,7 +464,7 @@ export function fillSessionsGaps(current: JsonObject): JsonObject {
     dataStreamTransport:
       text(current.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport',
     mirrorMode:
-      text(current.mirrorMode) === 'pageProjection' ? 'pageProjection' : 'videoStreaming',
+      text(current.mirrorMode) === 'videoStreaming' ? 'videoStreaming' : 'pageProjection',
     viewportPolicy: current.viewportPolicy ?? SESSIONS_BASELINE.viewportPolicy,
     clientEnvironmentPolicy:
       current.clientEnvironmentPolicy ?? SESSIONS_BASELINE.clientEnvironmentPolicy,
@@ -535,7 +535,7 @@ export function summarizeSessions(value: JsonObject) {
   const dataStreamTransport =
     text(value.dataStreamTransport) === 'webSocket' ? 'webSocket' : 'webTransport'
   const mirrorMode =
-    text(value.mirrorMode) === 'pageProjection' ? 'pageProjection' : 'videoStreaming'
+    text(value.mirrorMode) === 'videoStreaming' ? 'videoStreaming' : 'pageProjection'
   const viewport = asObject(asObject(value.viewportPolicy).default)
   const width = asNumber(viewport.width)
   const height = asNumber(viewport.height)

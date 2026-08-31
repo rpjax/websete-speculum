@@ -15,11 +15,13 @@ public class SessionsConfiguration
         DataStreamTransportKind.WebTransport;
 
   /// <summary>
-  /// Admin-only projection mode for new sessions (Launch). Default VideoStreaming.
-  /// Set only via Admin Configurations → Sessions. Projected to public client-config
-  /// so the SPA mounts the definitive surface before StartSession; not chosen by the client.
+  /// Admin-only projection mode for new sessions (Launch). Default <see cref="MirrorMode.PageProjection"/>
+  /// (product). <see cref="MirrorMode.VideoStreaming"/> remains as a legacy path until removed.
+  /// Set via Admin Configurations → Sessions (or <c>Sessions__MirrorMode</c> on first-boot).
+  /// Projected to public client-config so the SPA mounts the surface before StartSession;
+  /// not chosen by the client.
   /// </summary>
-  public MirrorMode MirrorMode { get; init; } = MirrorMode.VideoStreaming;
+  public MirrorMode MirrorMode { get; init; } = MirrorMode.PageProjection;
 
     /// <summary>
     /// Enable CDP CPU profiling RPCs on the Virtual Chromium (lab/diag). Default false.

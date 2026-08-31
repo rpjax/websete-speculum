@@ -78,13 +78,12 @@ internal static class GrpcSessionMappers
             HiddenRateHz = Math.Max(0, pp.HiddenRateHz),
             RateRecoverMs = Math.Max(0, pp.RateRecoverMs),
             FrameStallMs = Math.Max(0, pp.FrameStallMs),
-            EstablishChunkBytes = Math.Max(0, pp.EstablishChunkBytes),
+            // establish_chunk_bytes / client_state_ms: dead pre-V4 knobs — do not map (ignored on sidecar).
             MirrorMaxBytes = Math.Max(0, pp.MirrorMaxBytes),
             AssetCacheL1MaxBytes = Math.Max(0, pp.AssetCacheL1MaxBytes),
             AssetPriorityViewportPx = Math.Max(0, pp.AssetPriorityViewportPx),
             AggregateIntervalMs = Math.Max(0, pp.AggregateIntervalMs),
             SwapTimeoutMs = Math.Max(0, pp.SwapTimeoutMs),
-            ClientStateMs = Math.Max(0, pp.ClientStateMs),
             ApplyBudgetMs = Math.Max(0, pp.ApplyBudgetMs),
         };
         foreach (var hz in pp.FrameRateLadder)

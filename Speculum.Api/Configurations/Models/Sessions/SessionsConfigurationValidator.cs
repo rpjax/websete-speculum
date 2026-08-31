@@ -173,21 +173,11 @@ public sealed class SessionsConfigurationValidator : IValidateOptions<SessionsCo
             return false;
         }
 
-        if (options.EstablishChunkBytes <= 0)
-        {
-            error = "Sessions.PageProjection.EstablishChunkBytes must be greater than zero.";
-            return false;
-        }
+        // EstablishChunkBytes / ClientStateMs are obsolete dead knobs — not validated; ignored on Launch.
 
         if (options.SwapTimeoutMs <= 0)
         {
             error = "Sessions.PageProjection.SwapTimeoutMs must be greater than zero — the double-buffer swap must always resolve.";
-            return false;
-        }
-
-        if (options.ClientStateMs <= 0)
-        {
-            error = "Sessions.PageProjection.ClientStateMs must be greater than zero.";
             return false;
         }
 

@@ -41,7 +41,7 @@ export const mockApi = {
       sessions: {
         detachedSessionTimeoutSeconds: 300,
         dataStreamTransport: 'webTransport' as const,
-        mirrorMode: 'videoStreaming' as const,
+        mirrorMode: 'pageProjection' as const,
         viewportPolicy: {
           minWidth: 320,
           minHeight: 240,

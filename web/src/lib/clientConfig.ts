@@ -142,7 +142,7 @@ export interface ClientConfig {
     screencastMaxEncodeScale: number
     /** Sessions.PageProjection.SwapTimeoutMs — SurfaceHost swap fallback. */
     pageProjectionSwapTimeoutMs?: number
-    /** Sessions.PageProjection.ClientStateMs — ClientState report interval. */
+    /** Sessions.PageProjection.ClientStateMs — dead (ReportClientState purged); kept for knobs shape only. */
     pageProjectionClientStateMs?: number
     /** Sessions.PageProjection.ApplyBudgetMs — E9 apply overrun threshold. */
     pageProjectionApplyBudgetMs?: number

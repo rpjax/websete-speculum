@@ -78,8 +78,13 @@ describe('sessionsHelpers', () => {
     expect(asObject(next.clientEnvironmentPolicy).defaultLocale).toBe('pt-BR')
     expect(asObject(next.inputMultiplexingPolicy).access).toBe('shared')
     expect(next.dataStreamTransport).toBe('webTransport')
-    expect(next.mirrorMode).toBe('videoStreaming')
+    expect(next.mirrorMode).toBe('pageProjection')
     expect(asObject(next.screencastPolicy).maxEncodeScale).toBe(2)
+  })
+
+  it('preserves videoStreaming legacy mirror mode when filling gaps', () => {
+    const next = fillSessionsGaps({ mirrorMode: 'videoStreaming' })
+    expect(next.mirrorMode).toBe('videoStreaming')
   })
 
   it('preserves pageProjection mirror mode when filling gaps', () => {
@@ -122,6 +127,14 @@ describe('sessionsHelpers', () => {
     expect(ready.viewportLabel).toBe('1280×720')
     expect(ready.timeoutLabel).toBe('15 min')
     expect(ready.dataStreamTransport).toBe('webTransport')
+    expect(ready.mirrorMode).toBe('pageProjection')
+    expect(ready.mirrorModeLabel).toBe('DOM projection')
+  })
+
+  it('summarizes videoStreaming legacy mirror mode', () => {
+    const ready = summarizeSessions(
+      applySessionsGuidedPreset({ mirrorMode: 'videoStreaming' }, SESSIONS_GUIDED_PRESETS[0]!),
+    )
     expect(ready.mirrorMode).toBe('videoStreaming')
     expect(ready.mirrorModeLabel).toBe('Video streaming')
   })

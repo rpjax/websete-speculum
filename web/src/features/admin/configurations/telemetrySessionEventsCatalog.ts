@@ -224,12 +224,12 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
       {
         type: 'Telemetry.Sessions.PageProjection.Frame.ResyncRequested',
         label: 'Frame · resync requested',
-        help: 'Client requested OOB joint Dom+Cssom resync.',
+        help: 'Client POST page-projection/resync — resync-flagged frame on the Diff stream (not OOB body).',
       },
       {
         type: 'Telemetry.Sessions.PageProjection.Frame.ResyncServed',
         label: 'Frame · resync served',
-        help: 'API served the OOB resync snapshot (sheet/rule/seed counts + duration).',
+        help: 'Resync completed; frame is on the Diff stream (not an OOB HTTP snapshot).',
       },
       {
         type: 'Telemetry.Sessions.PageProjection.Frame.RateChanged',
@@ -370,13 +370,13 @@ export const TELEMETRY_SESSION_EVENT_GROUPS: TelemetrySessionEventGroup[] = [
       },
       {
         type: 'Telemetry.Sessions.PageProjection.Establish.DomMapStarted',
-        label: 'Establish · dom map started',
-        help: 'Serializing the Virtual Dom tree for the epoch.',
+        label: 'Establish · dom map started (legacy)',
+        help: 'Legacy DomMap name — not the V4 wire path; residual journal only.',
       },
       {
         type: 'Telemetry.Sessions.PageProjection.Establish.DomMapCompleted',
-        label: 'Establish · dom map completed',
-        help: 'Dom map serialization finished (durationMs, approxNodes).',
+        label: 'Establish · dom map completed (legacy)',
+        help: 'Legacy DomMap name — not accept proof; residual journal only.',
       },
       {
         type: 'Telemetry.Sessions.PageProjection.Establish.CssomInstallStarted',

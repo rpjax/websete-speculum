@@ -40,7 +40,7 @@ V4 lab (DOM table, single document, no production)
 
 | Lens | ~% | What counts |
 |------|-----|-------------|
-| **V4 core algorithm (lab)** | **~95%** | Shipped ISA complete (§4 lacre). DOM, CSSOM, shadow, PROP_SET, OPEN-6 SO, resync, sparse-cdp input, apply gate. Open: canvas, XO/NIT, SW mint revert (PP-NESTED-GEN-PACK). |
+| **V4 core algorithm (lab)** | **~95%** | Shipped ISA complete (§4 lacre). DOM, CSSOM, shadow, PROP_SET, OPEN-6 SO, resync, sparse-cdp input, apply gate. Open: canvas, XO/NIT. PP-NESTED-GEN-PACK closed. |
 | **Lab QA / asserts** | **~78%** | Eneba `/br/` browse green (protocol + input); wire invariants. Open: redirect path re-proof, widget parity on browse, nested `cssomO2` blueprint. |
 | **Session contract / Live path** | **~90% shape** | Sealed factory + `PageProjectionBrowserSession`. Open: antibot kits, asset store, frame-queue backpressure. |
 | **Production cutover (M1 exit)** | **~78%** | Session path + web surface. Still needs: canvas (gate 7), MotorAssert Live E2E, accept oracles. |

@@ -72,7 +72,9 @@ public sealed class PublicClientConfigProjector : IPublicClientConfigProjector
                 ScreencastMaxEncodeScale = ClampEncodeScale(
                     engine.Sessions.ScreencastPolicy.MaxEncodeScale),
                 PageProjectionSwapTimeoutMs = Math.Max(0, engine.Sessions.PageProjection.SwapTimeoutMs),
-                PageProjectionClientStateMs = Math.Max(1, engine.Sessions.PageProjection.ClientStateMs),
+                // ClientStateMs is a dead pre-V4 knob (ReportClientState purged). Keep a stable
+                // wire field for SPA knobs shape — do not read the obsolete Sessions option.
+                PageProjectionClientStateMs = 1000,
                 PageProjectionApplyBudgetMs = Math.Max(1, engine.Sessions.PageProjection.ApplyBudgetMs),
             },
             ResourceManagement = new PublicResourceManagementConfig
@@ -139,12 +141,12 @@ public sealed class PublicSessionsConfig
 {
     public int DetachedSessionTimeoutSeconds { get; init; }
     public string DataStreamTransport { get; init; } = "webTransport";
-    public string MirrorMode { get; init; } = "videoStreaming";
+    public string MirrorMode { get; init; } = "pageProjection";
     public PublicViewportPolicyConfig ViewportPolicy { get; init; } = new();
     public double ScreencastMaxEncodeScale { get; init; } = 2;
     /// <summary>Sessions.PageProjection.SwapTimeoutMs — SPA double-buffer swap fallback.</summary>
     public int PageProjectionSwapTimeoutMs { get; init; } = 1500;
-    /// <summary>Sessions.PageProjection.ClientStateMs — client→server control report interval.</summary>
+    /// <summary>Dead pre-V4 knob (ReportClientState purged) — kept for SPA knobs shape only.</summary>
     public int PageProjectionClientStateMs { get; init; } = 1000;
     /// <summary>Sessions.PageProjection.ApplyBudgetMs — E9 apply overrun threshold.</summary>
     public int PageProjectionApplyBudgetMs { get; init; } = 4;

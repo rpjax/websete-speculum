@@ -364,13 +364,13 @@ export function SessionsEditor({
             step={4}
             totalSteps={6}
             title="Which mirror mode should new sessions use?"
-            helper="Admin-only. Saved to Sessions config and sent on Launch. Session clients cannot choose this. DOM projection is accepted and stored; runtime still follows video streaming until that plugin lands."
+            helper="Admin-only. Saved to Sessions config and sent on Launch. Session clients cannot choose this. DOM projection is the product mirror; video streaming remains as a legacy path."
           >
             <ConfigEnumSelect
               id="mirrorMode"
               label="Mirror mode"
               value={
-                text(value.mirrorMode) === 'pageProjection' ? 'pageProjection' : 'videoStreaming'
+                text(value.mirrorMode) === 'videoStreaming' ? 'videoStreaming' : 'pageProjection'
               }
               options={MIRROR_MODE_OPTIONS}
               onChange={(v) => patchField(['mirrorMode'], v)}

@@ -10,6 +10,7 @@ public sealed class NavigationAssertTests : SessionsTestBase
     [SessionsTestFact]
     public async Task B1_navigate_updates_location()
     {
+        await Fx.EnsureSessionsMirrorModeAsync("pageProjection");
         await using var act = new SessionsActClient(Fx.Host);
         await act.ConnectAsync();
         await act.StartFixturePageAsync("/nav/a");
@@ -24,20 +25,30 @@ public sealed class NavigationAssertTests : SessionsTestBase
     [SessionsTestFact]
     public async Task H1_goback_updates_location()
     {
-        await using var act = new SessionsActClient(Fx.Host);
-        await act.ConnectAsync();
-        await act.StartFixturePageAsync("/nav/a");
+        // Legacy VideoStreaming harness goback — product PP history is intent-only.
+        await Fx.EnsureSessionsMirrorModeAsync("videoStreaming");
+        try
+        {
+            await using var act = new SessionsActClient(Fx.Host);
+            await act.ConnectAsync();
+            await act.StartFixturePageAsync("/nav/a");
 
-        Assert.True((await act.NavigateAsync("/nav/b")).Applied);
-        await act.WaitEvaluateContainsAsync("location.pathname", "/nav/b", TimeSpan.FromSeconds(30));
+            Assert.True((await act.NavigateAsync("/nav/b")).Applied);
+            await act.WaitEvaluateContainsAsync("location.pathname", "/nav/b", TimeSpan.FromSeconds(30));
 
-        await act.SendInputAsync("goback", """{"type":"goback"}""");
-        await act.WaitEvaluateContainsAsync("location.pathname", "/nav/a", TimeSpan.FromSeconds(30));
+            await act.SendInputAsync("goback", """{"type":"goback"}""");
+            await act.WaitEvaluateContainsAsync("location.pathname", "/nav/a", TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            await Fx.EnsureSessionsMirrorModeAsync("pageProjection");
+        }
     }
 
     [SessionsTestFact]
     public async Task N1_blank_stays_single_tab()
     {
+        await Fx.EnsureSessionsMirrorModeAsync("pageProjection");
         await using var act = new SessionsActClient(Fx.Host);
         await act.ConnectAsync();
         await act.StartFixturePageAsync("/popup");

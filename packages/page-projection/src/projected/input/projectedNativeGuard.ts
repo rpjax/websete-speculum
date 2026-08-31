@@ -19,6 +19,7 @@ export function eventTargetElement(target: EventTarget | null): Element | null {
 export function isProjectedNavigable(target: EventTarget | null): boolean {
   const el = eventTargetElement(target);
   if (el == null) return false;
+  if (typeof el.closest !== 'function') return false;
   return el.closest('a[href], area[href]') != null;
 }
 
@@ -29,7 +30,7 @@ export function suppressProjectedDefault(event: Event): void {
 
 /** Layout viewport — iOS `innerWidth` tracks the visual viewport and desyncs touch coords. */
 export function layoutViewportSize(win: Window): { width: number; height: number } {
-  const el = win.document.documentElement;
+  const el = win.document?.documentElement;
   const width = el?.clientWidth || win.innerWidth;
   const height = el?.clientHeight || win.innerHeight;
   return { width, height };

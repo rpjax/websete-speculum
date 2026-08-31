@@ -1878,9 +1878,10 @@
     "../packages/page-projection/dist/projected/projectedBlankIframe.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_SKELETON_META_NAME = void 0;
+      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = void 0;
       exports.PROJECTED_SKELETON_META_NAME = "speculum-projected-skeleton";
-      exports.PROJECTED_STANDARDS_SRCDOC = '<!DOCTYPE html><html><head><meta name="speculum-projected-skeleton" content="1"></head><body></body></html>';
+      exports.PROJECTED_K5_CSP = "script-src 'none'; object-src 'none'";
+      exports.PROJECTED_STANDARDS_SRCDOC = `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${exports.PROJECTED_K5_CSP}"><meta name="${exports.PROJECTED_SKELETON_META_NAME}" content="1"></head><body></body></html>`;
       exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = 5e3;
       function fault(errorCode, message) {
         const err = new Error(message);
@@ -1897,6 +1898,28 @@
           doc.removeChild(doc.firstChild);
       }
       exports.stripProjectedSkeleton = stripProjectedSkeleton;
+      function ensureProjectedK5Csp(doc) {
+        let html = doc.documentElement;
+        if (!html) {
+          html = doc.createElement("html");
+          doc.appendChild(html);
+        }
+        let head = doc.head;
+        if (!head) {
+          head = doc.createElement("head");
+          html.insertBefore(head, html.firstChild);
+        }
+        const existing = head.querySelectorAll('meta[http-equiv="Content-Security-Policy"]');
+        for (let i = 0; i < existing.length; i++) {
+          if (existing[i].getAttribute("content") === exports.PROJECTED_K5_CSP)
+            return;
+        }
+        const meta = doc.createElement("meta");
+        meta.httpEquiv = "Content-Security-Policy";
+        meta.content = exports.PROJECTED_K5_CSP;
+        head.insertBefore(meta, head.firstChild);
+      }
+      exports.ensureProjectedK5Csp = ensureProjectedK5Csp;
       function isProjectedStandardsSkeleton(doc) {
         if (doc == null || doc.defaultView == null)
           return false;
@@ -2223,7 +2246,7 @@
           }
         }
         /**
-         * K5 sandbox has no `allow-scripts`; hide `<noscript>` like Chromium with JS on.
+         * K5 CSP blocks page JS; hide `<noscript>` like Chromium with JS on.
          * Call after phase-2 materialize — `defaultView`/head can be gone mid-apply.
          */
         ensurePaintParity() {
@@ -2618,6 +2641,8 @@
             const node = this.registry.get(id);
             if (!node)
               return this.fail("address_miss", "insert", id);
+            if (isHtmlScriptElement(node))
+              (0, projectedBlankIframe_1.ensureProjectedK5Csp)(this.doc);
             if (node.nodeType === Node.DOCUMENT_TYPE_NODE && parent === this.doc && this.doc.doctype === node) {
               continue;
             }
@@ -2653,6 +2678,9 @@
           const node = this.registry.get(op.node);
           if (!node || node.nodeType !== Node.ELEMENT_NODE)
             return this.fail("address_miss", "attrSet", op.node);
+          if (isHtmlScriptElement(node) && op.attrs.some((a) => a.name === "src" && a.value.length > 0)) {
+            (0, projectedBlankIframe_1.ensureProjectedK5Csp)(this.doc);
+          }
           const attrs = this.nestedHostIds.has(op.node) ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name)) : op.attrs;
           if (!applyAttrs(node, attrs, this.options.stampUrl)) {
             return this.fail("malformed", "attrSet", op.node);
@@ -2716,6 +2744,9 @@
         }
       };
       exports.DomFrameApplier = DomFrameApplier;
+      function isHtmlScriptElement(node) {
+        return node.nodeType === Node.ELEMENT_NODE && node.localName === "script" && node.namespaceURI === "http://www.w3.org/1999/xhtml";
+      }
       function applyAttrs(el, attrs, stampUrl) {
         return (0, attrApply_1.applyAttrPairs)((name, value) => {
           const stamped = stampUrl ? stampUrl(name, value) : value;
@@ -2841,7 +2872,6 @@
             throw new Error("nested surface: host has no parent");
           const iframe = document.createElement("iframe");
           iframe.title = "Nested projected resync build";
-          iframe.sandbox.add("allow-same-origin");
           iframe.style.cssText = activeIframe.style.cssText;
           iframe.style.visibility = "hidden";
           (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
@@ -5862,7 +5892,7 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
@@ -5892,11 +5922,17 @@
       Object.defineProperty(exports, "PROJECTED_SKELETON_META_NAME", { enumerable: true, get: function() {
         return projectedBlankIframe_1.PROJECTED_SKELETON_META_NAME;
       } });
+      Object.defineProperty(exports, "PROJECTED_K5_CSP", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.PROJECTED_K5_CSP;
+      } });
       Object.defineProperty(exports, "stampProjectedStandardsSrcdoc", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stampProjectedStandardsSrcdoc;
       } });
       Object.defineProperty(exports, "stripProjectedSkeleton", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stripProjectedSkeleton;
+      } });
+      Object.defineProperty(exports, "ensureProjectedK5Csp", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.ensureProjectedK5Csp;
       } });
       Object.defineProperty(exports, "isProjectedStandardsSkeleton", { enumerable: true, get: function() {
         return projectedBlankIframe_1.isProjectedStandardsSkeleton;
@@ -6741,8 +6777,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 10,
-    builtAt: "2026-08-30T15:59:04.708Z"
+    seq: 12,
+    builtAt: "2026-08-31T01:11:37.992Z"
   };
 
   // browser/mirror/projection/lab/client/main.ts

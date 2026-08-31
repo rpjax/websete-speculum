@@ -45,7 +45,7 @@ export function useSessionPreStart({
    * Sessions.MirrorMode from client-config — decided BEFORE StartSession so the
    * definitive surface is the one measured. Never driven by the Start response.
    */
-  const [mirrorMode, setMirrorMode] = useState<MirrorMode>('videoStreaming')
+  const [mirrorMode, setMirrorMode] = useState<MirrorMode>('pageProjection')
   /** Sessions.ScreencastPolicy.MaxEncodeScale from client-config. */
   const [screencastMaxEncodeScale, setScreencastMaxEncodeScale] = useState(2)
   /** Telemetry.ClientObservation from public client-config. */

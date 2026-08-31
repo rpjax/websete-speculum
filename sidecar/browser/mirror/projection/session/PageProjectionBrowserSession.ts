@@ -1,11 +1,8 @@
 /**
- * PageProjectionBrowserSession (sealed contract) — Patchright Chromium + in-page producer + owned data plane.
+ * PageProjectionBrowserSession (sealed Live contract) — Patchright Chromium + in-page producer + owned data plane.
  *
- * Implements sealed IPageProjectionBrowserSession; temporary file path until Live flip (`docs/page-projection/spec/roadmap.md` CUTOVER-SESSION). Replaces
- * Sealed Live path — replace any leftover Patchright video dual path; do not revive DomMap.
- * Must grow to the **full** `BrowserSession` contract (input, cookies, eval, resize,
- * permissions, probes, …) as V4 work, not by preserving legado. Lab-incomplete is not
- * a cutover license.
+ * Product mirror path (`MirrorMode.PageProjection`). Do not revive DomMap / OOB bootstrap.
+ * History (goBack/goForward) is PP intent-only on the Live Conn path — see browser-session.md.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -731,6 +728,25 @@ export class PageProjectionBrowserSession {
           `(sel) => { const el = document.querySelector(sel); return el ? el.outerHTML.slice(0, 8000) : null; }`,
           request.domSelector,
         );
+      } else if (op === 'resolveAndClick') {
+        const selector = request.domSelector?.trim();
+        if (!selector) {
+          return {
+            ok: false,
+            errorCode: 'probe_invalid',
+            message: 'resolveAndClick requires domSelector',
+          };
+        }
+        const click = await this.resolveAndClickDomInputByNodeId(selector, 1);
+        data.resolveAndClick = click;
+        if (click.status !== 'dispatched') {
+          return {
+            ok: false,
+            errorCode: 'resolve_and_click_failed',
+            message: click.reason,
+            data,
+          };
+        }
       }
     }
     return { ok: true, data };

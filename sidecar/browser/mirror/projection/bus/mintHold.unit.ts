@@ -59,7 +59,12 @@ async function testPendingAdmitIsNotAnId(): Promise<void> {
       }),
   });
   const index = new ChildScopeIndex(port);
-  const host = { nodeType: 1, isConnected: true, contentWindow: { tag: 'child' } };
+  const host = {
+    nodeType: 1,
+    isConnected: true,
+    localName: 'iframe',
+    contentWindow: { tag: 'child' },
+  };
 
   assert.strictEqual(index.admit(10, host as never).kind, 'pending');
   assert.strictEqual(index.hasContext(2), false, 'nothing may be indexed while pending');

@@ -7,7 +7,7 @@ namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish
     "Telemetry.Sessions.PageProjection.Establish.DomMapCompleted",
     schemaVersion: 3,
     Name = "PageProjection establish · DomMapCompleted",
-    Description = "PageEpoch DomMap completed with in-page phase timings + CDP transfer gap (or Dom install mirror clone).",
+    Description = "Legacy DomMap name — V4 cold/resync uses the stream seed path; residual journal only (not accept proof).",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class DomMapCompleted

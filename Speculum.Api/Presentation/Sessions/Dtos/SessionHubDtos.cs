@@ -219,7 +219,7 @@ public sealed class StartSessionHubResponse
 
     /// <summary>Sessions.MirrorMode wire form (<c>videoStreaming</c> | <c>pageProjection</c>) — ack only.</summary>
     [Key("mirrorMode")]
-    public string MirrorMode { get; set; } = "videoStreaming";
+    public string MirrorMode { get; set; } = "pageProjection";
 }
 
 /// <summary>Server→client: sync the SPA address bar to the virtual browser URL.</summary>

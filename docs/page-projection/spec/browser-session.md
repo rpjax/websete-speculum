@@ -84,7 +84,7 @@ One fat session port mixed logical viewport, Xvfb/screencast, and projection API
 
 | Choice | Decision |
 |--------|----------|
-| Core | `IBrowserSession` / class `BrowserSession` — **shared ops only** (stop, navigate, refresh, goBack/goForward, resize viewport, cookies, eval, probe, cam/mic ingress, CDP CPU profile) |
+| Core | `IBrowserSession` / class `BrowserSession` — **shared ops only** (stop, navigate, refresh, resize viewport, cookies, eval, probe, cam/mic ingress, CDP CPU profile). Sidecar still has `goBack`/`goForward` methods; **Live Conn does not call them** — see §9 item 10. |
 | PP / Video | Own interfaces with **own** `launch` / `getStatus` / `getTelemetrySnapshot` (+ mode-only APIs) |
 | Wire | **Distinct RPCs + messages per contract** — not one Launch/Status with `oneof` |
 | PP methods | Required on PP interface |
@@ -723,7 +723,7 @@ Logical clamp via `viewportPolicy`; soft apply; no display on `BrowserResizeResu
 
 | Contract | Examples (names illustrative) |
 |----------|-------------------------------|
-| Shared | `Stop`, `Navigate`, `Refresh`, `GoBack`, `GoForward`, `Resize`, `Evaluate`, `RestoreState`, `StartCpuProfile`, `StopCpuProfile`, … |
+| Shared | `Stop`, `Navigate`, `Refresh`, `Resize`, `Evaluate`, `RestoreState`, `StartCpuProfile`, `StopCpuProfile`, … (`GoBack`/`GoForward` unary exist on proto/sidecar but **Live Conn does not call them** — PP history = intent) |
 | Shared media ingress | `PushCameraFrame`, `PushMicrophoneAudio` (both modes) |
 | Shared permission | Control bidi `PermissionRequest` / `PermissionReply` + `PermissionKind` (both modes) |
 | PP | `LaunchPageProjection`, status/telemetry, `PushInput` (DomInput), assets, `RequestResync`, lab `HaltClocks`/`ResumeClocks`/`EmitFrame`/`GetStateSnapshot`, … + **server-stream** of `PageProjectionFrame` |
@@ -781,9 +781,9 @@ Exact serializers for `StateSnapshotTableDump.rows`, CSSOM `sheets`/`rules`, and
 7. Permission — `IBrowserPermissionHost.requestPermission(kind)` (RPC); sinks stay push-only.  
 8. Allocation — session allocate/release on core sink; display allocate/release/fault on video sink.  
 9. Frame DTO — `PageProjectionFrame` includes **`contextId`** (OPEN-6).  
-10. Input — mode-specific `pushInput` (PP `DomInputIngress`; video `BrowserInput` without history). History = core `goBack`/`goForward`.  
+10. Input — mode-specific `pushInput` (PP `DomInputIngress`; video `BrowserInput` without history). **History (goBack/goForward): Live product = PP intent only** — `ISessionConnection` does **not** expose GoBack/GoForward unary. Proto/sidecar unary remains for lab/legacy Video harness; do not re-plumb Conn in this wave.  
 11. Resync — one path: `requestResync({ contextId?, reason? })` → frame on `onFrame`. Drop `getResync` / `sendControl` / `reportClientState`.  
-12. PP launch — `frameQueueCapacity`; no establish/rate-ladder knobs. DomInput — no legacy aliases.  
+12. PP launch — `frameQueueCapacity`; no establish/rate-ladder knobs. DomInput — no legacy aliases. **Dead Launch knobs:** `establish_chunk_bytes`, `client_state_ms` (ignored; ReportClientState purged).  
 13. PP lab — `haltClocks` / `resumeClocks` / `emitFrame` / `getStateSnapshot` on the **same** PP interface (no diagnostics facade). Clocks = all contexts via bus broadcast.  
 14. State snapshot — **raw planes** + opts; discriminated `ok`; digest-only default; `liveChildOrder` + `table:'full'` for offline table×DOM; no oracle/`cascade` verdicts on the DTO.  
 15. Telemetry ≠ snapshot — both on PP; product counters vs coherent dump.  
@@ -795,7 +795,7 @@ Exact serializers for `StateSnapshotTableDump.rows`, CSSOM `sheets`/`rules`, and
 
 | Date | Note |
 |------|------|
-| 2026-08-21 | Inheritance + `I*` naming + PP thin / video owns display. |
+| 2026-08-31 | **Live history = PP intent only** — Conn does not call GoBack/GoForward unary; Video harness goback remains legacy. Dead Launch knobs `establish_chunk_bytes` / `client_state_ms` ignored. |
 | 2026-08-21 | Reject proto `oneof`; core has no launch/status/telemetry. |
 | 2026-08-21 | Mode sinks + factory; `PageProjectionFrame` + `contextId`; cam/mic both modes; allocation split. |
 | 2026-08-21 | Permission host off sink; input mode-specific; drop clientState / getResync / sendControl. |

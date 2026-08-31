@@ -346,5 +346,5 @@ Closed and `slotAssignment: 'manual'` stay explicit unsupported fails. Not ifram
 | Semver | Motor **0.3.0** = **motor milestone** (single-session preview, lab-proven PP core) — **not** production RBI, not accept sealed, not antibot pass. |
 | Ships | `@speculum/page-projection`, sealed session factory, extension-plane loopback, sparse-cdp input, apply gate, per-session C2 (B1), Eneba `/br/` browse proof. |
 | Does not ship | Multi-session density, antibot/stealth V3, datacenter IP, canvas, accept 1:1, nested-in-shadow render promise. |
-| Gates before tag | PP-NESTED-GEN-PACK revert (wire); Eneba `/`→`/br/`; B3 if red; Windows full gates. **Not** B1 (done), **not** B2 (withdrawn). |
+| Gates before tag | PP-NESTED-GEN-PACK **done**; Eneba `/`→`/br/`; B3 if red; Windows full gates. **Not** B1 (done), **not** B2 (withdrawn). |
 | Opus review 2026-08-30 | Adopt “motor milestone” framing; B1 stale as blocker; B2 rejected product law; gen-pack before tag = real wire gate. |

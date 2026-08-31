@@ -25,13 +25,21 @@ public sealed class PageProjectionOptions
     /// <summary>One wire message cap (§5.3.5.5); an exceeding frame is split into parts, never dropped.</summary>
     public int MaxFrameBytes { get; init; } = 1024 * 1024;
 
-    /// <summary>Establish chunk size target (§5.6.3) — chunk boundaries stay parseable HTML.</summary>
+    /// <summary>
+    /// Obsolete pre-V4 establish chunking knob. Cold start is a resync-flagged frame — this value
+    /// is ignored on Launch (kept only so SQLite/admin JSON still round-trips).
+    /// </summary>
+    [Obsolete("V4 cold start is resync frame; establish chunking is dead. Ignored on Launch.")]
     public int EstablishChunkBytes { get; init; } = 64 * 1024;
 
     /// <summary>Double-buffer swap fallback (§5.8.5) when the first-meaningful-paint threshold is not reached.</summary>
     public int SwapTimeoutMs { get; init; } = 1500;
 
-    /// <summary>Client → server control channel report interval (§5.9.5).</summary>
+    /// <summary>
+    /// Obsolete — <c>ReportPageProjectionClientState</c> was purged. Ignored on Launch and not a
+    /// Live control-channel interval. Kept for SQLite/admin JSON round-trip only.
+    /// </summary>
+    [Obsolete("ReportClientState purged; ClientStateMs is dead. Ignored on Launch.")]
     public int ClientStateMs { get; init; } = 1000;
 
     /// <summary>Client frame-apply overrun threshold (E9) — reported, does not block.</summary>

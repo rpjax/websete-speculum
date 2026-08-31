@@ -21,7 +21,7 @@ const baseConfig: ClientConfig = {
   sessions: {
     detachedSessionTimeoutSeconds: 300,
     dataStreamTransport: 'webTransport',
-    mirrorMode: 'videoStreaming',
+    mirrorMode: 'pageProjection',
     viewportPolicy: {
       minWidth: 100,
       minHeight: 100,
@@ -71,11 +71,11 @@ describe('clientConfig token cookie', () => {
 })
 
 describe('pre-start session settings', () => {
-  it('normalizes the wire mirror mode and defaults to video streaming', () => {
+  it('normalizes the wire mirror mode and defaults to page projection', () => {
     expect(normalizeMirrorMode('pageProjection')).toBe('pageProjection')
     expect(normalizeMirrorMode('videoStreaming')).toBe('videoStreaming')
-    expect(normalizeMirrorMode(undefined)).toBe('videoStreaming')
-    expect(normalizeMirrorMode('nonsense')).toBe('videoStreaming')
+    expect(normalizeMirrorMode(undefined)).toBe('pageProjection')
+    expect(normalizeMirrorMode('nonsense')).toBe('pageProjection')
   })
 
   it('reads the viewport policy from client-config', () => {

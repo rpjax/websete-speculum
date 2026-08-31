@@ -43,7 +43,7 @@ function fakeDoc() {
       for (const h of listeners.get(type) ?? []) h(event);
     },
   };
-  return { doc: doc as unknown as Document };
+  return { doc: doc as unknown as Document & { dispatch(type: string, event: Event): void } };
 }
 
 export function runProjectedNativeGuardUnitTests(): void {

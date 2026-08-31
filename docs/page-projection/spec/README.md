@@ -9,22 +9,21 @@
 
 ## Now (2026-08-30) — start a new chat here
 
-**Motor 0.3.0:** in progress — **[motor milestone only](motor-0.3.0.md)** (not production RBI). Opus/Rodrigo 2026-08-30: PP **core** lab-proven; tag gates = gen-pack revert, Eneba redirect proof, B3 if red, full Windows gates. **B1 done** · **B2 withdrawn** · dirty tree **committed**.  
-**Ordered TODOs (tag → Live preview → M1):** [../LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md).
+**Motor 0.3.0:** gates A fechados ou limitação escrita — **[motor milestone only](motor-0.3.0.md)** (not production RBI). **Next work:** B4–B5 + **§D motor migration** ([motor-migration.md](motor-migration.md)) → tag. iPhone Safari `emitted > 0` → **próxima versão**. **PP-NESTED-GEN-PACK done** · **B1–B3 done**.  
+**Ordered TODOs (A → B → D migration → tag → C M1):** [../LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md).
 
 **Shipped (2026-08-29…30):**
-- **K5 / iOS touch** — `iframe.sandbox` removed (WebKit blocks touch); K5 via CSP in `PROJECTED_STANDARDS_SRCDOC` + `ensureProjectedK5Csp` on apply. Units: `projectedK5.unit.ts`, `projectedNativeGuard.unit.ts`. Decision: [decision-log.md](decision-log.md) 2026-08-30.
+- **K5 / iOS touch (code)** — `iframe.sandbox` removed; K5 via CSP in `PROJECTED_STANDARDS_SRCDOC` + `ensureProjectedK5Csp`. Unit fail-closed Chromium probe. Device Safari proof deferred. Decision: [decision-log.md](decision-log.md) 2026-08-30.
 - **Loopback `document.install`** — same-socket hello: higher gen adopts; idempotent re-hello; lower gen rejected. Session chains `waitEstablished({ afterGeneration })` after install. Units: `nodeDataPlane.unit.ts`.
 - **Projected apply gate** — `ProjectedApplyGate` queues frames during async recreate/cold resync (`flightDepth`, `draining`, cap **64** sized for ~59 ms cold apply class, overflow streak **3** → `apply_gate_overflow_loop`). `discardPending()` on generation bump only; full `clear()` on reset/dispose only. Units: `projectedApplyGate.unit.ts`.
 - **Cold resync on armed surface** — `everArmed && resync && sequence === 1` → `recreateForGenerationAsync` (not standby async racing increments).
 
 **Eneba lab proof (2026-08-30):** dossier `sidecar/lab-runs/2026-08-30T06-10-17-942Z-www.eneba.com` — `/br/` browse ~28 s: **0 desync**, 96 apply ok, input 44/44, wire invariants green. **Not yet proven:** `/` → `/br/` redirect gen-bump path (pre-fix storm class).
 
-**Still open before tag (gates — see [motor-0.3.0.md](motor-0.3.0.md)):**
-1. **PP-NESTED-GEN-PACK revert** — wire encoding; **before tag**, not after.
-2. Eneba **`/` → `/br/`** dossier (redirect gen bump).
-3. B3 dotnet test if red on `main`.
-4. Full Windows gates.
+**Still open / next:**
+1. **Tag `v0.3.0`** when ready (do not claim iPhone proven / accept sealed).
+2. **Live preview §B** — MirrorMode seed, SessionsTest PP, contract cleanup, HARDNAV, Live regress.
+3. **Next version:** Safari iPhone `emitted > 0`; Eneba `/`→`/br/` full proof with Projected client.
 
 **Not 0.3.0 gates:** B1 (done 2026-08-29) · B2/`managedTabId` (withdrawn) · antibot stealth · multi-session density · accept 1:1 sealed.
 
@@ -135,6 +134,7 @@ docs/page-projection/
     roadmap.md              M1/M2/M3 + cutover gates
     open.md                 bugs, OPEN-*, rulings, residuals
     motor-0.3.0.md          Motor 0.3.0 release scope + exit checklist
+    motor-migration.md      .NET → sidecar migration (0.3.0); LIVE-PP §D index
     seal-gaps.md            lab tracker: QA / gaps / features (independent DOM vs CSSOM)
   archive/                  DO NOT IMPLEMENT FROM
 ```

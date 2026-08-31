@@ -66,9 +66,7 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     hiddenRateHz: resolvePositiveIntOrUndefined(req.hiddenRateHz ?? req.hidden_rate_hz),
     rateRecoverMs: resolvePositiveIntOrUndefined(req.rateRecoverMs ?? req.rate_recover_ms),
     frameStallMs: resolvePositiveIntOrUndefined(req.frameStallMs ?? req.frame_stall_ms),
-    establishChunkBytes: resolvePositiveIntOrUndefined(
-      req.establishChunkBytes ?? req.establish_chunk_bytes,
-    ),
+    // establish_chunk_bytes / client_state_ms: dead pre-V4 — intentionally not mapped.
     mirrorMaxBytes: resolvePositiveIntOrUndefined(req.mirrorMaxBytes ?? req.mirror_max_bytes),
     assetCacheL1MaxBytes: resolvePositiveIntOrUndefined(
       req.assetCacheL1MaxBytes ?? req.asset_cache_l1_max_bytes,

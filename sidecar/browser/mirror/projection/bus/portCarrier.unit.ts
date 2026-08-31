@@ -95,12 +95,39 @@ function isSetupKind(data: unknown, kind: string): boolean {
   return msg.channel === CONTEXT_BUS_CHANNEL && msg.kind === kind;
 }
 
+type Identity = { contextId: number; generation: number };
+
+function assertValidIdentity(
+  identity: Identity | null | undefined,
+  expectedContextId: number,
+): asserts identity is Identity {
+  assert.ok(identity, 'initContext must answer');
+  assert.strictEqual(identity.contextId, expectedContextId);
+  assert.ok(
+    Number.isInteger(identity.generation) && identity.generation >= 1,
+    `generation must be integer >= 1, got ${String(identity.generation)}`,
+  );
+}
+
+/** Monotonic, never reused — property of authority mint (not a magic expected value). */
+function assertStrictlyIncreasingUnique(gens: number[]): void {
+  const seen = new Set<number>();
+  let prev = 0;
+  for (const g of gens) {
+    assert.ok(g > prev, `monotonic: ${g} must be > ${prev}`);
+    assert.ok(!seen.has(g), `never reused: ${g}`);
+    seen.add(g);
+    prev = g;
+  }
+}
+
 export async function runPortCarrierUnitTests(): Promise<void> {
   await testPortSetupAnswersInitContext();
   await testDirectedTrafficNeverUsesWindowBroadcast();
   await testInnerNavClosesOldPort();
   await testChildAsksBeforeParentCanAnswer();
   await testGenerationIsPerInstall();
+  await testRootReinstallDoesNotResetNestedGeneration();
   await testOpenPlusInvokePostsOneSetupWhenAckIsAsync();
   console.log('[unit] ContextBus MessagePort carrier ok');
 }
@@ -115,7 +142,7 @@ async function testPortSetupAnswersInitContext(): Promise<void> {
   child.openUpwardChannel();
   const identity = await child.requestInitContext(1_000);
 
-  assert.deepStrictEqual(identity, { contextId: 7, generation: 1 });
+  assertValidIdentity(identity, 7);
   assert.strictEqual(edge.toParent.length, 1, 'child posts exactly one setup datagram');
   assert.ok(isSetupKind(edge.toParent[0], 'port-setup'));
   assert.strictEqual(edge.toChild.length, 1, 'parent answers with exactly one ack');
@@ -136,7 +163,8 @@ async function testDirectedTrafficNeverUsesWindowBroadcast(): Promise<void> {
   parent.setScopeLookup(() => 7);
 
   child.openUpwardChannel();
-  assert.deepStrictEqual(await child.requestInitContext(1_000), { contextId: 7, generation: 1 });
+  const firstId = await child.requestInitContext(1_000);
+  assertValidIdentity(firstId, 7);
   child.setMine(7);
 
   const windowMessagesBefore = edge.toChild.length;
@@ -173,10 +201,8 @@ async function testInnerNavClosesOldPort(): Promise<void> {
 
   const firstChild = makeChild(edge);
   firstChild.openUpwardChannel();
-  assert.deepStrictEqual(await firstChild.requestInitContext(1_000), {
-    contextId: 7,
-    generation: 1,
-  });
+  const firstId = await firstChild.requestInitContext(1_000);
+  assertValidIdentity(firstId, 7);
   firstChild.setMine(7);
 
   const onFirst: unknown[] = [];
@@ -187,10 +213,12 @@ async function testInnerNavClosesOldPort(): Promise<void> {
   // The replacement install of the same iframe: same WindowProxy, new port setup.
   const secondChild = makeChild(edge);
   secondChild.openUpwardChannel();
-  assert.deepStrictEqual(await secondChild.requestInitContext(1_000), {
-    contextId: 7,
-    generation: 2,
-  });
+  const secondId = await secondChild.requestInitContext(1_000);
+  assertValidIdentity(secondId, 7);
+  assert.ok(
+    secondId.generation > firstId.generation,
+    'new install at same address must mint a strictly greater generation',
+  );
   secondChild.setMine(7);
 
   const onSecond: unknown[] = [];
@@ -222,7 +250,7 @@ async function testChildAsksBeforeParentCanAnswer(): Promise<void> {
   parent.setScopeLookup(() => (admitted ? 9 : undefined));
 
   child.openUpwardChannel();
-  let settled: unknown = 'pending';
+  let settled: Identity | null | 'pending' = 'pending';
   const inflight = child.requestInitContext(3_000).then((value) => {
     settled = value;
   });
@@ -235,13 +263,14 @@ async function testChildAsksBeforeParentCanAnswer(): Promise<void> {
   parent.noteChildScopeChanged();
   await inflight;
 
-  assert.deepStrictEqual(settled, { contextId: 9, generation: 1 });
+  assert.ok(settled !== 'pending' && settled !== null, 'initContext must settle after admit');
+  assertValidIdentity(settled, 9);
 
   child.dispose();
   parent.dispose();
 }
 
-/** §6: `contextId` is the address (stable), `generation` is which install (new every boot). */
+/** §6: address stable; generation is which install — properties, not magic values. */
 async function testGenerationIsPerInstall(): Promise<void> {
   const edge = makeEdge();
   const parent = makeParent(edge);
@@ -249,20 +278,75 @@ async function testGenerationIsPerInstall(): Promise<void> {
 
   const first = makeChild(edge);
   first.openUpwardChannel();
-  assert.deepStrictEqual(await first.requestInitContext(1_000), { contextId: 7, generation: 1 });
-  // A retry inside the same install must not consume a second generation.
-  assert.deepStrictEqual(await first.requestInitContext(1_000), { contextId: 7, generation: 1 });
+  const g0 = await first.requestInitContext(1_000);
+  assertValidIdentity(g0, 7);
+  // Same install / same port — retry must not consume another generation.
+  const g0Retry = await first.requestInitContext(1_000);
+  assertValidIdentity(g0Retry, 7);
+  assert.strictEqual(g0Retry.generation, g0.generation, 'same-port retry is idempotent');
 
   const second = makeChild(edge);
   second.openUpwardChannel();
-  assert.deepStrictEqual(
-    await second.requestInitContext(1_000),
-    { contextId: 7, generation: 2 },
-    'same address, new install → new generation',
-  );
+  const g1 = await second.requestInitContext(1_000);
+  assertValidIdentity(g1, 7);
+  assertStrictlyIncreasingUnique([g0.generation, g1.generation]);
 
   first.dispose();
   second.dispose();
+  parent.dispose();
+}
+
+/**
+ * Bug that packing papered over: parent bus survives a root document reinstall while a nested
+ * address is still live. Nested mint must stay monotonic — never reset / collide.
+ */
+async function testRootReinstallDoesNotResetNestedGeneration(): Promise<void> {
+  const edge = makeEdge();
+  const parent = makeParent(edge);
+  parent.setScopeLookup(() => 7);
+
+  const childA = makeChild(edge);
+  childA.openUpwardChannel();
+  const before = await childA.requestInitContext(1_000);
+  assertValidIdentity(before, 7);
+
+  // Root document reinstall: parent VirtualDomainBus instance stays (session). Mint map
+  // must not clear — there is no setRootGeneration pack hook anymore.
+  const childB = makeChild(edge);
+  childB.openUpwardChannel();
+  const after = await childB.requestInitContext(1_000);
+  assertValidIdentity(after, 7);
+  assert.ok(
+    after.generation > before.generation,
+    `after root reinstall nested gen must be strictly greater (${after.generation} > ${before.generation})`,
+  );
+
+  const childC = makeChild(edge);
+  childC.openUpwardChannel();
+  const third = await childC.requestInitContext(1_000);
+  assertValidIdentity(third, 7);
+  assertStrictlyIncreasingUnique([before.generation, after.generation, third.generation]);
+
+  // Independent contextId must not reset the other address's sequence.
+  parent.setScopeLookup(() => 11);
+  const other = makeChild(edge);
+  other.openUpwardChannel();
+  const otherId = await other.requestInitContext(1_000);
+  assertValidIdentity(otherId, 11);
+  assert.ok(otherId.generation >= 1);
+
+  parent.setScopeLookup(() => 7);
+  const childD = makeChild(edge);
+  childD.openUpwardChannel();
+  const cont = await childD.requestInitContext(1_000);
+  assertValidIdentity(cont, 7);
+  assert.ok(cont.generation > third.generation, 'context 7 mint unaffected by context 11');
+
+  childA.dispose();
+  childB.dispose();
+  childC.dispose();
+  other.dispose();
+  childD.dispose();
   parent.dispose();
 }
 
@@ -314,7 +398,8 @@ async function testOpenPlusInvokePostsOneSetupWhenAckIsAsync(): Promise<void> {
   const ack = deferredAcks[0]!;
   childWin.fire({ data: ack.data, source: parentProxy, ports: ack.ports });
 
-  assert.deepStrictEqual(await identityP, { contextId: 7, generation: 1 });
+  const identity = await identityP;
+  assertValidIdentity(identity, 7);
   assert.strictEqual(toParent.length, 1, 'no second setup after async ack');
 
   child.dispose();

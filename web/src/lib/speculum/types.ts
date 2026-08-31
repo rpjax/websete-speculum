@@ -58,10 +58,10 @@ export type MirrorMode = 'videoStreaming' | 'pageProjection'
 
 /**
  * Normalize the wire value when config is not yet operational.
- * When operational, prefer requireOperationalSessionsConfig on client-config.
+ * Product default is pageProjection; videoStreaming only when explicit (legacy).
  */
 export function normalizeMirrorMode(value: unknown): MirrorMode {
-  return String(value ?? '') === 'pageProjection' ? 'pageProjection' : 'videoStreaming'
+  return String(value ?? '') === 'videoStreaming' ? 'videoStreaming' : 'pageProjection'
 }
 
 /** Runtime navigation (hub <c>NavigateAsync</c>) — client path/query, not absolute target. */

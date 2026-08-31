@@ -226,7 +226,10 @@ version       u8    current **2**. unknown ⇒ desync, never best-effort parse
 flags         u8    bit0 unused (0) · bit1 resync — same generation; replaces the table wholesale
                      rather than extending it (§5.8)
 contextId     u32   this instance’s mine. Root `1`; nested never `1`; `0` malformed
-generation    u32
+generation    u32   **monotonic per `contextId`**, allocated by the context authority (root: SW
+                     `initContext`; nested: parent in the same `initContext` answer). Never derived
+                     or packed from another value (e.g. root generation). New install → new
+                     generation; same-port retry is idempotent.
 sequence      u32
 partIndex     u16   0-based
 partCount     u16   1 when not split

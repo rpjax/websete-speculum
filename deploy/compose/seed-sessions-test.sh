@@ -11,12 +11,14 @@ curl -sf -X PUT "${API_BASE}/api/configurations/Telemetry" \
   -H 'Accept: application/json' \
   -d '{
     "events": {
-      "Telemetry.Sessions.Input.Applied": true,
-      "Telemetry.Sessions.Input.Rejected": true,
+      "Telemetry.Sessions.VideoStreamingInput.Applied": true,
+      "Telemetry.Sessions.VideoStreamingInput.Rejected": true,
       "Telemetry.Sessions.Resize.Applied": true,
-      "Telemetry.Sessions.Resize.Rejected": true
+      "Telemetry.Sessions.Resize.Rejected": true,
+      "Telemetry.Sessions.PageProjection.Frame.ResyncRequested": true,
+      "Telemetry.Sessions.PageProjection.Frame.FrameReceived": true
     }
   }' | tee /tmp/sessions-test-seed.json
 
 echo
-echo "Seed complete (Telemetry input/resize events explicitly enabled)."
+echo "Seed complete (VideoStreaming input/resize + PageProjection frame events explicitly enabled)."

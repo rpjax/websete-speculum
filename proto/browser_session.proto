@@ -131,12 +131,14 @@ message LaunchPageProjectionRequest {
   int32 hidden_rate_hz = 24;
   int32 rate_recover_ms = 25;
   int32 frame_stall_ms = 26;
+  // Deprecated / ignored: pre-V4 establish chunking (cold start is resync frame).
   int32 establish_chunk_bytes = 27;
   int64 mirror_max_bytes = 28;
   int64 asset_cache_l1_max_bytes = 29;
   int32 asset_priority_viewport_px = 30;
   int32 aggregate_interval_ms = 31;
   int32 swap_timeout_ms = 32;
+  // Deprecated / ignored: ReportClientState purged — not a Live control interval.
   int32 client_state_ms = 33;
   int32 apply_budget_ms = 34;
   // When true, Virtual CDP Profiler may be started via session startCpuProfile.

@@ -243,6 +243,185 @@ public static class SessionHarnessEndpoints
             });
         }).WithTags("Sessions");
 
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/page-projection/wait-frame", async (
+            Guid sessionId,
+            SessionHarnessPageProjectionWaitFrameRequest body,
+            ILiveSessionService liveSessions,
+            ISessionBindingRegistry bindings,
+            CancellationToken ct) =>
+        {
+            ArgumentNullException.ThrowIfNull(body);
+            if (string.IsNullOrWhiteSpace(body.Token))
+                return Results.Unauthorized();
+
+            if (!bindings.TryGetLive(sessionId, body.Token.Trim(), out _)
+                || !liveSessions.TryGet(sessionId, out var live))
+            {
+                return Results.NotFound(new { errorCode = "session_gone" });
+            }
+
+            if (live.MirrorMode != Speculum.Api.Configurations.Models.Sessions.MirrorMode.PageProjection)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "mirror_mode_mismatch",
+                    message = "PageProjection wait-frame requires MirrorMode.PageProjection.",
+                });
+            }
+
+            var opened = live.OpenPageProjectionFramesStream(Guid.NewGuid());
+            if (opened.IsFailure)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "frame_stream_open_failed",
+                    message = string.Join("; ", opened.Errors.Select(e => e.Message)),
+                });
+            }
+
+            using var stream = opened.Value;
+            var channel = stream.GetPageProjectionFramesChannel();
+            if (channel.IsFailure)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "frame_channel_failed",
+                    message = string.Join("; ", channel.Errors.Select(e => e.Message)),
+                });
+            }
+
+            var timeoutMs = body.TimeoutMs is > 0 and <= 120_000 ? body.TimeoutMs.Value : 45_000;
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(timeoutMs));
+            const uint ResyncFlag = 1u << 1;
+
+            try
+            {
+                await foreach (var frame in channel.Value.ReadAllAsync(timeoutCts.Token)
+                    .ConfigureAwait(false))
+                {
+                    var bodyLen = frame.Body?.Length ?? 0;
+                    if (bodyLen <= 0)
+                    {
+                        continue;
+                    }
+
+                    var isResync = (frame.Flags & ResyncFlag) != 0;
+                    if (body.RequireResync == true && !isResync)
+                    {
+                        continue;
+                    }
+
+                    return Results.Ok(new
+                    {
+                        ok = true,
+                        sequence = frame.Sequence,
+                        contextId = frame.ContextId,
+                        generation = frame.Generation,
+                        flags = frame.Flags,
+                        resync = isResync,
+                        bodyLen,
+                        partIndex = frame.PartIndex,
+                        partCount = frame.PartCount,
+                        version = frame.Version,
+                    });
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "frame_wait_timeout",
+                    phase = "wait_frame",
+                    message = body.RequireResync == true
+                        ? "Timed out waiting for a resync-flagged PageProjection frame."
+                        : "Timed out waiting for a PageProjection frame with body.",
+                });
+            }
+
+            return Results.BadRequest(new
+            {
+                errorCode = "frame_stream_ended",
+                phase = "wait_frame",
+                message = "PageProjection frame stream ended before a matching frame.",
+            });
+        }).WithTags("Sessions");
+
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/page-projection/resolve-click", async (
+            Guid sessionId,
+            SessionHarnessPageProjectionResolveClickRequest body,
+            ILiveSessionService liveSessions,
+            ISessionBindingRegistry bindings,
+            CancellationToken ct) =>
+        {
+            ArgumentNullException.ThrowIfNull(body);
+            if (string.IsNullOrWhiteSpace(body.Token))
+                return Results.Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(body.Selector))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["Selector"] = ["Selector is required."],
+                });
+            }
+
+            if (!bindings.TryGetLive(sessionId, body.Token.Trim(), out _)
+                || !liveSessions.TryGet(sessionId, out var live))
+            {
+                return Results.NotFound(new { errorCode = "session_gone" });
+            }
+
+            if (live.MirrorMode != Speculum.Api.Configurations.Models.Sessions.MirrorMode.PageProjection)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "mirror_mode_mismatch",
+                    message = "PageProjection resolve-click requires MirrorMode.PageProjection.",
+                });
+            }
+
+            var result = await live.RequestDiagnosticsAsync(
+                new ProbeSession
+                {
+                    SessionId = sessionId,
+                    Probe = new DiagProbeRequest
+                    {
+                        Ops = ["resolveAndClick"],
+                        DomSelector = body.Selector.Trim(),
+                    },
+                },
+                ct).ConfigureAwait(false);
+
+            if (result.IsFailure)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "resolve_click_failed",
+                    phase = "probe",
+                    message = string.Join("; ", result.Errors.Select(e => e.Message)),
+                });
+            }
+
+            if (!result.Value.Ok)
+            {
+                return Results.BadRequest(new
+                {
+                    ok = false,
+                    errorCode = result.Value.ErrorCode ?? "resolve_click_failed",
+                    phase = "dispatch",
+                    message = result.Value.Message,
+                    data = result.Value.Data,
+                });
+            }
+
+            return Results.Ok(new
+            {
+                ok = true,
+                data = result.Value.Data,
+            });
+        }).WithTags("Sessions");
+
         return endpoints;
     }
 }
@@ -272,4 +451,22 @@ public sealed class SessionHarnessResizeRequest
 public sealed class SessionHarnessScreenshotRequest
 {
     public required string Token { get; init; }
+}
+
+public sealed class SessionHarnessPageProjectionWaitFrameRequest
+{
+    public required string Token { get; init; }
+
+    /// <summary>Optional timeout (ms). Default 45000; capped at 120000.</summary>
+    public int? TimeoutMs { get; init; }
+
+    /// <summary>When true, wait for a frame with the resync flag bit set.</summary>
+    public bool? RequireResync { get; init; }
+}
+
+public sealed class SessionHarnessPageProjectionResolveClickRequest
+{
+    public required string Token { get; init; }
+
+    public required string Selector { get; init; }
 }

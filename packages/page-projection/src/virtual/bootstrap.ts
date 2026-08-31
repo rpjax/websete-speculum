@@ -420,9 +420,6 @@ void (async () => {
 
   const mine = identity.contextId;
   domNodes.setGeneration(identity.generation);
-  if (isRoot && rootRuntime !== null) {
-    rootRuntime.bus.setRootGeneration(identity.generation);
-  }
   bus.setMine(mine);
 
   // Register invoke BEFORE establish/hello so sidecar probes during the open race
@@ -1116,7 +1113,6 @@ void (async () => {
       }
       if (rootRuntime !== null) {
         await rootRuntime.establishConnection(again.generation);
-        rootRuntime.bus.setRootGeneration(again.generation);
       }
       domNodes.setGeneration(again.generation);
       bus.publishResyncRequest({ contextId: mine, reason: 'bfcache_restore' });

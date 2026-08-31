@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Speculum.Api.Presentation;
+using Speculum.Api.Presentation.Sessions;
 using Speculum.Api.Presentation.Sessions.Dtos;
 using Speculum.Api.Sessions.Models;
 
@@ -22,6 +23,7 @@ public sealed class SessionsActClient : IAsyncDisposable
     private Guid _sessionId;
     private string _token = string.Empty;
     private readonly ConcurrentQueue<JournalFactWire> _journal = new();
+    private readonly ConcurrentQueue<string> _redirects = new();
     private readonly TaskCompletionSource _journalSubscribed = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? _journalCts;
@@ -46,6 +48,14 @@ public sealed class SessionsActClient : IAsyncDisposable
             })
             .WithAutomaticReconnect()
             .Build();
+
+        _connection.On<RedirectHubEvent>("Redirect", ev =>
+        {
+            if (!string.IsNullOrWhiteSpace(ev.Url))
+            {
+                _redirects.Enqueue(ev.Url);
+            }
+        });
 
         await _connection.StartAsync(ct);
 
@@ -200,6 +210,117 @@ public sealed class SessionsActClient : IAsyncDisposable
             new { token = _token, type, payload },
             ct);
         response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// Wait for a PageProjection frame on the Diff stream (harness opens a consumer).
+    /// </summary>
+    public async Task<PageProjectionFrameWire> WaitPageProjectionFrameAsync(
+        bool requireResync = false,
+        int timeoutMs = 45_000,
+        CancellationToken ct = default)
+    {
+        EnsureSession();
+        using var response = await _http.PostAsJsonAsync(
+            $"{_host.ApiBase}/api/sessions/{_sessionId}/page-projection/wait-frame",
+            new { token = _token, timeoutMs, requireResync },
+            ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"wait-frame failed ({(int)response.StatusCode}): {json}");
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+        {
+            throw new InvalidOperationException($"wait-frame not ok: {json}");
+        }
+
+        return new PageProjectionFrameWire(
+            Sequence: root.GetProperty("sequence").GetInt64(),
+            ContextId: root.GetProperty("contextId").GetUInt32(),
+            Generation: root.GetProperty("generation").GetInt64(),
+            Flags: root.GetProperty("flags").GetUInt32(),
+            Resync: root.GetProperty("resync").GetBoolean(),
+            BodyLen: root.GetProperty("bodyLen").GetInt32());
+    }
+
+    /// <summary>
+    /// Id-addressed PP click via Virtual resolve (same EventApplier as PushDomInput).
+    /// </summary>
+    public async Task ResolveAndClickAsync(string selector, CancellationToken ct = default)
+    {
+        EnsureSession();
+        using var response = await _http.PostAsJsonAsync(
+            $"{_host.ApiBase}/api/sessions/{_sessionId}/page-projection/resolve-click",
+            new { token = _token, selector },
+            ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"resolve-click failed ({(int)response.StatusCode}): {json}");
+        }
+    }
+
+    /// <summary>POST sealed resync — frame arrives on the Diff stream (not in the HTTP body).</summary>
+    public async Task RequestPageProjectionResyncAsync(
+        uint contextId = 1,
+        string? reason = null,
+        CancellationToken ct = default)
+    {
+        EnsureSession();
+        var url =
+            $"{_host.ApiBase}/api/sessions/{_sessionId}/page-projection/resync"
+            + $"?contextId={contextId}"
+            + $"&{SessionBindingAuth.QueryParameterName}={Uri.EscapeDataString(_token)}";
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            url += $"&reason={Uri.EscapeDataString(reason)}";
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.TryAddWithoutValidation(SessionBindingAuth.HeaderName, _token);
+        using var response = await _http.SendAsync(request, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"resync failed ({(int)response.StatusCode}): {json}");
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.TryGetProperty("ok", out var ok)
+            && ok.ValueKind == JsonValueKind.False)
+        {
+            throw new InvalidOperationException($"resync not ok: {json}");
+        }
+    }
+
+    public async Task WaitRedirectAsync(
+        TimeSpan timeout,
+        CancellationToken ct = default,
+        Func<string, bool>? predicate = null)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            while (_redirects.TryDequeue(out var url))
+            {
+                if (predicate is null || predicate(url))
+                {
+                    return;
+                }
+            }
+
+            await Task.Delay(100, ct);
+        }
+
+        throw new TimeoutException("Timed out waiting for hub Redirect");
     }
 
     public async Task<string> EvaluateAsync(string expression, CancellationToken ct = default)
@@ -383,6 +504,14 @@ public sealed class SessionsActClient : IAsyncDisposable
         }
     }
 
+    /// <summary>Drop buffered hub Redirect events.</summary>
+    public void ClearRedirects()
+    {
+        while (_redirects.TryDequeue(out _))
+        {
+        }
+    }
+
     /// <summary>Count buffered facts of a type without removing them.</summary>
     public int CountJournal(string type)
     {
@@ -468,6 +597,14 @@ public sealed class SessionsActClient : IAsyncDisposable
     }
 
     public readonly record struct TouchPointWire(int Id, double X, double Y);
+
+    public readonly record struct PageProjectionFrameWire(
+        long Sequence,
+        uint ContextId,
+        long Generation,
+        uint Flags,
+        bool Resync,
+        int BodyLen);
 
     [MessagePackObject]
     public sealed class JournalFactWire

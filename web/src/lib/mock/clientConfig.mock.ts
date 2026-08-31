@@ -10,7 +10,7 @@ const mockConfig: ClientConfig = {
   sessions: {
     detachedSessionTimeoutSeconds: 3,
     dataStreamTransport: 'webTransport',
-    mirrorMode: 'videoStreaming',
+    mirrorMode: 'pageProjection',
     viewportPolicy: {
       minWidth: 320,
       minHeight: 240,

@@ -163,11 +163,11 @@ kill list: [seal-gaps.md](seal-gaps.md). Telemetry `cssomPoll` sealed for the fo
 | 8 | Lab DOM/CSSOM tracker | [seal-gaps.md](seal-gaps.md) — nested SO closed 2026-08-19. Open: XO/NIT; nested cssomO2 QA; CSS paint iso; scale. |
 | 9 | Lab telemetry: `applyGateDrain` / `applyGateOverflow` / `applyGateOverflowLoop` kinds in dossier fold | Wire kinds exist on client; lab sink/fold not yet cataloguing — observability only. |
 
-### RESIDUAL — nested generation interim pack (**0.3.0 GATE — wire**)
+### RESIDUAL — nested generation interim pack (**CLOSED 2026-08-30**)
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-NESTED-GEN-PACK** | Nested contexts show `generation = (rootGen << 16) \| installIndex` (e.g. `65537`) via `virtualDomainBus.setRootGeneration`. | **Interim on wire** — **0.3.0 GATE:** revert before tag or encoding becomes compat surface. SW monotonic mint; root → nested via ContextBus only. [motor-0.3.0.md](motor-0.3.0.md). |
+| **PP-NESTED-GEN-PACK** | Nested contexts showed `generation = (rootGen << 16) \| installIndex` via `setRootGeneration`. | **DONE** — parent mints monotonic per-`contextId` in the same `initContext` answer; packing removed. [frame-protocol.md](frame-protocol.md) §2 · [motor-0.3.0.md](motor-0.3.0.md). |
 
 ---
 
@@ -187,7 +187,7 @@ See [support-matrix.md](support-matrix.md). Canvas/WebGL pixels, MSE/DRM, IME, t
 
 | Date | Item |
 |------|------|
-| 2026-08-30 | **PP-APPLY-GATE-OVERRUN** — `ProjectedApplyGate`; cold resync queue; cap 64; overflow anti-loop. Eneba `/br/` 0 desync. |
+| 2026-08-30 | **PP-NESTED-GEN-PACK** — nested generation packing removed; parent mint monotonic per contextId in initContext answer. |
 | 2026-08-30 | **PP-LOOPBACK-DOC-INSTALL** — same-socket hello generation supersede + session `waitEstablished` after install. |
 | 2026-08-28 | **PP inject boot SEALED** — onNewDocument happy path; main-world; arm; lateBoot miss-detect (fail-closed + token). Dual-boot isolate probe closed. [browser-session.md](browser-session.md) |
 | 2026-08-13 | Establish deleted; cold start = resync frame |

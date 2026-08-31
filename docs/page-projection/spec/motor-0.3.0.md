@@ -3,7 +3,7 @@
 **Status:** in progress (2026-08-30).  
 **Previous:** [0.2.0](../../../CHANGELOG.md) (screencast / sessions polish).  
 **Normative index:** [README.md](README.md) **Now** · [open.md](open.md) · [runtime-redesign.md](runtime-redesign.md) §15.  
-**Implementation TODOs (A tag → B Live preview → C M1):** [../LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md).
+**Implementation TODOs (A → B → D migration → tag → C M1):** [../LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md) · [motor-migration.md](motor-migration.md).
 
 ---
 
@@ -42,6 +42,7 @@ This supports **“PP engine lab-proven on hostile browse”** — not full acce
 |------|----------|
 | PP algorithm | DOM table, CSSOM poll+apply, shadow, OPEN-6 same-origin nested, sparse-cdp input, resync + apply gate |
 | Session path | `PageProjectionBrowserSession` + sealed factory; loopback WS; **per-session** extension dir (B1) |
+| **Motor migration** | .NET cano burro — M0–M8 ([motor-migration.md](motor-migration.md) · LIVE-PP §D) |
 | Lab | Browse + dossier on **http://127.0.0.1:4077/**; CPU profile; wire invariants |
 | **iOS / WebKit touch** | Projected surface: no `iframe.sandbox` (blocks touch delivery); K5 via CSP meta in stamped srcdoc + `ensureProjectedK5Csp` on apply |
 | Proof class | Eneba `/br/` direct — protocol + input green |
@@ -60,6 +61,9 @@ Document these as **known limitations**, not surprises for users:
 | **Nested render inside shadow** | Not a 0.3.0 claim; track separately if product needs it. |
 | **MotorAssert Live deep** | Compose `MirrorMode.PageProjection` — gate 11 open. |
 | **M1 cutover** | [roadmap.md](roadmap.md) — canvas + full product law. |
+| **Lab `verdicts.json`** | Soak/browse dossiers often leave `verdicts.json` empty or skip-heavy — metrics exist; **no automatic pass/fail declaration**. Reader must interpret (as of 2026-08-31). |
+| **Eneba `/` → `/br/` full proof** | Partial only: Virtual soak on `/` (`2026-08-31T01-07-05-005Z-soak`) desync 0, gen stayed `1`, no Projected apply. Full redirect+Turnstile+apply-gate proof still owed (or re-run with lab DOM client). `/br/` direct remains the strong baseline. |
+| **iPhone touch evidence** | Code+unit K5/CSP done for 0.3.0. Safari `emitted > 0` **deferred to next version** (no device available 2026-08-31). |
 
 ---
 
@@ -69,13 +73,14 @@ Only items marked **GATE** block the tag. Others are **polish** or **already don
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
+| 0 | **iOS/CSP / K5** | **DONE code+unit; device → next** | CSP in srcdoc + `ensureProjectedK5Csp`; no `iframe.sandbox`; Chromium probe fail-closed. Safari iPhone `emitted > 0` **deferred to next version** (no device 2026-08-31). |
 | 1 | **B1 — per-session `c2-endpoint.json`** | **DONE 2026-08-29** | `materializeSpeculumPpForSession` → temp copy per `sessionId`; unit `extensionC2Host.unit.ts`. **Not an open fix** — Opus review predates landing. Optional: live two-Chrome concurrency smoke before **density** claims. |
 | 2 | **B2 — `managedTabId` fail-closed** | **NOISE / withdrawn** | Product law: **1 session = 1 tab**; protocol deleted 2026-08-29 ([runtime-redesign.md](runtime-redesign.md) §15.1 B2, §15.4). Do **not** reintroduce for 0.3.0. |
-| 3 | **B3 — .NET test** | **GATE if red** | `SessionCollectorTests.TimedOut_DoesNotFireAfterReattachClaimRace` — reproduce on `main`, fix or attribute. Out of band until confirmed. |
-| 4 | **PP-NESTED-GEN-PACK revert** | **GATE — wire** | Interim `(rootGen << 16) \| installIndex` is **on the wire** today. Revert → SW monotonic mint, **root → nested via bus** (no nested→SW). **Must land before tag** or encoding becomes compat surface. [open.md](open.md). |
-| 5 | **Eneba `/` → `/br/`** | **GATE — proof** | Redirect + Turnstile nested + gen bump; apply gate must hold (no `sequence_gap` storm). `/br/` direct already green. |
-| 6 | **Windows / full gates** | **GATE** | `sidecar npm test` + build; relevant `dotnet test`; SessionsTest PP category on CI. |
-| 7 | **Known limitations doc** | **GATE — honesty** | This file § “does not promise” + CHANGELOG; antibot/nested-shadow called out. |
+| 3 | **B3 — .NET test** | **DONE 2026-08-31** | `SessionCollectorTests.TimedOut_DoesNotFireAfterReattachClaimRace` — PASS. |
+| 4 | **PP-NESTED-GEN-PACK revert** | **DONE 2026-08-30** | Monotonic per-`contextId` mint in parent `initContext` answer; packing removed. [frame-protocol.md](frame-protocol.md) §2 · [open.md](open.md). |
+| 5 | **Eneba `/` → `/br/`** | **LIMITATION (partial)** | Soak `/` Virtual green (`2026-08-31T01-07-05-005Z-soak`); no gen bump / no Projected apply. Full proof owed — see § does not promise. |
+| 6 | **Windows / full gates** | **DONE 2026-08-31** | `sidecar npm test` PASS (with Chrome); Sessions B3 PASS; SessionsTest PP category still weak (honesty noted). |
+| 7 | **Known limitations doc** | **DONE 2026-08-31** | verdicts.json / A2 partial / iPhone deferred called out. |
 
 **Polish (post-tag or non-blocking):**
 
@@ -93,15 +98,25 @@ Only items marked **GATE** block the tag. Others are **polish** or **already don
 
 ## Exit checklist (before tag `v0.3.0`)
 
-- [ ] **PP-NESTED-GEN-PACK** reverted (wire clean before tag)
-- [ ] Eneba **`/` → `/br/`** dossier green
-- [ ] B3 green or attributed on `main`
-- [ ] Full gates green on Windows (sidecar + dotnet SessionsTest PP)
-- [ ] Optional: live two-session Chrome C2 smoke (if claiming concurrent sessions)
+- [x] **iOS/CSP / K5** — code+unit done; device Safari evidence **deferred to next version**
+- [x] **PP-NESTED-GEN-PACK** reverted (wire clean before tag)
+- [x] Eneba **`/` → `/br/`** — **limitation written** (partial soak; full proof not claimed)
+- [x] B3 green on this tree (`TimedOut_DoesNotFireAfterReattachClaimRace`)
+- [x] Full gates green on Windows (sidecar `npm test` + Sessions B3)
+- [x] B1–B3 Live preview (default PP, SessionsTest PP, contrato pré-V4)
+- [ ] **D motor migration** M0–M8 ([motor-migration.md](motor-migration.md)) — .NET sem coalesce/drop/tipos DOM
+- [ ] B4 HARDNAV · B5 Live regress (podem correr em paralelo a D)
+- [ ] Optional: live two-session Chrome C2 smoke (if claiming concurrent sessions; overlap M8)
 - [x] Apply gate + loopback `document.install` — shipped
 - [x] B1 per-session extension dir — shipped 2026-08-29
-- [x] `version.txt` = `0.3.0`; CHANGELOG `[0.3.0]` section drafted
-- [ ] Tag `v0.3.0` only after gates above
+- [x] `version.txt` = `0.3.0`; CHANGELOG `[0.3.0]` + empty-`verdicts.json` honesty
+- [ ] Tag `v0.3.0` when ready — do **not** claim iPhone proven or accept 1:1 sealed
+
+### iPhone touch evidence (next version)
+
+| Date | Device | Fold / notes | `emitted` | `touchstartSeen` |
+|------|--------|--------------|-----------|------------------|
+| _deferred_ | Safari iPhone | Lab 4077 or Live; `probes/input-pipeline.json` | — | — |
 
 ---
 

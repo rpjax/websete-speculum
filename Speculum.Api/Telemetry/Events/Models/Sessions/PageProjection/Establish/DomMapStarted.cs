@@ -7,7 +7,7 @@ namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Establish
     "Telemetry.Sessions.PageProjection.Establish.DomMapStarted",
     schemaVersion: 1,
     Name = "PageProjection establish · DomMapStarted",
-    Description = "PageEpoch parity telemetry: DomMapStarted.",
+    Description = "Legacy DomMap name — V4 cold/resync does not dump DomMap over the wire; keep for residual journal only.",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
 public sealed class DomMapStarted

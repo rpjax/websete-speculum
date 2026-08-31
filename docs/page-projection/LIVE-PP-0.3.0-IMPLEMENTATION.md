@@ -1,264 +1,339 @@
-# Live PP → 0.3.0 / prod — ordem de implementação
+# Live PP → 0.3.0 — implementation order
 
-**Status:** scratchpad operacional (2026-08-30).  
-**Não substitui** [spec/motor-0.3.0.md](spec/motor-0.3.0.md) (gates do tag) nem [spec/acceptance.md](spec/acceptance.md) (aceite 1:1).  
-**Normativo:** [spec/README.md](spec/README.md) **Now** · [spec/open.md](spec/open.md) · [spec/browser-session.md](spec/browser-session.md).
+**What this document is:** the complete, ordered work list for **0.3.0**. Everything inside it
+blocks the release; nothing outside it does. 0.3.0 is the next release and it contains all of
+A, B and D. This is settled — do not re-derive it, do not introduce another version number.
 
----
+**What this document is not:** it does not restate specs. Normative sources:
+[spec/motor-0.3.0.md](spec/motor-0.3.0.md) (tag gates) ·
+[spec/motor-migration.md](spec/motor-migration.md) (migration §D, `file:line` evidence) ·
+[spec/acceptance.md](spec/acceptance.md) (1:1 accept) · [spec/open.md](spec/open.md) ·
+[spec/browser-session.md](spec/browser-session.md).
 
-## Framing (não misturar)
-
-| Camada | Promessa | Onde |
-|--------|----------|------|
-| **A — Tag `v0.3.0` motor** | Motor lab-proven; early adopter; limitações honestas | Este doc §A · [motor-0.3.0.md](spec/motor-0.3.0.md) |
-| **B — Live preview honesto** | `MirrorMode.PageProjection` no dockup/CI com efeito | Este doc §B |
-| **C — Prod RBI (M1)** | Aceite 1:1, canvas, antibot | Este doc §C · [roadmap.md](spec/roadmap.md) |
-
-**Fato:** o fio Api ↔ gRPC ↔ sidecar PP ↔ web **já está plugado** (Launch / Frames / PushDom / Resync / Assets). O trabalho abaixo é **maturidade + limpeza + CI + produto**, não inventar o carrier.
-
-**Já landed (sessão Live, não reabrir como gap):**
-
-- [x] Domain guard main-frame PP (Fetch Request + allowlist) + NavigationBlocked → Redirect
-- [x] IDB/localStorage restore/export via `PageState` no PP (+ multi-origin seed)
-- [x] PermissionGate origin → EventBridge → `grantPermissions`
-- [x] `cpu_profiling` no Launch proto/mappers + probes no factory Live
+**Last verified:** 2026-08-31.
 
 ---
 
-## Inventário gRPC / .NET (contrato)
+## Status legend — use exactly these, nothing else
 
-### Já wired E2E
+| Mark | Meaning |
+|------|---------|
+| `[x]` | **Done.** Evidence exists and is named in the row. |
+| `[ ]` | **Open.** Not started or in progress. |
+| `[-]` | **Deferred by decision.** Written reason + where the limitation is recorded. Never silently reopened. |
+| `[~]` | **Withdrawn.** Decided against; kept only so nobody proposes it again. |
 
-| Hop | Onde |
-|-----|------|
-| Launch PP/VS | `GrpcSessionConnection.LaunchBrowserAsync` · `LaunchPageProjection` / `LaunchVideoStreaming` |
-| Frames | `WatchPageProjectionFrames` → `SessionDataStreamsHost` → web `ProjectionClient` |
-| Input | `PushDomInput` → `PageProjectionBrowserSession.pushInput` |
-| Resync | HTTP `/page-projection/resync` → `RequestResync` |
-| Assets | `GetDomAsset` + `/w7s/virtual-assets/...` |
-| State | `RestoreState` / `ExportState` |
-| Nav / Resize / Probe | unary shared |
-| Control | cam/mic `PermissionRequest` / `PermissionReply` |
-| Blocked | `WatchNavigationBlocked` → `Redirect` |
-
-### Gaps de contrato (completar ou documentar)
-
-| Item | Sidecar | .NET | TODO |
-|------|---------|------|------|
-| `PutDomUpload` | handler ok; PP `putUpload` **no-op** | `PutDomUploadAsync` | §C — implementar store ou tirar do path Live |
-| `PushCamera` / `PushMicrophone` | handler; PP **no-op** | **não abre** streams | §C — MediaIngress + Conn pump |
-| `GoBack` / `GoForward` unary | sim | Conn **não chama** (intent) | §B — documentar “só intent” **ou** expor no Conn |
-| Lab RPCs (`HaltClocks`, `EmitFrame`, `GetStateSnapshot`) | sim | **sem cliente** | OK — não plugar em prod |
-| `startCpuProfile` / `stopCpuProfile` | in-process + flag Launch | só propaga flag | OK 0.3.0; RPC só se diag Live exigir |
-| Launch knobs pré-V4 (`establish_chunk_bytes`, `client_state_ms`, …) | mapeados | `PageProjectionOptions` | §B — limpar ou marcar obsolete |
-| Telemetry catalog `Establish.DomMap*` / ResyncServed “OOB” | — | catálogo/web | §B — alinhar V4 (resync = frame stream) |
-
-**Arquivos âncora:** `proto/browser_session.proto` · `sidecar/grpc/BrowserSessionService.ts` · `Speculum.Api/BrowserClients/Grpc/GrpcSessionConnection.cs` · `GrpcSessionMappers.cs` · `sidecar/browser/contracts/index.ts`.
+A row without evidence is not `[x]`. "Compiles" is not evidence. "Landed" is not evidence.
+Evidence is a dossier path, a test name, or a `file:line`.
 
 ---
 
-## A — Tag `v0.3.0` (motor) — ordem canônica
+## Execution order — one sequence, stated once
 
-Gates oficiais: [motor-0.3.0.md](spec/motor-0.3.0.md). Só estes bloqueiam o tag.
+Any other ordering in any file is wrong; fix it there, not here.
 
-### A1 — PP-NESTED-GEN-PACK revert (GATE — wire)
-
-- [ ] Remover packing interim `(rootGen << 16) | installIndex` do wire
-- [ ] Voltar mint SW monotônico; nested recebe gen via bus (não nested→SW)
-- [ ] Atualizar encode/decode + units + [open.md](spec/open.md) / [frame-protocol.md](spec/frame-protocol.md) se preciso
-- [ ] **Antes do tag** — encoding sujo vira superfície de compat
-
-**Refs:** [open.md](spec/open.md) · [motor-0.3.0.md](spec/motor-0.3.0.md) gate 4
-
-### A2 — Eneba `/` → `/br/` proof (GATE — proof)
-
-- [ ] Lab browse `www.eneba.com/` (não só `/br/`)
-- [ ] Dossier: redirect + Turnstile nested + gen bump
-- [ ] Assert: apply gate sem `sequence_gap` storm; desync 0
-- [ ] Anexar path do dossier em motor-0.3.0 / CHANGELOG
-
-**Baseline já green:** `sidecar/lab-runs/2026-08-30T06-10-17-942Z-www.eneba.com` (`/br/` direto)
-
-### A3 — B3 SessionCollector (GATE if red)
-
-- [ ] Reproduzir `SessionCollectorTests.TimedOut_DoesNotFireAfterReattachClaimRace` em `main`
-- [ ] Se red: fix (race pós-`AddRef` / `IsDetached`) ou atribuir dono
-- [ ] Se green: marcar DONE em motor-0.3.0
-
-**Refs:** `Speculum.Api/Sessions/Services/SessionCollector.cs` · Sessions.Tests
-
-### A4 — Windows / full gates (GATE)
-
-- [ ] `cd sidecar && npm test` + build (virtuais / package)
-- [ ] Dotnet unit relevante (Api + Sessions.Tests)
-- [ ] SessionsTest CI: honestidade — category PP **ainda fraca**; não fingir cobertura Video = PP
-- [ ] Fixar falhas **pré-existentes** que bloqueiam gate (ex. bus units se ainda red: `portCarrier`, mocks `localName`)
-
-### A5 — Known limitations (GATE — honesty)
-
-- [ ] [motor-0.3.0.md](spec/motor-0.3.0.md) § “does not promise” completo
-- [ ] `CHANGELOG.md` `[0.3.0]`: antibot, canvas, accept 1:1, multi-session, MotorAssert deep
-- [ ] `version.txt` = `0.3.0`
-
-### A6 — Tag
-
-- [ ] Só após A1–A5
-- [ ] **Não** prometer RBI / aceite sealed no anúncio do tag
-
-**Polish pós-tag (não bloqueia A):** lab sink applyGate*; limpar métricas dossier 0; `verdicts.json` em blueprints.
-
----
-
-## B — Live preview honesto (pós-tag / early adopter)
-
-Objetivo: operador liga PP no stack completo e o CI prova **efeito**, não hop verde.
-
-### B1 — Flip config / seed
-
-- [ ] Documentar (e opcional seed compose) `Sessions.MirrorMode = PageProjection`
-- [ ] `deploy/compose/docker-compose.sessions-test.yml` + `seed-sessions-test.sh`: valor MirrorMode PP
-- [ ] Admin Configurations: path óbvio; SPA já lê `mirrorMode` do client-config **antes** do Start
-
-**Refs:** `SessionsConfiguration.cs` · `PublicClientConfigProjector` · `web/.../sessionPreStart`
-
-### B2 — SessionsTest category PP (mínima)
-
-- [ ] Criar category/filter real `PageProjection` (não reusar asserts VideoStreamingInput como prova PP)
-- [ ] Casos mínimos (Act → Assert por **estado/evento**, nunca só `200`):
-  - [ ] Start + `WatchPageProjectionFrames`: body + `contextId` + sequence
-  - [ ] Intent click → efeito no Virtual/Projected (oracle / snapshot)
-  - [ ] Resync HTTP → frame resync + surface armada (sem DomMap dump)
-  - [ ] NavigationBlocked → `Redirect` (allowlist)
-  - [ ] Restore profile com LS/IDB → assert counts / probe (não soft-skip)
-- [ ] Atualizar [MATRIX.md](../../Speculum.Api.SessionsTest.Tests/MATRIX.md) depth
-- [ ] CI `.github/workflows/ci.yml`: job ou seed com MirrorMode PP
-
-**Refs:** `Speculum.Api.SessionsTest.Tests` · `docs/assert-failure-policy.md` · `docs/page-projection/spec/observability.md`
-
-### B3 — Limpeza contrato pré-V4 (gRPC + .NET + web)
-
-- [ ] Proto / `PageProjectionOptions`: marcar ou remover `establish_chunk_bytes`, `client_state_ms` (ReportClientState purged)
-- [ ] Mappers Api + sidecar: não mentir knobs mortos
-- [ ] Catálogo journal/admin: remover ou renomear `Establish.DomMap*`
-- [ ] Copy `ResyncServed`: “frame no stream”, não “OOB snapshot”
-- [ ] Docs stale: roadmap “CSSOM live 0%”, “OS input”, header “temporary until Live flip” em `PageProjectionBrowserSession.ts`
-
-**Decisão GoBack/GoForward:**
-
-- [ ] Opção travada: **(1)** documentar histórico só via intent PP, **ou (2)** `ISessionConnection.GoBack/GoForward` → unary gRPC
-
-### B4 — PP-HARDNAV-PLANE-ACK
-
-- [ ] Fechar race hello-ack pós hard-nav / extension Port ([open.md](spec/open.md))
-- [ ] Lab/dossier site real com hard nav; zero `data_plane_not_established` falso
-
-### B5 — Validação sessão plena (regressão do que já landed)
-
-- [ ] Live: allowlist main-frame + Redirect no client
-- [ ] Live: restore/export LS+IDB round-trip perfil
-- [ ] Live: PermissionGate → Control → SessionHooks (default deny; register allow em teste)
-- [ ] Live: `Sessions.CpuProfiling=true` → probes registrados (sem RPC Start ainda)
-
----
-
-## C — Prod RBI / M1 cutover
-
-Não é gate do tag 0.3.0. Ordem após B.
-
-### C1 — Canvas (gate 7)
-
-- [ ] Conteúdo canvas no `@speculum/page-projection` (sair do placeholder)
-- [ ] Wire Virtual → frame → Projected apply
-- [ ] Lab + oracle visual mínimo
-
-### C2 — MotorAssert / Live deep
-
-- [ ] Compose seed `MirrorMode.PageProjection` para MotorAssert
-- [ ] Intents profundos + parity probes (não smoke)
-
-### C3 — Antibot / stealth V3
-
-- [ ] Spike V3 em Turnstile/CF real
-- [ ] Bisseção patchright vs extensão se necessário
-- [ ] **Sem** isto: não chamar RBI de produção
-
-### C4 — Aceite 1:1
-
-- [ ] Oracles O1/O2/O5 em sites baseline ([oracles.md](spec/oracles.md), [acceptance.md](spec/acceptance.md))
-- [ ] Nunca PASS por protocolo-only (`200`, WD>N, htmlLen)
-
-### C5 — Assets / upload / media
-
-- [ ] Asset store “real” (densidade / antibot-facing)
-- [ ] `PutDomUpload` deixa de ser no-op **ou** some do path Live
-- [ ] MediaIngress + Conn `PushCamera`/`PushMicrophone` se produto exigir GUM
-
-### C6 — Nested XO / limites
-
-- [ ] Estratégia sem punch XFO (`PP-ASSET-XFO`)
-- [ ] about:blank / srcdoc / sandbox opaco conforme [open.md](spec/open.md) / seal-gaps
-
-### C7 — Densidade multi-session
-
-- [ ] Smoke 2 Chrome live (C2 isolation) se for claim de produção
-- [ ] Backpressure fila frames sob carga (produto, não só knobs)
-
-### C8 — Encerrar scratchpads
-
-- [ ] Apagar ou arquivar [CUTOVER-WORKSPACE.md](CUTOVER-WORKSPACE.md) quando produto restante fechar
-- [ ] Atualizar este arquivo: marcar C* done ou mover residual pra open.md
-
----
-
-## Ordem de execução (checklist mestre)
-
-```text
-A1 gen-pack revert
-A2 Eneba / → /br/
-A3 B3 se red
-A4 Windows gates
-A5 limitations + CHANGELOG
-A6 tag v0.3.0
-───
-B1 seed MirrorMode PP
-B2 SessionsTest PP mínima
-B3 limpeza proto/.NET/telemetry pré-V4
-B4 HARDNAV plane ack
-B5 regressão state/nav/perm/cpu Live
-───
-C1 canvas
-C2 MotorAssert deep
-C3 stealth V3
-C4 accept oracles
-C5 upload/media/assets
-C6 nested XO
-C7 multi-session density
-C8 fechar cutover scratchpads
+```
+A (motor gates) → B (Live preview) → D (motor migration) → tag v0.3.0 → C (prod RBI, not a gate)
 ```
 
----
-
-## Fora de escopo / ruído (não reabrir)
-
-- [x] B1 per-session `c2-endpoint.json` — shipped 2026-08-29
-- [x] B2 `managedTabId` — withdrawn (1 session = 1 tab)
-- [ ] Não implementar de `docs/page-projection/archive/`
-- [ ] Não plugar lab RPCs no Live prod
-- [ ] Não declarar accept por hopdiag / ResyncServed / ownedRules sozinhos
+- **A is finished** except cutting the tag (A6), which happens last, after B and D.
+- **B before D.** B validates the Live path as it exists today; D then rebuilds parts of it.
+  Running D first means validating the same path twice.
+- **C does not gate this release.**
 
 ---
 
-## Referências rápidas
+## 1 — A — motor gates: closed
 
-| Tema | Path |
-|------|------|
-| Gates tag | [spec/motor-0.3.0.md](spec/motor-0.3.0.md) |
-| Open named | [spec/open.md](spec/open.md) |
-| Session sealed | [spec/browser-session.md](spec/browser-session.md) |
-| Aceite | [spec/acceptance.md](spec/acceptance.md) |
+Gates live in [motor-0.3.0.md](spec/motor-0.3.0.md). Reproduced here as state only.
+
+| Gate | State | Evidence |
+|------|-------|----------|
+| **A0** iOS/CSP · K5 | `[x]` code+unit / `[-]` device | CSP `script-src 'none'; object-src 'none'` in `PROJECTED_STANDARDS_SRCDOC` + `ensureProjectedK5Csp`; no `iframe.sandbox` anywhere (static assert in unit); regression fixture `k5-script-block.html` — `data-k5-probe` never set with CSP, control without CSP does run, Chromium fail-closed without `CHROME_EXECUTABLE`. **Deferred:** iPhone Safari `emitted > 0` — no device 2026-08-31; limitation recorded in motor-0.3.0 "does not promise" |
+| **A1** nested gen-pack revert | `[x]` | Packing `(rootGen << 16) \| installIndex` removed from wire; monotonic per-`contextId` mint in the same `initContext` answer; property units (monotonic / never reused / no reset on root reinstall); normative line in [frame-protocol.md](spec/frame-protocol.md) |
+| **A2** Eneba `/` → `/br/` | `[-]` partial → limitation | Soak `sidecar/lab-runs/2026-08-31T01-07-05-005Z-soak`: Virtual desync 0, invariants green, nested ctx 2/3 present. **Not observed:** redirect gen bump (`generation` stayed `1` across 49 frames). **Not exercised:** Projected apply gate (`applyOk: 0` — soak CLI has no DOM client). Full proof is **B5c** below |
+| **A3** SessionCollector race | `[x]` | `SessionCollectorTests.TimedOut_DoesNotFireAfterReattachClaimRace` PASS 2026-08-31 |
+| **A4** Windows / full gates | `[x]` | `cd sidecar && npm test` + build with `CHROME_EXECUTABLE` set (K5 Chromium probe ran); dotnet A3 PASS. Pre-existing blockers fixed: `mintHold` mock `localName`, `projectedInputCapture` mock `document`/`closest`, nativeGuard null-safe |
+| **A5** honest limitations | `[x]` | motor-0.3.0 "does not promise" updated (empty `verdicts.json`, A2 partial, iPhone open); `CHANGELOG.md [0.3.0]`; `version.txt` = `0.3.0` |
+| **A6** cut tag | `[ ]` | Cut `v0.3.0` after §4 — last step, not first. **Do not claim** RBI, sealed 1:1 accept, or "iPhone proven" |
+
+**Baseline dossier for the motor claim:** `sidecar/lab-runs/2026-08-30T06-10-17-942Z-www.eneba.com`
+(`/br/` direct — 33k+ wire invariant checks 0 fail, apply 96 ok / 0 fail, desync 0, input 44/44,
+our-code CPU ≈1% wall).
+
+---
+
+## 2 — B: Live preview
+
+Goal: an operator turns PP on in the full stack and CI proves **effect**, never a green hop.
+
+### Already closed in B
+
+| Item | State | Evidence |
+|------|-------|----------|
+| **B1** default + seed = PageProjection | `[x]` | `SessionsConfiguration.MirrorMode` default PageProjection (VideoStreaming = legacy); Admin `SESSIONS_BASELINE` + fill/summarize; `deploy/dockup.json` (dev/test/prod) and `docker-compose.sessions-test.yml` set `Sessions__MirrorMode=PageProjection`; SPA PreStart / `normalizeMirrorMode` / mocks; docs (Admin Mirror = DOM projection, env first-boot, old SQLite = GET→patch→PUT) |
+| **B2** SessionsTest PP category | `[x]` code / `[ ]` proof | Real `Category=PageProjection` filter (not reusing VideoStreamingInput asserts as PP proof). PP1 frame body + `contextId` + sequence · PP2 intent click → `#out[data-clicks]` in the Virtual · PP3 resync HTTP → resync frame + Virtual ready · PP4 NavigationBlocked → `Redirect`. MATRIX.md depth updated; CI filter added, C*/H1 forced to `videoStreaming`. **Proof missing — see B2b** |
+| **B3** pre-V4 contract cleanup | `[x]` | `establish_chunk_bytes` / `client_state_ms` obsolete, `ReportClientState` purged, mappers do not send dead knobs; journal/admin catalog: DomMap* = legacy, `ResyncServed`/`ResyncRequested` = frame in stream; header in `PageProjectionBrowserSession.ts`; GoBack/GoForward = intent-only (Conn does not call the unary). **Field removal from the proto itself is D/M6, not done here** |
+
+### Open in B — these block the release
+
+---
+
+#### B2b — Run the PP category in CI
+
+The code exists; it has never been run against the stack.
+
+- [ ] Bring up the SessionsTest compose and run `Category=PageProjection`
+- [ ] Attach the run output to the PR
+
+**Done when:** PP1–PP4 pass in the compose CI run, and the run is linked. Compiling is not passing.
+
+**Refs:** `Speculum.Api.SessionsTest.Tests` · `.github/workflows/ci.yml` ·
+[MATRIX.md](../../Speculum.Api.SessionsTest.Tests/MATRIX.md)
+
+---
+
+#### B4 — `PP-HARDNAV-PLANE-ACK`
+
+Race on hello-ack after a hard navigation, on the extension Port path.
+
+- [ ] **First, answer this and report:** is this the same family as the already-fixed same-socket
+      generation supersede (`nodeDataPlane` + `waitEstablished({ afterGeneration })`)? If yes,
+      the fix **converges with that mechanism**. Do not create a second way to establish.
+- [ ] Fix
+- [ ] Lab dossier on a real site with a hard navigation
+
+**Done when:** in a hard-nav dossier, `data_plane_not_established` appears **zero times after the
+hard nav completes**. If some occurrences are legitimate, they must carry a **distinct reason
+code** and the criterion becomes "zero of code X". The word "false" must not appear in the
+criterion — a criterion that needs a human to classify occurrences is not a criterion.
+
+**Refs:** [spec/open.md](spec/open.md) · `sidecar/browser/mirror/projection/session/nodeDataPlane.ts`
+
+---
+
+#### B5 — Live coverage of what landed
+
+**Naming correction:** this is **new coverage**, not regression. Three of the four paths below
+have never been exercised at the Live level. Size the work accordingly — four end-to-end Live
+tests against the full stack is not one day.
+
+- [ ] **B5.1** allowlist main-frame + `Redirect` reaching the client
+- [ ] **B5.2** restore/export LS + IDB round-trip on a profile
+- [ ] **B5.3** PermissionGate → `Control` → SessionHooks: default **deny**; a registered grant
+      allows, proven in the test
+- [ ] **B5.4** `Sessions.CpuProfiling=true` → probes registered
+
+**Done when:** each assertion is on **observed state or event**, never on a `200`. For B5.4 the
+assertion is *"the flag propagates and probes are registered"* — write it exactly that way in the
+test name. It does **not** prove profiling works (no Start RPC yet), and must not be counted as
+such.
+
+---
+
+#### B5b — PP5: LS/IDB assertion in SessionsTest
+
+Split out of B2 and never placed. **Decide once:** it lives here, at SessionsTest level, and is
+distinct from B5.2 which is Live level.
+
+- [ ] Restore profile with LS/IDB → assert counts / probe. **No soft-skip** — a skipped test is
+      an open gap, not a pass.
+
+---
+
+#### B5c — Eneba `/` → `/br/` full proof
+
+Carried over from A2, which shipped as a limitation.
+
+- [ ] Re-run with the lab DOM client (headed), not the soak CLI
+
+**Done when:** one dossier shows all four in the same run — redirect followed, generation bump
+observed, Turnstile nested context established, Projected apply gate exercised (`applyOk > 0`)
+with no `sequence_gap` burst. Anything less stays a limitation; do not soften the criterion.
+
+---
+
+## 3 — D: motor migration .NET → sidecar
+
+**Normative:** [spec/motor-migration.md](spec/motor-migration.md) — phases, `file:line` evidence,
+work rules, stop rules. This section is the index, not a second copy.
+
+### Target architecture (owner-specified)
+
+```text
+client ──socket──► .NET ──── control socket ────► sidecar   permanent, host level, NEVER closes
+                    │
+                    └──── session socket (gRPC) ─► sidecar   one per session, carries EVERYTHING
+```
+
+- **.NET** persists the session (identity, journal, config), starts the `BrowserSession` and opens
+  that session's socket.
+- **.NET on the stream path = dumb pipe.** No coalescing, dropping, parsing or reframing of PP
+  payload (I1).
+- **Sidecar reads no config at runtime** — immutable snapshot injected at Launch (I2).
+- **Backpressure:** the motor decides what may be discarded; .NET only **reports** consumer
+  pressure (I3).
+- **The one in-session decision .NET owns:** permission hooks (cam/mic/geo) → SignalR → consumer.
+- **Attach / fan-out** (`SessionBindingRegistry`, `SessionOutputFanOut`, …) **stays** — correct as
+  designed, do not redesign (I7).
+
+### Invariants
+
+I1 dumb pipe · I2 config only at Launch · I3 backpressure in the motor · I4 DOM concepts only in
+`packages/page-projection` · I5 port + immutable config record · I6 K2/K5 with browser-level tests ·
+I7 attach layer untouched · I8 session-scoped messages ride the session socket, never the host
+control socket.
+
+### What D removes from .NET (verified 2026-08-31 — re-verify before deleting)
+
+| Violation | Evidence | Phase |
+|-----------|----------|-------|
+| Coalesces PP intents | `PageProjectionIntentAdmissionChannel.cs` · `LiveSession.cs:56,1674` | M2 |
+| Coalesces video input | `VideoStreamingInputAdmissionChannel.cs` · `LiveSession.cs:54,1624` | M2 |
+| Drops frames + sequence bookkeeping | `SequencedDiffChannels.cs` · `GrpcSessionConnection.cs:106,1087` | M3 |
+| Materialises the frame as a typed object | `GrpcSessionConnection.cs:19,451` · `Mirror/PageProjection/*` | M4 |
+| Owns the shared asset tier | `SharedAssetCacheL2.cs` · `LiveSession.cs:35` | M5 |
+| Parses motor telemetry payloads | `PageProjectionParityTelemetryJournal.cs` | M6 |
+| Owns URL resolution / mirroring | `UrlResolver.cs` (639) | M1 |
+| Per-session `Control` + one shared channel | `GrpcSessionConnection.cs:167,2127` · `GrpcBrowserClient.cs:40` | M8 |
+
+**Already correct — do not "fix":** opaque `PageProjectionFrame` in the proto (`proto:379`);
+Launch snapshot as the injection point; `SessionConfigAssembler` / `LaunchScriptResolver`;
+separate HTTP/2 streams per RPC (no head-of-line problem).
+
+### Phases
+
+| Order | Phase | Depends on | Delivers |
+|-------|-------|------------|----------|
+| 1 | **M0** spec audit | — | `spec/spec-audit.md`: every spec file `CURRENT`/`STALE`/`UNKNOWN`, each `STALE` sentence paired with the `file:line` that contradicts it. No rewriting yet |
+| 2 | **M1** `IUrlResolver` → sidecar | M0 | `NavigationPolicy` injected at Launch; .NET keeps only the pre-session entry resolve; written inventory of every outbound URL surface |
+| 3 | **M8** host control vs session socket | M0 | Permanent host control stream; one gRPC socket per session; density test at K3's N |
+| 4 | **M2** delete .NET coalescing | M8 | Admission channels and their tests deleted; sidecar coverage confirmed first |
+| 5 | **M3** delete .NET frame drop + `ConsumerPressure` | M8, M2 | .NET reports, motor reacts; slow consumer never yields a silent gap |
+| 6 | **M4** delete C# DOM types | — | .NET relays opaque envelopes; grep clean |
+| 7 | **M5** shared asset tier → sidecar | M4 | K2 browser-level test (session A's credentialed bytes never reach session B) |
+| 8 | **M6** telemetry inversion | M4 | Sidecar emits typed lifecycle; `parity_*` parsing deleted from C#; dead proto fields removed |
+| 9 | **M7** decompose `LiveSession` | M1–M6, M8 | Only after the motor has left the file |
+
+**One phase = one revertible PR.** Never mix phases in one commit.
+
+**VideoStreaming** is out of scope except M2's deletion of its coalescing (that is stream-path
+logic in .NET). Whether the video path survives at all is a separate front — if a phase forces
+that decision, **stop and ask**.
+
+### B3 → D bridge
+
+| Closed in B3 | Completed in D |
+|--------------|----------------|
+| `establish_chunk_bytes` / `client_state_ms` obsolete; mappers do not send them | **M6:** remove the fields from the proto, not merely ignore them |
+| DomMap* / Resync copy = frame in stream | **M6:** sidecar emits typed lifecycle; zero motor parsing in C# |
+| GoBack/GoForward intent-only | **M1:** history URLs enter the outbound `ProjectToClient` inventory |
+
+### Pre-1.0 proto hygiene (lands with M4/M6)
+
+One commit, .NET + sidecar + [frame-protocol.md](spec/frame-protocol.md) together: remove
+`plane` / `operation`, `establish_chunk_bytes`, `anchor` in `DomInputEvent`; document or reuse the
+field-number gaps. Detail in [motor-migration.md](spec/motor-migration.md) §6.
+
+### D definition of done
+
+- [ ] `grep -E 'Dom(Node|Selector|Asset)|Coalesc|Admission|SequencedDiff'` under `Speculum.Api`
+      returns nothing
+- [ ] `Speculum.Api` compiles with no reference to `Mirror/PageProjection` types
+- [ ] Sidecar session performs no config read at runtime — enforced by an extended
+      `check:page-projection-boundaries`
+- [ ] Slow consumer produces frames **or** a resync **or** a disconnect with a reason code —
+      never a hole
+- [ ] K2 and K5 browser-level regression tests pass
+- [ ] `spec/spec-audit.md` has no unresolved `STALE`
+- [ ] Windows full gates green **and** `Category=PageProjection` actually run in CI
+
+### D stop rules
+
+Adding a queue, counter or opcode to make a phase work → **stop and report**: the boundary is in
+the wrong place. A test that was never seen red → **stop and report**. An INVESTIGATE item that
+cannot be answered from the code → **stop and ask**.
+
+---
+
+## 4 — Release gate
+
+0.3.0 ships when **all** of these hold. Nothing else blocks it.
+
+- [ ] B2b: `Category=PageProjection` green in a real CI run
+- [ ] B4: hard-nav dossier with zero `data_plane_not_established` after the nav
+- [ ] B5.1–B5.4 green, each asserting state or event
+- [ ] B5b: PP5 LS/IDB asserted, not skipped
+- [ ] B5c: one dossier proving redirect + gen bump + nested Turnstile + apply gate together
+- [ ] D definition of done, fully
+- [ ] `CHANGELOG.md [0.3.0]` current, with the limitations that remain
+- [ ] `version.txt` = `0.3.0`
+- [ ] A6: tag `v0.3.0` cut
+
+**Still not promised** — write these into the changelog, do not let a user discover them:
+antibot / stealth (the challenge fails 100%; investigation not started), datacenter IP,
+sealed 1:1 accept, canvas, nested render inside shadow, media ingress (`PushCamera` /
+`PushMicrophone` are no-ops), `PutDomUpload` (no-op).
+
+---
+
+## 5 — Out of scope (C — prod RBI)
+
+Tracked here so nobody pulls one in mid-phase. None of these gate this release.
+
+| Item | Scope |
+|------|-------|
+| **C1** canvas (gate 7) | Real canvas content in `@speculum/page-projection`, wire → apply, visual oracle |
+| **C2** MotorAssert / Live deep | Compose seed PP for MotorAssert; deep intents + parity probes, not smoke |
+| **C3** antibot / stealth V3 | Spike on real Turnstile/CF; bisect patchright vs extension. **Without this, do not call it production RBI** |
+| **C4** 1:1 accept | Oracles O1/O2/O5 on baseline sites. Never PASS on protocol-only signals (`200`, WD>N, htmlLen) |
+| **C5** assets / upload / media | Real asset store; `PutDomUpload` implemented or removed from the Live path; MediaIngress + Conn `PushCamera`/`PushMicrophone` if the product needs GUM |
+| **C6** nested XO limits | Strategy without XFO punching (`PP-ASSET-XFO`); about:blank / srcdoc / opaque sandbox per [open.md](spec/open.md) |
+| **C7** multi-session density | Two-Chrome live C2 smoke; frame-queue backpressure under load. **Overlaps M8:** the N-session density test is M8's DoD — write it once, use it for both |
+| **C8** close the scratchpads | Archive [CUTOVER-WORKSPACE.md](CUTOVER-WORKSPACE.md); fold this file's residue into open.md |
+
+---
+
+## 6 — Contract gaps (documented, not silent)
+
+| Item | Sidecar | .NET | Disposition |
+|------|---------|------|-------------|
+| `PutDomUpload` | handler ok; PP `putUpload` **no-op** | `PutDomUploadAsync` exists | C5 — implement or remove from the Live path |
+| `PushCamera` / `PushMicrophone` | handler; PP **no-op** | streams never opened | C5 — MediaIngress + Conn pump |
+| `GoBack` / `GoForward` unary | present | Conn does not call it | `[x]` B3 — intent-only, documented |
+| Lab RPCs (`HaltClocks`, `EmitFrame`, `GetStateSnapshot`) | present | no client | `[~]` deliberate — never wire these into prod |
+| `startCpuProfile` / `stopCpuProfile` | in-process + Launch flag | flag only | `[-]` acceptable for this release; add the RPC only if Live diagnosis demands it |
+| Pre-V4 Launch knobs | deprecated in proto | obsolete; mappers do not send | `[ ]` **M6** removes them from the proto |
+| Telemetry `Establish.DomMap*` / Resync "OOB" | — | legacy copy | `[ ]` **M6** — sidecar emits typed, C# parsing deleted |
+
+---
+
+## 7 — Do not reopen
+
+| Item | Why |
+|------|-----|
+| Per-session `c2-endpoint.json` (B1 of the old numbering) | `[x]` shipped 2026-08-29 — `materializeSpeculumPpForSession` + isolation unit |
+| `managedTabId` fail-closed gate | `[~]` withdrawn — product law is 1 session = 1 tab; protocol deleted 2026-08-29 |
+| Anything under `docs/page-projection/archive/` | Not a source of implementation |
+| Lab RPCs in production | Never |
+| Accept declared from `hopdiag` / `ResyncServed` / `ownedRules` alone | Protocol-only signals are not acceptance |
+| Re-adding "temporary" drop/coalesce in .NET during D | Revert the whole phase instead |
+
+---
+
+## 8 — Anchors
+
+| Topic | Path |
+|-------|------|
+| Tag gates | [spec/motor-0.3.0.md](spec/motor-0.3.0.md) |
+| Migration (normative) | [spec/motor-migration.md](spec/motor-migration.md) |
+| Named open items | [spec/open.md](spec/open.md) |
+| Session sealed contract | [spec/browser-session.md](spec/browser-session.md) |
+| Acceptance | [spec/acceptance.md](spec/acceptance.md) |
 | Roadmap M1 | [spec/roadmap.md](spec/roadmap.md) |
-| Cutover temp | [CUTOVER-WORKSPACE.md](CUTOVER-WORKSPACE.md) |
 | Proto | `proto/browser_session.proto` |
-| Sidecar PP | `sidecar/browser/mirror/projection/session/PageProjectionBrowserSession.ts` |
-| Api Conn | `Speculum.Api/BrowserClients/Grpc/GrpcSessionConnection.cs` |
+| Sidecar PP session | `sidecar/browser/mirror/projection/session/PageProjectionBrowserSession.ts` |
+| Sidecar gRPC service | `sidecar/grpc/BrowserSessionService.ts` |
+| Api connection | `Speculum.Api/BrowserClients/Grpc/GrpcSessionConnection.cs` |
+| Api mappers | `Speculum.Api/BrowserClients/Grpc/GrpcSessionMappers.cs` |
 | Web surface | `web/src/features/sessions/live/SessionMirrorSurface.tsx` |

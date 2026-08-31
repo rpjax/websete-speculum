@@ -40,8 +40,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install Chrome (K5 / PP Chromium probes)
+        uses: browser-actions/setup-chrome@v1
+        id: chrome
       - name: Install and test
         working-directory: sidecar
+        env:
+          # Fail closed for projectedK5 — no silent skip when Chrome is available on CI.
+          CHROME_EXECUTABLE: ${{ steps.chrome.outputs.chrome-path }}
         run: |
           npm ci
           npm test
@@ -157,6 +163,13 @@ jobs:
         run: >
           dotnet test Speculum.Api.SessionsTest.Tests/Speculum.Api.SessionsTest.Tests.csproj
           -c Release --filter "Category=SessionsTest" --verbosity normal
+
+      - name: Run PageProjection SessionsTest (product)
+        env:
+          SESSIONS_TEST_API_BASE: http://127.0.0.1:18090
+        run: >
+          dotnet test Speculum.Api.SessionsTest.Tests/Speculum.Api.SessionsTest.Tests.csproj
+          -c Release --filter "Category=PageProjection" --verbosity normal
 
       - name: Collect compose logs on failure
         if: failure()

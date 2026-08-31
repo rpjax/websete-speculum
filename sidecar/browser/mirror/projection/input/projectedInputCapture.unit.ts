@@ -37,12 +37,23 @@ function fakeEventTarget() {
 }
 
 function mockSurface() {
-  const win = { ...fakeEventTarget(), innerWidth: 800, innerHeight: 600 };
+  const win: {
+    innerWidth: number;
+    innerHeight: number;
+    document?: unknown;
+    addEventListener: (type: string, handler: Handler, _opts?: unknown) => void;
+    removeEventListener: (type: string, handler: Handler, _opts?: unknown) => void;
+    dispatch: (type: string, event: unknown) => void;
+    hasListener: (type: string) => boolean;
+  } = { ...fakeEventTarget(), innerWidth: 800, innerHeight: 600 };
   const doc = {
     ...fakeEventTarget(),
     defaultView: win,
     scrollingElement: null,
+    documentElement: { clientWidth: 800, clientHeight: 600, style: {} as CSSStyleDeclaration },
+    body: { style: {} as CSSStyleDeclaration },
   };
+  win.document = doc;
   const surface = { ownerDocument: doc };
   return { win, doc, surface };
 }
@@ -94,6 +105,7 @@ async function testSparseNeverEmitsMove(): Promise<void> {
 async function testSparseResolvesNodeIdFromEventTarget(): Promise<void> {
   const target = {
     nodeType: 1,
+    closest: () => null,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
   };
   const { doc, surface } = mockSurface();
@@ -129,6 +141,7 @@ async function testSparseResolvesNodeIdFromEventTarget(): Promise<void> {
 async function testSparsePointerCancelEmitsUpAfterDown(): Promise<void> {
   const target = {
     nodeType: 1,
+    closest: () => null,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
   };
   const { doc, surface } = mockSurface();
@@ -157,7 +170,7 @@ async function testSparsePointerCancelEmitsUpAfterDown(): Promise<void> {
 
 /** Unregistered event.target → skip (fail-closed, no null nodeId intent). */
 async function testSparseMissSkipsWhenTargetUnregistered(): Promise<void> {
-  const target = { nodeType: 1 };
+  const target = { nodeType: 1, closest: () => null };
   const { doc, surface } = mockSurface();
   const sent: UnifiedIntent[] = [];
   const metrics = new ProjectedInputCaptureMetrics();
@@ -182,7 +195,7 @@ async function testSparseMissSkipsWhenTargetUnregistered(): Promise<void> {
 
 /** Editable target keys are forwarded and default action blocked (Virtual is source of truth). */
 async function testEditableKeyPreventDefault(): Promise<void> {
-  const input = { nodeType: 1, tagName: 'INPUT', isContentEditable: false };
+  const input = { nodeType: 1, tagName: 'INPUT', isContentEditable: false, closest: () => null };
   const { doc, surface } = mockSurface();
   const sent: UnifiedIntent[] = [];
   let prevented = false;
@@ -219,7 +232,7 @@ async function testEditableKeyPreventDefault(): Promise<void> {
 
 /** Alt+Arrow history shortcuts → historyNav intent, default blocked. */
 async function testHistoryShortcutEmitsNavIntent(): Promise<void> {
-  const body = { nodeType: 1, tagName: 'BODY', isContentEditable: false };
+  const body = { nodeType: 1, tagName: 'BODY', isContentEditable: false, closest: () => null };
   const { doc, surface } = mockSurface();
   const sent: UnifiedIntent[] = [];
   let prevented = false;

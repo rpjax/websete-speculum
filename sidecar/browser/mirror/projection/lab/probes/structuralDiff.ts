@@ -3,27 +3,34 @@
  * `TreeNode` shapes from `projected/domTreeSnapshot.ts` (Virtual tree via coherent
  * `getStateSnapshot({ includeTree })` / `snapshotEvaluate`; Projected via client snapshot).
  *
- * **Comparison boundary (O2 lab oracle):**
+ * **Comparison boundary (O2 lab tree×tree):**
  * - Virtual = live Chromium DOM; Client = Projected srcdoc document after wire apply.
- * - Parser scaffold on the Client (srcdoc-only nodes not present on Virtual) is excluded
- *   by structural shape, not by tag/name allowlists — see `isParserScaffoldNode`.
+ * - Projected shell nodes that exist only on the Client (srcdoc chrome not present on
+ *   Virtual) are excluded **after** fingerprint alignment, by structural shape under
+ *   `html>head` — leaf, no text/shadow/nested, compact attr payload. No tag/name
+ *   allowlist and no site allowlist. Pre-filter is forbidden (it drops real metas that
+ *   would have matched).
  * - URL-bearing attributes are normalized through the same virtual-asset rewrite the
- *   projection path uses (`classifyAndRewriteUrl` / `httpUrlToVirtual`) so rewritten
- *   `/w7s/virtual-assets/…` compares equal to Virtual `/path` or absolute http(s).
- * - `style` on `<html>` is surface presentation on the Projected shell — omitted from attr compare.
- * - `frameHref` is never compared (see `treeNode.ts`).
+ *   projection path uses (`classifyAndRewriteUrl` / `httpUrlToVirtual`). Absolute
+ *   Projected-origin URLs that already point at `/w7s/virtual-*` are peeled to the
+ *   path form — never double-rewritten.
+ * - `style` on `html` / `body` (Projected surface chrome: touch-action etc.) is outside
+ *   this boundary — omitted from attr compare by element role, not by site. `frameHref`
+ *   is never compared (see `treeNode.ts`).
  *
- * Children are aligned by structural fingerprint (not index) so a single parser-inserted
+ * Children are aligned by structural fingerprint (not index) so a single shell-inserted
  * head node does not shift the entire subtree.
  */
 
 import type { TreeNode } from '@speculum/page-projection/core/treeNode';
 import {
   URL_ATTR_NAMES,
+  VIRTUAL_ASSETS_PREFIX,
+  VIRTUAL_BLOB_PREFIX,
+  VIRTUAL_DATA_PREFIX,
   absolutizeUrl,
   classifyAndRewriteUrl,
   httpUrlToVirtual,
-  VIRTUAL_ASSETS_PREFIX,
 } from '../../assets/urlForms';
 import {
   SessionAuthQueryParam,
@@ -61,6 +68,8 @@ export type StructuralDiffOptions = {
 const MAX_DIVERGENCES = 50;
 
 const RESERVED_QUERY_PARAMS = new Set([SessionAuthQueryParam, SessionCacheBustQueryParam]);
+
+const VIRTUAL_PATH_PREFIXES = [VIRTUAL_ASSETS_PREFIX, VIRTUAL_BLOB_PREFIX, VIRTUAL_DATA_PREFIX] as const;
 
 /** Number of open-shadow trees in the snapshot (hosts, including nested). Light-only = 0. */
 export function countShadowTrees(node: TreeNode): number {
@@ -112,7 +121,68 @@ function inferPageBaseUrl(virtual: TreeNode, client: TreeNode): string {
   for (const href of hrefs) {
     if (/^https?:\/\//i.test(href)) return href;
   }
+  const fromAssets = inferPageBaseFromVirtualAssetAttrs(client) ?? inferPageBaseFromVirtualAssetAttrs(virtual);
+  if (fromAssets) return fromAssets;
   return 'https://speculum.invalid/';
+}
+
+/** Recover page base from rewritten `/w7s/virtual-assets/{host}{path}` attrs when frameHref is absent. Majority host first, then document-like path over static assets. */
+function inferPageBaseFromVirtualAssetAttrs(node: TreeNode): string | null {
+  const keys: string[] = [];
+  walkAttrsForPageBase(node, (value) => {
+    const peeled = peelVirtualAssetPath(stripReservedQueryParams(value));
+    if (!peeled?.startsWith(VIRTUAL_ASSETS_PREFIX)) return;
+    const key = peeled.slice(VIRTUAL_ASSETS_PREFIX.length);
+    if (key.indexOf('/') > 0) keys.push(key);
+  });
+  if (keys.length === 0) return null;
+
+  const hostCounts = new Map<string, number>();
+  for (const key of keys) {
+    const host = key.slice(0, key.indexOf('/'));
+    if (!host.includes('.')) continue;
+    hostCounts.set(host, (hostCounts.get(host) ?? 0) + 1);
+  }
+  let majorityHost: string | null = null;
+  let majorityCount = 0;
+  for (const [host, count] of hostCounts) {
+    if (count > majorityCount) {
+      majorityHost = host;
+      majorityCount = count;
+    }
+  }
+  if (!majorityHost) return null;
+
+  let best: { base: string; score: number } | null = null;
+  for (const key of keys) {
+    if (!key.startsWith(`${majorityHost}/`)) continue;
+    const path = key.slice(majorityHost.length); // begins with /
+    const score = scoreVirtualAssetKey(key);
+    let dir = path;
+    if (!dir.endsWith('/')) {
+      const lastSlash = dir.lastIndexOf('/');
+      dir = lastSlash >= 0 ? dir.slice(0, lastSlash + 1) : '/';
+    }
+    const base = `https://${majorityHost}${dir || '/'}`;
+    if (!best || score > best.score) best = { base, score };
+  }
+  return best?.base ?? `https://${majorityHost}/`;
+}
+
+function scoreVirtualAssetKey(key: string): number {
+  const path = key.includes('/') ? key.slice(key.indexOf('/')) : '/';
+  let score = path.length;
+  if (path.endsWith('/')) score += 100;
+  if (/\.(ico|png|jpe?g|gif|svg|webp|js|mjs|css|woff2?|map|json)(\?|$)/i.test(path)) score -= 80;
+  else score += 50;
+  return score;
+}
+
+function walkAttrsForPageBase(node: TreeNode, consider: (value: string) => void): void {
+  for (const [, value] of node.attrs ?? []) consider(value);
+  for (const child of node.children ?? []) walkAttrsForPageBase(child, consider);
+  if (node.shadow) walkAttrsForPageBase(node.shadow, consider);
+  if (node.nested) walkAttrsForPageBase(node.nested, consider);
 }
 
 function walk(
@@ -124,7 +194,7 @@ function walk(
 ): void {
   if (a === undefined && b === undefined) return;
   if (a === undefined) {
-    if (b !== undefined && isParserScaffoldNode(b, path)) return;
+    if (b !== undefined && isClientShellScaffoldNode(b, path)) return;
     record(path, 'extra_node', `client has <${describe(b!)}>, virtual has none`);
     return;
   }
@@ -148,14 +218,17 @@ function walk(
   const attrDetails = diffAttrs(a, b, path, pageBaseUrl);
   if (attrDetails !== null) record(path, 'attr_mismatch', attrDetails);
 
-  const aChildren = filterParserScaffoldChildren(a.children ?? [], path, 'virtual');
-  const bChildren = filterParserScaffoldChildren(b.children ?? [], path, 'client');
+  const aChildren = a.children ?? [];
+  const bChildren = b.children ?? [];
   const pairs = alignChildrenByFingerprint(aChildren, bChildren, pageBaseUrl);
-  if (pairs.unmatchedVirtual.length > 0 || pairs.unmatchedClient.length > 0) {
-    const v = aChildren.length;
-    const c = bChildren.length;
-    if (v !== c) {
-      record(path, 'child_count_mismatch', `virtual=${v} client=${c}`);
+  const unmatchedClientMeaningful = pairs.unmatchedClient.filter((bi) => {
+    const child = bChildren[bi]!;
+    return !isClientShellScaffoldNode(child, `${path}>${child.tag}[${bi}]`);
+  });
+  if (pairs.unmatchedVirtual.length > 0 || unmatchedClientMeaningful.length > 0) {
+    const clientComparable = bChildren.length - (pairs.unmatchedClient.length - unmatchedClientMeaningful.length);
+    if (aChildren.length !== clientComparable) {
+      record(path, 'child_count_mismatch', `virtual=${aChildren.length} client=${clientComparable}`);
     }
   }
   for (const [ai, bi, idx] of pairs.pairs) {
@@ -168,7 +241,7 @@ function walk(
   }
   for (const bi of pairs.unmatchedClient) {
     const child = bChildren[bi]!;
-    if (isParserScaffoldNode(child, `${path}>${child.tag}[${bi}]`)) continue;
+    if (isClientShellScaffoldNode(child, `${path}>${child.tag}[${bi}]`)) continue;
     record(`${path}>${child.tag}[${bi}]`, 'extra_node', `client has <${describe(child)}>, virtual has none`);
   }
 
@@ -185,11 +258,11 @@ function isUnderHtmlHead(path: string): boolean {
 }
 
 /**
- * Parser scaffold: leaf element under `html>head` with no subtree, produced only on the
- * Projected srcdoc document (charset/link boilerplate the HTML parser inserts). Structural
- * predicate — no tag-name table.
+ * Projected srcdoc / parser shell: Client-only leaf under `html>head` with no subtree.
+ * Used only for **unmatched** client nodes after fingerprint alignment — never as a
+ * pre-filter (that would drop real head metas that pair with Virtual).
  */
-function isParserScaffoldNode(node: TreeNode, path: string): boolean {
+function isClientShellScaffoldNode(node: TreeNode, path: string): boolean {
   if (!isUnderHtmlHead(path)) return false;
   if (node.shadow !== undefined || node.nested !== undefined) return false;
   const children = node.children ?? [];
@@ -198,15 +271,6 @@ function isParserScaffoldNode(node: TreeNode, path: string): boolean {
   const attrs = node.attrs ?? [];
   if (attrs.length === 0 || attrs.length > 2) return false;
   return attrs.every(([, v]) => v.length <= 64);
-}
-
-function filterParserScaffoldChildren(
-  children: TreeNode[],
-  parentPath: string,
-  side: 'virtual' | 'client',
-): TreeNode[] {
-  if (side !== 'client') return children;
-  return children.filter((child, i) => !isParserScaffoldNode(child, `${parentPath}>${child.tag}[${i}]`));
 }
 
 type ChildAlignment = {
@@ -255,13 +319,14 @@ function childFingerprint(node: TreeNode, pageBaseUrl: string): string {
 
 function normalizeAttrs(
   node: TreeNode,
-  path: string,
+  _path: string,
   pageBaseUrl: string,
 ): [string, string][] {
   const out: [string, string][] = [];
   for (const [name, value] of node.attrs ?? []) {
     const lower = name.toLowerCase();
-    if (node.tag === 'html' && lower === 'style') continue;
+    // Projected surface chrome (touch-action etc.) — not mirrored site style.
+    if (lower === 'style' && (node.tag === 'html' || node.tag === 'body')) continue;
     if (URL_ATTR_NAMES.has(lower)) {
       out.push([lower, normalizeUrlAttrValue(value, pageBaseUrl)]);
       continue;
@@ -272,14 +337,36 @@ function normalizeAttrs(
   return out;
 }
 
+/**
+ * Peel an already-rewritten virtual-asset URL (relative or absolute against any origin)
+ * down to `/w7s/virtual-…` path form. Returns null when the URL is not a virtual path.
+ */
+export function peelVirtualAssetPath(url: string): string | null {
+  const t = url.trim();
+  if (!t) return null;
+  for (const prefix of VIRTUAL_PATH_PREFIXES) {
+    if (t.startsWith(prefix)) return t.split('?')[0]!;
+  }
+  if (!/^https?:\/\//i.test(t)) return null;
+  try {
+    const u = new URL(t);
+    for (const prefix of VIRTUAL_PATH_PREFIXES) {
+      if (u.pathname.startsWith(prefix)) return u.pathname;
+    }
+  } catch {
+    /* keep null */
+  }
+  return null;
+}
+
 /** Canonical virtual-asset path (no session/cache-bust query) for structural URL compare. */
 export function normalizeUrlAttrValue(raw: string, pageBaseUrl: string): string {
   const t = raw.trim();
   if (!t) return t;
   const stripped = stripReservedQueryParams(t);
-  if (stripped.startsWith(VIRTUAL_ASSETS_PREFIX)) {
-    return stripped.split('?')[0]!;
-  }
+  const peeled = peelVirtualAssetPath(stripped);
+  if (peeled) return peeled;
+
   const abs = absolutizeUrl(stripped, pageBaseUrl);
   const rewritten = classifyAndRewriteUrl(abs, pageBaseUrl);
   if (rewritten.kind === 'http') return rewritten.value.split('?')[0]!;
@@ -314,7 +401,11 @@ function stripReservedQueryParams(url: string): string {
     .filter((part) => {
       const eq = part.indexOf('=');
       const name = eq >= 0 ? part.slice(0, eq) : part;
-      return !RESERVED_QUERY_PARAMS.has(decodeURIComponent(name));
+      try {
+        return !RESERVED_QUERY_PARAMS.has(decodeURIComponent(name));
+      } catch {
+        return !RESERVED_QUERY_PARAMS.has(name);
+      }
     })
     .join('&');
   return `${path}${kept ? `?${kept}` : ''}${fragment}`;

@@ -8,7 +8,7 @@ import type { BrowserSession } from '../../../../BrowserSession';
 import type { LabChassis } from '../host/chassis';
 import type { LabVerdict } from '../dossier/types';
 import type { ClientStateSnapshot, IsomorphismResult } from './isomorphism';
-import { captureVirtualLabSnap, runIsomorphism } from './isomorphism';
+import { buildIsomorphismFromCaptures, captureVirtualLabSnap } from './isomorphism';
 import { countNestedDocuments, countShadowTrees, collectFrameHrefs } from './structuralDiff';
 
 /** Virtual main-frame live DOM — CDP evaluate; cross-origin iframe content is not readable. */
@@ -234,6 +234,7 @@ export async function runTurnstileDiagnostic(opts: {
   try {
     await session.haltClocks?.();
     contextIds = chassis.contextIndex.list();
+    if (!contextIds.includes(1)) contextIds = [1, ...contextIds];
 
     try {
       const r = await session.evaluate(VIRTUAL_LIVE_DOM_EXPR);
@@ -242,16 +243,34 @@ export async function runTurnstileDiagnostic(opts: {
       virtualLiveDom = { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
 
+    const virtualByContext: Record<
+      number,
+      {
+        ok: boolean;
+        generation?: number;
+        sequence?: number;
+        o2?: never;
+        table?: never;
+        cssomO2?: never;
+        nodeNewConnected?: never;
+        cascade?: never;
+        formProps?: never;
+        tree?: unknown;
+        reason?: string;
+      }
+    > = {};
+
     for (const contextId of contextIds) {
       const view = await captureVirtualLabSnap(session as never, contextId, {
         table: 'full',
         tree: true,
-        cssom: 'none',
+        cssom: 'scan',
         formProps: true,
         frameNewNodes: true,
         liveChildOrder: true,
       });
       if (!view.ok) {
+        virtualByContext[contextId] = { ok: false, reason: view.reason ?? 'snapshot failed' };
         virtualContexts[contextId] = {
           ok: false,
           reason: view.reason ?? 'snapshot failed',
@@ -266,6 +285,18 @@ export async function runTurnstileDiagnostic(opts: {
         };
         continue;
       }
+      virtualByContext[contextId] = {
+        ok: true,
+        generation: view.generation,
+        sequence: view.sequence,
+        o2: view.o2 as never,
+        table: view.table as never,
+        cssomO2: view.cssomO2 as never,
+        nodeNewConnected: view.nodeNewConnected as never,
+        cascade: (view.cascade ?? null) as never,
+        formProps: view.formProps as never,
+        tree: view.tree,
+      };
       const tree = view.tree as TreeNode | undefined;
       const iframeHits = tree ? collectIframeHits(tree) : [];
       virtualContexts[contextId] = {
@@ -281,41 +312,39 @@ export async function runTurnstileDiagnostic(opts: {
       };
     }
 
-    if (getClientSnapshot) {
-      const snap = await getClientSnapshot(1, { includeNestedPeek: true });
-      if (snap) {
-        projectedNestedPeek = (snap.nestedPeek as ProjectedNestedPeek | undefined) ?? null;
-        const tree = snap.tree;
-        const iframeHits = tree ? collectIframeHits(tree) : [];
-        projectedRoot = {
-          sequence: snap.sequence ?? null,
-          generation: snap.generation ?? null,
-          armed: snap.armed ?? null,
-          desynced: snap.desynced ?? null,
-          applyError: snap.applyError ?? null,
-          resyncInFlight: snap.resyncInFlight ?? null,
-          iframeHits,
-          cfIframeInTree: iframeHits.some(isCfIframeHit),
-          nestedDocCount: tree ? countNestedDocuments(tree) : 0,
-          shadowHostCount: tree ? countShadowTrees(tree) : 0,
-        };
+    const clientByContext: Record<number, ClientStateSnapshot | null> | undefined = getClientSnapshot
+      ? {}
+      : undefined;
+    if (getClientSnapshot && clientByContext) {
+      for (const contextId of contextIds) {
+        const snap = await getClientSnapshot(contextId, {
+          includeNestedPeek: contextId === 1,
+        });
+        clientByContext[contextId] = snap;
+        if (contextId === 1 && snap) {
+          projectedNestedPeek = (snap.nestedPeek as ProjectedNestedPeek | undefined) ?? null;
+          const tree = snap.tree;
+          const iframeHits = tree ? collectIframeHits(tree) : [];
+          projectedRoot = {
+            sequence: snap.sequence ?? null,
+            generation: snap.generation ?? null,
+            armed: snap.armed ?? null,
+            desynced: snap.desynced ?? null,
+            applyError: snap.applyError ?? null,
+            resyncInFlight: snap.resyncInFlight ?? null,
+            iframeHits,
+            cfIframeInTree: iframeHits.some(isCfIframeHit),
+            nestedDocCount: tree ? countNestedDocuments(tree) : 0,
+            shadowHostCount: tree ? countShadowTrees(tree) : 0,
+          };
+        }
       }
     }
 
-    iso = await runIsomorphism({
-      session,
+    iso = await buildIsomorphismFromCaptures({
       contextIds,
-      getClientSnapshot: getClientSnapshot
-        ? (contextId) => getClientSnapshot(contextId)
-        : undefined,
-      virtualCapture: {
-        table: 'full',
-        tree: true,
-        cssom: 'scan',
-        formProps: true,
-        frameNewNodes: true,
-        liveChildOrder: true,
-      },
+      virtualByContext: virtualByContext as never,
+      clientByContext,
     });
     chassis.journal.iso = iso;
   } finally {
@@ -415,14 +444,24 @@ export function foldTurnstileDiagnostic(chassis: LabChassis): LabVerdict[] {
       : `no cf iframe in Virtual table tree (iframe nodes=${tableIframeCount})`,
   });
 
-  const nestedCtx = diag.contextIds.filter((id) => id >= 2);
+  // Same-halt evidence only: stale contextIndex ids without a live iframe / ok nested
+  // snap must not pass nestedContext while liveDom shows iframeCount=0.
+  const nestedIdx = diag.contextIds.filter((id) => id >= 2);
+  const nestedSnapOk = Object.entries(diag.virtualContexts).some(([id, c]) => Number(id) >= 2 && c.ok);
+  const nestedLiveDom =
+    diag.virtualLiveDom.ok &&
+    (diag.virtualLiveDom.value.iframeCount > 0 || diag.virtualLiveDom.value.cfIframeCount > 0);
+  const nestedLive = nestedLiveDom || nestedSnapOk;
   verdicts.push({
     id: 'turnstile.virtual.nestedContext',
-    status: nestedCtx.length > 0 ? 'pass' : 'fail',
-    reason:
-      nestedCtx.length > 0
-        ? `contextIds=${nestedCtx.join(',')}`
-        : 'no nested context minted (contextId≥2 absent at probe)',
+    status: nestedLive ? 'pass' : 'fail',
+    reason: nestedLive
+      ? `live nested at halt (index=${nestedIdx.join(',') || 'none'}; liveIframes=${
+          diag.virtualLiveDom.ok ? diag.virtualLiveDom.value.iframeCount : '?'
+        }; snapOk=${nestedSnapOk})`
+      : `no live nested at halt (stale index=${nestedIdx.join(',') || 'none'}; liveIframes=${
+          diag.virtualLiveDom.ok ? diag.virtualLiveDom.value.iframeCount : '?'
+        })`,
   });
 
   const peek = diag.projectedNestedPeek;

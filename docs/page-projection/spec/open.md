@@ -80,7 +80,7 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 202
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-ISO-ORACLE-B5C** | Re-run dossier `2026-08-31T17-26-54-572Z-eneba-turnstile` (headed): still `iso.tree` 20 divergences + `iso.table` hash mismatch with equal rows (93=93). Oracle normalize incomplete for head scaffold + absolute virtual-asset URLs. Widget still absent (`iframeCount=0`, nested ctx gone). Redirect + gen bump + `applyOk=80` observed; nested Turnstile **not** proven. **No classification** (gate open; not ambiente). See [LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md) §B5c. |
+| **PP-ISO-ORACLE-B5C** | Tree oracle **fixed at root** (2026-08-31): dossier `2026-08-31T18-09-26-437Z-eneba-turnstile` — `iso.tree` **identical**; `nestedContext` correctly fails on stale index vs `liveIframes=0`. **Still open:** widget absent; `iso.table` hash≠ with rows 93=93 (digest bytes, not tree). Root fixes: `structuralDiff.ts` post-align shell + `peelVirtualAssetPath`; `turnstileDiagnostic.ts` atomic halt + `buildIsomorphismFromCaptures`. **No classification** (gate open; not ambiente). See [LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md) §B5c. |
 
 ### BUG — hard-nav hello-ack / Port race after extension carrier (OPEN 2026-08-29)
 

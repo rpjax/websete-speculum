@@ -4,7 +4,7 @@
  *
  * Run: npm run lab:eneba-turnstile
  */
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { chromium } = require('patchright');
 const { LAB_HOST, LAB_PORT } = require('./lab-ports');
@@ -18,6 +18,20 @@ const PROJECTED_CDP_PORT = Number(process.env.SPECULUM_LAB_PROJECTED_CDP_PORT ||
 
 function wait(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Stale host on :4077 silently serves old oracle code — always clear before spawn. */
+function killLabPort() {
+  if (process.platform === 'win32') {
+    spawnSync('powershell', [
+      '-NoProfile',
+      '-Command',
+      `$c = Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue; ` +
+        'if ($c) { $c | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }',
+    ]);
+    return;
+  }
+  spawnSync('sh', ['-c', `fuser -k ${PORT}/tcp 2>/dev/null || lsof -ti:${PORT} | xargs -r kill -9`]);
 }
 
 async function waitHealth(timeoutMs) {
@@ -86,14 +100,21 @@ async function runTurnstileUi() {
 
 async function main() {
   const root = path.join(__dirname, '..');
+  if (!process.env.CHROME_EXECUTABLE?.trim()) {
+    const winChrome = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    process.env.CHROME_EXECUTABLE = winChrome;
+  }
   const projectedCdpUrl = `http://127.0.0.1:${PROJECTED_CDP_PORT}`;
   const labEnv = {
     ...process.env,
+    CHROME_EXECUTABLE: process.env.CHROME_EXECUTABLE,
     SPECULUM_LAB_HOST: HOST,
     SPECULUM_LAB_PORT: String(PORT),
     SPECULUM_LAB_HEADED: process.env.SPECULUM_LAB_HEADED ?? '1',
     SPECULUM_LAB_PROJECTED_CDP_URL: projectedCdpUrl,
   };
+  killLabPort();
+  await wait(800);
   const lab = spawn(
     process.execPath,
     [path.join(root, 'dist', 'browser', 'mirror', 'projection', 'lab', 'host', 'index.js')],

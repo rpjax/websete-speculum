@@ -145,31 +145,39 @@ Carried over from A2, which shipped as a limitation.
 
 - [ ] Re-run with the lab DOM client (headed), not the soak CLI
 
-**Oracle / timing (2026-08-31):** Prior integrator verdict rejected — dossier
-`sidecar/lab-runs/2026-08-31T10-13-07-798Z-eneba-turnstile` had **oracle defects**, not product
-failures. **Classification deferred** until re-run after fixes.
+**Oracle root cause (2026-08-31, after first “fix” still red):** dossier
+`sidecar/lab-runs/2026-08-31T17-26-54-572Z-eneba-turnstile` still showed `iso.tree` 20
+divergences. Replaying those trees against the corrected oracle → **identical**. Prior land
+was incomplete at root (not “ambiente”). **Classification still deferred** — widget not proven.
 
-| Defect | Evidence | Fix |
-|--------|----------|-----|
-| **(A) head off-by-one** | `iso.tree` 20 divergences; `html[0]` `child_count_mismatch` virtual=11 client=12 — extra parser scaffold in Projected srcdoc `head`; `html` `style` is surface-only | `structuralDiff.ts` — fingerprint child alignment + parser-scaffold exclusion under `html>head` (structural, not tag allowlist); omit `style` on `<html>` from attr compare |
-| **(B) URL rewrite** | 6× `attr_mismatch` on `href`/`src`: virtual=`/favicon.ico` vs client=`/w7s/virtual-assets/…?speculum-session-token=…` | Same file — `normalizeUrlAttrValue` via `classifyAndRewriteUrl` / `httpUrlToVirtual`; session/cache-bust query stripped |
-| **Table hash false red** | `iso.table` `hash mismatch` with `virtual rows=92 client rows=92` | Oracle: structural diff must not fail B5c when table digests match — root cause (A)+(B) |
-| **Widget INDETERMINATE** | `turnstile.virtual.nestedContext` pass (ctx 2,3); `liveDom` `iframeCount=0`; `iso.context` 2/3 `gone` SKIPPED `nested context absent (post-drop)` | `turnstileDiagnostic.ts` — single `haltClocks` instant for `contextIds`, live DOM, nested peek, and iso (timing instrument) |
+| Defect | Root cause (file:line) | Fix |
+|--------|------------------------|-----|
+| **(A) head off-by-one** | `structuralDiff.ts` **pre-filtered** client head leaves before fingerprint align → dropped real metas (`Content-Type`, `viewport`, …) that would have paired; only the unmatched Projected K5 CSP shell should be ignored | Exclude shell **after** align only (`isClientShellScaffoldNode`); no tag/name allowlist |
+| **(B) URL rewrite** | Client attrs are **absolute** `http://127.0.0.1:4077/w7s/virtual-assets/…`; `normalizeUrlAttrValue` double-rewrote them to `/w7s/virtual-assets/127.0.0.1:4077/w7s/…` | `peelVirtualAssetPath` before rewrite; majority-host pageBase inference from client virtual-asset attrs |
+| **(C) surface style** | Projected `style` on `html`/`body` (touch-action) broke body fingerprint pairing | Omit `style` on `html`/`body` in compare (documented boundary) |
+| **Table hash** | `iso.table` hash mismatch with equal rows (93=93) while `iso.dom`/`iso.cssom` (table↔live) pass | **Separate** from tree oracle — table digest still compares raw attr bytes (rewritten vs Virtual). Not closed by (A)+(B) |
+| **Widget timing** | `nestedContext` passed on stale `contextIndex` while `liveDom.iframeCount=0`; `runIsomorphism` re-halted/resumed mid-probe | `turnstileDiagnostic.ts` — one halt; `buildIsomorphismFromCaptures`; fold requires live iframe or ok nested snap |
 
-**Land (code):** `structuralDiff.ts` boundary + `isomorphism.ts` `pageBaseUrl`; `turnstileDiagnostic.ts` atomic probe; unit `testStructuralDiffOracleNormalization` (`sidecar/unit.ts`).
+**Land (code):** `sidecar/browser/mirror/projection/lab/probes/structuralDiff.ts` (boundary + peel + post-align shell);
+`isomorphism.ts` `buildIsomorphismFromCaptures`; `turnstileDiagnostic.ts` atomic halt + fold;
+unit `testStructuralDiffOracleNormalization` (`sidecar/unit.ts`). Replay proof: saved
+`iso.json` trees → `diffTrees` identical.
 
-**Re-run (2026-08-31 headed):** dossier `sidecar/lab-runs/2026-08-31T17-26-54-572Z-eneba-turnstile` (`session.json` `headed: true`). Verdicts **19 pass / 12 fail / 8 skipped**.
+**Re-run (2026-08-31 headed, fresh host):** dossier
+`sidecar/lab-runs/2026-08-31T18-09-26-437Z-eneba-turnstile` (`headed: true`).
+Verdicts **21 pass / 11 fail / 6 skipped**.
 
 | Criterion | Result |
 |-----------|--------|
-| Redirect `/` → `/br/` | Observed (`virtualLiveDom.url` = `https://www.eneba.com/br/`) |
-| Generation bump | Observed (probe gen=4; wire frames gen 8→9) |
-| Apply gate | Observed (`metrics.applyOk=80` / `applyFail=0`; surface `armed=true` desync 0) |
-| Nested Turnstile widget | **Not met** — `nestedContext` ids 2,3,5 then gone; `liveDom`/`table` `iframeCount=0`; Projected `nested=none`; CF copy: extension blocked verification |
+| Redirect `/` → `/br/` | Observed |
+| Generation bump | Observed (sequence 3) |
+| Apply gate | Observed (`armed=true`, desync 0) |
+| Nested Turnstile widget | **Not met** — `nestedContext` **fail** (stale index=2,3; `liveIframes=0`); Projected `nested=none` |
+| `iso.tree` | **PASS** (identical) — prior false reds cleared |
+| `iso.table` | Still fail — hash mismatch rows 93=93 (separate digest/URL-bytes gap) |
 
-Oracle residuals still red (same class as prior): `iso.tree` 20 divergences (head scaffold + absolute `/w7s/virtual-assets/...` vs relative); `iso.table` hash mismatch with equal rows (93=93). `iso.dom`/`iso.cssom` (table↔live) pass.
-
-**Gate stays open.** No B5c classification on this dossier (incomplete nested Turnstile). Do **not** label as ambiente.
+**Gate stays open** until nested Turnstile is live in the same dossier. Do **not** label as ambiente.
+**Note:** earlier same-day re-runs hit a stale lab host on `:4077` (old `structuralDiff`); kill the port before re-run.
 
 **Done when:** one dossier shows all four in the same run - redirect followed, generation bump
 observed, Turnstile nested context established, Projected apply gate exercised (`applyOk > 0`)

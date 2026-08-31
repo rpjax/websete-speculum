@@ -23,17 +23,6 @@ import {
   type StructuralDiffResult,
 } from './structuralDiff';
 
-function inferTreePageBase(virtual: TreeNode | null | undefined, client: TreeNode | null | undefined): string {
-  const hrefs = [
-    ...(virtual ? collectFrameHrefs(virtual) : []),
-    ...(client ? collectFrameHrefs(client) : []),
-  ];
-  for (const href of hrefs) {
-    if (/^https?:\/\//i.test(href)) return href;
-  }
-  return 'https://speculum.invalid/';
-}
-
 export { normalizeUrlAttrValue };
 import type { StateSnapshotOpts, StateSnapshotResult } from '../../../../contracts';
 
@@ -416,6 +405,8 @@ async function compareContextPair(opts: {
     reason?: string;
   };
   getClientSnapshot?: (contextId: number) => Promise<ClientStateSnapshot | null> | ClientStateSnapshot | null;
+  /** When set, skip client fetch/wait — use this snap (same-halt atomic probe). */
+  clientSnap?: ClientStateSnapshot | null;
 }): Promise<ContextIsoResult> {
   const skipped: { id: string; reason: string }[] = [];
   const emptyTable = { virtual: null, client: null, identical: null as boolean | null };
@@ -440,7 +431,9 @@ async function compareContextPair(opts: {
   const targetSeq = opts.virtual.sequence ?? 0;
 
   let clientSnap: ClientStateSnapshot | null = null;
-  if (opts.getClientSnapshot) {
+  if (opts.clientSnap !== undefined) {
+    clientSnap = opts.clientSnap;
+  } else if (opts.getClientSnapshot) {
     clientSnap = await waitClientAtSequence(async () => {
       const v = opts.getClientSnapshot!(opts.contextId);
       return v instanceof Promise ? await v : v;
@@ -448,7 +441,7 @@ async function compareContextPair(opts: {
   }
 
   let structuralDiff: StructuralDiffResult | null = null;
-  if (!opts.getClientSnapshot) {
+  if (!opts.getClientSnapshot && opts.clientSnap === undefined) {
     skipped.push({ id: 'structuralDiff', reason: 'no lab client apply surface' });
     skipped.push({ id: 'table', reason: 'no lab client apply surface' });
     skipped.push({ id: 'formProps', reason: 'no lab client apply surface' });
@@ -461,15 +454,14 @@ async function compareContextPair(opts: {
   } else if (opts.virtual.tree == null) {
     skipped.push({ id: 'structuralDiff', reason: 'virtual tree missing for context' });
   } else {
-    const pageBaseUrl = inferTreePageBase(opts.virtual.tree as TreeNode, clientSnap.tree);
-    structuralDiff = diffTrees(opts.virtual.tree as TreeNode, clientSnap.tree, { pageBaseUrl });
+    structuralDiff = diffTrees(opts.virtual.tree as TreeNode, clientSnap.tree);
   }
 
   const virtualFormProps = opts.virtual.formProps ?? null;
   const clientFormProps = clientSnap?.formProps ?? null;
   let formIdentical: boolean | null = null;
   let formReason: string | null = null;
-  if (opts.getClientSnapshot && clientSnap != null) {
+  if ((opts.getClientSnapshot || opts.clientSnap !== undefined) && clientSnap != null) {
     const cmp = formControlSnapsEqual(virtualFormProps, clientFormProps);
     formIdentical = cmp.identical;
     formReason = cmp.reason;
@@ -480,7 +472,7 @@ async function compareContextPair(opts: {
   const clientTable = clientSnap?.table ?? null;
   let tableIdentical: boolean | null = null;
   let tableFailReason: string | null = null;
-  if (opts.getClientSnapshot && clientSnap != null) {
+  if ((opts.getClientSnapshot || opts.clientSnap !== undefined) && clientSnap != null) {
     if (clientSnap.applyError || clientSnap.desynced) {
       tableIdentical = false;
       tableFailReason = clientSnap.applyError ?? 'client desynced';
@@ -524,6 +516,79 @@ async function compareContextPair(opts: {
     ],
     virtualTree: (opts.virtual.tree as TreeNode | null | undefined) ?? null,
     clientTree: clientSnap?.tree ?? null,
+  };
+}
+
+/** Assemble multi-context iso from already-captured Virtual + Client snaps (no halt/resume). */
+export async function buildIsomorphismFromCaptures(opts: {
+  contextIds: number[];
+  virtualByContext: Record<
+    number,
+    {
+      ok: boolean;
+      generation?: number;
+      sequence?: number;
+      o2?: TableLiveOracleResult;
+      table?: ReplicatedTableDigest;
+      cssomO2?: CssomTableLiveOracleResult | null;
+      nodeNewConnected?: IsomorphismResult['nodeNewConnected'];
+      cascade?: ClientStateSnapshot['cascade'];
+      formProps?: FormControlSnap[];
+      tree?: unknown;
+      reason?: string;
+    }
+  >;
+  /** Present when a Projected apply surface exists; missing keys → null client snap. */
+  clientByContext?: Record<number, ClientStateSnapshot | null>;
+}): Promise<IsomorphismResult> {
+  const hasClient = opts.clientByContext !== undefined;
+  const contexts: Record<number, ContextIsoResult> = {};
+  for (const contextId of opts.contextIds) {
+    const virtual = opts.virtualByContext[contextId] ?? {
+      ok: false as const,
+      reason: 'virtual snapshot missing at halt instant',
+    };
+    contexts[contextId] = await compareContextPair({
+      contextId,
+      virtual: virtual as never,
+      ...(hasClient
+        ? { clientSnap: opts.clientByContext![contextId] ?? null, getClientSnapshot: async () => null }
+        : {}),
+    });
+  }
+
+  const root = contexts[1] ?? Object.values(contexts)[0];
+  if (!root) return emptyIsoResult([{ id: 'isomorphism', reason: 'no context results' }]);
+  const allPass = Object.values(contexts).every(contextPasses);
+  return {
+    sequence: root.sequence,
+    generation: root.generation,
+    o2: root.o2,
+    cssomO2: root.cssomO2,
+    table: root.table,
+    tableFailReason: root.tableFailReason,
+    structuralDiff: root.structuralDiff,
+    nodeNewConnected: root.nodeNewConnected,
+    cascade: root.cascade,
+    formProps: root.formProps,
+    shadow:
+      root.virtualTree != null
+        ? {
+            virtualHosts: countShadowTrees(root.virtualTree),
+            clientHosts: root.clientTree != null ? countShadowTrees(root.clientTree) : 0,
+          }
+        : null,
+    nested:
+      root.virtualTree != null
+        ? {
+            virtualDocs: countNestedDocuments(root.virtualTree),
+            clientDocs: root.clientTree != null ? countNestedDocuments(root.clientTree) : 0,
+            clientFrameHrefs: root.clientTree != null ? collectFrameHrefs(root.clientTree) : [],
+          }
+        : null,
+    skipped: root.skipped,
+    contexts,
+    allPass,
   };
 }
 

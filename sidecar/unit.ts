@@ -2980,8 +2980,19 @@ function testStructuralDiffOracleNormalization(): void {
         children: [
           {
             tag: 'head',
-            children: [{ tag: 'link', attrs: [['rel', 'icon'], ['href', '/favicon.ico']] }],
+            children: [
+              { tag: 'title', children: [{ tag: '#text', text: 'x' }] },
+              {
+                tag: 'meta',
+                attrs: [
+                  ['content', 'text/html; charset=UTF-8'],
+                  ['http-equiv', 'Content-Type'],
+                ],
+              },
+              { tag: 'link', attrs: [['rel', 'icon'], ['href', '/favicon.ico']] },
+            ],
           },
+          { tag: 'body', attrs: [['style', 'margin:0']], children: [] },
         ],
       },
     ],
@@ -2996,19 +3007,34 @@ function testStructuralDiffOracleNormalization(): void {
           {
             tag: 'head',
             children: [
-              { tag: 'meta', attrs: [['charset', 'utf-8']] },
+              {
+                tag: 'meta',
+                attrs: [
+                  ['content', "script-src 'none'; object-src 'none'"],
+                  ['http-equiv', 'Content-Security-Policy'],
+                ],
+              },
+              { tag: 'title', children: [{ tag: '#text', text: 'x' }] },
+              {
+                tag: 'meta',
+                attrs: [
+                  ['content', 'text/html; charset=UTF-8'],
+                  ['http-equiv', 'Content-Type'],
+                ],
+              },
               {
                 tag: 'link',
                 attrs: [
                   ['rel', 'icon'],
                   [
                     'href',
-                    '/w7s/virtual-assets/www.eneba.com/favicon.ico?speculum-session-token=tok',
+                    'http://127.0.0.1:4077/w7s/virtual-assets/www.eneba.com/favicon.ico?speculum-session-token=tok',
                   ],
                 ],
               },
             ],
           },
+          { tag: 'body', attrs: [['style', 'touch-action: manipulation;']], children: [] },
         ],
       },
     ],
@@ -3017,7 +3043,7 @@ function testStructuralDiffOracleNormalization(): void {
   assert.strictEqual(
     r.identical,
     true,
-    `parser scaffold + URL rewrite should compare equal, got ${JSON.stringify(r.divergences)}`,
+    `shell scaffold + absolute virtual-asset URL should compare equal, got ${JSON.stringify(r.divergences)}`,
   );
   assert.strictEqual(
     normalizeUrlAttrValue('/favicon.ico', pageBase),
@@ -3029,6 +3055,20 @@ function testStructuralDiffOracleNormalization(): void {
       pageBase,
     ),
     '/w7s/virtual-assets/www.eneba.com/favicon.ico',
+  );
+  assert.strictEqual(
+    normalizeUrlAttrValue(
+      'http://127.0.0.1:4077/w7s/virtual-assets/www.eneba.com/favicon.ico?speculum-session-token=tok',
+      pageBase,
+    ),
+    '/w7s/virtual-assets/www.eneba.com/favicon.ico',
+  );
+  // Infer page base from client virtual-asset attrs when frameHref absent.
+  const inferred = diffTrees(virtual, client);
+  assert.strictEqual(
+    inferred.identical,
+    true,
+    `pageBase inferred from client virtual-assets must match, got ${JSON.stringify(inferred.divergences)}`,
   );
   console.log('[unit] structuralDiff oracle url + parser scaffold ok');
 }

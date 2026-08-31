@@ -126,7 +126,8 @@ import {
   SHADOW_MODE_OPEN,
   SHADOW_MODE_CLOSED,
 } from '@speculum/page-projection/core/frame';
-import { diffTrees } from './browser/mirror/projection/lab/probes/structuralDiff';
+import type { TreeNode } from '@speculum/page-projection/core/treeNode';
+import { diffTrees, normalizeUrlAttrValue } from './browser/mirror/projection/lab/probes/structuralDiff';
 import { decodeFramePart, peekFrameHeader, PersistentStringTable } from '@speculum/page-projection/core/decode';
 import { applyFramesUntilDesync } from '@speculum/page-projection/core/applyBatch';
 import { applyAttrPairs } from '@speculum/page-projection/core/attrApply';
@@ -2968,6 +2969,70 @@ function testStructuralDiffNsMismatch(): void {
   console.log('[unit] structuralDiff ns_mismatch ok');
 }
 
+function testStructuralDiffOracleNormalization(): void {
+  const pageBase = 'https://www.eneba.com/br/';
+  const virtual: TreeNode = {
+    tag: '#document',
+    children: [
+      {
+        tag: 'html',
+        attrs: [['style', 'width:100%']],
+        children: [
+          {
+            tag: 'head',
+            children: [{ tag: 'link', attrs: [['rel', 'icon'], ['href', '/favicon.ico']] }],
+          },
+        ],
+      },
+    ],
+  };
+  const client: TreeNode = {
+    tag: '#document',
+    children: [
+      {
+        tag: 'html',
+        attrs: [['style', 'overflow:hidden']],
+        children: [
+          {
+            tag: 'head',
+            children: [
+              { tag: 'meta', attrs: [['charset', 'utf-8']] },
+              {
+                tag: 'link',
+                attrs: [
+                  ['rel', 'icon'],
+                  [
+                    'href',
+                    '/w7s/virtual-assets/www.eneba.com/favicon.ico?speculum-session-token=tok',
+                  ],
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const r = diffTrees(virtual, client, { pageBaseUrl: pageBase });
+  assert.strictEqual(
+    r.identical,
+    true,
+    `parser scaffold + URL rewrite should compare equal, got ${JSON.stringify(r.divergences)}`,
+  );
+  assert.strictEqual(
+    normalizeUrlAttrValue('/favicon.ico', pageBase),
+    '/w7s/virtual-assets/www.eneba.com/favicon.ico',
+  );
+  assert.strictEqual(
+    normalizeUrlAttrValue(
+      '/w7s/virtual-assets/www.eneba.com/favicon.ico?speculum-session-token=tok',
+      pageBase,
+    ),
+    '/w7s/virtual-assets/www.eneba.com/favicon.ico',
+  );
+  console.log('[unit] structuralDiff oracle url + parser scaffold ok');
+}
+
 /** SEAL-DOM-P1-PROP / PP-PROP-1 — PROP_SET 0x63, wire version stays 2. */
 function testPropSetWire(): void {
   assert.strictEqual(FRAME_WIRE_VERSION, 2);
@@ -4315,6 +4380,7 @@ async function main(): Promise<void> {
   testMoveLightIntoShadow();
   testStructuralDiffShadowSeparate();
   testStructuralDiffNsMismatch();
+  testStructuralDiffOracleNormalization();
   testPropSetWire();
   testPropSetTableAndCheck();
   testFormPropDirtyDoesNotBlockTable();

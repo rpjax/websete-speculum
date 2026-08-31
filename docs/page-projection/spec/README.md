@@ -65,7 +65,7 @@ Talk to Rodrigo in Portuguese, papo reto: simple idea → simple sentence. Techn
 | Shadow (kind 1) | **[shadow.md](shadow.md)** — same instance; walker follows `.shadowRoot` |
 | Multi-document (OPEN-6, kind 2) | **[multi-document.md](multi-document.md)** — runtime implements `emitFrame`; algorithm per `window`; header `contextId` = mine; child-scope indexer; bus transport → **[context-bus.md](context-bus.md)** |
 | **ContextBus** (inter-context JS transport) | **[context-bus.md](context-bus.md)** — emit/invoke; domain protocols sit on top |
-| Input intents | **sparse-cdp V1 SEALED** ([input.md](input.md) 2026-08-27) — OS unified seal is historical record only; [input-v2.md](input-v2.md) superseded / purged |
+| Input intents | **sparse-cdp V1 SEALED** ([input.md](input.md) 2026-08-27) — OS unified seal is historical record only; [archive/input-v2.md](../archive/input-v2.md) superseded / purged |
 | Asset serve plane | **[virtual-assets.md](virtual-assets.md)** |
 | Virtual Document **CSP surgery** (cutover session) | **[csp.md](csp.md)** |
 | **Loopback WS** establishment + health + mux (LB-08…19) | **[loopback.md](loopback.md)** — extends input §10.1c LB-01…07 |
@@ -122,7 +122,7 @@ docs/page-projection/
     shadow.md               kind 1 — same instance; open/named shipped
     multi-document.md       OPEN-6: runtime ≠ algorithm; contextId u32; child-scope indexer; RPC pipe
     input.md                Projected → Virtual intents (V1 provenance)
-    input-v2.md             Input V4 normative (lab M1 closed)
+    archive/input-v2.md     Input V4 historical (archived 2026-08-31)
     csp.md                  Virtual Document CSP surgery (cutover)
     loopback.md             Loopback WS establish + health + mux (LB-08…19)
     browser-session.md      Session / mirror-mode contracts (SEALED)

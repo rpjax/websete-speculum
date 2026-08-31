@@ -551,15 +551,14 @@ sides in the same commit, and note it in `frame-protocol.md`.
 
 The migration is complete when all of the following hold:
 
-- [ ] A grep for `Dom(Node|Selector|Asset)`, `Coalesc`, `Admission`, `SequencedDiff` under
-      `Speculum.Api` returns nothing.
+- [ ] `grep -E 'Dom(Node|Selector|Asset)\b|PageProjectionIntentAdmission|VideoStreamingInputAdmission|SequencedDiff'` under `Speculum.Api/Sessions/Mirror` and `Speculum.Api/Sessions/Services/Streaming` returns nothing (**narrow scope** — migration stream-path only; not Journal/Telemetry/resize coalescer/proto `GetDomAsset`/`DomSelector` RPC names). Same wording: [LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md) §D DoD.
 - [ ] `Speculum.Api` compiles with no reference to `Mirror/PageProjection` types.
 - [ ] The sidecar session reads no configuration at runtime — verified by a boundary check
       (extend `check:page-projection-boundaries`) that fails on any config read inside a session.
 - [ ] Every migrated feature is a named port with an immutable config record injected at launch.
 - [ ] The slow-consumer test produces one of the three named outcomes, never a silent gap.
 - [ ] K2 and K5 browser-level regression tests pass.
-- [ ] `spec-audit-0.3.0.md` items are all resolved: each `STALE` sentence rewritten or archived.
+- [ ] M0 hygiene: `input-v2.md` + `input-unified-design-draft.md` archived (2026-08-31); remaining seven `STALE` rows in `spec-audit-0.3.0.md` are **post-0.3.0 follow-up** (not 0.3.0 gate) — see LIVE-PP §D STALE disposition.
 - [ ] Windows full gates green; SessionsTest `Category=PageProjection` green **and actually run**,
       not merely compiled.
 

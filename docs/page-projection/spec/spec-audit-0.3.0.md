@@ -30,8 +30,8 @@ Priority order first, then remaining spec files (alphabetical).
 | [browser-session.md](browser-session.md) | **STALE** | Session contracts mostly current; launch-script carrier + CDP timing rows contradict extension cutover (§2). |
 | [frame-protocol.md](frame-protocol.md) | **CURRENT** | V4 opcode/apply canon; aligns with `packages/page-projection`. No contradicting code found in spot checks. |
 | [input.md](input.md) | **STALE** | Top § canonical sparse-cdp is current; collapsed historical §2.1 still normatively describes `os-abs` opt-in path removed from code. |
-| [input-v2.md](input-v2.md) | **STALE** | Self-marked SUPERSEDED; not a live path. **Propose archive** (§4). |
-| [input-unified-design-draft.md](input-unified-design-draft.md) | **STALE** | Promoted header points at `input.md`; body is OS ABS / uinput design draft. **Propose archive** (§4). |
+| [input-v2.md](../archive/input-v2.md) | **STALE → archived** | Moved to `docs/page-projection/archive/` 2026-08-31 (§4). |
+| [input-unified-design-draft.md](../archive/input-unified-design-draft.md) | **STALE → archived** | Moved to `docs/page-projection/archive/` 2026-08-31 (§4). |
 | [loopback.md](loopback.md) | **CURRENT** | LB-08…19; matches `packages/page-projection/src/core/loopback/` + `nodeDataPlane.ts`. |
 | [observability.md](observability.md) | **CURRENT** | Probe vs event law; apply-gate events match `projectedApplyGate.ts`. |
 | [open.md](open.md) | **CURRENT** | Living tracker; closed rows match decision-log / code. |

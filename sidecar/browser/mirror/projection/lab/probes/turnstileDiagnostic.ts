@@ -205,19 +205,43 @@ export async function runTurnstileDiagnostic(opts: {
   ) => Promise<ClientStateSnapshot | null>;
 }): Promise<TurnstileDiagnostic> {
   const { chassis, session, getClientSnapshot } = opts;
-  const contextIds = chassis.contextIndex.list();
 
+  // Single halt instant: context index, live DOM, virtual snapshots, client peek, and iso
+  // must read the same frozen moment (nested contexts can drop between separate probes).
+  let contextIds: number[] = [];
   let virtualLiveDom: TurnstileDiagnostic['virtualLiveDom'] = { ok: false, error: 'no evaluate' };
-  try {
-    const r = await session.evaluate(VIRTUAL_LIVE_DOM_EXPR);
-    virtualLiveDom = r.ok ? parseLiveDom(r.value) : { ok: false, error: r.errorMessage ?? 'evaluate failed' };
-  } catch (err) {
-    virtualLiveDom = { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-
   const virtualContexts: TurnstileDiagnostic['virtualContexts'] = {};
+  let projectedRoot: TurnstileDiagnostic['projectedRoot'] = null;
+  let projectedNestedPeek: ProjectedNestedPeek | null = null;
+  let iso: IsomorphismResult = {
+    sequence: null,
+    generation: null,
+    o2: null,
+    cssomO2: null,
+    table: { virtual: null, client: null, identical: null },
+    tableFailReason: null,
+    structuralDiff: null,
+    skipped: [{ id: 'isomorphism', reason: 'not run' }],
+    nodeNewConnected: null,
+    cascade: null,
+    formProps: { virtual: null, client: null, identical: null, reason: null },
+    shadow: null,
+    nested: null,
+    contexts: {},
+    allPass: false,
+  };
+
   try {
     await session.haltClocks?.();
+    contextIds = chassis.contextIndex.list();
+
+    try {
+      const r = await session.evaluate(VIRTUAL_LIVE_DOM_EXPR);
+      virtualLiveDom = r.ok ? parseLiveDom(r.value) : { ok: false, error: r.errorMessage ?? 'evaluate failed' };
+    } catch (err) {
+      virtualLiveDom = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+
     for (const contextId of contextIds) {
       const view = await captureVirtualLabSnap(session as never, contextId, {
         table: 'full',
@@ -256,49 +280,47 @@ export async function runTurnstileDiagnostic(opts: {
         frameHrefs: tree ? collectFrameHrefs(tree) : [],
       };
     }
+
+    if (getClientSnapshot) {
+      const snap = await getClientSnapshot(1, { includeNestedPeek: true });
+      if (snap) {
+        projectedNestedPeek = (snap.nestedPeek as ProjectedNestedPeek | undefined) ?? null;
+        const tree = snap.tree;
+        const iframeHits = tree ? collectIframeHits(tree) : [];
+        projectedRoot = {
+          sequence: snap.sequence ?? null,
+          generation: snap.generation ?? null,
+          armed: snap.armed ?? null,
+          desynced: snap.desynced ?? null,
+          applyError: snap.applyError ?? null,
+          resyncInFlight: snap.resyncInFlight ?? null,
+          iframeHits,
+          cfIframeInTree: iframeHits.some(isCfIframeHit),
+          nestedDocCount: tree ? countNestedDocuments(tree) : 0,
+          shadowHostCount: tree ? countShadowTrees(tree) : 0,
+        };
+      }
+    }
+
+    iso = await runIsomorphism({
+      session,
+      contextIds,
+      getClientSnapshot: getClientSnapshot
+        ? (contextId) => getClientSnapshot(contextId)
+        : undefined,
+      virtualCapture: {
+        table: 'full',
+        tree: true,
+        cssom: 'scan',
+        formProps: true,
+        frameNewNodes: true,
+        liveChildOrder: true,
+      },
+    });
+    chassis.journal.iso = iso;
   } finally {
     await session.resumeClocks?.();
   }
-
-  let projectedRoot: TurnstileDiagnostic['projectedRoot'] = null;
-  let projectedNestedPeek: ProjectedNestedPeek | null = null;
-  if (getClientSnapshot) {
-    const snap = await getClientSnapshot(1, { includeNestedPeek: true });
-    if (snap) {
-      projectedNestedPeek = (snap.nestedPeek as ProjectedNestedPeek | undefined) ?? null;
-      const tree = snap.tree;
-      const iframeHits = tree ? collectIframeHits(tree) : [];
-      projectedRoot = {
-        sequence: snap.sequence ?? null,
-        generation: snap.generation ?? null,
-        armed: snap.armed ?? null,
-        desynced: snap.desynced ?? null,
-        applyError: snap.applyError ?? null,
-        resyncInFlight: snap.resyncInFlight ?? null,
-        iframeHits,
-        cfIframeInTree: iframeHits.some(isCfIframeHit),
-        nestedDocCount: tree ? countNestedDocuments(tree) : 0,
-        shadowHostCount: tree ? countShadowTrees(tree) : 0,
-      };
-    }
-  }
-
-  const iso: IsomorphismResult = await runIsomorphism({
-    session,
-    contextIds,
-    getClientSnapshot: getClientSnapshot
-      ? (contextId) => getClientSnapshot(contextId)
-      : undefined,
-    virtualCapture: {
-      table: 'full',
-      tree: true,
-      cssom: 'scan',
-      formProps: true,
-      frameNewNodes: true,
-      liveChildOrder: true,
-    },
-  });
-  chassis.journal.iso = iso;
 
   return {
     capturedAt: new Date().toISOString(),

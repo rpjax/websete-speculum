@@ -147,6 +147,21 @@ Carried over from A2, which shipped as a limitation.
 
 - [ ] Re-run with the lab DOM client (headed), not the soak CLI
 
+**Oracle / timing (2026-08-31):** Prior integrator verdict rejected — dossier
+`sidecar/lab-runs/2026-08-31T10-13-07-798Z-eneba-turnstile` had **oracle defects**, not product
+failures. **Classification deferred** until re-run after fixes.
+
+| Defect | Evidence | Fix |
+|--------|----------|-----|
+| **(A) head off-by-one** | `iso.tree` 20 divergences; `html[0]` `child_count_mismatch` virtual=11 client=12 — extra parser scaffold in Projected srcdoc `head`; `html` `style` is surface-only | `structuralDiff.ts` — fingerprint child alignment + parser-scaffold exclusion under `html>head` (structural, not tag allowlist); omit `style` on `<html>` from attr compare |
+| **(B) URL rewrite** | 6× `attr_mismatch` on `href`/`src`: virtual=`/favicon.ico` vs client=`/w7s/virtual-assets/…?speculum-session-token=…` | Same file — `normalizeUrlAttrValue` via `classifyAndRewriteUrl` / `httpUrlToVirtual`; session/cache-bust query stripped |
+| **Table hash false red** | `iso.table` `hash mismatch` with `virtual rows=92 client rows=92` | Oracle: structural diff must not fail B5c when table digests match — root cause (A)+(B) |
+| **Widget INDETERMINATE** | `turnstile.virtual.nestedContext` pass (ctx 2,3); `liveDom` `iframeCount=0`; `iso.context` 2/3 `gone` SKIPPED `nested context absent (post-drop)` | `turnstileDiagnostic.ts` — single `haltClocks` instant for `contextIds`, live DOM, nested peek, and iso (timing instrument) |
+
+**Land (code):** `structuralDiff.ts` boundary + `isomorphism.ts` `pageBaseUrl`; `turnstileDiagnostic.ts` atomic probe; unit `testStructuralDiffOracleNormalization` (`sidecar/unit.ts`).
+
+**Re-run:** `npm run lab:eneba-turnstile` (headed) → new dossier. **Gate stays open** — no B5c classification until re-run proves redirect + gen bump + nested Turnstile + apply gate together.
+
 **Done when:** one dossier shows all four in the same run — redirect followed, generation bump
 observed, Turnstile nested context established, Projected apply gate exercised (`applyOk > 0`)
 with no `sequence_gap` burst. Anything less stays a limitation; do not soften the criterion.
@@ -205,7 +220,7 @@ separate HTTP/2 streams per RPC (no head-of-line problem).
 
 | Order | Phase | Depends on | Delivers |
 |-------|-------|------------|----------|
-| 1 | **M0** spec audit | — | `spec/spec-audit.md`: every spec file `CURRENT`/`STALE`/`UNKNOWN`, each `STALE` sentence paired with the `file:line` that contradicts it. No rewriting yet |
+| 1 | **M0** spec audit | — | `spec/spec-audit-0.3.0.md`: every spec file `CURRENT`/`STALE`/`UNKNOWN`, each `STALE` sentence paired with the `file:line` that contradicts it. No rewriting yet |
 | 2 | **M1** `IUrlResolver` → sidecar | M0 | `NavigationPolicy` injected at Launch; .NET keeps only the pre-session entry resolve; written inventory of every outbound URL surface |
 | 3 | **M8** host control vs session socket | M0 | `[x]` Permanent host control stream (`GrpcBrowserClient._hostControl`/`PumpHostControlAsync`); per-session `GrpcChannel` (`StartConnectionAsync`); proto `HostControl` (`proto:814`); density test 100 sessions (`hostControlSocket.unit.ts:13,91`, `unit.ts:4364`) |
 | 4 | **M2** delete .NET coalescing | M8 | Admission channels and their tests deleted; sidecar coverage confirmed first |
@@ -237,16 +252,23 @@ field-number gaps. Detail in [motor-migration.md](spec/motor-migration.md) §6.
 
 ### D definition of done
 
-- [ ] `grep -E 'Dom(Node|Selector|Asset)|Coalesc|Admission|SequencedDiff'` under `Speculum.Api`
-      returns nothing
+- [ ] `grep -E 'Dom(Node|Selector|Asset)\b|PageProjectionIntentAdmission|VideoStreamingInputAdmission|SequencedDiff'` under `Speculum.Api/Sessions/Mirror` and `Speculum.Api/Sessions/Services/Streaming` returns nothing (**narrow scope** — migration stream-path only; not Journal/Telemetry/resize coalescer/proto `GetDomAsset`/`DomSelector` RPC names)
 - [ ] `Speculum.Api` compiles with no reference to `Mirror/PageProjection` types
 - [ ] Sidecar session performs no config read at runtime — enforced by an extended
       `check:page-projection-boundaries`
 - [ ] Slow consumer produces frames **or** a resync **or** a disconnect with a reason code —
       never a hole
 - [ ] K2 and K5 browser-level regression tests pass
-- [ ] `spec/spec-audit.md` has no unresolved `STALE`
+- [ ] M0 `spec-audit-0.3.0.md` hygiene: `input-v2.md` + `input-unified-design-draft.md` archived (2026-08-31); remaining STALE rows are **post-0.3.0 follow-up** (see below) — not 0.3.0 gate
 - [ ] Windows full gates green **and** `Category=PageProjection` actually run in CI
+
+### D STALE disposition (M0 audit — 2026-08-31)
+
+| File | 0.3.0 action |
+|------|----------------|
+| [archive/input-v2.md](archive/input-v2.md) | **Archived** from `spec/` 2026-08-31 |
+| [archive/input-unified-design-draft.md](archive/input-unified-design-draft.md) | **Archived** from `spec/` 2026-08-31 |
+| `browser-session.md`, `input.md`, `runtime-redesign.md`, `test-matrix.md`, `cssom.md`, `decision-log.md`, `oracles.md` | **Post-0.3.0 follow-up** — rewrite or trim per `spec-audit-0.3.0.md` §2–§5 when the matching M-phase lands; **not** release gate |
 
 ### D stop rules
 

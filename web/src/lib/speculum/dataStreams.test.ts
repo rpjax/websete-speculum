@@ -137,6 +137,7 @@ describe('DataStreams.sendInput', () => {
     const streams = new DataStreams({
       sessionId: '00000000-0000-0000-0000-000000000001',
       token: 'test-token',
+      mirrorMode: 'videoStreaming',
       transport,
     })
 
@@ -186,6 +187,7 @@ describe('DataStreams.sendInput', () => {
     const streams = new DataStreams({
       sessionId: '00000000-0000-0000-0000-000000000011',
       token: 'test-token',
+      mirrorMode: 'videoStreaming',
       transport,
     })
 

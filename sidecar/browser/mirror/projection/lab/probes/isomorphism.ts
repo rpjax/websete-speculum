@@ -14,7 +14,27 @@ import { tableDigestsEqual } from '@speculum/page-projection/core/tableDigest';
 import type { TreeNode } from '@speculum/page-projection/core/treeNode';
 import type { FormControlSnap } from '@speculum/page-projection/core/formControlSnap';
 import { formControlSnapsEqual } from '@speculum/page-projection/core/formControlSnap';
-import { diffTrees, countShadowTrees, countNestedDocuments, collectFrameHrefs, type StructuralDiffResult } from './structuralDiff';
+import {
+  diffTrees,
+  countShadowTrees,
+  countNestedDocuments,
+  collectFrameHrefs,
+  normalizeUrlAttrValue,
+  type StructuralDiffResult,
+} from './structuralDiff';
+
+function inferTreePageBase(virtual: TreeNode | null | undefined, client: TreeNode | null | undefined): string {
+  const hrefs = [
+    ...(virtual ? collectFrameHrefs(virtual) : []),
+    ...(client ? collectFrameHrefs(client) : []),
+  ];
+  for (const href of hrefs) {
+    if (/^https?:\/\//i.test(href)) return href;
+  }
+  return 'https://speculum.invalid/';
+}
+
+export { normalizeUrlAttrValue };
 import type { StateSnapshotOpts, StateSnapshotResult } from '../../../../contracts';
 
 /** Caller-side view of a sealed {@link StateSnapshotResult} for lab folds / iso. */
@@ -441,7 +461,8 @@ async function compareContextPair(opts: {
   } else if (opts.virtual.tree == null) {
     skipped.push({ id: 'structuralDiff', reason: 'virtual tree missing for context' });
   } else {
-    structuralDiff = diffTrees(opts.virtual.tree as TreeNode, clientSnap.tree);
+    const pageBaseUrl = inferTreePageBase(opts.virtual.tree as TreeNode, clientSnap.tree);
+    structuralDiff = diffTrees(opts.virtual.tree as TreeNode, clientSnap.tree, { pageBaseUrl });
   }
 
   const virtualFormProps = opts.virtual.formProps ?? null;

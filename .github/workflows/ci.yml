@@ -62,9 +62,7 @@ jobs:
           node-version: '22'
       - name: Build page-projection package
         working-directory: packages/page-projection
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
       - name: Install, lint, test, and build
         working-directory: web
         run: |

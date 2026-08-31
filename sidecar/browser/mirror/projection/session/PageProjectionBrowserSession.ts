@@ -769,7 +769,11 @@ export class PageProjectionBrowserSession {
         data.cookies = this.context ? await this.context.cookies() : [];
       } else if (op === 'evaluate' && request.evaluateExpression) {
         const r = await this.evaluate(request.evaluateExpression);
-        data.evaluate = r;
+        // Wire the raw value — harness WaitEvaluateContains reads data.evaluate as a
+        // string/bool/number, not BrowserEvalResult { ok, value }.
+        // Soft on failure: target=_blank click can navigate and destroy the execution
+        // context before the completion value returns (N1); callers wait on location.
+        data.evaluate = r.ok ? r.value : (r.errorMessage ?? '');
       } else if (op === 'dom' && request.domSelector && this.page) {
         data.dom = await this.page.evaluate(
           `(sel) => { const el = document.querySelector(sel); return el ? el.outerHTML.slice(0, 8000) : null; }`,

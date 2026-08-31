@@ -5,6 +5,24 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+/** Main-world eval — Patchright {@code page.evaluate} is isolated (DOM yes, page JS no). */
+async function runtimeEvaluate(cdp: CDPSession, expression: string): Promise<unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = (await cdp.send('Runtime.evaluate', {
+    expression,
+    returnByValue: true,
+    awaitPromise: true,
+  })) as any;
+  if (raw?.exceptionDetails) {
+    const msg =
+      raw.exceptionDetails.exception?.description ??
+      raw.exceptionDetails.text ??
+      'evaluate failed';
+    throw new Error(String(msg));
+  }
+  return raw?.result?.value;
+}
+
 export class Probe {
   async run(
     request: BrowserProbeRequest,
@@ -57,15 +75,22 @@ export class Probe {
 
       if (opSet.has('dom') && request.domSelector) {
         const sel = JSON.stringify(request.domSelector);
-        data.dom = await ctx.page.evaluate(`(() => {
+        // Main world — same as evaluate (page.evaluate is isolated and misses page JS).
+        data.dom = await runtimeEvaluate(
+          ctx.cdp,
+          `(() => {
           const el = document.querySelector(${sel});
           if (!el) return null;
           return { outerHTML: el.outerHTML.slice(0, 8192), text: el.textContent };
-        })()`);
+        })()`,
+        );
       }
 
       if (opSet.has('evaluate') && request.evaluateExpression) {
-        data.evaluate = await ctx.page.evaluate(request.evaluateExpression);
+        // SessionsTest harness Probe→evaluate must see page JS oracles (window.__*__).
+        // Patchright page.evaluate runs in an isolated world — DOM attrs work, page
+        // locals do not (Video C2/C3/C7/C8/C10/C12 false reds after M1 sealed path).
+        data.evaluate = await runtimeEvaluate(ctx.cdp, request.evaluateExpression);
       }
 
       // Viewport still of Speculum Virtual — O1 accept bar (not host Playwright).

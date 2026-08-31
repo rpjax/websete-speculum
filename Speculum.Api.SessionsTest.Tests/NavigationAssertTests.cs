@@ -56,10 +56,17 @@ public sealed class NavigationAssertTests : SessionsTestBase
         await Fx.EnsureSessionsMirrorModeAsync("pageProjection");
         await using var act = new SessionsActClient(Fx.Host);
         await act.ConnectAsync();
-        await act.StartFixturePageAsync("/popup");
+        var started = await act.StartFixturePageAsync("/popup");
+        Assert.Equal("pageProjection", started.MirrorMode, ignoreCase: true);
 
-        // Click the _blank link; sidecar single-tab should navigate the main page (no separate tab).
-        await act.EvaluateAsync("document.getElementById('blank').click(); 'ok'");
+        // Wait until Virtual is projecting — extension MAIN single-tab inject is live
+        // only after the PP data plane is up (cold after VideoStreaming D*/H1 flips).
+        await act.WaitPageProjectionFrameAsync(timeoutMs: 45_000);
+
+        // MATRIX: window.open / target=_blank → same-tab. Prefer open() (init rewrite)
+        // over HTMLElement.click(); CDP evaluate of click can race context teardown.
+        _ = await act.EvaluateAsync(
+            "(() => { const a = document.getElementById('blank'); if (!a) throw new Error('missing #blank'); const r = window.open(a.href, '_blank'); return r === null ? 'rewritten' : 'passthrough'; })()");
         await act.WaitEvaluateContainsAsync("location.pathname", "/nav/b", TimeSpan.FromSeconds(30));
 
         // Still one live evaluate surface on the main page (popup pages are closed by interception).

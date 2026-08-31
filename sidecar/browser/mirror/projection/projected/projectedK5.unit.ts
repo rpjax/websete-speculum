@@ -54,7 +54,12 @@ export async function runProjectedK5UnitTests(): Promise<void> {
     'CHROME_EXECUTABLE required for K5 Chromium probe (set path, or SPECULUM_SKIP_K5_CHROME=1 to skip explicitly)',
   );
 
-  const browser = await chromium.launch({ headless: true, executablePath: chromeExe });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: chromeExe,
+    // CI (setup-chrome / rootless) — without these, launch can hang indefinitely.
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
   try {
     const page = await browser.newPage();
     await page.setContent('<!doctype html><body></body>');

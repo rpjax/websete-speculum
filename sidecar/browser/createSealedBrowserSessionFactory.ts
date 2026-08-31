@@ -101,6 +101,20 @@ class ModeSelectingSession implements BrowserSession {
   navigate(url: string): Promise<void> {
     return this.requireInner().navigate(url);
   }
+  /** M1 hub Navigate — must forward; otherwise gRPC sees no navigateClient on the wrapper. */
+  navigateClient(path: string, query: string): Promise<void> {
+    const inner = this.requireInner() as BrowserSession & {
+      navigateClient?(p: string, q: string): Promise<void>;
+    };
+    if (typeof inner.navigateClient !== 'function') {
+      throw Object.assign(new Error('Navigation policy is not configured'), {
+        code: 'FAILED_PRECONDITION',
+        errorCode: 'url_resolve_failed',
+        phase: 'Resolve',
+      });
+    }
+    return inner.navigateClient(path, query);
+  }
   refresh(): Promise<void> {
     return this.requireInner().refresh();
   }

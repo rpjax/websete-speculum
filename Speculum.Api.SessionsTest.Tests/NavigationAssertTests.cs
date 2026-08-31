@@ -16,7 +16,9 @@ public sealed class NavigationAssertTests : SessionsTestBase
         await act.StartFixturePageAsync("/nav/a");
 
         var result = await act.NavigateAsync("/nav/b");
-        Assert.True(result.Applied);
+        Assert.True(
+            result.Applied,
+            $"Navigate Applied=false outcome={result.Outcome} errorCode={result.ErrorCode} phase={result.Phase} message={result.Message}");
         Assert.Equal("Applied", result.Outcome);
 
         await act.WaitEvaluateContainsAsync("location.pathname", "/nav/b", TimeSpan.FromSeconds(30));
@@ -33,7 +35,10 @@ public sealed class NavigationAssertTests : SessionsTestBase
             await act.ConnectAsync();
             await act.StartFixturePageAsync("/nav/a");
 
-            Assert.True((await act.NavigateAsync("/nav/b")).Applied);
+            var nav = await act.NavigateAsync("/nav/b");
+            Assert.True(
+                nav.Applied,
+                $"Navigate Applied=false outcome={nav.Outcome} errorCode={nav.ErrorCode} phase={nav.Phase} message={nav.Message}");
             await act.WaitEvaluateContainsAsync("location.pathname", "/nav/b", TimeSpan.FromSeconds(30));
 
             await act.SendInputAsync("goback", """{"type":"goback"}""");

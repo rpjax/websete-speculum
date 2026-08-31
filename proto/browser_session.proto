@@ -73,6 +73,23 @@ message EditingState {
   optional string tag_name = 3;
 }
 
+// ── Navigation policy (M1 — injected at Launch, immutable per session) ───────
+
+message NavigationPolicyDomain {
+  string domain = 1;
+  bool is_subdomain_mirroring_enabled = 2;
+}
+
+message NavigationPolicy {
+  // Session transport host (client-facing); used for Resolve / ProjectToClient.
+  string request_host = 1;
+  string default_target_host = 2;
+  repeated NavigationPolicyDomain domains = 3;
+  repeated UrlMatchRule allowed_main_frame_urls = 4;
+  // W7S navigation-state query parameter name (e.g. "_w7s_nso").
+  string navigation_state_param = 5;
+}
+
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 message CreateRequest {
@@ -103,6 +120,7 @@ message LaunchVideoStreamingRequest {
   double screencast_max_encode_scale = 16;
   // When true, Virtual CDP Profiler may be started via session startCpuProfile.
   bool cpu_profiling = 17;
+  NavigationPolicy navigation_policy = 18;
 }
 
 message LaunchPageProjectionRequest {
@@ -131,18 +149,19 @@ message LaunchPageProjectionRequest {
   int32 hidden_rate_hz = 24;
   int32 rate_recover_ms = 25;
   int32 frame_stall_ms = 26;
-  // Deprecated / ignored: pre-V4 establish chunking (cold start is resync frame).
-  int32 establish_chunk_bytes = 27;
+  reserved 27; // was establish_chunk_bytes (pre-V4; removed M6)
   int64 mirror_max_bytes = 28;
   int64 asset_cache_l1_max_bytes = 29;
   int32 asset_priority_viewport_px = 30;
   int32 aggregate_interval_ms = 31;
   int32 swap_timeout_ms = 32;
-  // Deprecated / ignored: ReportClientState purged — not a Live control interval.
-  int32 client_state_ms = 33;
+  reserved 33; // was client_state_ms (ReportClientState purged; removed M6)
   int32 apply_budget_ms = 34;
   // When true, Virtual CDP Profiler may be started via session startCpuProfile.
   bool cpu_profiling = 35;
+  NavigationPolicy navigation_policy = 36;
+  int64 asset_cache_l2_max_bytes = 37;
+  bool asset_cache_l2_enabled = 38;
 }
 
 message ReadyInfo {
@@ -230,7 +249,11 @@ message ExportStateRequest {
 
 message NavigateRequest {
   string session_id = 1;
+  // Absolute target URL (bootstrap / pre-resolved entry navigation).
   string url = 2;
+  // Client path + query resolved by sidecar NavigationPolicy when set.
+  string client_path = 3;
+  string client_query = 4;
 }
 
 message ResizeRequest {
@@ -351,8 +374,14 @@ message PageProjectionLifecycleEvent {
   optional int64 sequence = 10; // queue_dropped kept envelope (surviving write)
   optional int64 lowest_dropped_sequence = 11; // queue_dropped drained backlog min
   optional int64 highest_dropped_sequence = 12; // queue_dropped drained backlog max
-  // PageEpoch parity telemetry (parity_* kinds) — UTF-8 JSON of the kind's payload object.
-  optional string payload_json = 13;
+  reserved 13; // was payload_json (parity_* motor JSON; removed M6)
+  // session_pool_acquired
+  optional int32 display_width = 14;
+  optional int32 display_height = 15;
+  optional int32 pool_size = 16;
+  optional int64 wait_ms = 17;
+  // session_pool_released
+  optional int64 held_ms = 18;
 }
 
 // Opt-in allocation lifecycle (API journals Telemetry.Sessions.Sidecar.* when enabled).
@@ -379,8 +408,7 @@ message AllocationLifecycleEvent {
 message PageProjectionFrame {
   int64 sequence = 1;
   int64 generation = 2;
-  string plane = 3; // deprecated for binary frames, empty string
-  string operation = 4; // deprecated for binary frames, empty string
+  reserved 3, 4; // was plane / operation (V1 JSON routing; removed M6)
   int64 timestamp_ms = 5;
   bytes body = 6; // opaque §5.5 binary frame/part
   uint32 part_index = 7;
@@ -393,7 +421,7 @@ message PageProjectionFrame {
 message DomInputEvent {
   string session_id = 1;
   string type = 2; // move|down|up|keyDown|keyUp|scrollSet|setFiles (legacy V2 aliases accepted)
-  string anchor = 3; // speculum-anchor; DEPRECATED — kept for the V1 transition only
+  reserved 3; // was anchor (V1 speculum-anchor; removed M6)
   string payload_json = 4; // PageProjectionIntentPayload JSON
   int64 generation = 5;
   double timestamp_client = 6;
@@ -561,7 +589,19 @@ message MediaChunk {
   bytes data = 2;
 }
 
-// ── Control bidi (permission RPC reverse) ────────────────────────────────────
+// ── Host control bidi (host level, permanent — I8: no session_id) ──────────
+
+message HostControlFromSidecar {
+  // Echo of the host ping sequence.
+  uint64 ack_seq = 1;
+}
+
+message HostControlToSidecar {
+  // Host-level keepalive / readiness probe.
+  uint64 ping_seq = 1;
+}
+
+// ── Control bidi (session socket — permission RPC reverse) ───────────────────
 
 enum PermissionKind {
   PERMISSION_KIND_UNSPECIFIED = 0;
@@ -578,7 +618,16 @@ message ControlFromSidecar {
 message ControlToSidecar {
   oneof message {
     PermissionReply permission_reply = 1;
+    ConsumerPressure consumer_pressure = 2;
   }
+}
+
+// M3: .NET reports consumer-side queue depth; motor decides rate/resync/disconnect.
+message ConsumerPressure {
+  uint32 queued_frames = 1;
+  uint64 queued_bytes = 2;
+  uint64 oldest_queued_ms = 3;
+  bool draining = 4;
 }
 
 message PermissionRequest {
@@ -760,6 +809,9 @@ service BrowserSessionService {
   rpc GetStateSnapshot(GetStateSnapshotRequest) returns (GetStateSnapshotResponse);
 
   rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);
+
+  // Permanent host-level control plane (opened once per API process; never names a session).
+  rpc HostControl(stream HostControlToSidecar) returns (stream HostControlFromSidecar);
 
   // Process-wide composite sample — not scoped to a session id.
   rpc CollectTelemetry(SidecarTelemetryRequest) returns (SidecarTelemetryResponse);

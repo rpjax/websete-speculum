@@ -2,6 +2,7 @@ import * as grpc from '@grpc/grpc-js';
 import type { SessionRegistry } from '../host/SessionRegistry';
 import type { DropOldestQueue } from '../host/DropOldestQueue';
 import type { EventBridge, PermissionKind } from '../host/EventBridge';
+import type { SharedAssetCacheL2 } from '../host/SharedAssetCacheL2';
 import { collectTelemetry } from '../telemetry/collectTelemetry';
 import { applyHostResources, getHostResourcesStatus } from '../host/hostResources';
 import {
@@ -29,7 +30,10 @@ function grpcError(err: unknown): grpc.ServiceError {
   return mapGrpcError(err);
 }
 
-export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.UntypedServiceImplementation {
+export function createBrowserSessionHandlers(
+  registry: SessionRegistry,
+  sharedAssetTier?: SharedAssetCacheL2,
+): grpc.UntypedServiceImplementation {
   return {
     create(
       call: grpc.ServerUnaryCall<any, any>,
@@ -51,6 +55,12 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         const sid = requireSessionId(call.request);
         const { session, bridge } = registry.get(sid);
         const options = toLaunchOptions({ ...call.request, mirrorMode: 'pageProjection' });
+        if (sharedAssetTier) {
+          sharedAssetTier.configureOnce({
+            maxBytes: options.assetCacheL2MaxBytes,
+            enabled: options.assetCacheL2Enabled,
+          });
+        }
         bridge.configureDomCapacity(options.frameQueueCapacity);
         const ready = await session.launch(options);
         callback(null, ready);
@@ -164,7 +174,21 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
     ): Promise<void> {
       try {
         const { session } = registry.get(requireSessionId(call.request));
-        await session.navigate(requireUrl(call.request.url));
+        const clientPath = (call.request.clientPath ?? call.request.client_path ?? '').trim();
+        const clientQuery = call.request.clientQuery ?? call.request.client_query ?? '';
+        if (clientPath) {
+          if (typeof session.navigateClient === 'function') {
+            await session.navigateClient(clientPath, clientQuery);
+          } else {
+            throw Object.assign(new Error('Navigation policy is not configured'), {
+              code: 'FAILED_PRECONDITION',
+              errorCode: 'url_resolve_failed',
+              phase: 'Resolve',
+            });
+          }
+        } else {
+          await session.navigate(requireUrl(call.request.url));
+        }
         callback(null, {});
       } catch (err) {
         callback(grpcError(err), null);
@@ -334,8 +358,6 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         (d) => ({
           sequence: d.sequence,
           generation: d.generation,
-          plane: d.plane,
-          operation: d.operation,
           timestampMs: d.timestampMs,
           body: d.body,
           partIndex: d.partIndex ?? 0,
@@ -440,7 +462,11 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         sequence: e.sequence,
         lowestDroppedSequence: e.lowestDroppedSequence,
         highestDroppedSequence: e.highestDroppedSequence,
-        payloadJson: e.payloadJson,
+        displayWidth: e.displayWidth,
+        displayHeight: e.displayHeight,
+        poolSize: e.poolSize,
+        waitMs: e.waitMs,
+        heldMs: e.heldMs,
       }));
     },
 
@@ -488,7 +514,6 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         const targetId = rawTargetId != null ? Number(rawTargetId) : null;
         const outcome = await pushDom({
           type: kind,
-          anchor: msg.anchor != null ? String(msg.anchor) : null,
           targetId: targetId != null && Number.isFinite(targetId) ? targetId : null,
           contextId: (() => {
             const raw = msg.contextId ?? msg.context_id;
@@ -743,6 +768,30 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       });
     },
 
+    hostControl(call: grpc.ServerDuplexStream<any, any>): void {
+      // Permanent host-level control plane (M8 / I8). Must not carry session identity.
+      const sessionId = readSessionIdMetadata(call.metadata);
+      if (sessionId) {
+        call.destroy(
+          grpcError(
+            Object.assign(new Error('HostControl must not include x-session-id metadata'), {
+              code: 'INVALID_ARGUMENT',
+            }),
+          ),
+        );
+        return;
+      }
+
+      call.on('data', (msg: any) => {
+        const seq = Number(msg.pingSeq ?? msg.ping_seq ?? 0);
+        call.write({ ackSeq: seq });
+      });
+
+      call.on('end', () => {
+        call.end();
+      });
+    },
+
     control(call: grpc.ServerDuplexStream<any, any>): void {
       // Each API session opens its own Control duplex and identifies via metadata.
       // Never attach all bridges — that cross-wires permissions across sessions.
@@ -759,8 +808,9 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
       }
 
       let bridge: EventBridge;
+      let session: import('../browser/BrowserSession').BrowserSession;
       try {
-        bridge = registry.get(sessionId).bridge;
+        ({ bridge, session } = registry.get(sessionId));
       } catch (err) {
         call.destroy(grpcError(err));
         return;
@@ -771,10 +821,7 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         kind: 'camera' | 'microphone';
         sessionId: string;
       }): void => {
-        const kindEnum =
-          req.kind === 'camera'
-            ? 'PERMISSION_KIND_CAMERA'
-            : 'PERMISSION_KIND_MICROPHONE';
+        const kindEnum = req.kind === 'camera' ? 1 : 2;
         call.write({
           permissionRequest: {
             corrId: req.corrId,
@@ -792,14 +839,24 @@ export function createBrowserSessionHandlers(registry: SessionRegistry): grpc.Un
         if (entry.bridge.sessionId !== sessionId) return;
         bridge.clearPermissionSink(sink, activeEpoch);
         bridge = entry.bridge;
+        session = entry.session;
         activeEpoch = bridge.setPermissionSink(sink);
       });
 
       call.on('data', (msg: any) => {
         const reply = msg.permissionReply;
-        if (!reply) return;
-        if (reply.sessionId && reply.sessionId !== sessionId) return;
-        bridge.resolvePermission(reply.corrId, !!reply.allow);
+        if (reply) {
+          if (reply.sessionId && reply.sessionId !== sessionId) return;
+          bridge.resolvePermission(reply.corrId, !!reply.allow);
+          return;
+        }
+
+        const pressure = msg.consumerPressure;
+        if (pressure) {
+          bridge.onConsumerPressure(pressure, (req) =>
+            session.requestResync?.({ reason: req.reason }) ?? Promise.resolve(),
+          );
+        }
       });
 
       const cleanup = (): void => {

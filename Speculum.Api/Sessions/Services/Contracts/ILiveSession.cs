@@ -3,6 +3,7 @@ using Aidan.Core.Patterns;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Services.Streaming;
 using Speculum.Api.Sessions.Requests;
 
 namespace Speculum.Api.Sessions.Services.Contracts;
@@ -219,6 +220,9 @@ public interface ILiveSession
         int? frameChannelCount = null,
         long? frameEpoch = null);
 
+    /// <summary>M3: rate-limited consumer pressure toward sidecar Control.</summary>
+    void TrySendConsumerPressure(ConsumerPressureSnapshot snapshot);
+
     // ── Commands ─────────────────────────────────────────────────────────────
 
     Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default);
@@ -242,7 +246,7 @@ public interface ILiveSession
     /// <summary>
     /// Fetches a Dom Projection asset by hash (MirrorMode.PageProjection only).
     /// </summary>
-    Task<IResult<DomAsset>> GetDomAssetAsync(
+    Task<IResult<VirtualResourceResponse>> GetVirtualAssetAsync(
         string key,
         CancellationToken ct = default,
         string? kind = null,
@@ -272,4 +276,10 @@ public interface ILiveSession
         Func<CancellationToken, Task<PermissionDecision>> handler);
 
     IResult UnregisterMicrophonePermission(Guid registrationId);
+
+    /// <summary>Harness / diagnostics: current multiplexed camera policy without sidecar I/O.</summary>
+    Task<PermissionDecision> EvaluateCameraPermissionPolicyAsync(CancellationToken ct = default);
+
+    /// <summary>Harness / diagnostics: current multiplexed microphone policy without sidecar I/O.</summary>
+    Task<PermissionDecision> EvaluateMicrophonePermissionPolicyAsync(CancellationToken ct = default);
 }

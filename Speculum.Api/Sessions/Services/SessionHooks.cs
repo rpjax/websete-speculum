@@ -110,6 +110,12 @@ internal sealed class SessionHooks : ISessionHooks
 
     private bool IsClosed => Volatile.Read(ref _closed) != 0;
 
+    internal Task<PermissionDecision> EvaluateCameraAsync(CancellationToken ct)
+        => OnCameraPermissionAsync(ct);
+
+    internal Task<PermissionDecision> EvaluateMicrophoneAsync(CancellationToken ct)
+        => OnMicrophonePermissionAsync(ct);
+
     private Task<PermissionDecision> OnCameraPermissionAsync(CancellationToken ct)
         => MultiplexAsync(_camera, ct);
 

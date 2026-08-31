@@ -8,6 +8,7 @@ using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Sessions.Services.Streaming;
 
 namespace Speculum.Api.Sessions.Tests;
 
@@ -296,6 +297,16 @@ public sealed class SessionBindingRegistryTests
             int? frameChannelCount = null,
             long? frameEpoch = null) { }
 
+        public int GetPageProjectionFrameConnectionQueueDepth() => 0;
+
+        public ulong GetPageProjectionFrameConnectionQueuedBytes() => 0;
+
+        public ulong GetPageProjectionFrameOldestQueuedMs() => 0;
+
+        public void NotifyPageProjectionFrameConnectionDequeued() { }
+
+        public void TrySendConsumerPressure(ConsumerPressureSnapshot snapshot) { }
+
         public Task<IResult<SessionStatus>> GetStatusAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
 
@@ -320,7 +331,7 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default)
             => throw new NotSupportedException();
 
-        public Task<IResult<DomAsset>> GetDomAssetAsync(
+        public Task<IResult<VirtualResourceResponse>> GetVirtualAssetAsync(
             string key,
             CancellationToken ct = default,
             string? kind = null,

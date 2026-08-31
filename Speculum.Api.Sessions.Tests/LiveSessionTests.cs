@@ -17,6 +17,7 @@ using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Sessions.Services.Streaming;
 using Speculum.Api.Telemetry.Events.Services.Contracts;
 
 namespace Speculum.Api.Sessions.Tests;
@@ -98,6 +99,7 @@ public sealed class LiveSessionTests
         {
             IsJsBridgeEnabled = true,
             DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            MirrorMode = MirrorMode.VideoStreaming,
             InputMultiplexingPolicy = new InputMultiplexingPolicy { Access = InputAccessPolicy.Shared },
             OutputMultiplexingPolicy = new OutputMultiplexingPolicy
             {
@@ -258,21 +260,57 @@ public sealed class LiveSessionTests
         Assert.Equal(1u, connection.LastResyncContextId);
         Assert.Equal("gate10_surface", connection.LastResyncReason);
 
-        connection.DomAsset = new DomAsset { Body = [1, 2, 3], ContentType = "text/css" };
-        var assetOk = await live.GetDomAssetAsync("deadbeef");
+        connection.VirtualAsset = new VirtualResourceResponse { Body = [1, 2, 3], ContentType = "text/css" };
+        var assetOk = await live.GetVirtualAssetAsync("deadbeef");
         Assert.True(assetOk.IsSuccess);
         Assert.Equal("text/css", assetOk.Value.ContentType);
         Assert.Equal(new byte[] { 1, 2, 3 }, assetOk.Value.Body);
 
         var videoSessionId = Guid.NewGuid();
-        var videoCreated = CreateService()
+        var videoCreated = CreateService(
+                configuration: SessionsTestHarness.Configuration(new SessionsConfiguration
+                {
+                    IsJsBridgeEnabled = true,
+                    DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+                    MirrorMode = MirrorMode.VideoStreaming,
+                }))
             .Create(videoSessionId, Guid.NewGuid(), new LiveFakeConnection(videoSessionId), "speculum.test", true);
         Assert.True(videoCreated.IsSuccess);
-        var videoAsset = await videoCreated.Value.GetDomAssetAsync("abc");
+        var videoAsset = await videoCreated.Value.GetVirtualAssetAsync("abc");
         Assert.True(videoAsset.IsFailure);
         Assert.Contains(
             SessionMirrorErrors.PageProjectionRequiredMessage,
             videoAsset.Errors.Select(e => e.Message));
+    }
+
+    [Fact]
+    public async Task AdmitPageProjectionInput_ForwardsWithoutCoalescing()
+    {
+        var (_, live, connection) = CreatePageProjectionSession();
+        Assert.True(live.Attach(new RecordingAttachedClient()).IsSuccess);
+
+        Assert.True(live.AdmitPageProjectionInput(new PageProjectionIntent
+        {
+            Type = "scrollViewport",
+            Generation = 1,
+            Payload = """{"scrollTop":1}""",
+        }).IsSuccess);
+        Assert.True(live.AdmitPageProjectionInput(new PageProjectionIntent
+        {
+            Type = "scrollViewport",
+            Generation = 1,
+            Payload = """{"scrollTop":2}""",
+        }).IsSuccess);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var received = new List<PageProjectionIntent>();
+        while (received.Count < 2)
+        {
+            received.Add(await connection.PageProjectionIntentReceived.Reader.ReadAsync(cts.Token));
+        }
+
+        Assert.Equal(2, received.Count);
+        Assert.All(received, i => Assert.Equal("scrollViewport", i.Type));
     }
 
     private static (LiveSessionService Service, ILiveSession Live, LiveFakeConnection Connection) CreatePageProjectionSession()
@@ -299,82 +337,24 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
-    public async Task GetDomAssetAsync_ShareableAsset_SecondFetchServedFromL2WithoutSessionFetch()
+    public async Task GetVirtualAssetAsync_RelaysToSessionConnection()
     {
         var (_, live, connection) = CreatePageProjectionSession();
-        connection.DomAsset = new DomAsset
+        connection.VirtualAsset = new VirtualResourceResponse
         {
             Body = [1, 2, 3],
             ContentType = "text/css",
             StatusCode = 200,
-            RequestHadCookie = false,
-            CacheControl = "public, max-age=3600",
         };
 
-        var first = await live.GetDomAssetAsync("cdn.test/app.css");
+        var first = await live.GetVirtualAssetAsync("cdn.test/app.css");
         Assert.True(first.IsSuccess);
-        Assert.Equal(1, connection.GetDomAssetCallCount);
+        Assert.Equal(1, connection.GetVirtualAssetCallCount);
 
-        // Second fetch for the identical key must be served from the host-wide L2 tier —
-        // the session connection is never consulted again (§5.12.2 "try L2 before fetch").
-        connection.DomAsset = null;
-        var second = await live.GetDomAssetAsync("cdn.test/app.css");
-        Assert.True(second.IsSuccess);
-        Assert.Equal("text/css", second.Value.ContentType);
-        Assert.Equal(new byte[] { 1, 2, 3 }, second.Value.Body);
-        Assert.Equal(1, connection.GetDomAssetCallCount);
-    }
-
-    [Fact]
-    public async Task GetDomAssetAsync_CredentialedAsset_NeverEntersL2()
-    {
-        var (_, live, connection) = CreatePageProjectionSession();
-        connection.DomAsset = new DomAsset
-        {
-            Body = [1, 2, 3],
-            ContentType = "text/css",
-            StatusCode = 200,
-            RequestHadCookie = true, // §5.12.2.1 — credentialed fetch is never shareable
-        };
-
-        _ = await live.GetDomAssetAsync("cdn.test/private.css");
-        Assert.Equal(1, connection.GetDomAssetCallCount);
-
-        _ = await live.GetDomAssetAsync("cdn.test/private.css");
-        Assert.Equal(2, connection.GetDomAssetCallCount); // still hits the session — never L2-cached
-    }
-
-    [Fact]
-    public async Task GetDomAssetAsync_RangeRequest_NeverConsultsOrPopulatesL2()
-    {
-        var (_, live, connection) = CreatePageProjectionSession();
-        connection.DomAsset = new DomAsset
-        {
-            Body = [1, 2, 3],
-            ContentType = "video/mp4",
-            StatusCode = 206,
-            ContentRange = "bytes 0-2/10",
-            PassThrough = true,
-        };
-
-        _ = await live.GetDomAssetAsync("cdn.test/video.mp4", rangeHeader: "bytes=0-2");
-        Assert.Equal(1, connection.GetDomAssetCallCount);
-
-        _ = await live.GetDomAssetAsync("cdn.test/video.mp4", rangeHeader: "bytes=0-2");
-        Assert.Equal(2, connection.GetDomAssetCallCount); // Range never L2-eligible
-    }
-
-    [Fact]
-    public async Task GetDomAssetAsync_BlobKind_NeverConsultsOrPopulatesL2()
-    {
-        var (_, live, connection) = CreatePageProjectionSession();
-        connection.DomAsset = new DomAsset { Body = [1, 2, 3], ContentType = "image/png" };
-
-        _ = await live.GetDomAssetAsync("blob-1", kind: "blob");
-        Assert.Equal(1, connection.GetDomAssetCallCount);
-
-        _ = await live.GetDomAssetAsync("blob-1", kind: "blob");
-        Assert.Equal(2, connection.GetDomAssetCallCount); // session-synthesized — never L2-eligible
+        connection.VirtualAsset = null;
+        var second = await live.GetVirtualAssetAsync("cdn.test/app.css");
+        Assert.False(second.IsSuccess);
+        Assert.Equal(2, connection.GetVirtualAssetCallCount);
     }
 
     [Fact]
@@ -384,8 +364,12 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var collector = new RecordingCollector();
         var service = CreateService(
-            new RecordingUrlResolver("https://example.test/"),
-            SessionsTestHarness.Configuration(),
+            SessionsTestHarness.Configuration(new SessionsConfiguration
+            {
+                IsJsBridgeEnabled = true,
+                DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+                MirrorMode = MirrorMode.VideoStreaming,
+            }),
             collector);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
@@ -417,7 +401,7 @@ public sealed class LiveSessionTests
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
             Kind = SessionNotificationKind.LocationChanged,
-            Url = "https://example.test/before-attach",
+            Url = "https://speculum.test/before-attach",
         });
 
         var client = new RecordingAttachedClient();
@@ -439,7 +423,7 @@ public sealed class LiveSessionTests
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
             Kind = SessionNotificationKind.LocationChanged,
-            Url = "https://example.test/synced",
+            Url = "https://speculum.test/synced",
         });
 
         var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
@@ -447,78 +431,27 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
-    public async Task FeatureLoop_LocationChanged_RealResolver_SyncUrlKeepsLabelThroughNavigate()
+    public async Task FeatureLoop_LocationChanged_PassesThroughSidecarProjectedUrl()
     {
-        var configuration = SessionsTestHarness.Engine("www.olx.com.br");
-        configuration.Navigation = new NavigationConfiguration
-        {
-            DefaultTargetHost = "www.olx.com.br",
-            AllowedMainFrameUrls =
-            [
-                new UrlMatchRule { Domain = ExactDomain("www", "olx", "com", "br") },
-                new UrlMatchRule { Domain = ExactDomain("olx", "com", "br") },
-                new UrlMatchRule { Domain = WildcardDomain("olx", "com", "br") },
-            ],
-        };
-        configuration.Hosting = new HostingConfiguration
-        {
-            Domains =
-            [
-                new DomainConfiguration
-                {
-                    Domain = "speculum.test",
-                    IsSubdomainMirroringEnabled = false,
-                },
-            ],
-        };
-        configuration.Sessions = SessionsTestHarness.Sessions(TimeSpan.FromMinutes(5));
-
-        var urls = new UrlResolver(new SessionsTestHarness.StaticConfigurationService(configuration));
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService(urls, new SessionsTestHarness.StaticConfigurationService(configuration))
+        var live = CreateService()
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
             .Value;
         var client = new RecordingAttachedClient();
         _ = AttachAndObserve(live, client);
 
+        const string projected =
+            "https://speculum.test/listing?q=1&_w7s_nso=eyJ2IjoxLCJoIjoiY2FycyJ9";
+
         await connection.Notifications.Writer.WriteAsync(new SessionNotification
         {
             Kind = SessionNotificationKind.LocationChanged,
-            Url = "https://cars.olx.com.br/listing?q=1",
+            Url = projected,
         });
 
         var synced = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
-        var syncedUri = new Uri(synced);
-        Assert.Equal("speculum.test", syncedUri.Host);
-        Assert.Equal("/listing", syncedUri.AbsolutePath);
-        Assert.Contains("_w7s_nso=", syncedUri.Query, StringComparison.Ordinal);
-
-        var path = syncedUri.AbsolutePath;
-        var query = syncedUri.Query.TrimStart('?');
-        var navigated = await live.NavigateAsync(new NavigateSession { Path = path, Query = query });
-        Assert.True(navigated.IsSuccess);
-        Assert.Equal("https://cars.olx.com.br/listing?q=1", connection.LastNavigatedUrl);
-    }
-
-    [Fact]
-    public async Task FeatureLoop_LocationChanged_ProjectFailure_SkipsSyncUrl()
-    {
-        var sessionId = Guid.NewGuid();
-        var connection = new LiveFakeConnection(sessionId);
-        var live = CreateService(urls: new FailingUrlResolver())
-            .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
-        var client = new RecordingAttachedClient();
-        _ = AttachAndObserve(live, client);
-
-        await connection.Notifications.Writer.WriteAsync(new SessionNotification
-        {
-            Kind = SessionNotificationKind.LocationChanged,
-            Url = "https://example.test/synced",
-        });
-
-        await Task.Delay(200);
-        Assert.Equal(0, client.SyncUrlCount);
+        Assert.Equal(projected, synced);
     }
 
     [Fact]
@@ -675,7 +608,7 @@ public sealed class LiveSessionTests
         });
 
         var url = await client.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("https://speculum.test/after-empty", url);
+        Assert.Equal("https://example.test/after-empty", url);
         Assert.Equal(1, client.SyncUrlCount);
     }
 
@@ -712,7 +645,7 @@ public sealed class LiveSessionTests
         });
 
         var url = await second.WaitSyncUrlAsync(TimeSpan.FromSeconds(2));
-        Assert.Equal("https://speculum.test/reattached", url);
+        Assert.Equal("https://example.test/reattached", url);
     }
 
     [Fact]
@@ -734,15 +667,13 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
-    public async Task Navigate_ResolvesUrlThenCommands()
+    public async Task Navigate_SendsClientPathToSidecar()
     {
         var sessionId = Guid.NewGuid();
         var connection = new LiveFakeConnection(sessionId);
-        var urls = new RecordingUrlResolver("https://target.test/");
         var liveEvents = new RecordingSessionLiveEvents();
         var navigateEvents = new RecordingSessionNavigateTelemetryEvents();
         var live = CreateService(
-                urls,
                 liveEvents: liveEvents,
                 telemetry: new NoOpSessionTelemetryEventsFactory(navigate: navigateEvents))
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
@@ -752,23 +683,21 @@ public sealed class LiveSessionTests
         Assert.True(result.IsSuccess);
         Assert.True(result.Value.Applied);
         Assert.Equal(NavigateOutcome.Applied, result.Value.Outcome);
-        Assert.Equal("/x", urls.LastPath);
-        Assert.Equal("speculum.test", urls.LastRequestHost);
-        Assert.Equal("https://target.test/", connection.LastNavigatedUrl);
+        Assert.Equal("/x", connection.LastNavigatedClientPath);
+        Assert.Equal("q=1", connection.LastNavigatedClientQuery);
         Assert.Equal(("/x", "q=1"), liveEvents.LastNavigateRequested);
-        Assert.Equal("https://target.test/", navigateEvents.LastUrlResolved);
-        Assert.Equal("https://target.test/", liveEvents.LastNavigateCompletedUrl);
+        Assert.Equal("/x?q=1", navigateEvents.LastUrlResolved);
+        Assert.Equal("/x?q=1", liveEvents.LastNavigateCompletedUrl);
         Assert.Null(liveEvents.LastNavigateFailedPhase);
     }
 
     [Fact]
-    public async Task Navigate_WhenResolveFails_JournalsNavigateFailed()
+    public async Task Navigate_WhenSidecarResolveFails_JournalsNavigateFailed()
     {
         var sessionId = Guid.NewGuid();
-        var connection = new LiveFakeConnection(sessionId);
-        var urls = new FailingUrlResolver();
+        var connection = new LiveFakeConnection(sessionId) { NavigateClientFails = true };
         var liveEvents = new RecordingSessionLiveEvents();
-        var live = CreateService(urls, liveEvents: liveEvents)
+        var live = CreateService(liveEvents: liveEvents)
             .Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true)
             .Value;
 
@@ -777,7 +706,7 @@ public sealed class LiveSessionTests
         Assert.False(result.Value.Applied);
         Assert.Equal(NavigateOutcome.ResolveFailed, result.Value.Outcome);
         Assert.Equal("Resolve", liveEvents.LastNavigateFailedPhase);
-        Assert.Null(connection.LastNavigatedUrl);
+        Assert.Null(connection.LastNavigatedClientPath);
     }
 
     [Fact]
@@ -827,6 +756,7 @@ public sealed class LiveSessionTests
         {
             IsJsBridgeEnabled = true,
             DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            MirrorMode = MirrorMode.VideoStreaming,
             InputMultiplexingPolicy = new InputMultiplexingPolicy
             {
                 Access = InputAccessPolicy.Exclusive,
@@ -835,7 +765,7 @@ public sealed class LiveSessionTests
             },
         });
 
-        var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
+        var service = CreateService(configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
@@ -845,18 +775,19 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
-    public async Task GetStatus_ProjectsUrlToClient()
+    public async Task GetStatus_PassesThroughSidecarProjectedUrl()
     {
         var sessionId = Guid.NewGuid();
+        const string projected = "https://speculum.test/page?q=1&_w7s_nso=eyJ2IjoxLCJoIjoicGFnZSJ9";
         var connection = new LiveFakeConnection(sessionId)
         {
-            StatusUrl = "https://example.test/page?q=1",
+            StatusUrl = projected,
         };
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var status = await live.GetStatusAsync();
         Assert.True(status.IsSuccess);
-        Assert.Equal("https://speculum.test/page?q=1", status.Value.Url);
+        Assert.Equal(projected, status.Value.Url);
     }
 
     [Fact]
@@ -938,13 +869,14 @@ public sealed class LiveSessionTests
         {
             IsJsBridgeEnabled = true,
             DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            MirrorMode = MirrorMode.VideoStreaming,
             InputMultiplexingPolicy = new InputMultiplexingPolicy
             {
                 Access = InputAccessPolicy.Exclusive,
             },
         });
 
-        var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
+        var service = CreateService(configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
@@ -963,13 +895,14 @@ public sealed class LiveSessionTests
         {
             IsJsBridgeEnabled = true,
             DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            MirrorMode = MirrorMode.VideoStreaming,
             InputMultiplexingPolicy = new InputMultiplexingPolicy
             {
                 Access = InputAccessPolicy.Exclusive,
             },
         });
 
-        var service = CreateService(new RecordingUrlResolver("https://x.test/"), configuration);
+        var service = CreateService(configuration);
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
         var inputA = Channel.CreateUnbounded<VideoStreamingInput>();
@@ -1004,7 +937,6 @@ public sealed class LiveSessionTests
     }
 
     private static LiveSessionService CreateService(
-        IUrlResolver? urls = null,
         IConfigurationService? configuration = null,
         ISessionCollector? collector = null,
         ISessionLiveEvents? liveEvents = null,
@@ -1015,6 +947,7 @@ public sealed class LiveSessionTests
         {
             IsJsBridgeEnabled = true,
             DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            MirrorMode = MirrorMode.VideoStreaming,
             InputMultiplexingPolicy = new InputMultiplexingPolicy
             {
                 Access = InputAccessPolicy.Shared,
@@ -1023,12 +956,10 @@ public sealed class LiveSessionTests
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
             new NoOpFaultScheduler(),
-            urls ?? new RecordingUrlResolver("https://example.test/"),
             config,
             new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
             telemetry ?? new NoOpSessionTelemetryEventsFactory(),
             journalCatalog ?? new Speculum.Api.Journal.Services.JournalCatalog(),
-            new SharedAssetCacheL2(config),
             NullLoggerFactory.Instance);
     }
 
@@ -1043,6 +974,7 @@ public sealed class LiveSessionTests
         {
             IsJsBridgeEnabled = true,
             DetachedSessionTimeout = TimeSpan.FromMinutes(5),
+            MirrorMode = MirrorMode.VideoStreaming,
             InputMultiplexingPolicy = new InputMultiplexingPolicy
             {
                 Access = InputAccessPolicy.Shared,
@@ -1051,12 +983,10 @@ public sealed class LiveSessionTests
         return new LiveSessionService(
             collector ?? new NoOpCollector(),
             faults,
-            new RecordingUrlResolver("https://example.test/"),
             config,
             new NoOpSessionEventsFactory(liveEvents ?? new NoOpSessionLiveEvents()),
             telemetry ?? new NoOpSessionTelemetryEventsFactory(),
             journalCatalog ?? new Speculum.Api.Journal.Services.JournalCatalog(),
-            new SharedAssetCacheL2(config),
             NullLoggerFactory.Instance);
     }
 
@@ -1102,8 +1032,7 @@ public sealed class LiveSessionTests
     [Fact]
     public void VideoStreamingInput_HighFrequencyKinds_StillJournalWhenFactsEnabled()
     {
-        // HF admission policy still coalesces product input; Journal emits whenever catalog is on
-        // (no skip solely because mousemove / wheel / touchmove).
+        // M2: .NET is a dumb pipe; sidecar coalesces. Journal emits whenever catalog is on.
         var catalog = new Speculum.Api.Journal.Services.JournalCatalog();
         catalog.RegisterFromAssemblies(typeof(Speculum.Api.Telemetry.Events.Models.Sampling.SampleCollected).Assembly);
         catalog.SetEnabled(Speculum.Api.Telemetry.TelemetryJournalFacts.VideoStreamingInputDataPlaneReceived, true);
@@ -1354,27 +1283,11 @@ public sealed class LiveSessionTests
 
         public string? LastRequestHost { get; private set; }
 
-        public string? LastProjectTarget { get; private set; }
-
         public IResult<string> Resolve(string path, string query, string requestHost)
         {
             LastPath = path;
             LastRequestHost = requestHost;
             return Result<string>.Success(_url);
-        }
-
-        public IResult<string> ProjectToClient(string targetUrl, string requestHost)
-        {
-            LastProjectTarget = targetUrl;
-            LastRequestHost = requestHost;
-            if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var uri)
-                || uri.Scheme is not ("http" or "https"))
-            {
-                return Result<string>.Failure("Target URL must be absolute http(s)");
-            }
-
-            var host = requestHost.Split(':')[0].Trim().ToLowerInvariant();
-            return Result<string>.Success($"https://{host}{uri.PathAndQuery}");
         }
     }
 
@@ -1382,9 +1295,6 @@ public sealed class LiveSessionTests
     {
         public IResult<string> Resolve(string path, string query, string requestHost)
             => Result<string>.Failure("Navigation path must be absolute and contain no query");
-
-        public IResult<string> ProjectToClient(string targetUrl, string requestHost)
-            => Result<string>.Failure("Target URL must be absolute http(s)");
     }
 
     private sealed class NoOpCollector : ISessionCollector
@@ -1504,6 +1414,9 @@ public sealed class LiveSessionTests
         public Channel<PageProjectionIntent> PageProjectionIntentReceived { get; }
         public Channel<ConsoleInput> ConsoleInputReceived { get; }
         public string? LastNavigatedUrl { get; private set; }
+        public string? LastNavigatedClientPath { get; private set; }
+        public string? LastNavigatedClientQuery { get; private set; }
+        public bool NavigateClientFails { get; set; }
         public Func<CancellationToken, Task<PermissionDecision>>? CameraHandler { get; private set; }
         public Func<CancellationToken, Task<PermissionDecision>>? MicrophoneHandler { get; private set; }
 
@@ -1515,12 +1428,31 @@ public sealed class LiveSessionTests
 
         public Task<IResult<BrowserReadyInfo>> LaunchBrowserAsync(
             SessionConfig? configuration,
+            string requestHost,
             CancellationToken ct = default)
             => Task.FromResult<IResult<BrowserReadyInfo>>(Result<BrowserReadyInfo>.Success(new BrowserReadyInfo
             {
                 Width = 800,
                 Height = 600,
             }));
+
+        public Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
+        {
+            LastNavigatedUrl = url;
+            return Task.FromResult<IResult>(Result.Success());
+        }
+
+        public Task<IResult> NavigateClientAsync(string path, string query, CancellationToken ct = default)
+        {
+            if (NavigateClientFails)
+            {
+                return Task.FromResult<IResult>(Result.Failure("Navigation path must be absolute and contain no query"));
+            }
+
+            LastNavigatedClientPath = path;
+            LastNavigatedClientQuery = query;
+            return Task.FromResult<IResult>(Result.Success());
+        }
 
         public Task<IResult> StopBrowserAsync(CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
@@ -1530,12 +1462,6 @@ public sealed class LiveSessionTests
 
         public Task<IResult<CookieNormalizeStats>> RestoreProfileStateAsync(ProfileState state, CancellationToken ct = default)
             => Task.FromResult<IResult<CookieNormalizeStats>>(Result<CookieNormalizeStats>.Success(CookieNormalizeStats.Empty));
-
-        public Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
-        {
-            LastNavigatedUrl = url;
-            return Task.FromResult<IResult>(Result.Success());
-        }
 
         public Task<IResult> RefreshAsync(CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
@@ -1610,23 +1536,23 @@ public sealed class LiveSessionTests
         public IResult<Task> ConsumePageProjectionIntentAsync(ChannelReader<PageProjectionIntent> channelReader)
             => Result<Task>.Success(DrainAsync(channelReader, PageProjectionIntentReceived.Writer));
 
-        public DomAsset? DomAsset { get; set; }
+        public VirtualResourceResponse? VirtualAsset { get; set; }
 
-        public int GetDomAssetCallCount { get; private set; }
+        public int GetVirtualAssetCallCount { get; private set; }
         public int RequestResyncCallCount { get; private set; }
         public uint LastResyncContextId { get; private set; }
         public string? LastResyncReason { get; private set; }
 
-        public Task<IResult<DomAsset>> GetDomAssetAsync(
+        public Task<IResult<VirtualResourceResponse>> GetVirtualAssetAsync(
             string key,
             CancellationToken ct = default,
             string? kind = null,
             string? rangeHeader = null)
         {
-            GetDomAssetCallCount++;
-            return DomAsset is null
-                ? Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"))
-                : Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Success(DomAsset));
+            GetVirtualAssetCallCount++;
+            return VirtualAsset is null
+                ? Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Failure("not implemented"))
+                : Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Success(VirtualAsset));
         }
 
         public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
@@ -1696,6 +1622,16 @@ public sealed class LiveSessionTests
             int? targetCount = null,
             int? frameChannelCount = null,
             long? frameEpoch = null) { }
+
+        public int GetPageProjectionFrameConnectionQueueDepth() => 0;
+
+        public ulong GetPageProjectionFrameConnectionQueuedBytes() => 0;
+
+        public ulong GetPageProjectionFrameOldestQueuedMs() => 0;
+
+        public void NotifyPageProjectionFrameConnectionDequeued() { }
+
+        public void TrySendConsumerPressure(ConsumerPressureSnapshot snapshot) { }
 
         private static async Task DrainAsync<T>(ChannelReader<T> source, ChannelWriter<T> dest)
         {

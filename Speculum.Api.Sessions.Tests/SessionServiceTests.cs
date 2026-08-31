@@ -21,6 +21,7 @@ using Speculum.Api.Sessions.Requests;
 using Speculum.Api.Sessions.Responses;
 using Speculum.Api.Sessions.Services;
 using Speculum.Api.Sessions.Services.Contracts;
+using Speculum.Api.Sessions.Services.Streaming;
 using Speculum.Api.Shared.Services;
 using ScreenResolution = Speculum.Api.Sessions.Models.ScreenResolution;
 
@@ -40,7 +41,7 @@ public sealed class SessionServiceTests
         var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
-        var live = CreateLiveSessionService(urls, collector);
+        var live = CreateLiveSessionService(collector);
 
         var service = new SessionService(
             profiles,
@@ -91,9 +92,7 @@ public sealed class SessionServiceTests
             new Configurations.Models.Journal.JournalEventsConfiguration(),
             ["Navigation", "Sessions", "ResourceManagement"]);
 
-        var live = CreateLiveSessionService(
-            new FixedUrlResolver("https://example.test/"),
-            new RecordingCollector());
+        var live = CreateLiveSessionService(new RecordingCollector());
         var service = new SessionService(
             profiles,
             new InMemorySessionRepository(),
@@ -126,9 +125,7 @@ public sealed class SessionServiceTests
         var profiles = new InMemoryProfileRepository();
         await profiles.SaveAsync(Profile.Create(profileId));
 
-        var live = CreateLiveSessionService(
-            new FixedUrlResolver("https://example.test/"),
-            new RecordingCollector());
+        var live = CreateLiveSessionService(new RecordingCollector());
         var service = new SessionService(
             profiles,
             new InMemorySessionRepository(),
@@ -173,7 +170,7 @@ public sealed class SessionServiceTests
         var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
-        var live = CreateLiveSessionService(urls, collector);
+        var live = CreateLiveSessionService(collector);
         var bindings = new SessionBindingRegistry(live);
         var service = new SessionService(
             profiles,
@@ -221,7 +218,7 @@ public sealed class SessionServiceTests
         var collector = new RecordingCollector();
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
-        var live = CreateLiveSessionService(urls, collector);
+        var live = CreateLiveSessionService(collector);
 
         var service = new SessionService(
             profiles,
@@ -310,7 +307,7 @@ public sealed class SessionServiceTests
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
         var collector = new RecordingCollector();
-        var live = CreateLiveSessionService(urls, collector);
+        var live = CreateLiveSessionService(collector);
 
         var service = new SessionService(
             new InMemoryProfileRepository(),
@@ -343,7 +340,7 @@ public sealed class SessionServiceTests
         var browser = new FakeBrowserClient();
         var urls = new FixedUrlResolver("https://example.test/");
         var collector = new RecordingCollector();
-        var live = CreateLiveSessionService(urls, collector);
+        var live = CreateLiveSessionService(collector);
         var service = new SessionService(
             profiles,
             new InMemorySessionRepository(),
@@ -372,7 +369,6 @@ public sealed class SessionServiceTests
     }
 
     private static LiveSessionService CreateLiveSessionService(
-        IUrlResolver urls,
         ISessionCollector collector)
     {
         var config = SessionsTestHarness.Configuration(new SessionsConfiguration
@@ -387,12 +383,10 @@ public sealed class SessionServiceTests
         return new LiveSessionService(
             collector,
             new NoOpFaultScheduler(),
-            urls,
             config,
             new NoOpSessionEventsFactory(),
             new NoOpSessionTelemetryEventsFactory(),
             new Speculum.Api.Journal.Services.JournalCatalog(),
-            new Speculum.Api.Sessions.Mirror.PageProjection.SharedAssetCacheL2(config),
             NullLoggerFactory.Instance);
     }
 
@@ -433,12 +427,6 @@ public sealed class SessionServiceTests
         public string? LastRequestHost { get; private set; }
 
         public IResult<string> Resolve(string path, string query, string requestHost)
-        {
-            LastRequestHost = requestHost;
-            return Result<string>.Success(url);
-        }
-
-        public IResult<string> ProjectToClient(string targetUrl, string requestHost)
         {
             LastRequestHost = requestHost;
             return Result<string>.Success(url);
@@ -753,6 +741,7 @@ public sealed class SessionServiceTests
 
         public Task<IResult<BrowserReadyInfo>> LaunchBrowserAsync(
             SessionConfig? configuration,
+            string requestHost,
             CancellationToken ct = default)
         {
             LastLaunchConfiguration = configuration;
@@ -764,6 +753,9 @@ public sealed class SessionServiceTests
         }
 
         public Task<IResult> NavigateAsync(string url, CancellationToken ct = default)
+            => Task.FromResult<IResult>(Result.Success());
+
+        public Task<IResult> NavigateClientAsync(string path, string query, CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 
         public Task<IResult> RefreshAsync(CancellationToken ct = default)
@@ -826,12 +818,12 @@ public sealed class SessionServiceTests
         public IResult<Task> ConsumePageProjectionIntentAsync(ChannelReader<PageProjectionIntent> channelReader)
             => Result<Task>.Success(Task.CompletedTask);
 
-        public Task<IResult<DomAsset>> GetDomAssetAsync(
+        public Task<IResult<VirtualResourceResponse>> GetVirtualAssetAsync(
             string key,
             CancellationToken ct = default,
             string? kind = null,
             string? rangeHeader = null)
-            => Task.FromResult<IResult<DomAsset>>(Result<DomAsset>.Failure("not implemented"));
+            => Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Failure("not implemented"));
 
         public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
@@ -895,5 +887,15 @@ public sealed class SessionServiceTests
             int? targetCount = null,
             int? frameChannelCount = null,
             long? frameEpoch = null) { }
+
+        public int GetPageProjectionFrameConnectionQueueDepth() => 0;
+
+        public ulong GetPageProjectionFrameConnectionQueuedBytes() => 0;
+
+        public ulong GetPageProjectionFrameOldestQueuedMs() => 0;
+
+        public void NotifyPageProjectionFrameConnectionDequeued() { }
+
+        public void TrySendConsumerPressure(ConsumerPressureSnapshot snapshot) { }
     }
 }

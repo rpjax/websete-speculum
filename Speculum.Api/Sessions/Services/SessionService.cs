@@ -205,7 +205,10 @@ public sealed class SessionService : ISessionService
                 startEvents.ConnectionStarted();
                 var connection = connectionResult.Value;
 
-                var launchResult = await connection.LaunchBrowserAsync(sessionConfiguration.Value, startCt)
+                var launchResult = await connection.LaunchBrowserAsync(
+                        sessionConfiguration.Value,
+                        request.RequestHost,
+                        startCt)
                     .ConfigureAwait(false);
                 if (launchResult.IsFailure)
                 {

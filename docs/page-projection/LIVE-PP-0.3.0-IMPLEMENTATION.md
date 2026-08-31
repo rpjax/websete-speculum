@@ -195,7 +195,7 @@ control socket.
 | Owns the shared asset tier | `SharedAssetCacheL2.cs` · `LiveSession.cs:35` | M5 |
 | Parses motor telemetry payloads | `PageProjectionParityTelemetryJournal.cs` | M6 |
 | Owns URL resolution / mirroring | `UrlResolver.cs` (639) | M1 |
-| Per-session `Control` + one shared channel | `GrpcSessionConnection.cs:167,2127` · `GrpcBrowserClient.cs:40` | M8 |
+| ~~Per-session `Control` + one shared channel~~ | **LANDED M8** — `GrpcBrowserClient._hostControl` + `PumpHostControlAsync` (`GrpcBrowserClient.cs:36-37,57,333`); per-session `GrpcChannel` at `StartConnectionAsync` (`:249-265`); proto `HostControl` `proto/browser_session.proto:814`; density 100 sessions `hostControlSocket.unit.ts:13,91` wired `unit.ts:4364` | M8 `[x]` |
 
 **Already correct — do not "fix":** opaque `PageProjectionFrame` in the proto (`proto:379`);
 Launch snapshot as the injection point; `SessionConfigAssembler` / `LaunchScriptResolver`;
@@ -207,7 +207,7 @@ separate HTTP/2 streams per RPC (no head-of-line problem).
 |-------|-------|------------|----------|
 | 1 | **M0** spec audit | — | `spec/spec-audit.md`: every spec file `CURRENT`/`STALE`/`UNKNOWN`, each `STALE` sentence paired with the `file:line` that contradicts it. No rewriting yet |
 | 2 | **M1** `IUrlResolver` → sidecar | M0 | `NavigationPolicy` injected at Launch; .NET keeps only the pre-session entry resolve; written inventory of every outbound URL surface |
-| 3 | **M8** host control vs session socket | M0 | Permanent host control stream; one gRPC socket per session; density test at K3's N |
+| 3 | **M8** host control vs session socket | M0 | `[x]` Permanent host control stream (`GrpcBrowserClient._hostControl`/`PumpHostControlAsync`); per-session `GrpcChannel` (`StartConnectionAsync`); proto `HostControl` (`proto:814`); density test 100 sessions (`hostControlSocket.unit.ts:13,91`, `unit.ts:4364`) |
 | 4 | **M2** delete .NET coalescing | M8 | Admission channels and their tests deleted; sidecar coverage confirmed first |
 | 5 | **M3** delete .NET frame drop + `ConsumerPressure` | M8, M2 | .NET reports, motor reacts; slow consumer never yields a silent gap |
 | 6 | **M4** delete C# DOM types | — | .NET relays opaque envelopes; grep clean |

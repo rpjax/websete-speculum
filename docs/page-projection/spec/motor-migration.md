@@ -65,12 +65,12 @@ lifetime of the session.
 **The current implementation is close to this. Only the contracts need adjusting.** The
 delta below is recorded as work, not as an open question.
 
-### Delta between this design and the current code (verified 2026-08-31)
+### Delta between this design and the current code (verified 2026-08-31; M8 landed 2026-08-31)
 
 | Target | Current | Phase |
 |---|---|---|
-| Control socket is host level and permanent | `Control` is opened **per session**, with session metadata — `BrowserClients/Grpc/GrpcSessionConnection.cs:167`, reopened at `:2127`. Host operations are separate unary RPCs on the shared channel (`GrpcBrowserClient.cs`, e.g. host resources ≈`:200`) | M8 |
-| One gRPC session socket per session, carrying everything | One shared `GrpcChannel` for the whole process (`GrpcBrowserClient.cs:40`); each session opens ~11 streams on it — `PushDomInput`, `Control`, and nine `Watch*` pumps (`GrpcSessionConnection.cs:150-180`) | M8 |
+| Control socket is host level and permanent | **LANDED.** `GrpcBrowserClient._hostControl` opened at construction, pumped by `PumpHostControlAsync` (`BrowserClients/Grpc/GrpcBrowserClient.cs:36-37,57,333`); proto `HostControl` at `proto/browser_session.proto:814`; sidecar rejects `x-session-id` on that stream (`sidecar/grpc/BrowserSessionService.ts:777`) | M8 ✓ |
+| One gRPC session socket per session, carrying everything | **LANDED.** `StartConnectionAsync` creates a dedicated `GrpcChannel` per session (`GrpcBrowserClient.cs:249-265`); `GrpcSessionConnection` holds `_sessionChannel` (`GrpcSessionConnection.cs:36,108`); density test at 100 sessions in `sidecar/grpc/hostControlSocket.unit.ts:13,91` wired at `sidecar/unit.ts:4364` | M8 ✓ |
 | .NET implements nothing on the stream path | It coalesces intents and drops frames — see §3 evidence | M2, M3 |
 
 ### Consumer / attach layer (verified — this design is correct and stays)
@@ -514,7 +514,12 @@ session socket belongs to one session and carries everything about it.
   owes — write it once, use it for both.
 
 **DoD:** control stream is opened once per process and never per session; every session owns
-its socket; the density test passes at the target N.
+its socket; the density test passes at the target N. **Status: LANDED 2026-08-31** — evidence:
+`GrpcBrowserClient._hostControl`/`PumpHostControlAsync` (`GrpcBrowserClient.cs:36-37,57,333`);
+per-session channel (`StartConnectionAsync` `:249-265`, `GrpcSessionConnection._sessionChannel`
+`:36,108`); proto `HostControl` (`proto/browser_session.proto:814`); density
+`M8_DENSITY_SESSION_COUNT=100` (`sidecar/grpc/hostControlSocket.unit.ts:13,91`);
+runner `sidecar/unit.ts:4364`.
 
 **Traps:**
 - Do not keep a per-session `Control` "for compatibility". Two control paths is the ambiguity

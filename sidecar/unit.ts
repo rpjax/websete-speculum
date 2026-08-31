@@ -4493,6 +4493,8 @@ async function main(): Promise<void> {
   runViewportChainUnitTests();
   await runPageProjectionInputClickUnitTests();
   console.log('[unit] all passed');
+  // Patchright/Chrome leaves open handles on CI; exit explicitly after a green suite.
+  process.exit(0);
 }
 
 function testSrcsetParseCloudinary(): void {

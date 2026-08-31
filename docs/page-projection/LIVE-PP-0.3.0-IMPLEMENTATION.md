@@ -81,14 +81,12 @@ Goal: an operator turns PP on in the full stack and CI proves **effect**, never 
 
 #### B2b — Run the PP category in CI
 
-The code exists; it has never been run against the stack.
-
-- [ ] Bring up the SessionsTest compose and run `Category=PageProjection`
-- [ ] Attach the run output to the PR — **PR:** https://github.com/rpjax/websete-speculum/pull/9 (pushed 2026-08-31; CI proof pending)
+- [x] Bring up the SessionsTest compose and run Category=PageProjection
+- [x] Attach the run output to the PR — **PR:** https://github.com/rpjax/websete-speculum/pull/9 — **CI:** https://github.com/rpjax/websete-speculum/actions/runs/33419828193 (Category=PageProjection step: **8/8 passed**, including PP1–PP4). Overall sessions-test job still red on VideoStreaming (Category=SessionsTest&Category!=PageProjection: 9 failed / 20) — out of B2b scope.
 
 **Done when:** PP1–PP4 pass in the compose CI run, and the run is linked. Compiling is not passing.
 
-**Refs:** `Speculum.Api.SessionsTest.Tests` · `.github/workflows/ci.yml` ·
+**Refs:** Speculum.Api.SessionsTest.Tests · .github/workflows/ci.yml ·
 [MATRIX.md](../../Speculum.Api.SessionsTest.Tests/MATRIX.md)
 
 ---
@@ -293,7 +291,7 @@ cannot be answered from the code → **stop and ask**.
 
 0.3.0 ships when **all** of these hold. Nothing else blocks it.
 
-- [ ] B2b: `Category=PageProjection` green in a real CI run
+- [x] B2b: Category=PageProjection green in a real CI run ([run 33419828193](https://github.com/rpjax/websete-speculum/actions/runs/33419828193))
 - [ ] B4: hard-nav dossier with zero `data_plane_not_established` after the nav
 - [ ] B5.1–B5.4 green, each asserting state or event
 - [ ] B5b: PP5 LS/IDB asserted, not skipped

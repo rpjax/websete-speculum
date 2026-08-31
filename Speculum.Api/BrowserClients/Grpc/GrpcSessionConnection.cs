@@ -2,6 +2,7 @@ using Speculum.Api.Sessions.Services.Streaming;
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Grpc.Core;
+using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
 using Speculum.Api.Configurations.Models.Sessions;
 using Speculum.Api.Configurations.Models.Sidecar;
@@ -23,14 +24,16 @@ using ProtoSessionId = Speculum.Api.Sidecar.V1.SessionId;
 namespace Speculum.Api.BrowserClients.Grpc;
 
 /// <summary>
-/// gRPC-backed <see cref="ISessionConnection"/>. One WatchVideo / WatchConsole / Control /
-/// PushInput writer per connection; status is on-demand GetStatus; informative signals on
-/// <see cref="GetNotificationReader"/>; permission hooks reply on Control.
+/// gRPC-backed <see cref="ISessionConnection"/> on a dedicated session <see cref="GrpcChannel"/>
+/// (M8). One WatchVideo / WatchConsole / Control / PushInput writer per connection; status is
+/// on-demand GetStatus; informative signals on <see cref="GetNotificationReader"/>; permission
+/// hooks reply on the session Control stream.
 /// Transient transport blips retry internally; <c>Crashed</c> is only from WatchCrash.
 /// </summary>
 public sealed class GrpcSessionConnection : ISessionConnection
 {
     private readonly BrowserSessionService.BrowserSessionServiceClient _client;
+    private readonly GrpcChannel _sessionChannel;
     private readonly IConfigurationService _configuration;
     private readonly IJournalCatalog _journalCatalog;
     private readonly ILogger _logger;
@@ -72,8 +75,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
     private AsyncDuplexStreamingCall<ControlToSidecar, ControlFromSidecar>? _control;
     private MirrorMode _mirrorMode = MirrorMode.VideoStreaming;
     private DomainEditingState? _editing;
-    private Func<CancellationToken, Task<PermissionDecision>>? _cameraPermissionHandler;
-    private Func<CancellationToken, Task<PermissionDecision>>? _microphonePermissionHandler;
+    private Func<CancellationToken, Task<PermissionDecision>> _cameraPermissionHandler =
+        static _ => Task.FromResult(PermissionDecision.Deny);
+    private Func<CancellationToken, Task<PermissionDecision>> _microphonePermissionHandler =
+        static _ => Task.FromResult(PermissionDecision.Deny);
     private long _frameSequence;
     private readonly Queue<long> _recentFrameTimestamps = new();
     private int _open = 1;
@@ -81,10 +86,14 @@ public sealed class GrpcSessionConnection : ISessionConnection
     /// <summary>Set once a Chromium <see cref="SessionNotificationKind.Crashed"/> is queued — blocks further DropOldest churn from evicting it.</summary>
     private int _crashQueued;
     private IPageProjectionFrameTelemetry? _diffTelemetry;
+    private readonly ConsumerPressureReporter _consumerPressureReporter = new();
+    private readonly SemaphoreSlim _controlWriteGate = new(1, 1);
+    private long _oldestConnectionFrameEnqueueMs;
 
     public GrpcSessionConnection(
         Guid sessionId,
         BrowserSessionService.BrowserSessionServiceClient client,
+        GrpcChannel sessionChannel,
         IConfigurationService configuration,
         IJournalCatalog journalCatalog,
         SidecarOptions options,
@@ -93,8 +102,10 @@ public sealed class GrpcSessionConnection : ISessionConnection
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(journalCatalog);
+        ArgumentNullException.ThrowIfNull(sessionChannel);
         SessionId = sessionId;
         _client = client;
+        _sessionChannel = sessionChannel;
         _configuration = configuration;
         _journalCatalog = journalCatalog;
         _logger = logger;
@@ -103,7 +114,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         _linkRetryBackoff = options.LinkRetryBackoff;
         _domDiffCapacity = GrpcSessionMappers.ClampFrameQueueCapacity(
             configuration.GetCurrent().Sessions.FrameQueueCapacity);
-        _domDiffs = SequencedDiffChannels.Create<DomainPageProjectionFrame>(_domDiffCapacity);
+        _domDiffs = PageProjectionFrameChannels.CreateConnectionQueue<DomainPageProjectionFrame>(_domDiffCapacity);
     }
 
     public Guid SessionId { get; }
@@ -163,8 +174,6 @@ public sealed class GrpcSessionConnection : ISessionConnection
             _pushDomInput = _client.PushDomInput(cancellationToken: token);
             _ = PumpDomAsync(token);
         }
-
-        _control = _client.Control(headers: CreateSessionMetadata(), cancellationToken: token);
 
         _ = PumpConsoleAsync(token);
         _ = PumpLocationAsync(token);
@@ -240,6 +249,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
             _notifications.Writer.TryComplete();
             _onClosed(SessionId);
             _lifetime.Dispose();
+            try { _sessionChannel.Dispose(); } catch { /* */ }
         }
 
         return Result.Success();
@@ -247,9 +257,16 @@ public sealed class GrpcSessionConnection : ISessionConnection
 
     public async Task<IResult<BrowserReadyInfo>> LaunchBrowserAsync(
         SessionConfig? configuration,
+        string requestHost,
         CancellationToken ct = default)
     {
-        var sessions = _configuration.GetCurrent().Sessions;
+        if (string.IsNullOrWhiteSpace(requestHost))
+        {
+            return Result<BrowserReadyInfo>.Failure("Request host is required");
+        }
+
+        var engine = _configuration.GetCurrent();
+        var sessions = engine.Sessions;
         _mirrorMode = sessions.MirrorMode;
         var policy = sessions.ViewportPolicy;
         var validated = GrpcRequestValidation.ValidateLaunch(configuration, policy);
@@ -272,6 +289,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                             height,
                             configuration!,
                             policy,
+                            requestHost,
+                            engine,
                             sessions.FrameQueueCapacity,
                             sessions.PageProjection),
                         cancellationToken: token).ResponseAsync;
@@ -284,6 +303,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         height,
                         configuration!,
                         policy,
+                        requestHost,
+                        engine,
                         sessions.ScreencastPolicy.MaxEncodeScale),
                     cancellationToken: token).ResponseAsync;
             });
@@ -344,6 +365,31 @@ public sealed class GrpcSessionConnection : ISessionConnection
             await WithLinkedAsync(ct, token =>
                 _client.NavigateAsync(
                     new NavigateRequest { SessionId = SessionId.ToString("D"), Url = url },
+                    cancellationToken: token).ResponseAsync);
+            return Result.Success();
+        });
+    }
+
+    public async Task<IResult> NavigateClientAsync(
+        string path,
+        string query,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(path) || path[0] != '/' || path.Contains('?'))
+        {
+            return Result.Failure("Navigation path must be absolute and contain no query");
+        }
+
+        return await CallAsync(async () =>
+        {
+            await WithLinkedAsync(ct, token =>
+                _client.NavigateAsync(
+                    new NavigateRequest
+                    {
+                        SessionId = SessionId.ToString("D"),
+                        ClientPath = path,
+                        ClientQuery = query ?? "",
+                    },
                     cancellationToken: token).ResponseAsync);
             return Result.Success();
         });
@@ -431,9 +477,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 probe.EvaluateExpression = request.EvaluateExpression;
             }
 
-            if (!string.IsNullOrEmpty(request.DomSelector))
+            if (!string.IsNullOrEmpty(request.ElementSelector))
             {
-                probe.DomSelector = request.DomSelector;
+                probe.DomSelector = request.ElementSelector;
             }
 
             var result = await WithLinkedAsync(ct, token =>
@@ -551,7 +597,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
         return Result<Task>.Success(PumpPageProjectionIntentAsync(channelReader, lifetime));
     }
 
-    public async Task<IResult<DomAsset>> GetDomAssetAsync(
+    public async Task<IResult<VirtualResourceResponse>> GetVirtualAssetAsync(
         string key,
         CancellationToken ct = default,
         string? kind = null,
@@ -559,7 +605,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
     {
         if (string.IsNullOrWhiteSpace(key))
         {
-            return Result<DomAsset>.Failure("Asset key is required");
+            return Result<VirtualResourceResponse>.Failure("Asset key is required");
         }
 
         return await CallValueAsync(async () =>
@@ -574,7 +620,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         RangeHeader = rangeHeader ?? "",
                     },
                     cancellationToken: token).ResponseAsync);
-            return Result<DomAsset>.Success(GrpcSessionMappers.ToDomAsset(response));
+            return Result<VirtualResourceResponse>.Success(GrpcSessionMappers.ToVirtualResourceResponse(response));
         });
     }
 
@@ -668,7 +714,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
             try
             {
                 await WriteInputWithRetryAsync(input, ct).ConfigureAwait(false);
-                // Product HF admission policy is unchanged; Journal/Applied always emit when catalog on.
+                // Journal/Applied always emit when catalog on (sidecar owns admission/coalescing).
                 TryPublishVideoStreamingInputApplied(
                     userInput.Type,
                     VideoStreamingInputAdmitPolicy.TryTouchPhase(userInput),
@@ -1076,30 +1122,20 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         kept: null,
                         lowestDroppedSequence: frame.Sequence,
                         highestDroppedSequence: frame.Sequence,
-                        plane: frame.Plane,
-                        operation: frame.Operation,
+                        plane: null,
+                        operation: null,
                         generation: frame.Generation,
                         reason: "ToPageProjectionFrame_null");
                     return;
                 }
 
                 TryPublishPageProjectionFrame(diff);
-                var (dropped, lowest, highest) = await SequencedDiffChannels
-                    .WriteDropAllOnOverflowDetailedAsync(
-                        _domDiffs,
-                        _domDiffCapacity,
-                        diff,
-                        token).ConfigureAwait(false);
-                if (dropped > 0)
+                if (_domDiffs.Reader.CanCount && _domDiffs.Reader.Count == 0)
                 {
-                    TryPublishPageProjectionFrameQueueDropped(
-                        "api_sequenced",
-                        dropped,
-                        _domDiffCapacity,
-                        diff,
-                        lowest,
-                        highest);
+                    _oldestConnectionFrameEnqueueMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 }
+
+                await _domDiffs.Writer.WriteAsync(diff, token).ConfigureAwait(false);
             },
             ct);
 
@@ -1428,10 +1464,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
             return;
         }
 
-        if (kind.StartsWith("parity_", StringComparison.Ordinal))
+        if (string.Equals(kind, "session_pool_acquired", StringComparison.Ordinal))
         {
-            var payload = ev.HasPayloadJson ? ev.PayloadJson : null;
-            if (string.IsNullOrWhiteSpace(payload))
+            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionSessionPoolAcquired))
             {
                 return;
             }
@@ -1439,9 +1474,27 @@ public sealed class GrpcSessionConnection : ISessionConnection
             TryPublishNotification(new SessionNotification
             {
                 Kind = SessionNotificationKind.PageProjectionLifecycle,
-                Phase = kind,
-                PayloadJson = payload,
-                DomGeneration = ev.ToGeneration != 0 ? ev.ToGeneration : null,
+                Phase = "session_pool_acquired",
+                DisplayWidth = ev.HasDisplayWidth ? ev.DisplayWidth : null,
+                DisplayHeight = ev.HasDisplayHeight ? ev.DisplayHeight : null,
+                PoolSize = ev.HasPoolSize ? ev.PoolSize : null,
+                PoolWaitMs = ev.HasWaitMs ? ev.WaitMs : null,
+            });
+            return;
+        }
+
+        if (string.Equals(kind, "session_pool_released", StringComparison.Ordinal))
+        {
+            if (!_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionSessionPoolReleased))
+            {
+                return;
+            }
+
+            TryPublishNotification(new SessionNotification
+            {
+                Kind = SessionNotificationKind.PageProjectionLifecycle,
+                Phase = "session_pool_released",
+                PoolHeldMs = ev.HasHeldMs ? ev.HeldMs : null,
             });
         }
     }
@@ -1577,14 +1630,105 @@ public sealed class GrpcSessionConnection : ISessionConnection
             frameEpoch: frameEpoch);
     }
 
+    public int GetPageProjectionFrameConnectionQueueDepth()
+    {
+        var reader = _domDiffs.Reader;
+        return reader.CanCount ? reader.Count : 0;
+    }
+
+    public ulong GetPageProjectionFrameConnectionQueuedBytes()
+    {
+        // Approximate: full byte accounting would require hooking every dequeue.
+        return 0;
+    }
+
+    public ulong GetPageProjectionFrameOldestQueuedMs()
+    {
+        var enqueueMs = Volatile.Read(ref _oldestConnectionFrameEnqueueMs);
+        if (enqueueMs <= 0)
+        {
+            return 0;
+        }
+
+        var age = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - enqueueMs;
+        return age > 0 ? (ulong)age : 0;
+    }
+
+    public void NotifyPageProjectionFrameConnectionDequeued()
+    {
+        if (_domDiffs.Reader.CanCount && _domDiffs.Reader.Count == 0)
+        {
+            Volatile.Write(ref _oldestConnectionFrameEnqueueMs, 0);
+        }
+    }
+
+    public void TrySendConsumerPressure(ConsumerPressureSnapshot snapshot)
+    {
+        if (!IsOpen)
+        {
+            return;
+        }
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (!_consumerPressureReporter.ShouldReport(snapshot, nowMs))
+        {
+            return;
+        }
+
+        _ = SendConsumerPressureAsync(snapshot);
+    }
+
+    private async Task SendConsumerPressureAsync(ConsumerPressureSnapshot snapshot)
+    {
+        try
+        {
+            await WriteControlAsync(
+                new ControlToSidecar
+                {
+                    ConsumerPressure = new ConsumerPressure
+                    {
+                        QueuedFrames = snapshot.QueuedFrames,
+                        QueuedBytes = snapshot.QueuedBytes,
+                        OldestQueuedMs = snapshot.OldestQueuedMs,
+                        Draining = snapshot.Draining,
+                    },
+                }).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "ConsumerPressure write failed for session {SessionId}", SessionId);
+        }
+    }
+
+    private async Task WriteControlAsync(ControlToSidecar message, CancellationToken ct = default)
+    {
+        AsyncDuplexStreamingCall<ControlToSidecar, ControlFromSidecar>? call;
+        lock (_linkGate)
+        {
+            call = _control;
+        }
+
+        if (call is null)
+        {
+            return;
+        }
+
+        await _controlWriteGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await call.RequestStream.WriteAsync(message, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _controlWriteGate.Release();
+        }
+    }
+
     /// <summary>
-    /// Stages that freeze Diff chronology for the Projected client — must surface
     /// <c>PageProjectionLifecycle phase=queue_dropped</c> so DomProjector can T8 resync.
     /// </summary>
     internal static bool IsClientVisibleQueueDroppedStage(string stage)
-        => stage is "api_fanout_backpressure"
-            or "api_sequenced"
-            or "api_wire_stall"
+        => stage is "api_wire_stall"
             or "api_fanout_pipe_closed";
 
     private void TryPublishPageProjectionFrameQueueDropped(
@@ -1664,54 +1808,16 @@ public sealed class GrpcSessionConnection : ISessionConnection
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(diff.Plane) || string.IsNullOrWhiteSpace(diff.Operation))
-        {
-            return;
-        }
+        var plane = string.IsNullOrWhiteSpace(diff.Plane) ? "binary" : diff.Plane.Trim();
+        var operation = string.IsNullOrWhiteSpace(diff.Operation) ? "frame" : diff.Operation.Trim();
 
         int? sheetCount = null;
         int? ruleCount = null;
         int? seededSheetCount = null;
-        if (diff.Install?.Sheets is { Count: > 0 } sheets)
-        {
-            sheetCount = sheets.Count;
-            var rules = 0;
-            var seeded = 0;
-            foreach (var sheet in sheets)
-            {
-                rules += sheet.Rules?.Count ?? 0;
-                if (sheet.Rules is { Count: > 0 }
-                    && sheet.Rules.Exists(r => r.Id.StartsWith("seed:", StringComparison.Ordinal)))
-                {
-                    seeded++;
-                }
-            }
-
-            ruleCount = rules;
-            seededSheetCount = seeded;
-        }
-        else if (diff.SheetList?.Added is { Count: > 0 } added)
-        {
-            sheetCount = added.Count;
-            var rules = 0;
-            var seeded = 0;
-            foreach (var entry in added)
-            {
-                rules += entry.Sheet?.Rules?.Count ?? 0;
-                if (entry.Sheet?.Rules is { Count: > 0 }
-                    && entry.Sheet.Rules.Exists(r => r.Id.StartsWith("seed:", StringComparison.Ordinal)))
-                {
-                    seeded++;
-                }
-            }
-
-            ruleCount = rules;
-            seededSheetCount = seeded;
-        }
 
         Volatile.Read(ref _diffTelemetry)?.FrameReceived(
-            diff.Plane.Trim(),
-            diff.Operation.Trim(),
+            plane,
+            operation,
             diff.Sequence,
             diff.Generation,
             diff.Timestamp,
@@ -2196,7 +2302,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         allow = false;
                     }
 
-                    await call.RequestStream.WriteAsync(
+                    await WriteControlAsync(
                         new ControlToSidecar
                         {
                             PermissionReply = new PermissionReply

@@ -24,10 +24,10 @@ internal sealed class SessionOutputFanOut
     private readonly List<Guid> _streamOrder = [];
     private readonly Dictionary<OutputStreamKind, Guid> _exclusiveByKind = new();
     private Guid? _attachedConsumerId;
-    private int _diffPumpStarted;
     private int _framePumpStarted;
     private int _consolePumpStarted;
     private int _notificationPumpStarted;
+    private Task? _pageProjectionFramePumpTask;
 
     public SessionOutputFanOut(
         ISessionConnection connection,
@@ -116,9 +116,8 @@ internal sealed class SessionOutputFanOut
         switch (kind)
         {
             case OutputStreamKind.PageProjectionFrames
-                when _mirrorMode == MirrorMode.PageProjection
-                     && Interlocked.Exchange(ref _diffPumpStarted, 1) == 0:
-                _ = PumpPageProjectionFramesAsync();
+                when _mirrorMode == MirrorMode.PageProjection:
+                EnsurePageProjectionFramePump();
                 break;
             case OutputStreamKind.Frame
                 when _mirrorMode == MirrorMode.VideoStreaming
@@ -144,28 +143,51 @@ internal sealed class SessionOutputFanOut
         }
     }
 
+    private void EnsurePageProjectionFramePump()
+    {
+        lock (_ownerGate)
+        {
+            var existing = _pageProjectionFramePumpTask;
+            if (existing is { IsCompleted: false })
+            {
+                return;
+            }
+
+            _pageProjectionFramePumpTask = PumpPageProjectionFramesAsync();
+        }
+    }
+
     private async Task PumpPageProjectionFramesAsync()
     {
         while (!_lifetime.IsCancellationRequested)
         {
             var cutForRecovery = false;
+            var completeTargets = true;
             try
             {
                 var opened = _connection.GetPageProjectionFrameReader();
                 if (opened.IsFailure)
                 {
-                    return;
+                    completeTargets = false;
+                    if (_lifetime.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    await Task.Delay(50, _lifetime).ConfigureAwait(false);
+                    continue;
                 }
 
                 await foreach (var item in opened.Value.ReadAllAsync(_lifetime).ConfigureAwait(false))
                 {
+                    _connection.NotifyPageProjectionFrameConnectionDequeued();
                     var targets = ResolveTargets(OutputStreamKind.PageProjectionFrames).ToList();
                     if (targets.Count == 0)
                     {
                         _connection.ReportPageProjectionFrameQueueDropped(
                             "api_fanout_no_target",
                             droppedCount: 1,
-                            capacity: SequencedDiffChannels.FanOutTargetCapacity,
+                            capacity: PageProjectionFrameChannels.FanOutTargetCapacity,
                             sequence: item.Sequence,
                             generation: item.Generation,
                             plane: item.Plane,
@@ -188,7 +210,7 @@ internal sealed class SessionOutputFanOut
                             _connection.ReportPageProjectionFrameQueueDropped(
                                 "api_fanout_pipe_closed",
                                 droppedCount: 1,
-                                capacity: SequencedDiffChannels.FanOutTargetCapacity,
+                                capacity: PageProjectionFrameChannels.FanOutTargetCapacity,
                                 sequence: item.Sequence,
                                 generation: item.Generation,
                                 plane: item.Plane,
@@ -210,6 +232,8 @@ internal sealed class SessionOutputFanOut
                     {
                         break;
                     }
+
+                    ReportConsumerPressure(draining: false);
                 }
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -226,9 +250,12 @@ internal sealed class SessionOutputFanOut
             }
             finally
             {
-                foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionFrames))
+                if (completeTargets)
                 {
-                    stream.PageProjectionFrames.Writer.TryComplete();
+                    foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionFrames))
+                    {
+                        stream.PageProjectionFrames.Writer.TryComplete();
+                    }
                 }
             }
 
@@ -241,7 +268,36 @@ internal sealed class SessionOutputFanOut
             {
                 stream.ReplacePageProjectionFrames();
             }
+
+            ReportConsumerPressure(draining: true);
         }
+    }
+
+    private void ReportConsumerPressure(bool draining)
+    {
+        var connectionDepth = _connection.GetPageProjectionFrameConnectionQueueDepth();
+        var fanOutDepth = 0;
+        foreach (var stream in StreamsOfKind(OutputStreamKind.PageProjectionFrames))
+        {
+            var reader = stream.PageProjectionFrames.Reader;
+            if (reader.CanCount)
+            {
+                fanOutDepth += reader.Count;
+            }
+        }
+
+        var queuedFrames = (uint)(connectionDepth + fanOutDepth);
+        if (queuedFrames == 0 && !draining)
+        {
+            return;
+        }
+
+        var oldestMs = _connection.GetPageProjectionFrameOldestQueuedMs();
+        _connection.TrySendConsumerPressure(new ConsumerPressureSnapshot(
+            queuedFrames,
+            _connection.GetPageProjectionFrameConnectionQueuedBytes(),
+            oldestMs,
+            draining));
     }
 
     private async Task WriteFanOutDiffAsync(
@@ -277,23 +333,7 @@ internal sealed class SessionOutputFanOut
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
-            _connection.ReportPageProjectionFrameQueueDropped(
-                "api_fanout_backpressure",
-                droppedCount: 1,
-                capacity: SequencedDiffChannels.FanOutTargetCapacity,
-                sequence: item.Sequence,
-                generation: item.Generation,
-                plane: item.Plane,
-                operation: item.Operation,
-                lowestDroppedSequence: item.Sequence,
-                highestDroppedSequence: item.Sequence,
-                reason: "fanout_write_budget_exceeded",
-                streamId: stream.StreamId,
-                consumerId: stream.ConsumerId,
-                kind: OutputStreamKindNames.ToTelemetry(stream.Kind),
-                targetCount: targetCount,
-                frameChannelCount: FrameChannelCountOrUnknown(stream),
-                frameEpoch: stream.FrameEpoch);
+            ReportConsumerPressure(draining: false);
             stream.PageProjectionFrames.Writer.TryComplete(
                 new InvalidOperationException("api_fanout_backpressure"));
             throw new InvalidOperationException("api_fanout_backpressure");

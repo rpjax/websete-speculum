@@ -78,8 +78,8 @@ internal sealed class OutputStreamRegistration
             consumerId,
             OutputStreamKind.PageProjectionFrames,
             frames: null,
-            SequencedDiffChannels.CreateForFanOutTarget<PageProjectionFrame>(
-                SequencedDiffChannels.FanOutTargetCapacity),
+            PageProjectionFrameChannels.CreateFanOutTarget<PageProjectionFrame>(
+                PageProjectionFrameChannels.FanOutTargetCapacity),
             console: null,
             notifications: null);
 
@@ -113,8 +113,8 @@ internal sealed class OutputStreamRegistration
             }
 
             _diffs.Writer.TryComplete();
-            _diffs = SequencedDiffChannels.CreateForFanOutTarget<PageProjectionFrame>(
-                SequencedDiffChannels.FanOutTargetCapacity);
+            _diffs = PageProjectionFrameChannels.CreateFanOutTarget<PageProjectionFrame>(
+                PageProjectionFrameChannels.FanOutTargetCapacity);
             _frameEpoch++;
             return _diffs.Reader;
         }

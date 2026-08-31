@@ -4,6 +4,8 @@ Coverage truth for `Category=SessionsTest` / `Category=PageProjection` in
 `Speculum.Api.SessionsTest.Tests`.
 Stack: `deploy/compose/docker-compose.sessions-test.yml` + explicit Telemetry event seed
 (`PUT /api/configurations/Telemetry` via `seed-sessions-test.sh` + fixture baseline).
+Compose includes `fixture.test` (good) and `evil-fixture.test` (`FIXTURE_ROLE=evil`) — PP4
+off-allowlist nav uses `/external-link` → `window.goEvil()`.
 
 **Product law:** `MirrorMode.PageProjection` is the product. `VideoStreaming` is **legacy**
 residual — C* rows force `mirrorMode=videoStreaming` via GET→patch→PUT before Start.
@@ -11,10 +13,10 @@ Do not treat green C* as PageProjection accept.
 
 **Readiness:** C (legacy Video input) and D (resize) rows below are **deep** Act→Assert —
 effect probes (fixture DOM / Chrome geometry) plus catalogued journal facts, not HTTP
-smoke. PP1–PP4 are product PageProjection effect asserts (frames / intent click / resync /
-Redirect). CI:
-- `Category=SessionsTest` (includes C*, D*, B1/H1/N1, and PP* which also carry SessionsTest)
-- `Category=PageProjection` (PP1–PP4 only) — product filter
+smoke. PP1–PP5 and B5.* are product PageProjection effect asserts (frames / intent click /
+resync / Redirect / profile restore / CPU probe). CI:
+- `Category=SessionsTest` (includes C*, D*, B1/H1/N1, and PP*/B5* which also carry SessionsTest)
+- `Category=PageProjection` (PP1–PP5, B5.*) — product filter
 
 Opt-in Telemetry event types (`Telemetry.Sessions.VideoStreamingInput.*`,
 `Telemetry.Sessions.Resize.*`, `Telemetry.Sessions.PageProjection.Frame.ResyncRequested`,
@@ -27,6 +29,11 @@ D6 asserts the **absence** of the two `Resize.*` facts, so the seed must enable 
 | **PP2** | deep | Intent resolve-click `#btn` → `#out[data-clicks]` 0→1 | `PP2_intent_click_increments_fixture_counter` | PageProjection |
 | **PP3** | deep | POST resync → `ResyncRequested` + resync-flagged frame + Virtual still ready | `PP3_resync_delivers_resync_frame_and_keeps_virtual_armed` | PageProjection |
 | **PP4** | deep | off-allowlist nav → `Sessions.MainFrameNavigationBlocked` + hub `Redirect` | `PP4_off_allowlist_nav_redirects_and_journals_blocked` | PageProjection |
+| **B5.1** | deep | same as PP4 (allowlist block + hub `Redirect`) | `PP4_off_allowlist_nav_redirects_and_journals_blocked` | PageProjection |
+| **B5.2** | deep | `/home` LS+IDB → stop export → same `ProfileId` → `ProfileStateRestored` + evaluate | `B5_2_profile_ls_idb_round_trip_after_stop_export` | PageProjection |
+| **B5.3** | deep | `/permissions` default deny; harness grant → camera+mic `granted` on Virtual evaluate | `B5_3_permission_gate_default_deny_registered_grant_allows` | PageProjection |
+| **B5.4** | deep | `Sessions.CpuProfiling=true` → probe `startCpuProfile` ok (not full profile capture) | `B5_4_sessions_cpu_profiling_flag_propagates_and_probes_registered` | PageProjection |
+| **PP5** | deep | stop export → `GET /api/profiles/{id}` LS+IDB counts ≥ 1 (no soft-skip) | `PP5_restore_profile_ls_idb_asserts_counts` | PageProjection |
 | C1 | deep | mouse click increments `#out[data-clicks]` + `Telemetry.Sessions.VideoStreamingInput.Applied` | `C1_mouse_click_increments_fixture_counter` | legacy VideoStreaming |
 | C2 | deep | keydown → `__SPECULUM_LAST_KEY__` | `C2_keydown_reaches_fixture` | legacy VideoStreaming |
 | C3 | deep | wheel → `__SPECULUM_WHEEL__` | `C3_wheel_sets_fixture_flag` | legacy VideoStreaming |
@@ -61,8 +68,7 @@ never soften it. The server cannot truthfully emit a "box did not change" fact (
 knows its own box), so absence-of-fact is the assert; `Telemetry.Sessions.Resize.Applied` /
 `.Rejected` must be enabled in the seed for D6 to mean anything.
 
-**PP5 restore** (LS/IDB) is out of this wave.
-
-Fixture: `tests/motor-fixture` (`/click-target`, `/touch-scroll`, `/nav/*`, `/external-link`).
+Fixture: `tests/motor-fixture` (`/click-target`, `/home`, `/permissions`, `/touch-scroll`, `/nav/*`, `/external-link`).
+Compose sets `Sessions__CpuProfiling=true` for B5.4.
 
 **Lab (sidecar, not SessionsTest CI):** `cssom-matrix-nested` — nested CSSOM + pixel diff (`npm run lab:cssom-matrix-nested`); `document-churn` — launch under doc replace + `document.install` telemetry (`npm run lab:document-churn`, `lab:document-churn-x10`). Coverage truth for lab folds: [seal-gaps.md](../docs/page-projection/spec/seal-gaps.md).

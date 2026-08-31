@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Threading.Channels;
 using MessagePack;
-using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
 using Speculum.Api.Sessions.Services.Contracts;
 using Speculum.Api.Sessions.Services.Streaming;
@@ -201,16 +200,14 @@ internal static class SessionDataStreamsHost
                 {
                     return;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // T5/D13: surface QueueDropped, then keep the frame pump alive for T8 reopen.
-                    live.ReportPageProjectionFrameQueueDropped(
-                        "api_wire_stall",
-                        droppedCount: 1,
-                        capacity: SequencedDiffChannels.FanOutTargetCapacity,
-                        reason: ex.GetType().Name,
-                        streamId: source.Id,
-                        consumerId: source.ConsumerId);
+                    live.TrySendConsumerPressure(new ConsumerPressureSnapshot(
+                        QueuedFrames: 1,
+                        QueuedBytes: 0,
+                        OldestQueuedMs: 0,
+                        Draining: false));
+                    return;
                 }
             }
         }

@@ -51,6 +51,9 @@ import {
 import type { DomAssetShareability } from './mirror/dom/DomAssetCache';
 import { EventBridge } from '../../host/EventBridge';
 import { VideoMirror } from './mirror/video/VideoMirror';
+import { applyNavigationPolicyAtLaunch } from '../navigation/applyNavigationPolicy';
+import type { UrlResolver } from '../navigation/urlResolver';
+import { projectOutboundUrl } from '../navigation/urlResolver';
 
 /**
  * Production BrowserSession: composes Patchright capabilities.
@@ -103,10 +106,11 @@ export class PatchrightBrowserSession implements BrowserSession {
    * cannot interleave. Settles even when the op rejects.
    */
   private browserOpTail: Promise<void> = Promise.resolve();
+  private urlResolver: UrlResolver | null = null;
 
   constructor(
     readonly sessionId: string,
-    private readonly events: BrowserSessionEvents,
+    private events: BrowserSessionEvents,
     private readonly displays: DisplayAllocator,
   ) {
     this.navigation = new Navigation(sessionId, events);
@@ -172,6 +176,10 @@ export class PatchrightBrowserSession implements BrowserSession {
       });
     }
     const { width, height } = validated;
+    const applied = applyNavigationPolicyAtLaunch(this.events, options);
+    this.events = applied.events;
+    this.urlResolver = applied.urlResolver;
+    this.navigation = new Navigation(this.sessionId, this.events);
     const maxW = options.viewportPolicy.maxWidth;
     const maxH = options.viewportPolicy.maxHeight;
     if (options.mirrorMode === 'pageProjection') {
@@ -215,7 +223,7 @@ export class PatchrightBrowserSession implements BrowserSession {
 
       if (pooled) {
         const waitMs = 0;
-        this.events.onPageProjectionParity?.('parity_session_pool_acquired', {
+        this.events.onSessionPoolAcquired?.({
           maxWidth: maxW,
           maxHeight: maxH,
           poolSize: options.browserPoolSize ?? 0,
@@ -224,7 +232,7 @@ export class PatchrightBrowserSession implements BrowserSession {
         const acquiredAt = Date.now();
         const priorRelease = pooled.release.bind(pooled);
         pooled.release = async () => {
-          this.events.onPageProjectionParity?.('parity_session_pool_released', {
+          this.events.onSessionPoolReleased?.({
             heldMs: Date.now() - acquiredAt,
           });
           await priorRelease();
@@ -458,10 +466,12 @@ export class PatchrightBrowserSession implements BrowserSession {
 
   async getStatus(): Promise<BrowserStatus> {
     const dims = this.displayDimsOrZero();
+    const rawUrl = this.chrome ? safeUrl(this.chrome.page) : this.url;
+    const url = projectOutboundUrl(this.urlResolver, rawUrl) ?? rawUrl;
     return {
       isOpen: this.open && !this.disposed,
       tabCount: this.chrome?.context.pages().length ?? 0,
-      url: this.chrome ? safeUrl(this.chrome.page) : this.url,
+      url,
       resizing: this.viewport?.isResizing ?? false,
       width: this.viewport?.width ?? 0,
       height: this.viewport?.height ?? 0,
@@ -548,6 +558,26 @@ export class PatchrightBrowserSession implements BrowserSession {
         }
       }
     });
+  }
+
+  async navigateClient(path: string, query: string): Promise<void> {
+    if (!this.urlResolver) {
+      throw Object.assign(new Error('Navigation policy is not configured'), {
+        code: 'FAILED_PRECONDITION',
+        errorCode: 'url_resolve_failed',
+        phase: 'Resolve',
+      });
+    }
+    const resolved = this.urlResolver.resolve(path, query ?? '');
+    if (!resolved.ok) {
+      throw Object.assign(new Error(resolved.errors.join('; ')), {
+        code: 'INVALID_ARGUMENT',
+        errorCode: 'url_resolve_failed',
+        phase: 'Resolve',
+        message: resolved.errors.join('; '),
+      });
+    }
+    await this.navigate(resolved.value);
   }
 
   async refresh(): Promise<void> {

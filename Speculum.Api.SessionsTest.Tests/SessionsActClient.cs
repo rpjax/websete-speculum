@@ -105,8 +105,9 @@ public sealed class SessionsActClient : IAsyncDisposable
         int width = 1280,
         int height = 720,
         DeviceProfile? device = null,
+        Guid? profileId = null,
         CancellationToken ct = default)
-        => StartSessionAsync(path, query: "", width, height, device, ct);
+        => StartSessionAsync(path, query: "", width, height, device, profileId, waitForReady: true, ct);
 
     /// <summary>
     /// Start a live session at arbitrary path/query (use <c>_w7s_nso</c> for external hosts).
@@ -117,21 +118,19 @@ public sealed class SessionsActClient : IAsyncDisposable
         int width = 1280,
         int height = 720,
         DeviceProfile? device = null,
+        Guid? profileId = null,
+        bool waitForReady = true,
         CancellationToken ct = default)
     {
         EnsureConnected();
         var hub = _connection!;
-
-        var ensured = await hub.InvokeAsync<EnsureProfileHubResponse>(
-            "EnsureProfileAsync",
-            new EnsureProfileHubRequest { ProfileId = null },
-            ct);
+        var resolvedProfileId = profileId ?? await EnsureProfileAsync(ct: ct);
 
         var started = await hub.InvokeAsync<StartSessionHubResponse>(
             "StartSessionAsync",
             new StartSessionHubRequest
             {
-                ProfileId = ensured.ProfileId,
+                ProfileId = resolvedProfileId,
                 Path = path,
                 Query = query,
                 ViewportWidth = width,
@@ -143,14 +142,153 @@ public sealed class SessionsActClient : IAsyncDisposable
         _sessionId = started.SessionId;
         _token = started.Token;
 
-        // Effect wait: page usable (navigation done). Prefer evaluate over journal race.
-        await WaitEvaluateContainsAsync(
-            "document.readyState",
-            "complete",
-            TimeSpan.FromSeconds(45),
-            ct);
+        if (waitForReady)
+        {
+            // Effect wait: page usable (navigation done). Prefer evaluate over journal race.
+            await WaitEvaluateContainsAsync(
+                "document.readyState",
+                "complete",
+                TimeSpan.FromSeconds(45),
+                ct);
+        }
+
         return started;
     }
+
+    /// <summary>
+    /// Registers Allow handlers on SessionHooks before initial navigation completes.
+    /// </summary>
+    public async Task<JsonElement> RegisterPermissionGrantAsync(
+        bool camera = true,
+        bool microphone = true,
+        CancellationToken ct = default)
+    {
+        EnsureSession();
+        using var response = await _http.PostAsJsonAsync(
+            $"{_host.ApiBase}/api/sessions/{_sessionId}/permissions/register",
+            new
+            {
+                token = _token,
+                camera,
+                microphone,
+            },
+            ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"permission register failed ({(int)response.StatusCode}): {json}");
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+        {
+            throw new InvalidOperationException($"permission register not ok: {json}");
+        }
+
+        return root.Clone();
+    }
+
+    public async Task<Guid> EnsureProfileAsync(
+        Guid? profileId = null,
+        CancellationToken ct = default)
+    {
+        EnsureConnected();
+        var ensured = await _connection!.InvokeAsync<EnsureProfileHubResponse>(
+            "EnsureProfileAsync",
+            new EnsureProfileHubRequest { ProfileId = profileId },
+            ct);
+        return ensured.ProfileId;
+    }
+
+    public async Task StopSessionAsync(CancellationToken ct = default)
+    {
+        EnsureConnected();
+        if (_sessionId == Guid.Empty || string.IsNullOrEmpty(_token))
+        {
+            return;
+        }
+
+        await _connection!.InvokeAsync(
+            "StopSessionAsync",
+            new StopSessionHubRequest
+            {
+                SessionId = _sessionId,
+                Token = _token,
+            },
+            ct);
+        _sessionId = Guid.Empty;
+        _token = string.Empty;
+    }
+
+    public async Task<ProfileSummaryWire> GetProfileAsync(
+        Guid profileId,
+        CancellationToken ct = default)
+    {
+        using var response = await _http.GetAsync(
+            $"{_host.ApiBase}/api/profiles/{profileId:D}",
+            ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"GET profile failed ({(int)response.StatusCode}): {json}");
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        return new ProfileSummaryWire(
+            ProfileId: root.GetProperty("profileId").GetGuid(),
+            CookieCount: root.GetProperty("cookieCount").GetInt32(),
+            LocalStorageCount: root.GetProperty("localStorageCount").GetInt32(),
+            IdbRecordCount: root.GetProperty("idbRecordCount").GetInt32(),
+            HistoryCount: root.GetProperty("historyCount").GetInt32());
+    }
+
+    public async Task<JsonElement> ProbeAsync(
+        IReadOnlyList<string> ops,
+        string? evaluateExpression = null,
+        string? domSelector = null,
+        CancellationToken ct = default)
+    {
+        EnsureSession();
+        using var response = await _http.PostAsJsonAsync(
+            $"{_host.ApiBase}/api/sessions/{_sessionId}/probe",
+            new
+            {
+                token = _token,
+                ops,
+                evaluateExpression,
+                domSelector,
+            },
+            ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"probe failed ({(int)response.StatusCode}): {json}");
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+        {
+            throw new InvalidOperationException($"probe not ok: {json}");
+        }
+
+        return root.GetProperty("data").Clone();
+    }
+
+    public async Task WaitFixtureHomeStorageSeededAsync(CancellationToken ct = default)
+    {
+        await WaitEvaluateContainsAsync("localStorage.getItem('sf_ls')", "home-ls", ct: ct);
+        await WaitEvaluateContainsAsync(FixtureIdbReadExpression, "home-idb", ct: ct);
+    }
+
+    /// <summary>motor-fixture <c>/home</c> IDB oracle (<c>sf_idb</c> store key <c>v</c>).</summary>
+    public const string FixtureIdbReadExpression =
+        "(async()=>{const db=await new Promise((res,rej)=>{const r=indexedDB.open('sf_idb',1);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});return await new Promise((res,rej)=>{const tx=db.transaction('kv','readonly');const g=tx.objectStore('kv').get('v');g.onsuccess=()=>res(g.result);g.onerror=()=>rej(g.error);});})()";
 
     public async Task SendClickAsync(double x, double y, CancellationToken ct = default)
     {
@@ -560,13 +698,7 @@ public sealed class SessionsActClient : IAsyncDisposable
             {
                 if (_sessionId != Guid.Empty && !string.IsNullOrEmpty(_token))
                 {
-                    await _connection.InvokeAsync(
-                        "StopSessionAsync",
-                        new StopSessionHubRequest
-                        {
-                            SessionId = _sessionId,
-                            Token = _token,
-                        });
+                    await StopSessionAsync();
                 }
             }
             catch
@@ -605,6 +737,13 @@ public sealed class SessionsActClient : IAsyncDisposable
         uint Flags,
         bool Resync,
         int BodyLen);
+
+    public readonly record struct ProfileSummaryWire(
+        Guid ProfileId,
+        int CookieCount,
+        int LocalStorageCount,
+        int IdbRecordCount,
+        int HistoryCount);
 
     [MessagePackObject]
     public sealed class JournalFactWire

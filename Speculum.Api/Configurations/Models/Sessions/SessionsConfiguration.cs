@@ -29,14 +29,14 @@ public class SessionsConfiguration
     public bool CpuProfiling { get; init; }
 
     /// <summary>
-    /// Bounded PageProjection Diff queue depth (sidecar EventBridge Dom + API
-    /// sequenced channels). Overflow still DropAll → client sequence_gap (T5/D13).
-    /// Default matches <c>SequencedDiffChannels.DefaultCapacity</c>.
+    /// Bounded PageProjection frame transport queue (sidecar EventBridge Dom + API
+    /// connection Wait channel). M3: .NET never drops — overflow reports ConsumerPressure.
+    /// Default matches <c>PageProjectionFrameChannels.DefaultConnectionCapacity</c>.
     /// </summary>
     /// <remarks>
     /// Obsolete as a load control (<c>docs/page-projection/spec/engine-redesign.md</c> §5.16):
-    /// backpressure is now the frame-rate ladder in <see cref="PageProjection"/>, which
-    /// never drops a frame. This property is kept only to size the transport queue itself.
+    /// backpressure is reported to the motor via Control <c>consumer_pressure</c>.
+    /// This property sizes the API connection Wait queue only.
     /// </remarks>
     public int FrameQueueCapacity { get; init; } = 8192;
 

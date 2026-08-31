@@ -69,6 +69,11 @@ import { runProjectedK5UnitTests } from './browser/mirror/projection/projected/p
 import { runProjectedNativeGuardUnitTests } from './browser/mirror/projection/input/projectedNativeGuard.unit';
 import { runCdpConsoleRelayUnitTests } from './browser/patchright/cdpConsoleRelay.unit';
 import { runMainFrameDomainGuardUnitTests } from './browser/patchright/Navigation.domainGuard.unit';
+import { runUrlResolverUnitTests } from './browser/navigation/urlResolver.unit';
+import { runWrapSessionEventsUnitTests } from './browser/navigation/wrapSessionEvents.unit';
+import { runHostControlSocketUnitTests } from './grpc/hostControlSocket.unit';
+import { runSharedAssetCacheL2UnitTests } from './host/sharedAssetCacheL2.unit';
+import { runSharedAssetK2UnitTests } from './host/sharedAssetK2.unit';
 import { runPermissionGateUnitTests } from './browser/patchright/PermissionGate.unit';
 import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
 import { runSparseCdpInputAdapterUnitTests } from './browser/input/adapters/sparseCdpInputAdapter.unit';
@@ -1243,6 +1248,41 @@ async function testEventBridgeQueueDroppedLifecycle(): Promise<void> {
   assert.strictEqual(bridge.dom.pendingCount, 1);
   bridge.close();
   console.log('[unit] event_bridge_queue_dropped_lifecycle ok');
+}
+
+function testConsumerPressurePausesDomBackpressure(): void {
+  const bridge = new EventBridge('s-pressure');
+  const pauses: boolean[] = [];
+  bridge.setDomBackpressureHandler((paused) => pauses.push(paused));
+
+  const cap = bridge.dom.maxCapacity;
+  const triggerFrames = Math.ceil(cap * EventBridge.DomBackpressureRatio) + 1;
+  bridge.onConsumerPressure({ queuedFrames: triggerFrames, oldestQueuedMs: 0, draining: false });
+  assert.strictEqual(bridge.isDomBackpressured, true);
+  assert.deepStrictEqual(pauses, [true]);
+
+  bridge.onConsumerPressure({
+    queuedFrames: Math.floor(cap * EventBridge.DomBackpressureClearRatio),
+    oldestQueuedMs: 0,
+    draining: true,
+  });
+  assert.strictEqual(bridge.isDomBackpressured, false);
+  assert.deepStrictEqual(pauses, [true, false]);
+  console.log('[unit] consumer_pressure_pauses_dom_backpressure ok');
+}
+
+async function testConsumerPressureRequestsResyncWhenStale(): Promise<void> {
+  const bridge = new EventBridge('s-resync');
+  let resyncReason = '';
+  bridge.onConsumerPressure(
+    { queuedFrames: bridge.dom.maxCapacity, oldestQueuedMs: 6000, draining: false },
+    async (req) => {
+      resyncReason = req.reason;
+    },
+  );
+  await new Promise((r) => setTimeout(r, 10));
+  assert.strictEqual(resyncReason, 'consumer_pressure');
+  console.log('[unit] consumer_pressure_requests_resync_when_stale ok');
 }
 
 async function testPermissionClearRespectsEpoch(): Promise<void> {
@@ -4211,6 +4251,8 @@ async function main(): Promise<void> {
   await testPumpQueueAbortRequeuesFront();
   await testPumpQueueAbortAfterWriteDoesNotRequeue();
   await testEventBridgeQueueDroppedLifecycle();
+  testConsumerPressurePausesDomBackpressure();
+  await testConsumerPressureRequestsResyncWhenStale();
   await testPermissionClearRespectsEpoch();
   testLogicalToDeviceTransform();
   testKeycodeResolve();
@@ -4317,6 +4359,11 @@ async function main(): Promise<void> {
   runProjectedNativeGuardUnitTests();
   runCdpConsoleRelayUnitTests();
   await runMainFrameDomainGuardUnitTests();
+  runUrlResolverUnitTests();
+  runWrapSessionEventsUnitTests();
+  await runHostControlSocketUnitTests();
+  runSharedAssetCacheL2UnitTests();
+  await runSharedAssetK2UnitTests();
   await runPermissionGateUnitTests();
   await runEventApplierUnitTests();
   await runSparseCdpInputAdapterUnitTests();

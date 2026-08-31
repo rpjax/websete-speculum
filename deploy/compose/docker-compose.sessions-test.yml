@@ -24,6 +24,20 @@ services:
           - www.fixture.test
           - sub.fixture.test
 
+  evil-fixture:
+    build:
+      context: ../../tests/motor-fixture
+      dockerfile: Dockerfile
+    environment:
+      FIXTURE_ROLE: evil
+      FIXTURE_HOSTNAME: evil-fixture.test
+      PORT: "443"
+      HEALTH_PORT: "8091"
+    networks:
+      sessions-test:
+        aliases:
+          - evil-fixture.test
+
   sidecar:
     build:
       context: ../..
@@ -46,6 +60,7 @@ services:
       SPECULUM_GRPC_PORT: "50051"
       SPECULUM_HEALTH_PORT: "3001"
       SPECULUM_IGNORE_CERT_ERRORS: "1"
+      SPECULUM_FAKE_MEDIA_DEVICES: "1"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3001/ready"]
       interval: 15s
@@ -69,6 +84,7 @@ services:
       Telemetry__Host__ProcPath: /host/proc
       Telemetry__Docker__Endpoint: unix:///var/run/docker.sock
       Sessions__MirrorMode: PageProjection
+      Sessions__CpuProfiling: "true"
       Sessions__InputMultiplexingPolicy__Access: Shared
       ResourceManagement__Sessions__MaxConcurrentSessions: "10"
       Sessions__DetachedSessionTimeout: "00:00:03"
@@ -120,6 +136,8 @@ services:
       sidecar:
         condition: service_healthy
       fixture:
+        condition: service_healthy
+      evil-fixture:
         condition: service_healthy
     ports:
       - "18090:8080"

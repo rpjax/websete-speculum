@@ -92,6 +92,28 @@ public sealed class SessionsTestFixture
         put.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// GET Sessions → patch <c>cpuProfiling</c> → PUT full body.
+    /// </summary>
+    public async Task EnsureSessionsCpuProfilingAsync(
+        bool enabled,
+        CancellationToken ct = default)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        using var get = await http.GetAsync($"{Host.ApiBase}/api/configurations/Sessions", ct);
+        get.EnsureSuccessStatusCode();
+        var json = await get.Content.ReadAsStringAsync(ct);
+        var node = JsonNode.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json)
+            ?? new JsonObject();
+        node["cpuProfiling"] = enabled;
+
+        using var put = await http.PutAsync(
+            $"{Host.ApiBase}/api/configurations/Sessions",
+            new StringContent(node.ToJsonString(), System.Text.Encoding.UTF8, "application/json"),
+            ct);
+        put.EnsureSuccessStatusCode();
+    }
+
     private static Dictionary<string, bool> BaselineTelemetryEvents { get; } = new()
     {
         ["Telemetry.Sessions.VideoStreamingInput.Applied"] = true,

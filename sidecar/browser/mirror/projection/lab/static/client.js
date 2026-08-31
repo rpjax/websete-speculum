@@ -2776,6 +2776,8 @@
         const el = eventTargetElement(target);
         if (el == null)
           return false;
+        if (typeof el.closest !== "function")
+          return false;
         return el.closest("a[href], area[href]") != null;
       }
       exports.isProjectedNavigable = isProjectedNavigable;
@@ -2786,7 +2788,7 @@
       }
       exports.suppressProjectedDefault = suppressProjectedDefault;
       function layoutViewportSize(win) {
-        const el = win.document.documentElement;
+        const el = win.document?.documentElement;
         const width = el?.clientWidth || win.innerWidth;
         const height = el?.clientHeight || win.innerHeight;
         return { width, height };
@@ -6777,8 +6779,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 12,
-    builtAt: "2026-08-31T01:11:37.992Z"
+    seq: 32,
+    builtAt: "2026-08-31T12:45:39.918Z"
   };
 
   // browser/mirror/projection/lab/client/main.ts

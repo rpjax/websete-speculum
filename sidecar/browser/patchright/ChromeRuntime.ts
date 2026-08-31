@@ -152,6 +152,10 @@ export function buildChromeArgs(width: number, height: number): string[] {
     args.push('--ignore-certificate-errors');
   }
 
+  if (process.env['SPECULUM_FAKE_MEDIA_DEVICES'] === '1') {
+    args.push('--use-fake-device-for-media-stream');
+  }
+
   return args;
 }
 

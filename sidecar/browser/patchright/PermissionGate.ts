@@ -15,6 +15,10 @@ export type PermissionGateHandle = {
   dispose(): void;
   /** Re-arm after primary page replace (same context). */
   rebind(page: Page): void;
+  /** Re-query policy and re-apply Chromium permissions for the current main-frame origin. */
+  resync(urlOverride?: string): void;
+  /** Awaitable resync for harness / probes. */
+  resyncAsync(urlOverride?: string): Promise<{ camera: 'allow' | 'deny'; microphone: 'allow' | 'deny' }>;
 };
 
 export type AttachPermissionGateOptions = {
@@ -74,27 +78,33 @@ export function attachPermissionGate(opts: AttachPermissionGateOptions): Permiss
   let disposed = false;
   let lastOrigin: string | null = null;
 
-  const syncOrigin = (url: string): void => {
-    if (disposed) return;
+  const syncOriginAsync = async (
+    url: string,
+    force: boolean,
+  ): Promise<{ camera: 'allow' | 'deny'; microphone: 'allow' | 'deny' } | null> => {
+    if (disposed) return null;
     let origin: string;
     try {
-      if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) return null;
       origin = new URL(url).origin;
     } catch {
-      return;
+      return null;
     }
-    if (origin === lastOrigin) return;
+    if (!force && origin === lastOrigin) return null;
     lastOrigin = origin;
 
-    void (async () => {
-      const camera = await decide(() => opts.events.onCameraPermissionRequested(), timeoutMs);
-      const microphone = await decide(
-        () => opts.events.onMicrophonePermissionRequested(),
-        timeoutMs,
-      );
-      if (disposed) return;
-      await applyOriginPermissions(opts.context, origin, camera, microphone);
-    })();
+    const camera = await decide(() => opts.events.onCameraPermissionRequested(), timeoutMs);
+    const microphone = await decide(
+      () => opts.events.onMicrophonePermissionRequested(),
+      timeoutMs,
+    );
+    if (disposed) return null;
+    await applyOriginPermissions(opts.context, origin, camera, microphone);
+    return { camera, microphone };
+  };
+
+  const syncOrigin = (url: string): void => {
+    void syncOriginAsync(url, false);
   };
 
   const onMainFrameNavigated = (): void => {
@@ -138,6 +148,25 @@ export function attachPermissionGate(opts: AttachPermissionGateOptions): Permiss
         syncOrigin(page.url());
       } catch {
         /* */
+      }
+    },
+    resync(urlOverride?: string): void {
+      if (disposed) return;
+      lastOrigin = null;
+      try {
+        syncOrigin(urlOverride ?? page.url());
+      } catch {
+        /* */
+      }
+    },
+    async resyncAsync(urlOverride?: string): Promise<{ camera: 'allow' | 'deny'; microphone: 'allow' | 'deny' }> {
+      if (disposed) return { camera: 'deny', microphone: 'deny' };
+      lastOrigin = null;
+      try {
+        const result = await syncOriginAsync(urlOverride ?? page.url(), true);
+        return result ?? { camera: 'deny', microphone: 'deny' };
+      } catch {
+        return { camera: 'deny', microphone: 'deny' };
       }
     },
   };

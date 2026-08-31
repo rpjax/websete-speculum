@@ -88,6 +88,8 @@ public sealed class PageProjectionAssertTests : SessionsTestBase
         await act.ConnectAsync();
         await act.StartFixturePageAsync("/external-link");
 
+        _ = await act.WaitPageProjectionFrameAsync(timeoutMs: 60_000);
+
         act.ClearJournal();
         act.ClearRedirects();
 
@@ -104,5 +106,103 @@ public sealed class PageProjectionAssertTests : SessionsTestBase
             TimeSpan.FromSeconds(20),
             predicate: url => url.Contains("evil-fixture", StringComparison.OrdinalIgnoreCase)
                 || url.Contains("fixture.test", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [SessionsTestFact]
+    public async Task B5_2_profile_ls_idb_round_trip_after_stop_export()
+    {
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        var profileId = await act.EnsureProfileAsync();
+
+        await act.StartFixturePageAsync("/", profileId: profileId);
+        await act.WaitFixtureHomeStorageSeededAsync();
+
+        act.ClearJournal();
+        await act.StopSessionAsync();
+        await act.WaitJournalAsync("Sessions.SessionStatePersisted", TimeSpan.FromSeconds(30));
+
+        var exported = await act.GetProfileAsync(profileId);
+        Assert.True(exported.LocalStorageCount >= 1,
+            $"expected exported LS count>=1, got {exported.LocalStorageCount}");
+        Assert.True(exported.IdbRecordCount >= 1,
+            $"expected exported IDB count>=1, got {exported.IdbRecordCount}");
+
+        act.ClearJournal();
+        await act.StartFixturePageAsync("/", profileId: profileId);
+        await act.WaitJournalAsync("Sessions.ProfileStateRestored", TimeSpan.FromSeconds(45));
+
+        await act.WaitEvaluateContainsAsync("localStorage.getItem('sf_ls')", "home-ls");
+        await act.WaitEvaluateContainsAsync(SessionsActClient.FixtureIdbReadExpression, "home-idb");
+    }
+
+    [SessionsTestFact]
+    public async Task B5_3_permission_gate_default_deny_registered_grant_allows()
+    {
+        await using var denyAct = new SessionsActClient(Fx.Host);
+        await denyAct.ConnectAsync();
+        await denyAct.StartFixturePageAsync("/permissions");
+
+        await denyAct.WaitEvaluateContainsAsync(
+            "document.getElementById('out')?.getAttribute('data-camera')",
+            "denied");
+        await denyAct.WaitEvaluateContainsAsync(
+            "document.getElementById('out')?.getAttribute('data-microphone')",
+            "denied");
+
+        await using var allowAct = new SessionsActClient(Fx.Host);
+        await allowAct.ConnectAsync();
+        await allowAct.StartFixturePageAsync("/permissions");
+        await allowAct.WaitEvaluateContainsAsync("location.href", "fixture.test");
+        var grant = await allowAct.RegisterPermissionGrantAsync(camera: true, microphone: true);
+        Assert.True(grant.GetProperty("ok").GetBoolean());
+        Assert.Equal("Allow", grant.GetProperty("cameraPolicy").GetString());
+        Assert.Equal("Allow", grant.GetProperty("microphonePolicy").GetString());
+        var resync = await allowAct.ProbeAsync(["resyncPermissions"]);
+        Assert.Equal("allow", resync.GetProperty("resyncPermissions").GetProperty("camera").GetString());
+        Assert.Equal("allow", resync.GetProperty("resyncPermissions").GetProperty("microphone").GetString());
+        await allowAct.EvaluateAsync("window.__SPECULUM_PERMISSION_PROBE__()");
+        await allowAct.WaitEvaluateContainsAsync(
+            "document.getElementById('out')?.getAttribute('data-camera')",
+            "granted");
+        await allowAct.WaitEvaluateContainsAsync(
+            "document.getElementById('out')?.getAttribute('data-microphone')",
+            "granted");
+    }
+
+    [SessionsTestFact]
+    public async Task B5_4_sessions_cpu_profiling_flag_propagates_and_probes_registered()
+    {
+        await Fx.EnsureSessionsCpuProfilingAsync(enabled: true);
+
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        await act.StartFixturePageAsync("/click-target");
+
+        var data = await act.ProbeAsync(["startCpuProfile"]);
+        var cpu = data.GetProperty("startCpuProfile");
+        Assert.True(cpu.GetProperty("ok").GetBoolean(),
+            $"startCpuProfile probe failed: {cpu}");
+    }
+
+    [SessionsTestFact]
+    public async Task PP5_restore_profile_ls_idb_asserts_counts()
+    {
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        var profileId = await act.EnsureProfileAsync();
+
+        await act.StartFixturePageAsync("/", profileId: profileId);
+        await act.WaitFixtureHomeStorageSeededAsync();
+
+        act.ClearJournal();
+        await act.StopSessionAsync();
+        await act.WaitJournalAsync("Sessions.SessionStatePersisted", TimeSpan.FromSeconds(30));
+
+        var profile = await act.GetProfileAsync(profileId);
+        Assert.True(profile.LocalStorageCount >= 1,
+            $"expected profile localStorageCount>=1, got {profile.LocalStorageCount}");
+        Assert.True(profile.IdbRecordCount >= 1,
+            $"expected profile idbRecordCount>=1, got {profile.IdbRecordCount}");
     }
 }

@@ -297,34 +297,59 @@ public static class SessionHarnessEndpoints
 
             try
             {
-                await foreach (var frame in channel.Value.ReadAllAsync(timeoutCts.Token)
-                    .ConfigureAwait(false))
+                while (!timeoutCts.Token.IsCancellationRequested)
                 {
-                    var bodyLen = frame.Body?.Length ?? 0;
-                    if (bodyLen <= 0)
+                    var reader = channel.Value;
+                    while (reader.Completion.IsCompleted && !timeoutCts.Token.IsCancellationRequested)
                     {
-                        continue;
+                        await Task.Delay(25, timeoutCts.Token).ConfigureAwait(false);
+                        channel = stream.GetPageProjectionFramesChannel();
+                        if (channel.IsFailure)
+                        {
+                            return Results.BadRequest(new
+                            {
+                                errorCode = "frame_channel_failed",
+                                message = string.Join("; ", channel.Errors.Select(e => e.Message)),
+                            });
+                        }
+
+                        reader = channel.Value;
                     }
 
-                    var isResync = (frame.Flags & ResyncFlag) != 0;
-                    if (body.RequireResync == true && !isResync)
+                    await foreach (var frame in reader.ReadAllAsync(timeoutCts.Token)
+                        .ConfigureAwait(false))
                     {
-                        continue;
+                        var bodyLen = frame.Body?.Length ?? 0;
+                        if (bodyLen <= 0)
+                        {
+                            continue;
+                        }
+
+                        var isResync = (frame.Flags & ResyncFlag) != 0;
+                        if (body.RequireResync == true && !isResync)
+                        {
+                            continue;
+                        }
+
+                        return Results.Ok(new
+                        {
+                            ok = true,
+                            sequence = frame.Sequence,
+                            contextId = frame.ContextId,
+                            generation = frame.Generation,
+                            flags = frame.Flags,
+                            resync = isResync,
+                            bodyLen,
+                            partIndex = frame.PartIndex,
+                            partCount = frame.PartCount,
+                            version = frame.Version,
+                        });
                     }
 
-                    return Results.Ok(new
+                    if (timeoutCts.Token.IsCancellationRequested)
                     {
-                        ok = true,
-                        sequence = frame.Sequence,
-                        contextId = frame.ContextId,
-                        generation = frame.Generation,
-                        flags = frame.Flags,
-                        resync = isResync,
-                        bodyLen,
-                        partIndex = frame.PartIndex,
-                        partCount = frame.PartCount,
-                        version = frame.Version,
-                    });
+                        break;
+                    }
                 }
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -344,6 +369,143 @@ public static class SessionHarnessEndpoints
                 errorCode = "frame_stream_ended",
                 phase = "wait_frame",
                 message = "PageProjection frame stream ended before a matching frame.",
+            });
+        }).WithTags("Sessions");
+
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/permissions/register", async (
+            Guid sessionId,
+            SessionHarnessPermissionRegisterRequest body,
+            ILiveSessionService liveSessions,
+            ISessionBindingRegistry bindings,
+            CancellationToken ct) =>
+        {
+            ArgumentNullException.ThrowIfNull(body);
+            if (string.IsNullOrWhiteSpace(body.Token))
+                return Results.Unauthorized();
+
+            if (!bindings.TryGetLive(sessionId, body.Token.Trim(), out _)
+                || !liveSessions.TryGet(sessionId, out var live))
+            {
+                return Results.NotFound(new { errorCode = "session_gone" });
+            }
+
+            Guid? cameraId = null;
+            Guid? microphoneId = null;
+
+            if (body.Camera)
+            {
+                var camera = live.RegisterCameraPermission(
+                    static _ => Task.FromResult(PermissionDecision.Allow));
+                if (camera.IsFailure)
+                {
+                    return Results.BadRequest(new
+                    {
+                        errorCode = "permission_register_failed",
+                        message = string.Join("; ", camera.Errors.Select(e => e.Message)),
+                    });
+                }
+
+                cameraId = camera.Value;
+            }
+
+            if (body.Microphone)
+            {
+                var microphone = live.RegisterMicrophonePermission(
+                    static _ => Task.FromResult(PermissionDecision.Allow));
+                if (microphone.IsFailure)
+                {
+                    if (cameraId is Guid cam)
+                    {
+                        live.UnregisterCameraPermission(cam);
+                    }
+
+                    return Results.BadRequest(new
+                    {
+                        errorCode = "permission_register_failed",
+                        message = string.Join("; ", microphone.Errors.Select(e => e.Message)),
+                    });
+                }
+
+                microphoneId = microphone.Value;
+            }
+
+            var cameraPolicy = await live.EvaluateCameraPermissionPolicyAsync(ct).ConfigureAwait(false);
+            var microphonePolicy = await live.EvaluateMicrophonePermissionPolicyAsync(ct).ConfigureAwait(false);
+
+            return Results.Ok(new
+            {
+                ok = true,
+                cameraRegistrationId = cameraId,
+                microphoneRegistrationId = microphoneId,
+                cameraPolicy = cameraPolicy.ToString(),
+                microphonePolicy = microphonePolicy.ToString(),
+            });
+        }).WithTags("Sessions");
+
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/probe", async (
+            Guid sessionId,
+            SessionHarnessProbeRequest body,
+            ILiveSessionService liveSessions,
+            ISessionBindingRegistry bindings,
+            CancellationToken ct) =>
+        {
+            ArgumentNullException.ThrowIfNull(body);
+            if (string.IsNullOrWhiteSpace(body.Token))
+                return Results.Unauthorized();
+
+            if (body.Ops is not { Count: > 0 })
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["Ops"] = ["At least one probe op is required."],
+                });
+            }
+
+            if (!bindings.TryGetLive(sessionId, body.Token.Trim(), out _)
+                || !liveSessions.TryGet(sessionId, out var live))
+            {
+                return Results.NotFound(new { errorCode = "session_gone" });
+            }
+
+            var result = await live.RequestDiagnosticsAsync(
+                new ProbeSession
+                {
+                    SessionId = sessionId,
+                    Probe = new DiagProbeRequest
+                    {
+                        Ops = body.Ops,
+                        EvaluateExpression = body.EvaluateExpression,
+                        ElementSelector = body.ElementSelector,
+                    },
+                },
+                ct).ConfigureAwait(false);
+
+            if (result.IsFailure)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "probe_failed",
+                    phase = "probe",
+                    message = string.Join("; ", result.Errors.Select(e => e.Message)),
+                });
+            }
+
+            if (!result.Value.Ok)
+            {
+                return Results.BadRequest(new
+                {
+                    ok = false,
+                    errorCode = result.Value.ErrorCode ?? "probe_failed",
+                    phase = "probe",
+                    message = result.Value.Message,
+                    data = result.Value.Data,
+                });
+            }
+
+            return Results.Ok(new
+            {
+                ok = true,
+                data = result.Value.Data,
             });
         }).WithTags("Sessions");
 
@@ -388,7 +550,7 @@ public static class SessionHarnessEndpoints
                     Probe = new DiagProbeRequest
                     {
                         Ops = ["resolveAndClick"],
-                        DomSelector = body.Selector.Trim(),
+                        ElementSelector = body.Selector.Trim(),
                     },
                 },
                 ct).ConfigureAwait(false);
@@ -469,4 +631,24 @@ public sealed class SessionHarnessPageProjectionResolveClickRequest
     public required string Token { get; init; }
 
     public required string Selector { get; init; }
+}
+
+public sealed class SessionHarnessProbeRequest
+{
+    public required string Token { get; init; }
+
+    public required IReadOnlyList<string> Ops { get; init; }
+
+    public string? EvaluateExpression { get; init; }
+
+    public string? ElementSelector { get; init; }
+}
+
+public sealed class SessionHarnessPermissionRegisterRequest
+{
+    public required string Token { get; init; }
+
+    public bool Camera { get; init; } = true;
+
+    public bool Microphone { get; init; } = true;
 }

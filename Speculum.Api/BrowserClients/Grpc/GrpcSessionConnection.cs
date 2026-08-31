@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Speculum.Api.Sessions.Services.Streaming;
 using System.Threading.Channels;
 using Aidan.Core.Patterns;
@@ -717,7 +718,7 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 // Journal/Applied always emit when catalog on (sidecar owns admission/coalescing).
                 TryPublishVideoStreamingInputApplied(
                     userInput.Type,
-                    VideoStreamingInputAdmitPolicy.TryTouchPhase(userInput),
+                    TryExtractTouchPhase(userInput),
                     userInput.TraceId,
                     userInput.ClientTimestampMs);
                 TryPublishVideoStreamingInputPathTrace(
@@ -2573,5 +2574,30 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 return Result<T>.Failure(ex.Status.Detail ?? ex.Message);
             }
         }
+    }
+
+    private static string? TryExtractTouchPhase(VideoStreamingInput input)
+    {
+        if (!string.Equals(input.Type, "touch", StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(input.Payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(input.Payload);
+            if (doc.RootElement.TryGetProperty("phase", out var phase)
+                && phase.ValueKind == JsonValueKind.String)
+            {
+                return phase.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // Optional metadata for telemetry labels only.
+        }
+
+        return null;
     }
 }

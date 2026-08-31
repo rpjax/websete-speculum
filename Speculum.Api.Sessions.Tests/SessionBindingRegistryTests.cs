@@ -362,5 +362,11 @@ public sealed class SessionBindingRegistryTests
         public IResult UnregisterMicrophonePermission(Guid registrationId)
             => Result.Failure("not implemented");
 
+        public Task<PermissionDecision> EvaluateCameraPermissionPolicyAsync(CancellationToken ct = default)
+            => Task.FromResult(PermissionDecision.Deny);
+
+        public Task<PermissionDecision> EvaluateMicrophonePermissionPolicyAsync(CancellationToken ct = default)
+            => Task.FromResult(PermissionDecision.Deny);
+
     }
 }

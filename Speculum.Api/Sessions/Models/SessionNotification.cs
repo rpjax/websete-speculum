@@ -29,7 +29,7 @@ public enum SessionNotificationKind
     PageProjectionIntentPathTrace = 11,
     /// <summary>PageProjectionFrame frame received from WatchPageProjectionFrames (opt-in journal).</summary>
     PageProjectionFrame = 12,
-    /// <summary>PageProjection lifecycle (generation_bumped | queue_dropped) from WatchPageProjectionLifecycle.</summary>
+    /// <summary>PageProjection lifecycle (generation_bumped | queue_dropped | session_pool_*) from WatchPageProjectionLifecycle.</summary>
     PageProjectionLifecycle = 13,
     /// <summary>API sequenced Diff channel DropAll (opt-in journal).</summary>
     PageProjectionFrameQueueDropped = 14,
@@ -153,7 +153,15 @@ public sealed class SessionNotification
     [Key("clientTimestampMs")]
     public long? ClientTimestampMs { get; init; }
 
-    /// <summary>JSON payload for PageEpoch parity lifecycle kinds (<c>parity_*</c>).</summary>
-    [Key("payloadJson")]
-    public string? PayloadJson { get; init; }
+    /// <summary>Pre-warmed browser pool size (session_pool_acquired lifecycle).</summary>
+    [Key("poolSize")]
+    public int? PoolSize { get; init; }
+
+    /// <summary>Pool acquire wait ms (session_pool_acquired lifecycle).</summary>
+    [Key("poolWaitMs")]
+    public long? PoolWaitMs { get; init; }
+
+    /// <summary>Pool hold duration ms (session_pool_released lifecycle).</summary>
+    [Key("poolHeldMs")]
+    public long? PoolHeldMs { get; init; }
 }

@@ -208,12 +208,15 @@ public sealed class GrpcRequestValidationTests
             },
         };
 
+        var engine = SessionsTestHarness.Engine("www.target.test");
         var request = GrpcSessionMappers.ToLaunchVideoStreamingRequest(
             Guid.NewGuid(),
             800,
             600,
             configuration,
-            SessionsTestHarness.Sessions().ViewportPolicy);
+            SessionsTestHarness.Sessions().ViewportPolicy,
+            "speculum.test",
+            engine);
 
         Assert.Equal("pt-BR", request.Locale);
         Assert.Equal("America/Sao_Paulo", request.TimezoneId);
@@ -231,6 +234,8 @@ public sealed class GrpcRequestValidationTests
             600,
             configuration,
             SessionsTestHarness.Sessions().ViewportPolicy,
+            "speculum.test",
+            engine,
             screencastMaxEncodeScale: 1);
         Assert.Equal(1, capped.ScreencastMaxEncodeScale);
         Assert.Equal(1, GrpcSessionMappers.ClampScreencastMaxEncodeScale(0.5));
@@ -244,8 +249,12 @@ public sealed class GrpcRequestValidationTests
             600,
             configuration,
             SessionsTestHarness.Sessions().ViewportPolicy,
+            "speculum.test",
+            engine,
             frameQueueCapacity: 4096);
         Assert.Equal(4096, domLaunch.FrameQueueCapacity);
+        Assert.NotNull(domLaunch.NavigationPolicy);
+        Assert.Equal("speculum.test", domLaunch.NavigationPolicy.RequestHost);
     }
 
     [Fact]

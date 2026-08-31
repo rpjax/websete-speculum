@@ -95,7 +95,7 @@ internal sealed class SessionStreamMultiplexer : ISessionStreamMultiplexer
             OutputStreamKindNames.ToTelemetry(kind),
             openStreamCount: _streams.Count,
             frameChannelCapacity: kind == OutputStreamKind.PageProjectionFrames
-                ? SequencedDiffChannels.FanOutTargetCapacity
+                ? PageProjectionFrameChannels.FanOutTargetCapacity
                 : 0);
         return Result.Success();
     }

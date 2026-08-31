@@ -19,7 +19,7 @@ internal sealed class SessionInputMerger
     private readonly object _ownershipGate = new();
 
     private readonly Channel<VideoStreamingInput> _videoStreamingInputMerge = DropOldestChannels.Create<VideoStreamingInput>(
-        VideoStreamingInputAdmissionChannel.DefaultCapacity);
+        SessionInputPipe.DefaultCapacity);
 
     private readonly Channel<ConsoleInput> _consoleInputMerge = Channel.CreateUnbounded<ConsoleInput>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });

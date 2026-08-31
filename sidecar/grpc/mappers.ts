@@ -6,6 +6,7 @@ import type {
   BrowserState,
   BrowserEditingState,
 } from '../browser/BrowserSession';
+import { navigationPolicyFromLaunchRequest } from '../browser/navigation/applyNavigationPolicy';
 import { requireViewportPolicy, validateLaunchViewport } from './validate';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -66,10 +67,16 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     hiddenRateHz: resolvePositiveIntOrUndefined(req.hiddenRateHz ?? req.hidden_rate_hz),
     rateRecoverMs: resolvePositiveIntOrUndefined(req.rateRecoverMs ?? req.rate_recover_ms),
     frameStallMs: resolvePositiveIntOrUndefined(req.frameStallMs ?? req.frame_stall_ms),
-    // establish_chunk_bytes / client_state_ms: dead pre-V4 — intentionally not mapped.
+    // establish_chunk_bytes / client_state_ms: removed M6.
     mirrorMaxBytes: resolvePositiveIntOrUndefined(req.mirrorMaxBytes ?? req.mirror_max_bytes),
     assetCacheL1MaxBytes: resolvePositiveIntOrUndefined(
       req.assetCacheL1MaxBytes ?? req.asset_cache_l1_max_bytes,
+    ),
+    assetCacheL2MaxBytes: resolveNonNegativeIntOrUndefined(
+      req.assetCacheL2MaxBytes ?? req.asset_cache_l2_max_bytes,
+    ),
+    assetCacheL2Enabled: resolveBoolOrUndefined(
+      req.assetCacheL2Enabled ?? req.asset_cache_l2_enabled,
     ),
     assetPriorityViewportPx: resolvePositiveIntOrUndefined(
       req.assetPriorityViewportPx ?? req.asset_priority_viewport_px,
@@ -78,6 +85,9 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
       req.aggregateIntervalMs ?? req.aggregate_interval_ms,
     ),
     cpuProfiling: req.cpuProfiling === true || req.cpu_profiling === true,
+    navigationPolicy: navigationPolicyFromLaunchRequest(
+      req.navigationPolicy ?? req.navigation_policy,
+    ),
   };
 }
 
@@ -97,6 +107,12 @@ function resolvePositiveIntOrUndefined(raw: unknown): number | undefined {
 function resolveNonNegativeIntOrUndefined(raw: unknown): number | undefined {
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+}
+
+function resolveBoolOrUndefined(raw: unknown): boolean | undefined {
+  if (raw === true) return true;
+  if (raw === false) return false;
+  return undefined;
 }
 
 function resolveMirrorMode(raw: unknown): 'videoStreaming' | 'pageProjection' {

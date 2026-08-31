@@ -3,6 +3,7 @@ using Aidan.Core.Patterns;
 using Speculum.Api.Profiles.Aggregates;
 using Speculum.Api.Sessions.Mirror.PageProjection;
 using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Services.Streaming;
 
 namespace Speculum.Api.BrowserClients;
 
@@ -82,6 +83,7 @@ public interface ISessionConnection
     /// </summary>
     Task<IResult<BrowserReadyInfo>> LaunchBrowserAsync(
         SessionConfig? configuration,
+        string requestHost,
         CancellationToken ct = default);
 
     /// <summary>
@@ -114,6 +116,14 @@ public interface ISessionConnection
     /// </summary>
     Task<IResult> NavigateAsync(
         string url,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Navigates using client path/query resolved by the sidecar NavigationPolicy (M1).
+    /// </summary>
+    Task<IResult> NavigateClientAsync(
+        string path,
+        string query,
         CancellationToken ct = default);
 
     /// <summary>Reloads the current page (<c>refresh</c> wire command).</summary>
@@ -176,7 +186,7 @@ public interface ISessionConnection
     IResult<Task> ConsumePageProjectionIntentAsync(ChannelReader<PageProjectionIntent> channelReader);
 
     /// <summary>Fetches a Dom Projection virtual resource (path key / blob / data).</summary>
-    Task<IResult<DomAsset>> GetDomAssetAsync(
+    Task<IResult<VirtualResourceResponse>> GetVirtualAssetAsync(
         string key,
         CancellationToken ct = default,
         string? kind = null,
@@ -267,4 +277,19 @@ public interface ISessionConnection
         int? targetCount = null,
         int? frameChannelCount = null,
         long? frameEpoch = null);
+
+    /// <summary>M3: connection queue depth toward the consumer (Wait-mode; never dropped).</summary>
+    int GetPageProjectionFrameConnectionQueueDepth();
+
+    /// <summary>M3: approximate bytes held in the connection queue.</summary>
+    ulong GetPageProjectionFrameConnectionQueuedBytes();
+
+    /// <summary>M3: age of the oldest frame still in the connection queue (0 when empty).</summary>
+    ulong GetPageProjectionFrameOldestQueuedMs();
+
+    /// <summary>M3: reset oldest-enqueue tracking when the connection queue drains.</summary>
+    void NotifyPageProjectionFrameConnectionDequeued();
+
+    /// <summary>M3: rate-limited consumer pressure toward sidecar Control (motor decides reaction).</summary>
+    void TrySendConsumerPressure(ConsumerPressureSnapshot snapshot);
 }

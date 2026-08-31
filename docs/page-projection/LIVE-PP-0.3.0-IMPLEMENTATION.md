@@ -84,7 +84,7 @@ Goal: an operator turns PP on in the full stack and CI proves **effect**, never 
 The code exists; it has never been run against the stack.
 
 - [ ] Bring up the SessionsTest compose and run `Category=PageProjection`
-- [ ] Attach the run output to the PR
+- [ ] Attach the run output to the PR — **PR:** https://github.com/rpjax/websete-speculum/pull/9 (pushed 2026-08-31; CI proof pending)
 
 **Done when:** PP1–PP4 pass in the compose CI run, and the run is linked. Compiling is not passing.
 

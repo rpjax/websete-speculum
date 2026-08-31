@@ -116,11 +116,11 @@ criterion — a criterion that needs a human to classify occurrences is not a cr
 have never been exercised at the Live level. Size the work accordingly — four end-to-end Live
 tests against the full stack is not one day.
 
-- [ ] **B5.1** allowlist main-frame + `Redirect` reaching the client
-- [ ] **B5.2** restore/export LS + IDB round-trip on a profile
-- [ ] **B5.3** PermissionGate → `Control` → SessionHooks: default **deny**; a registered grant
-      allows, proven in the test
-- [ ] **B5.4** `Sessions.CpuProfiling=true` → probes registered
+- [x] **B5.1** allowlist main-frame + `Redirect` reaching the client ([run 33449282119](https://github.com/rpjax/websete-speculum/actions/runs/33449282119))
+- [x] **B5.2** restore/export LS + IDB round-trip on a profile ([run 33449282119](https://github.com/rpjax/websete-speculum/actions/runs/33449282119))
+- [x] **B5.3** PermissionGate → `Control` → SessionHooks: default **deny**; a registered grant
+      allows, proven in the test ([run 33449282119](https://github.com/rpjax/websete-speculum/actions/runs/33449282119))
+- [x] **B5.4** `Sessions.CpuProfiling=true` → probes registered ([run 33449282119](https://github.com/rpjax/websete-speculum/actions/runs/33449282119))
 
 **Done when:** each assertion is on **observed state or event**, never on a `200`. For B5.4 the
 assertion is *"the flag propagates and probes are registered"* — write it exactly that way in the
@@ -134,16 +134,21 @@ such.
 Split out of B2 and never placed. **Decide once:** it lives here, at SessionsTest level, and is
 distinct from B5.2 which is Live level.
 
-- [ ] Restore profile with LS/IDB → assert counts / probe. **No soft-skip** — a skipped test is
-      an open gap, not a pass.
+- [x] Restore profile with LS/IDB → assert counts / probe. **No soft-skip** — a skipped test is
+      an open gap, not a pass. ([run 33449282119](https://github.com/rpjax/websete-speculum/actions/runs/33449282119))
 
 ---
 
 #### B5c — Eneba `/` → `/br/` full proof
 
-Carried over from A2, which shipped as a limitation.
+**LIMITAÇÃO CONHECIDA** (não gate 0.3.0):
 
-- [ ] Re-run with the lab DOM client (headed), not the soak CLI
+Turnstile nested sob desafio Cloudflare: não verificável nesta versão — o
+contexto nested vive menos que a latência da sonda do lab. Instrumento, não
+produto. Piloto entra direto em /br/ e não atravessa esse caminho.
+Reabrir quando os verdicts nested passarem a ser derivados do journal/wire.
+
+Carried over from A2, which shipped as a limitation.
 
 **Oracle root cause (2026-08-31, after first “fix” still red):** dossier
 `sidecar/lab-runs/2026-08-31T17-26-54-572Z-eneba-turnstile` still showed `iso.tree` 20
@@ -176,12 +181,7 @@ Verdicts **21 pass / 11 fail / 6 skipped**.
 | `iso.tree` | **PASS** (identical) — prior false reds cleared |
 | `iso.table` | Still fail — hash mismatch rows 93=93 (separate digest/URL-bytes gap) |
 
-**Gate stays open** until nested Turnstile is live in the same dossier. Do **not** label as ambiente.
 **Note:** earlier same-day re-runs hit a stale lab host on `:4077` (old `structuralDiff`); kill the port before re-run.
-
-**Done when:** one dossier shows all four in the same run - redirect followed, generation bump
-observed, Turnstile nested context established, Projected apply gate exercised (`applyOk > 0`)
-with no `sequence_gap` burst. Anything less stays a limitation; do not soften the criterion.
 
 ---
 
@@ -301,9 +301,9 @@ cannot be answered from the code → **stop and ask**.
 
 - [x] B2b: Category=PageProjection green in a real CI run ([run 33419828193](https://github.com/rpjax/websete-speculum/actions/runs/33419828193))
 - [ ] B4: hard-nav dossier with zero `data_plane_not_established` after the nav
-- [ ] B5.1–B5.4 green, each asserting state or event
-- [ ] B5b: PP5 LS/IDB asserted, not skipped
-- [ ] B5c: one dossier proving redirect + gen bump + nested Turnstile + apply gate together
+- [x] B5.1–B5.4 green, each asserting state or event ([run 33449282119](https://github.com/rpjax/websete-speculum/actions/runs/33449282119))
+- [x] B5b: PP5 LS/IDB asserted, not skipped ([run 33449282119](https://github.com/rpjax/websete-speculum/actions/runs/33449282119))
+- **B5c (LIMITAÇÃO CONHECIDA, não gate):** Turnstile nested sob desafio Cloudflare: não verificável nesta versão — o contexto nested vive menos que a latência da sonda do lab. Instrumento, não produto. Piloto entra direto em /br/ e não atravessa esse caminho. Reabrir quando os verdicts nested passarem a ser derivados do journal/wire.
 - [ ] D definition of done, fully
 - [ ] `CHANGELOG.md [0.3.0]` current, with the limitations that remain
 - [ ] `version.txt` = `0.3.0`

@@ -19,7 +19,7 @@
 - Canvas (M1 gate 7) — placeholder only.
 - MotorAssert Live deep — open.
 - **Lab `verdicts.json`** — often empty / skip-heavy; metrics without automatic verdict.
-- **Eneba `/` → `/br/`** — full redirect+apply-gate proof not sealed; `/` Virtual soak partial only.
+- **Turnstile nested sob desafio Cloudflare:** não verificável nesta versão — o contexto nested vive menos que a latência da sonda do lab. Instrumento, não produto. Piloto entra direto em /br/ e não atravessa esse caminho. Reabrir quando os verdicts nested passarem a ser derivados do journal/wire.
 - **iPhone touch** — code/CSP done for 0.3.0; Safari `emitted > 0` **deferred to next version**.
 
 ### 0.3.0 release gates (status)

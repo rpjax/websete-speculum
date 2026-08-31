@@ -63,6 +63,9 @@ x86/
 [Aa][Rr][Mm]64/
 bld/
 [Bb]in/
+# Oracle runners live under page-projection-oracles/bin (not .NET build output).
+!page-projection-oracles/bin/
+!page-projection-oracles/bin/**
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/

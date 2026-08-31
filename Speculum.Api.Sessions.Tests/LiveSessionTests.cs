@@ -713,9 +713,11 @@ public sealed class LiveSessionTests
     public async Task Resize_WhenCommandGateBusy_ReturnsResizeBusy()
     {
         var sessionId = Guid.NewGuid();
+        var resizeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connection = new LiveFakeConnection(sessionId)
         {
-            ResizeDelay = TimeSpan.FromMilliseconds(400),
+            ResizeDelay = TimeSpan.FromMilliseconds(800),
+            ResizeEntered = resizeEntered,
         };
         var live = CreateService().Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
 
@@ -725,7 +727,8 @@ public sealed class LiveSessionTests
             Height = 600,
             RequestId = "resize-1",
         });
-        await Task.Delay(50);
+        // Wait until the first resize holds the command gate (past coalesce debounce), not a fixed sleep.
+        await resizeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var second = await live.ResizeAsync(new ResizeSession
         {
@@ -1468,6 +1471,9 @@ public sealed class LiveSessionTests
 
         public TimeSpan ResizeDelay { get; set; }
 
+        /// <summary>Signaled when <see cref="ResizeAsync"/> has entered (after command gate).</summary>
+        public TaskCompletionSource? ResizeEntered { get; set; }
+
         public Task<IResult<ResizeResult>> ResizeAsync(
             string requestId,
             int width,
@@ -1482,6 +1488,7 @@ public sealed class LiveSessionTests
             int height,
             CancellationToken ct)
         {
+            ResizeEntered?.TrySetResult();
             if (ResizeDelay > TimeSpan.Zero)
             {
                 await Task.Delay(ResizeDelay, ct).ConfigureAwait(false);

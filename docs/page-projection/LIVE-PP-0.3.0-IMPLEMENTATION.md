@@ -160,9 +160,20 @@ failures. **Classification deferred** until re-run after fixes.
 
 **Land (code):** `structuralDiff.ts` boundary + `isomorphism.ts` `pageBaseUrl`; `turnstileDiagnostic.ts` atomic probe; unit `testStructuralDiffOracleNormalization` (`sidecar/unit.ts`).
 
-**Re-run:** `npm run lab:eneba-turnstile` (headed) → new dossier. **Gate stays open** — no B5c classification until re-run proves redirect + gen bump + nested Turnstile + apply gate together.
+**Re-run (2026-08-31 headed):** dossier `sidecar/lab-runs/2026-08-31T17-26-54-572Z-eneba-turnstile` (`session.json` `headed: true`). Verdicts **19 pass / 12 fail / 8 skipped**.
 
-**Done when:** one dossier shows all four in the same run — redirect followed, generation bump
+| Criterion | Result |
+|-----------|--------|
+| Redirect `/` → `/br/` | Observed (`virtualLiveDom.url` = `https://www.eneba.com/br/`) |
+| Generation bump | Observed (probe gen=4; wire frames gen 8→9) |
+| Apply gate | Observed (`metrics.applyOk=80` / `applyFail=0`; surface `armed=true` desync 0) |
+| Nested Turnstile widget | **Not met** — `nestedContext` ids 2,3,5 then gone; `liveDom`/`table` `iframeCount=0`; Projected `nested=none`; CF copy: extension blocked verification |
+
+Oracle residuals still red (same class as prior): `iso.tree` 20 divergences (head scaffold + absolute `/w7s/virtual-assets/...` vs relative); `iso.table` hash mismatch with equal rows (93=93). `iso.dom`/`iso.cssom` (table↔live) pass.
+
+**Gate stays open.** No B5c classification on this dossier (incomplete nested Turnstile). Do **not** label as ambiente.
+
+**Done when:** one dossier shows all four in the same run - redirect followed, generation bump
 observed, Turnstile nested context established, Projected apply gate exercised (`applyOk > 0`)
 with no `sequence_gap` burst. Anything less stays a limitation; do not soften the criterion.
 

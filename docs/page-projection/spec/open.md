@@ -80,7 +80,7 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 202
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **PP-ISO-ORACLE-B5C** | Dossier `2026-08-31T10-13-07-798Z-eneba-turnstile`: `iso.tree` 20 structural divergences + `iso.table` hash mismatch with **equal row counts** (92=92) while table digests match product behaviour | **Oracle defect**, not product. (A) Projected srcdoc parser scaffold in `html>head` shifts child indices; (B) virtual-asset URL rewrite not normalized at compare boundary. Widget **INDETERMINATE**: `nestedContext` pass vs `liveDom` `iframeCount=0` vs iso ctx 2/3 SKIPPED `nested context absent (post-drop)` — probe timing. **Fix landed:** `sidecar/browser/mirror/projection/lab/probes/structuralDiff.ts` (comparison boundary + URL normalize); `turnstileDiagnostic.ts` (single halt instant). **Re-run required** before B5c gate classification — see [LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md) §B5c. |
+| **PP-ISO-ORACLE-B5C** | Re-run dossier `2026-08-31T17-26-54-572Z-eneba-turnstile` (headed): still `iso.tree` 20 divergences + `iso.table` hash mismatch with equal rows (93=93). Oracle normalize incomplete for head scaffold + absolute virtual-asset URLs. Widget still absent (`iframeCount=0`, nested ctx gone). Redirect + gen bump + `applyOk=80` observed; nested Turnstile **not** proven. **No classification** (gate open; not ambiente). See [LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md) §B5c. |
 
 ### BUG — hard-nav hello-ack / Port race after extension carrier (OPEN 2026-08-29)
 

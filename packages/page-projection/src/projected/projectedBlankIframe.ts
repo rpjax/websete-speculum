@@ -13,9 +13,18 @@
 /** Identity marker — only our stamped srcdoc carries this meta; real navigations do not. */
 export const PROJECTED_SKELETON_META_NAME = 'speculum-projected-skeleton';
 
+/**
+ * K5 — no page JS on the Projected surface. CSP meta (not iframe `sandbox`) so WebKit/iOS still
+ * delivers touch; see decision-log 2026-08-30.
+ */
+export const PROJECTED_K5_CSP = "script-src 'none'; object-src 'none'";
+
 /** Minimal HTML5 document — parses CSS1Compat; skeleton is stripped before table apply. */
 export const PROJECTED_STANDARDS_SRCDOC =
-  '<!DOCTYPE html><html><head><meta name="speculum-projected-skeleton" content="1"></head><body></body></html>';
+  `<!DOCTYPE html><html><head>` +
+  `<meta http-equiv="Content-Security-Policy" content="${PROJECTED_K5_CSP}">` +
+  `<meta name="${PROJECTED_SKELETON_META_NAME}" content="1">` +
+  `</head><body></body></html>`;
 
 /**
  * Budget for srcdoc birth → live CSS1Compat document.
@@ -51,6 +60,31 @@ export function stampProjectedStandardsSrcdoc(iframe: HTMLIFrameElement): void {
 /** Remove the srcdoc skeleton so a resync/cold frame owns the tree under id 1. */
 export function stripProjectedSkeleton(doc: Document): void {
   while (doc.firstChild) doc.removeChild(doc.firstChild);
+}
+
+/**
+ * Keep K5 CSP on the live Projected document after skeleton strip and before mirrored `<script>`
+ * nodes materialize. Idempotent — safe on every apply insert / attr that would run script.
+ */
+export function ensureProjectedK5Csp(doc: Document): void {
+  let html = doc.documentElement;
+  if (!html) {
+    html = doc.createElement('html');
+    doc.appendChild(html);
+  }
+  let head = doc.head;
+  if (!head) {
+    head = doc.createElement('head');
+    html.insertBefore(head, html.firstChild);
+  }
+  const existing = head.querySelectorAll('meta[http-equiv="Content-Security-Policy"]');
+  for (let i = 0; i < existing.length; i++) {
+    if (existing[i]!.getAttribute('content') === PROJECTED_K5_CSP) return;
+  }
+  const meta = doc.createElement('meta');
+  meta.httpEquiv = 'Content-Security-Policy';
+  meta.content = PROJECTED_K5_CSP;
+  head.insertBefore(meta, head.firstChild);
 }
 
 /**

@@ -31,6 +31,125 @@ export function matchesAllowedDomain(host: string, patterns: readonly string[]):
   return false;
 }
 
+/** True when url is http(s) main-document and host ∉ allowlist. */
+export function isMainFrameNavigationBlocked(
+  url: string,
+  allowedNavigationDomains: readonly string[],
+): boolean {
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  if (!allowedNavigationDomains.length) return false;
+  try {
+    return !matchesAllowedDomain(new URL(url).hostname, allowedNavigationDomains);
+  } catch {
+    return false;
+  }
+}
+
+export type MainFrameDomainGuardOpts = {
+  allowedNavigationDomains: readonly string[];
+  onBlocked: (url: string) => void;
+  /** Optional log prefix (session id). */
+  sessionId?: string;
+};
+
+type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * Request-stage Document domain allowlist (no CSP / script fulfill).
+ * Safe to use alone, or call {@link tryBlockPausedMainFrameDocument} from a shared
+ * Fetch.requestPaused handler that also owns Response-stage patterns (PP CSP hook).
+ */
+export async function installMainFrameDomainGuard(
+  cdp: CDPSession,
+  opts: MainFrameDomainGuardOpts,
+): Promise<void> {
+  const allowed = opts.allowedNavigationDomains;
+  if (!allowed.length) return;
+
+  await cdp.send('Page.enable', {});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await cdp.send('Fetch.enable', {
+    patterns: [{ requestStage: 'Request', resourceType: 'Document' }],
+  });
+
+  let mainFrameId: string | undefined;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { frameTree } = (await cdp.send('Page.getFrameTree', {})) as any;
+    mainFrameId = frameTree?.frame?.id as string | undefined;
+  } catch {
+    /* */
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cdp.on('Page.frameNavigated', (event: any) => {
+    const frame = event?.frame;
+    if (frame && !frame.parentId) mainFrameId = frame.id as string;
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cdp.on('Fetch.requestPaused', async (event: any) => {
+    const send: CdpSend = (method, params) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (cdp as any).send(method, params);
+    const blocked = await tryBlockPausedMainFrameDocument(send, event, {
+      allowedNavigationDomains: allowed,
+      onBlocked: opts.onBlocked,
+      sessionId: opts.sessionId,
+      mainFrameId,
+    });
+    if (blocked) return;
+    const requestId = event?.requestId as string | undefined;
+    if (!requestId) return;
+    try {
+      await send('Fetch.continueRequest', { requestId });
+    } catch {
+      /* */
+    }
+  });
+}
+
+/**
+ * If this paused event is a main-frame Document Request to a disallowed host,
+ * fail the request, emit onBlocked, return true. Otherwise return false (caller continues).
+ */
+export async function tryBlockPausedMainFrameDocument(
+  send: CdpSend,
+  event: {
+    requestId?: string;
+    responseStatusCode?: number;
+    frameId?: string;
+    request?: { url?: string };
+  },
+  opts: MainFrameDomainGuardOpts & { mainFrameId?: string },
+): Promise<boolean> {
+  if (event.responseStatusCode !== undefined) return false;
+  const url = event.request?.url ?? '';
+  const requestId = event.requestId;
+  if (!requestId || !url) return false;
+  if (!opts.allowedNavigationDomains.length) return false;
+
+  const isMainFrame = !opts.mainFrameId || event.frameId === opts.mainFrameId;
+  if (!isMainFrame) return false;
+  if (!isMainFrameNavigationBlocked(url, opts.allowedNavigationDomains)) return false;
+
+  if (opts.sessionId) {
+    try {
+      const host = new URL(url).hostname;
+      console.log(`[${opts.sessionId}] Navigation blocked: '${host}' ∉ allowed domains`);
+    } catch {
+      /* */
+    }
+  }
+  opts.onBlocked(url);
+  try {
+    await send('Fetch.failRequest', { requestId, errorReason: 'Aborted' });
+  } catch {
+    /* */
+  }
+  return true;
+}
+
 export function relaxMainFrameCspHeaders(
   responseHeaders: Array<{ name?: string; value?: string }> | undefined,
 ): Array<{ name: string; value: string }> {
@@ -227,7 +346,12 @@ export class Navigation {
         `);
   }
 
-  setupTabInterception(context: BrowserContext, page: Page): void {
+  setupTabInterception(
+    context: BrowserContext,
+    page: Page,
+    allowedNavigationDomains?: readonly string[],
+  ): void {
+    const allowed = allowedNavigationDomains ?? [];
     context.on('page', (newPage) => {
       if (newPage === page) return;
       void (async () => {
@@ -249,6 +373,10 @@ export class Navigation {
           /* */
         }
         if (targetUrl && /^https?:/i.test(targetUrl)) {
+          if (allowed.length > 0 && isMainFrameNavigationBlocked(targetUrl, allowed)) {
+            this.events.onMainFrameNavigationBlocked(targetUrl);
+            return;
+          }
           try {
             await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
           } catch {
@@ -411,23 +539,17 @@ export class Navigation {
         }
       }
 
-      if (hasGuard && url && (url.startsWith('http://') || url.startsWith('https://'))) {
-        const isMainFrame = !this.mainFrameId || event.frameId === this.mainFrameId;
-        if (isMainFrame) {
-          try {
-            const host = new URL(url).hostname;
-            if (!matchesAllowedDomain(host, allowedNavigationDomains!)) {
-              console.log(
-                `[${this.sessionId}] Navigation blocked: '${host}' ∉ allowed domains`,
-              );
-              this.events.onMainFrameNavigationBlocked(url);
-              await cdp.send('Fetch.failRequest', { requestId, errorReason: 'Aborted' });
-              return;
-            }
-          } catch {
-            /* */
-          }
-        }
+      if (hasGuard) {
+        const send: CdpSend = (method, params) =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (cdp as any).send(method, params);
+        const blocked = await tryBlockPausedMainFrameDocument(send, event, {
+          allowedNavigationDomains: allowedNavigationDomains!,
+          onBlocked: (u) => this.events.onMainFrameNavigationBlocked(u),
+          sessionId: this.sessionId,
+          mainFrameId: this.mainFrameId,
+        });
+        if (blocked) return;
       }
 
       try {

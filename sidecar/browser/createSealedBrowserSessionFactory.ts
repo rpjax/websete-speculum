@@ -25,6 +25,7 @@ import {
 } from './mirror/projection/session/PageProjectionBrowserSession';
 import { VideoStreamingBrowserSession } from './VideoStreamingBrowserSession';
 import { DisplayAllocator } from './patchright/Display';
+import { startCpuProfile, stopCpuProfile } from './probes/cpuProfile';
 import type {
   IBrowserPermissionHost,
   IBrowserSessionFactory,
@@ -39,6 +40,11 @@ class DenyAllPermissions implements IBrowserPermissionHost {
     return 'denied';
   }
 }
+
+const DEFAULT_PP_PROBES: PageProjectionFactoryOptions['probes'] = {
+  startCpuProfile,
+  stopCpuProfile,
+};
 
 /**
  * Placeholder until Launch — then replaces self with PP or Video session.
@@ -202,8 +208,10 @@ export function createSealedBrowserSessionFactory(options?: {
   displays?: DisplayAllocator;
 }): BrowserSessionFactory & IBrowserSessionFactory {
   const displays = options?.displays ?? new DisplayAllocator();
-  const ppOpts: PageProjectionFactoryOptions = { headless: options?.headless ?? true };
-  void DenyAllPermissions;
+  const ppOpts: PageProjectionFactoryOptions = {
+    headless: options?.headless ?? true,
+    probes: DEFAULT_PP_PROBES,
+  };
 
   const legacy: BrowserSessionFactory = {
     create(sessionId, events) {
@@ -216,7 +224,7 @@ export function createSealedBrowserSessionFactory(options?: {
     createPageProjection(
       sessionId: string,
       sink: IPageProjectionSessionSink,
-      _permissions: IBrowserPermissionHost,
+      permissions: IBrowserPermissionHost = new DenyAllPermissions(),
     ): IPageProjectionBrowserSession {
       const events: BrowserSessionEvents = {
         onVideoFrame() {},
@@ -226,8 +234,14 @@ export function createSealedBrowserSessionFactory(options?: {
         onMainFrameNavigationBlocked: (u) => sink.onMainFrameNavigationBlocked(u),
         onEditableFocusChanged: (e) => sink.onEditableFocusChanged(e),
         onCrash: (f) => sink.onCrash(f),
-        onCameraPermissionRequested: async () => 'deny',
-        onMicrophonePermissionRequested: async () => 'deny',
+        onCameraPermissionRequested: async () => {
+          const d = await permissions.requestPermission('camera');
+          return d === 'granted' ? 'allow' : 'deny';
+        },
+        onMicrophonePermissionRequested: async () => {
+          const d = await permissions.requestPermission('microphone');
+          return d === 'granted' ? 'allow' : 'deny';
+        },
         onPageProjectionFrame: (d) =>
           sink.onFrame({
             contextId: d.contextId ?? 1,
@@ -251,7 +265,7 @@ export function createSealedBrowserSessionFactory(options?: {
     createVideoStreaming(
       sessionId: string,
       sink: IVideoStreamingSessionSink,
-      _permissions: IBrowserPermissionHost,
+      permissions: IBrowserPermissionHost = new DenyAllPermissions(),
     ): IVideoStreamingBrowserSession {
       const events: BrowserSessionEvents = {
         onVideoFrame: (j) => sink.onVideoFrame(j),
@@ -261,8 +275,14 @@ export function createSealedBrowserSessionFactory(options?: {
         onMainFrameNavigationBlocked: (u) => sink.onMainFrameNavigationBlocked(u),
         onEditableFocusChanged: (e) => sink.onEditableFocusChanged(e),
         onCrash: (f) => sink.onCrash(f),
-        onCameraPermissionRequested: async () => 'deny',
-        onMicrophonePermissionRequested: async () => 'deny',
+        onCameraPermissionRequested: async () => {
+          const d = await permissions.requestPermission('camera');
+          return d === 'granted' ? 'allow' : 'deny';
+        },
+        onMicrophonePermissionRequested: async () => {
+          const d = await permissions.requestPermission('microphone');
+          return d === 'granted' ? 'allow' : 'deny';
+        },
         onAllocationLifecycle: (s) => {
           if (s.kind === 'display_allocated') {
             sink.onDisplayAllocated({

@@ -16,7 +16,7 @@ V4 mapping notes are marked **(V4)**. Do not revive “establish HTML” because
 | **K2** | **Session state is never shared.** Cookies, storage, credentials, identity, DOM, CSSOM, the id space, and any response fetched with credentials are strictly per session. **Exception:** immutable, credential-less **public byte content** may be deduplicated in a shared asset tier. Shared CSSOM, shared rewrite memo and shared id space remain rejected. |
 | **K3** | **≥100 concurrent sessions** on an appropriately provisioned VPS, **with no degradation**. |
 | **K4** | **Absolute 1:1 parity**, visual and interactive, per [acceptance.md](acceptance.md). |
-| **K5** | **Site JavaScript executes only in the Virtual Chromium.** No page JS on the Projected surface, in any form. |
+| **K5** | **Site JavaScript executes only in the Virtual Chromium.** No page JS on the Projected surface, in any form. **Enforcement (2026-08-30):** CSP meta (`script-src 'none'; object-src 'none'`) in stamped srcdoc + `ensureProjectedK5Csp` before mirrored `<script>` materialize — not `iframe.sandbox` (WebKit/iOS touch block). Submit / link guards: `attachProjectedNativeGuard`. |
 
 **Media (so K1 is not misread):** `<video>`/`<audio>`/HLS/DASH are served as **bytes** through the virtual-assets plane and played by the **client’s own** media engine. That is asset serving, not pixel streaming.
 

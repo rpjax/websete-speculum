@@ -51,6 +51,7 @@ import {
   withScriptingOnPaintParity,
 } from './scriptingOnPaintParity';
 import {
+  ensureProjectedK5Csp,
   stampProjectedStandardsSrcdoc,
 } from './projectedBlankIframe';
 import { registerClosedShadowRoot } from '../core/closedShadowLookup';
@@ -333,7 +334,7 @@ export class DomFrameApplier {
   }
 
   /**
-   * K5 sandbox has no `allow-scripts`; hide `<noscript>` like Chromium with JS on.
+   * K5 CSP blocks page JS; hide `<noscript>` like Chromium with JS on.
    * Call after phase-2 materialize — `defaultView`/head can be gone mid-apply.
    */
   private ensurePaintParity(): void {
@@ -728,6 +729,7 @@ export class DomFrameApplier {
       const id = op.ids[i]!;
       const node = this.registry.get(id);
       if (!node) return this.fail('address_miss', 'insert', id);
+      if (isHtmlScriptElement(node)) ensureProjectedK5Csp(this.doc);
       // Standards seed may already own this DocumentType — re-insert throws HierarchyRequestError.
       if (
         node.nodeType === Node.DOCUMENT_TYPE_NODE
@@ -767,6 +769,12 @@ export class DomFrameApplier {
   private applyAttrSet(op: Extract<FrameOp, { op: OpCode.AttrSet }>): boolean {
     const node = this.registry.get(op.node);
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'attrSet', op.node);
+    if (
+      isHtmlScriptElement(node)
+      && op.attrs.some((a) => a.name === 'src' && a.value.length > 0)
+    ) {
+      ensureProjectedK5Csp(this.doc);
+    }
     const attrs = this.nestedHostIds.has(op.node)
       ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name))
       : op.attrs;
@@ -829,6 +837,14 @@ export class DomFrameApplier {
     // before binding NestedProjectedApply (pre-load contentDocument is discarded).
     if (el.contentWindow) this.options.onNestedHost?.(el, childScopeId);
   }
+}
+
+function isHtmlScriptElement(node: Node): node is HTMLScriptElement {
+  return (
+    node.nodeType === Node.ELEMENT_NODE
+    && (node as Element).localName === 'script'
+    && (node as Element).namespaceURI === 'http://www.w3.org/1999/xhtml'
+  );
 }
 
 /** SEAL-DOM-P0-ATTR / PP-APPLY-2: failed setAttribute → false (callers desync). */

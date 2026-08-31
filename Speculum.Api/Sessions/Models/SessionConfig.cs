@@ -23,4 +23,10 @@ public sealed class SessionConfig
     public bool JsBridgeEnabled { get; set; }
 
     public IReadOnlyList<string>? AllowedNavigationDomains { get; set; }
+
+    /// <summary>
+    /// When true, sidecar may run CDP Profiler (startCpuProfile / stopCpuProfile).
+    /// Lab/assert / capacity; default false.
+    /// </summary>
+    public bool CpuProfiling { get; set; }
 }

@@ -1,11 +1,11 @@
 /**
- * Projected documents are sandboxed without page JS (K5). Native activation of
- * `<a href>` still runs — on iOS WebKit that follows the link even when a parent
- * `click` listener later calls preventDefault. Relative hrefs resolve against the
- * lab/Sessions origin and replace the surface (lab 404 "not found").
+ * Projected documents have no page JS (K5 — CSP). Native activation of
+ * `<a href>` and form submit still runs without sandbox — on iOS WebKit that follows the link
+ * even when a parent `click` listener later calls preventDefault. Relative hrefs resolve against
+ * the lab/Sessions origin and replace the surface (lab 404 "not found").
  *
- * Guard is presentation-only: tree/table unchanged. Scroll stays native except on
- * navigable hits (touch-action / preventDefault only there).
+ * Guard is presentation-only: tree/table unchanged. Whole-surface `touch-action`
+ * keeps iOS from delaying pointers / double-tap-zoom while native scroll still works.
  */
 
 export function eventTargetElement(target: EventTarget | null): Element | null {
@@ -39,7 +39,20 @@ export function layoutViewportSize(win: Window): { width: number; height: number
  * Installs capture-phase native suppression for the life of this Document.
  * Safe to call more than once (second install still works; callers own teardown).
  */
-export function attachProjectedNativeGuard(doc: Document): () => void {
+/** Pan + tap without pinch/double-tap delay; native scroll events still fire. */
+function installProjectedTouchSurface(doc: Document): void {
+  const touchAction = 'manipulation';
+  const root = doc.documentElement;
+  if (root) root.style.touchAction = touchAction;
+  if (doc.body) doc.body.style.touchAction = touchAction;
+}
+
+export type ProjectedNativeGuardOptions = {
+  onTouchStartSeen?: () => void;
+};
+
+export function attachProjectedNativeGuard(doc: Document, opts?: ProjectedNativeGuardOptions): () => void {
+  installProjectedTouchSurface(doc);
   const onActivate = (event: Event) => suppressProjectedDefault(event);
   const onPointerDown = (event: Event) => {
     const pe = event as PointerEvent;
@@ -47,6 +60,7 @@ export function attachProjectedNativeGuard(doc: Document): () => void {
     if (isProjectedNavigable(event.target)) suppressProjectedDefault(event);
   };
   const onTouchStart = (event: Event) => {
+    opts?.onTouchStartSeen?.();
     if (isProjectedNavigable(event.target)) suppressProjectedDefault(event);
   };
 

@@ -1,0 +1,267 @@
+/**
+ * CDP CPU-profile capture + aggregation for the Virtual/producer side.
+ * Virtual-side only — client apply cost stays wall-clock (`applyMs` in telemetry).
+ */
+
+import type { CDPSession } from 'patchright';
+
+export type CpuProfileCallFrame = {
+  functionName: string;
+  url: string;
+  lineNumber: number;
+  columnNumber?: number;
+  scriptId?: string;
+};
+
+export type CpuProfileNode = {
+  id: number;
+  callFrame: CpuProfileCallFrame;
+  hitCount?: number;
+  children?: number[];
+};
+
+/** Chrome DevTools Protocol `Profiler.Profile` — the fields this module actually reads. */
+export type CpuProfile = {
+  nodes: CpuProfileNode[];
+  startTime: number;
+  endTime: number;
+  samples?: number[];
+  timeDeltas?: number[];
+};
+
+export type SelfTimeRow = { key: string; hits: number; ms: number; pct: number };
+
+export type TimeBucketSummary = {
+  rangeMs: [number, number];
+  idlePct: number;
+  ourCodePct: number;
+  topNonIdle: { name: string; pct: number }[];
+};
+
+export type CpuProfileSummary = {
+  totalSamples: number;
+  wallMs: number;
+  approxCpuMs: number;
+  topSelfTime: SelfTimeRow[];
+  ourCode: { totalPct: number; totalMs: number; byFunction: SelfTimeRow[] };
+  timeBuckets?: TimeBucketSummary[];
+};
+
+/**
+ * Every function name that is *ours* on the Virtual/producer path — an explicit allowlist so
+ * "our cost" is a real accounting ("didn't make the top-25" is a weaker claim than "summed to
+ * exactly N%", per this session's real-site profiling), not an eyeball guess at what looks
+ * unfamiliar in a stack trace. Extend this list — don't invent a second mechanism — when a new
+ * producer module lands (e.g. `CHECK`/`preTableHash` row hashing).
+ */
+export const OUR_FUNCTION_NAMES: ReadonlySet<string> = new Set([
+  'build',
+  'walkChildList',
+  'walkSiblingRun',
+  'prepareChild',
+  'resolvedBefore',
+  'describeNodeNew',
+  'readAttrs',
+  'nodeKindOf',
+  'allocate',
+  'keyOf',
+  'bind',
+  'resetIdentity',
+  'liveEntries',
+  'encodeFrame',
+  'assemblePart',
+  'str',
+  'u64',
+  'u32',
+  'u16',
+  'u8',
+  'debugStrings',
+  'sendInitial',
+  'emitResyncFrame',
+  'rebuildAndResync',
+  'describeDomResync',
+  'rebuildDomIdentity',
+  'blockingScan',
+  'recordFrameEmitted',
+  'FrameEmitter',
+  'TableFrameBuilder',
+  'DomNodeTable',
+  'MutationBuffer',
+  // frame-protocol-production-completeness Stage 1 — rowHash.ts / replicatedTable.ts /
+  // replicatedTableApply.ts. Deliberately excludes generic single-word names ('remove', 'clear')
+  // that also match unrelated native DOM calls under this same-name-only allowlist match.
+  'h64Bytes',
+  'h64Str',
+  'h64U32',
+  'addMod64',
+  'subMod64',
+  'hashName',
+  'hashValue',
+  'hashAttr',
+  'computeRowHash',
+  'upsert',
+  'createElementRow',
+  'createLeafRow',
+  'setAttrs',
+  'delAttrs',
+  'setValue',
+  'insertBatch',
+  'removeBatch',
+  'dropRow',
+  'setRow',
+  'relinkPrevSibling',
+  'linkAfter',
+  'unlink',
+  'applyOpToTable',
+  'applyOpsToTable',
+  'applyFrameToTable',
+]);
+
+/**
+ * `Profiler.*` is not declared in patchright's bundled `Protocol.CommandParameters`
+ * (confirmed: absent from `node_modules/patchright-core/types/protocol.d.ts` — Playwright
+ * itself never uses this CDP domain), even though Chromium supports it at runtime.
+ * This is the one narrow, explicit escape hatch for that vendored-type gap, not a general
+ * `any` — every other CDP call in this codebase keeps full typing.
+ */
+function cdpSend<T = unknown>(
+  cdp: CDPSession,
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<T> {
+  return (cdp as unknown as { send(method: string, params?: Record<string, unknown>): Promise<T> }).send(
+    method,
+    params,
+  );
+}
+
+export async function startCpuProfile(cdp: CDPSession, samplingIntervalUs = 100): Promise<void> {
+  await cdpSend(cdp, 'Profiler.enable');
+  await cdpSend(cdp, 'Profiler.setSamplingInterval', { interval: samplingIntervalUs });
+  await cdpSend(cdp, 'Profiler.start');
+}
+
+export async function stopCpuProfile(
+  cdp: CDPSession,
+  bucketCount = 0,
+): Promise<{ raw: CpuProfile; summary: CpuProfileSummary }> {
+  const { profile } = await cdpSend<{ profile: CpuProfile }>(cdp, 'Profiler.stop');
+  return { raw: profile, summary: summarizeProfile(profile, bucketCount) };
+}
+
+/**
+ * Aggregates self-time per function (`hitCount` on `profile.nodes[]` is already self-time,
+ * independent of call-stack position — "where CPU actually goes", not "who called it"),
+ * plus an explicit our-code total, plus an optional time-bucketed breakdown (using
+ * `profile.samples[]`/`timeDeltas[]` — CPU Profile format: sample i fired `timeDeltas[i]`
+ * microseconds after sample i-1, first delta relative to `profile.startTime`).
+ */
+export function summarizeProfile(profile: CpuProfile, bucketCount = 0): CpuProfileSummary {
+  const nodeById = new Map<number, CpuProfileNode>(profile.nodes.map((n) => [n.id, n]));
+  const selfHits = new Map<number, number>();
+  for (const n of profile.nodes) selfHits.set(n.id, n.hitCount ?? 0);
+
+  const totalHits = [...selfHits.values()].reduce((a, b) => a + b, 0);
+  const totalDurationUs = profile.endTime && profile.startTime ? profile.endTime - profile.startTime : 0;
+  const usPerHit = totalHits > 0 ? totalDurationUs / totalHits : 0;
+
+  const byFunctionKey = new Map<string, number>();
+  for (const [id, hits] of selfHits) {
+    if (hits === 0) continue;
+    const n = nodeById.get(id);
+    if (!n) continue;
+    const cf = n.callFrame;
+    const key = `${cf.functionName || '(anonymous)'} @ ${shortUrl(cf.url)}:${cf.lineNumber + 1}`;
+    byFunctionKey.set(key, (byFunctionKey.get(key) ?? 0) + hits);
+  }
+  const toRow = (key: string, hits: number): SelfTimeRow => ({
+    key,
+    hits,
+    ms: (hits * usPerHit) / 1000,
+    pct: totalHits > 0 ? (100 * hits) / totalHits : 0,
+  });
+  const topSelfTime = [...byFunctionKey.entries()]
+    .map(([key, hits]) => toRow(key, hits))
+    .sort((a, b) => b.hits - a.hits)
+    .slice(0, 25);
+
+  let ourTotalHits = 0;
+  const ourByFunction = new Map<string, number>();
+  for (const [id, hits] of selfHits) {
+    if (hits === 0) continue;
+    const n = nodeById.get(id);
+    if (!n) continue;
+    const name = n.callFrame.functionName;
+    if (!OUR_FUNCTION_NAMES.has(name)) continue;
+    ourTotalHits += hits;
+    ourByFunction.set(name, (ourByFunction.get(name) ?? 0) + hits);
+  }
+  const ourCode = {
+    totalPct: totalHits > 0 ? (100 * ourTotalHits) / totalHits : 0,
+    totalMs: (ourTotalHits * usPerHit) / 1000,
+    byFunction: [...ourByFunction.entries()]
+      .map(([key, hits]) => toRow(key, hits))
+      .sort((a, b) => b.hits - a.hits),
+  };
+
+  const summary: CpuProfileSummary = {
+    totalSamples: totalHits,
+    wallMs: totalDurationUs / 1000,
+    approxCpuMs: (totalHits * usPerHit) / 1000,
+    topSelfTime,
+    ourCode,
+  };
+
+  if (bucketCount > 0 && Array.isArray(profile.samples) && Array.isArray(profile.timeDeltas)) {
+    summary.timeBuckets = bucketProfile(profile, nodeById, bucketCount, totalDurationUs);
+  }
+  return summary;
+}
+
+function bucketProfile(
+  profile: CpuProfile,
+  nodeById: Map<number, CpuProfileNode>,
+  bucketCount: number,
+  totalDurationUs: number,
+): TimeBucketSummary[] {
+  const bucketUs = totalDurationUs / bucketCount;
+  const buckets: Map<string, number>[] = Array.from({ length: bucketCount }, () => new Map());
+  const bucketTotals = new Array<number>(bucketCount).fill(0);
+  const samples = profile.samples ?? [];
+  const timeDeltas = profile.timeDeltas ?? [];
+  let cursorUs = 0;
+  for (let i = 0; i < samples.length; i++) {
+    cursorUs += timeDeltas[i] ?? 0;
+    const bucketIdx = Math.min(bucketCount - 1, Math.floor(cursorUs / bucketUs));
+    const n = nodeById.get(samples[i]!);
+    if (!n) continue;
+    const key = n.callFrame.functionName || '(anonymous)';
+    const bucket = buckets[bucketIdx]!;
+    bucket.set(key, (bucket.get(key) ?? 0) + 1);
+    bucketTotals[bucketIdx]! += 1;
+  }
+  return buckets.map((bucket, b) => {
+    const total = bucketTotals[b] || 1;
+    const idle = bucket.get('(idle)') ?? 0;
+    const ourHits = [...bucket.entries()]
+      .filter(([name]) => OUR_FUNCTION_NAMES.has(name))
+      .reduce((sum, [, hits]) => sum + hits, 0);
+    const topNonIdle = [...bucket.entries()]
+      .filter(([name]) => name !== '(idle)' && name !== '(program)')
+      .sort((a, z) => z[1] - a[1])
+      .slice(0, 4)
+      .map(([name, hits]) => ({ name, pct: (100 * hits) / total }));
+    return {
+      rangeMs: [(b * bucketUs) / 1000, ((b + 1) * bucketUs) / 1000],
+      idlePct: (100 * idle) / total,
+      ourCodePct: (100 * ourHits) / total,
+      topNonIdle,
+    };
+  });
+}
+
+function shortUrl(url: string): string {
+  if (!url) return '(native)';
+  const idx = url.lastIndexOf('/');
+  return idx >= 0 ? url.slice(idx + 1) : url;
+}

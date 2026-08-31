@@ -54,7 +54,6 @@ export function createNestedResyncSurface(primaryHost: HTMLIFrameElement): Neste
     if (!parent) throw new Error('nested surface: host has no parent');
     const iframe = document.createElement('iframe');
     iframe.title = 'Nested projected resync build';
-    iframe.sandbox.add('allow-same-origin');
     iframe.style.cssText = activeIframe.style.cssText;
     iframe.style.visibility = 'hidden';
     stampProjectedStandardsSrcdoc(iframe);

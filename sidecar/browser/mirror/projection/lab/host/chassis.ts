@@ -12,6 +12,7 @@ import {
 } from '@speculum/page-projection/core/telemetry';
 import { createPageProjectionBrowserSessionFactory } from '../../session/PageProjectionBrowserSession';
 import { labLaunchOptions } from '../../session/labLaunch';
+import { NGROK_SKIP_HEADERS } from '../labPublicOrigin';
 import { startCpuProfile, stopCpuProfile, summarizeProfile, type CpuProfile } from '../probes/cpuProfile';
 import {
   createDossier,
@@ -675,6 +676,7 @@ export class LabChassis {
 
     const factory = createPageProjectionBrowserSessionFactory({
       headless: this.opts.headless,
+      extraHTTPHeaders: NGROK_SKIP_HEADERS,
       probes: {
         startCpuProfile,
         stopCpuProfile,

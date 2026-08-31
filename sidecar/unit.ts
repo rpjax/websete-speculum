@@ -58,13 +58,18 @@ import { runChromeLnaPolicyUnitTests } from './browser/patchright/chromeLnaPolic
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { runViewportChainUnitTests } from './browser/mirror/projection/input/viewportChain.unit';
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
+import { runLabPublicOriginUnitTests } from './browser/mirror/projection/lab/labPublicOrigin.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
 import { runChildScopeBusRouteUnitTests } from './browser/mirror/projection/bus/childScopeBusRoute.unit';
 import { runPortCarrierUnitTests } from './browser/mirror/projection/bus/portCarrier.unit';
 import { runMintHoldUnitTests } from './browser/mirror/projection/bus/mintHold.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
 import { runProjectedApplyGateUnitTests } from './browser/mirror/projection/projected/projectedApplyGate.unit';
+import { runProjectedK5UnitTests } from './browser/mirror/projection/projected/projectedK5.unit';
+import { runProjectedNativeGuardUnitTests } from './browser/mirror/projection/input/projectedNativeGuard.unit';
 import { runCdpConsoleRelayUnitTests } from './browser/patchright/cdpConsoleRelay.unit';
+import { runMainFrameDomainGuardUnitTests } from './browser/patchright/Navigation.domainGuard.unit';
+import { runPermissionGateUnitTests } from './browser/patchright/PermissionGate.unit';
 import { runEventApplierUnitTests } from './browser/input/EventApplier.unit';
 import { runSparseCdpInputAdapterUnitTests } from './browser/input/adapters/sparseCdpInputAdapter.unit';
 import { mapSrcset, parseSrcset } from './browser/patchright/mirror/dom/srcsetParse';
@@ -843,6 +848,23 @@ function testLaunchEnvironmentIsRequired(): void {
   });
   assert.strictEqual(dom.mirrorMode, 'pageProjection');
   assert.strictEqual(dom.frameQueueCapacity, 4096);
+  assert.strictEqual(dom.cpuProfiling, false);
+
+  const cpuOn = toLaunchOptions({
+    width: 800,
+    height: 600,
+    minWidth: 100,
+    minHeight: 100,
+    displayWidth: 2048,
+    displayHeight: 1080,
+    locale: 'en-US',
+    language: 'en-US',
+    timezoneId: 'UTC',
+    colorScheme: 'light',
+    mirrorMode: 'pageProjection',
+    cpu_profiling: true,
+  });
+  assert.strictEqual(cpuOn.cpuProfiling, true);
   console.log('[unit] launch environment ok');
 }
 
@@ -4291,10 +4313,15 @@ async function main(): Promise<void> {
   await runMintHoldUnitTests();
   runScriptingOnPaintParityUnitTests();
   await runProjectedApplyGateUnitTests();
+  await runProjectedK5UnitTests();
+  runProjectedNativeGuardUnitTests();
   runCdpConsoleRelayUnitTests();
+  await runMainFrameDomainGuardUnitTests();
+  await runPermissionGateUnitTests();
   await runEventApplierUnitTests();
   await runSparseCdpInputAdapterUnitTests();
   await runProjectedInputCaptureUnitTests();
+  await runLabPublicOriginUnitTests();
   await runRelaxCspUnitTests();
   await runInjectScriptBodiesUnitTests();
   await runResolveLaunchScriptsUnitTests();

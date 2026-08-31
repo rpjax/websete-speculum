@@ -226,6 +226,8 @@ export async function launchChrome(args: {
   geolocation?: BrowserGeolocation;
   device?: BrowserDeviceProfile;
   preserveUserDataDir?: boolean;
+  /** Merged into Playwright extraHTTPHeaders (e.g. lab ngrok skip). */
+  extraHTTPHeaders?: Readonly<Record<string, string>>;
   /** Per-session unpacked extension dirs (default: shared template — PP must pass a materialized copy). */
   extensionPaths?: readonly string[];
 }): Promise<ChromeHandle> {
@@ -269,6 +271,7 @@ export async function launchChrome(args: {
     colorScheme: args.colorScheme,
     extraHTTPHeaders: {
       'Accept-Language': args.language,
+      ...args.extraHTTPHeaders,
     },
   });
 

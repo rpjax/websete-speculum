@@ -15,6 +15,7 @@ import {
   labConfigJson,
   type CrossOriginFixtureServer,
 } from '../crossOriginFixtureServer';
+import { labLocalOrigin, resolveLabPublicOrigin } from '../labPublicOrigin';
 
 export type LabServerOptions = {
   host: string;
@@ -58,7 +59,7 @@ function safeJoin(root: string, urlPath: string): string | null {
 export async function createLabServer(opts: LabServerOptions): Promise<LabServer> {
   const { staticDir, fixturesDir, labRoot } = labAssetRoots();
   const sessions = new Map<string, WsLabConnection>();
-  const publicOrigin = `http://${opts.host}:${opts.port}`;
+  const localOrigin = labLocalOrigin(opts.host, opts.port);
   let xoServer: CrossOriginFixtureServer | null = null;
   try {
     xoServer = await createCrossOriginFixtureServer(opts.host);
@@ -100,7 +101,16 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
         return;
       }
       if (pathname.startsWith('/lab/client.js') || pathname === '/client.js') {
-        sendFile(res, path.join(staticDir, 'client.js'));
+        const clientJs = path.join(staticDir, 'client.js');
+        if (!fs.existsSync(clientJs) || !fs.statSync(clientJs).isFile()) {
+          res.writeHead(404).end('not found');
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'text/javascript; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        fs.createReadStream(clientJs).pipe(res);
         return;
       }
       if (pathname.startsWith('/virtual.js') || pathname.startsWith('/__speculum/virtual.js')) {
@@ -141,7 +151,8 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
     if (pathname === '/lab/session') {
       wss.handleUpgrade(req, socket, head, (ws) => {
         const session = new WsLabConnection(ws, {
-          publicOrigin,
+          publicOrigin: resolveLabPublicOrigin(localOrigin, req),
+          localOrigin,
           headless: opts.headless,
         });
         sessions.set(session.id, session);

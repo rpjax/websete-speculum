@@ -8,6 +8,7 @@ import type { UnifiedIntent } from '../../core/input/unifiedIntentTypes';
 import { UNIFIED_INTENT_SCHEMA_VERSION } from '../../core/input/unifiedIntentTypes';
 import type { ProjectedInputCaptureMetrics } from './inputCaptureMetrics';
 import { ClientBuffer } from './ClientBuffer';
+import { attachProjectedNativeGuard, layoutViewportSize } from './projectedNativeGuard';
 
 export type ProjectedInputCaptureOptions = {
   contextId: number;
@@ -82,6 +83,8 @@ export function attachProjectedInputCapture(
   const win = doc.defaultView;
   const buffer = new ClientBuffer();
   let edgeSwipe: EdgeSwipeTrack | null = null;
+  /** Pointers that emitted `down` — iOS Safari often sends `pointercancel` instead of `up`. */
+  const pendingPointers = new Set<number>();
 
   const fireHistoryNav = (direction: 'back' | 'forward') => {
     enqueue({
@@ -158,8 +161,9 @@ export function attachProjectedInputCapture(
         break;
       }
     }
-    const visW = rootWin.innerWidth;
-    const visH = rootWin.innerHeight;
+    const vis = layoutViewportSize(rootWin);
+    const visW = vis.width;
+    const visH = vis.height;
     if (visW <= 0 || visH <= 0) return null;
     const { width: vw, height: vh } = opts.getViewportSize();
     if (vw <= 0 || vh <= 0) return null;
@@ -217,6 +221,8 @@ export function attachProjectedInputCapture(
       contextId: opts.contextId,
       nodeId,
     });
+    if (type === 'down') pendingPointers.add(event.pointerId);
+    else pendingPointers.delete(event.pointerId);
   };
 
   const onPointerEdge = (event: PointerEvent, type: 'down' | 'up') => {
@@ -342,9 +348,32 @@ export function attachProjectedInputCapture(
     opts.onMarkPropDirty?.(nodeId);
   };
 
+  const pointerOpts: AddEventListenerOptions = { capture: true, passive: false };
+
+  const capturePointer = (event: PointerEvent) => {
+    const target = event.target;
+    if (!target || typeof target !== 'object' || !('setPointerCapture' in target)) return;
+    try {
+      (target as Element).setPointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const releasePointer = (event: PointerEvent) => {
+    const target = event.target;
+    if (!target || typeof target !== 'object' || !('releasePointerCapture' in target)) return;
+    try {
+      (target as Element).releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const onPointerDown = (event: PointerEvent) => {
     if (event.pointerType === 'touch' && win) {
-      const vw = win.innerWidth;
+      const rootWin = opts.getRootWindow?.() ?? win;
+      const vw = layoutViewportSize(rootWin).width;
       if (event.clientX <= EDGE_SWIPE_PX) {
         edgeSwipe = {
           pointerId: event.pointerId,
@@ -368,6 +397,11 @@ export function attachProjectedInputCapture(
         return;
       }
     }
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+      event.stopPropagation();
+      capturePointer(event);
+    }
     onPointerEdge(event, 'down');
   };
 
@@ -375,6 +409,19 @@ export function attachProjectedInputCapture(
     if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
+  };
+
+  const clearEdgeSwipe = (event: PointerEvent) => {
+    if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId) return false;
+    edgeSwipe = null;
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  };
+
+  const finishPendingPointer = (event: PointerEvent) => {
+    if (!pendingPointers.delete(event.pointerId)) return;
+    runPointerEdge(event, 'up');
   };
 
   const onPointerUp = (event: PointerEvent) => {
@@ -396,12 +443,40 @@ export function attachProjectedInputCapture(
       }
       return;
     }
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+      event.stopPropagation();
+      releasePointer(event);
+    }
     onPointerEdge(event, 'up');
   };
 
-  doc.addEventListener('pointerdown', onPointerDown as EventListener, true);
-  doc.addEventListener('pointermove', onPointerMove as EventListener, true);
-  doc.addEventListener('pointerup', onPointerUp as EventListener, true);
+  const onPointerCancel = (event: PointerEvent) => {
+    if (clearEdgeSwipe(event)) return;
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+      event.stopPropagation();
+      releasePointer(event);
+    }
+    finishPendingPointer(event);
+  };
+
+  const onLostPointerCapture = (event: PointerEvent) => {
+    if (edgeSwipe?.pointerId === event.pointerId) {
+      edgeSwipe = null;
+      return;
+    }
+    finishPendingPointer(event);
+  };
+
+  doc.addEventListener('pointerdown', onPointerDown as EventListener, pointerOpts);
+  doc.addEventListener('pointermove', onPointerMove as EventListener, pointerOpts);
+  doc.addEventListener('pointerup', onPointerUp as EventListener, pointerOpts);
+  doc.addEventListener('pointercancel', onPointerCancel as EventListener, pointerOpts);
+  doc.addEventListener('lostpointercapture', onLostPointerCapture as EventListener, pointerOpts);
+  const detachNativeGuard = attachProjectedNativeGuard(doc, {
+    onTouchStartSeen: () => opts.metrics?.noteTouchStartSeen(),
+  });
   doc.addEventListener('click', onClick as EventListener, true);
   doc.addEventListener('submit', onSubmit, true);
   doc.addEventListener('contextmenu', onContextMenu as EventListener, true);
@@ -416,9 +491,13 @@ export function attachProjectedInputCapture(
   return () => {
     buffer.dispose();
     detachHistoryTrap();
-    doc.removeEventListener('pointerdown', onPointerDown as EventListener, true);
-    doc.removeEventListener('pointermove', onPointerMove as EventListener, true);
-    doc.removeEventListener('pointerup', onPointerUp as EventListener, true);
+    doc.removeEventListener('pointerdown', onPointerDown as EventListener, pointerOpts);
+    doc.removeEventListener('pointermove', onPointerMove as EventListener, pointerOpts);
+    doc.removeEventListener('pointerup', onPointerUp as EventListener, pointerOpts);
+    doc.removeEventListener('pointercancel', onPointerCancel as EventListener, pointerOpts);
+    doc.removeEventListener('lostpointercapture', onLostPointerCapture as EventListener, pointerOpts);
+    detachNativeGuard();
+    pendingPointers.clear();
     doc.removeEventListener('click', onClick as EventListener, true);
     doc.removeEventListener('submit', onSubmit, true);
     doc.removeEventListener('contextmenu', onContextMenu as EventListener, true);

@@ -38,6 +38,7 @@ import { shouldEmitContextCrash } from './contextCrash';
 import { MediaIngress } from './MediaIngress';
 import { Navigation } from './Navigation';
 import { PageState } from './PageState';
+import { attachPermissionGate, type PermissionGateHandle } from './PermissionGate';
 import { Probe as ProbeCapability } from './Probe';
 import { Screencast } from './Screencast';
 import { computeScreencastEncodeSize } from './screencast-encode';
@@ -72,6 +73,7 @@ export class PatchrightBrowserSession implements BrowserSession {
   private input: InputController | null = null;
   private navigation: Navigation;
   private pageState = new PageState();
+  private permissionGate: PermissionGateHandle | null = null;
   private readonly probeCapability = new ProbeCapability();
   private evaluateCap: Evaluate;
   private editableFocus: EditableFocus;
@@ -277,13 +279,23 @@ export class PatchrightBrowserSession implements BrowserSession {
         await installMobileViewportMetaInit(this.chrome.page);
       }
       await this.navigation.setupSingleTab(this.chrome.context);
-      this.navigation.setupTabInterception(this.chrome.context, this.chrome.page);
+      this.navigation.setupTabInterception(
+        this.chrome.context,
+        this.chrome.page,
+        options.allowedNavigationDomains,
+      );
       this.navigation.setupLocationSync(this.chrome.page);
       await this.navigation.setupFetchGuard(
         this.chrome.cdp,
         options.scripts ?? [],
         options.allowedNavigationDomains,
       );
+      this.permissionGate?.dispose();
+      this.permissionGate = attachPermissionGate({
+        context: this.chrome.context,
+        page: this.chrome.page,
+        events: this.events,
+      });
 
       // Re-prove after tab/guard setup — bounds + metrics must stick for mobile.
       // proveLogicalViewport uses CDP cssLayoutViewport after fresh apply.
@@ -886,6 +898,8 @@ export class PatchrightBrowserSession implements BrowserSession {
     this.crashEpoch++;
     this.open = false;
     this.editableFocus.stop();
+    this.permissionGate?.dispose();
+    this.permissionGate = null;
     if (this.input) {
       try {
         await this.input.dispose();

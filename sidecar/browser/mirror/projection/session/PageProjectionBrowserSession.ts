@@ -63,7 +63,12 @@ import {
 } from './singleTab';
 import { attachCdpConsoleRelay } from '../../../patchright/cdpConsoleRelay';
 import { EditableFocus } from '../../../patchright/EditableFocus';
-import { matchesAllowedDomain } from '../../../patchright/Navigation';
+import { matchesAllowedDomain, isMainFrameNavigationBlocked } from '../../../patchright/Navigation';
+import { PageState } from '../../../patchright/PageState';
+import {
+  attachPermissionGate,
+  type PermissionGateHandle,
+} from '../../../patchright/PermissionGate';
 import {
   deviceProfilesEqual,
   proveLogicalViewport,
@@ -119,6 +124,7 @@ export type PageProjectionFactoryOptions = {
    */
   headless: boolean;
   probes?: PageProjectionProbes;
+  extraHTTPHeaders?: Readonly<Record<string, string>>;
 };
 
 export class PageProjectionBrowserSession {
@@ -143,6 +149,7 @@ export class PageProjectionBrowserSession {
   private cpuAllowed = false;
   private cpuRunning = false;
   private readonly headless: boolean;
+  private readonly extraHTTPHeaders: Readonly<Record<string, string>> | undefined;
   private readonly editableFocus: EditableFocus;
   private readonly dataPlane = new ProjectionDataPlaneHost();
   private readonly extensionC2 = new ExtensionC2Host();
@@ -159,6 +166,9 @@ export class PageProjectionBrowserSession {
   private readonly inputRejectMetrics = new InputRejectMetrics();
   private lastInputIntent: LastInputIntentRecord | null = null;
   private lastClickResolve: LastClickResolveRecord | null = null;
+  private readonly pageState = new PageState();
+  private pendingState: BrowserState | null = null;
+  private permissionGate: PermissionGateHandle | null = null;
 
   constructor(
     readonly sessionId: string,
@@ -166,6 +176,7 @@ export class PageProjectionBrowserSession {
     factoryOpts: PageProjectionFactoryOptions,
   ) {
     this.headless = factoryOpts.headless;
+    this.extraHTTPHeaders = factoryOpts.extraHTTPHeaders;
     this.probes = factoryOpts.probes ?? {};
     this.planeBridgeToken = randomUUID();
     this.editableFocus = new EditableFocus(events);
@@ -339,6 +350,7 @@ export class PageProjectionBrowserSession {
       geolocation: options.geolocation,
       device: options.device,
       extensionPaths: [this.extensionInstallDir],
+      extraHTTPHeaders: this.extraHTTPHeaders,
     });
     this.context = this.chrome.context;
     this.page = this.chrome.page;
@@ -383,14 +395,64 @@ export class PageProjectionBrowserSession {
         message: 'chromium disconnected',
       });
     });
+
+    // Arm single-tab + domain guard on the launch primary before first navigate/freshPage.
+    const launchPage = this.page;
+    const launchCdp = this.cdpSession;
+    if (launchPage && launchCdp && this.context) {
+      const adoptUrlOnPrimary = async (url: string) => {
+        const allowed = options.allowedNavigationDomains;
+        if (allowed && allowed.length > 0 && isMainFrameNavigationBlocked(url, allowed)) {
+          this.events.onMainFrameNavigationBlocked(url);
+          return;
+        }
+        await launchPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        this.url = launchPage.url() || url;
+        this.events.onLocationChanged(this.url);
+      };
+      installSingleTabAdoption({
+        page: launchPage,
+        context: this.context,
+        adoptUrlOnPrimary,
+      });
+      await installDocumentResponseHook(launchCdp, {
+        mutators: [cspDocumentMutator],
+        context: this.context,
+        page: launchPage,
+        domainGuard:
+          options.allowedNavigationDomains && options.allowedNavigationDomains.length > 0
+            ? {
+                allowedNavigationDomains: options.allowedNavigationDomains,
+                onBlocked: (u) => this.events.onMainFrameNavigationBlocked(u),
+                sessionId: this.sessionId,
+              }
+            : null,
+      });
+      this.permissionGate?.dispose();
+      this.permissionGate = attachPermissionGate({
+        context: this.context,
+        page: launchPage,
+        events: this.events,
+      });
+    }
+
     this.generation = 0;
     this.open = true;
+    if (this.pendingState && this.cdpSession && this.page) {
+      try {
+        await this.pageState.restore(this.cdpSession, this.page, this.pendingState);
+      } catch {
+        /* cookies may apply; LS/IDB wait for navigate origin */
+      }
+    }
     this.events.onLocationChanged(this.url);
     return { width: this.width, height: this.height };
   }
 
   async stop(): Promise<void> {
     this.editableFocus.stop();
+    this.permissionGate?.dispose();
+    this.permissionGate = null;
     this.open = false;
     this.cdpSession = null;
     this.eventApplier = null;
@@ -433,55 +495,18 @@ export class PageProjectionBrowserSession {
   }
 
   async restoreState(state: BrowserState): Promise<CookieNormalizeStats> {
-    const cookies = state.cookies ?? [];
-    const total = cookies.length;
-    if (!this.context || total === 0) {
-      return { total, skipped: total, normalized: 0, applied: 0, failedIndividual: 0 };
+    this.pendingState = state;
+    if (!this.chrome || !this.cdpSession || !this.page) {
+      return this.pageState.normalizeStats(state);
     }
-    let applied = 0;
-    let failed = 0;
-    for (const c of cookies) {
-      try {
-        await this.context.addCookies([
-          {
-            name: c.name,
-            value: c.value,
-            domain: c.domain,
-            path: c.path || '/',
-            expires: c.expires,
-            httpOnly: c.httpOnly,
-            secure: c.secure,
-            sameSite: (c.sameSite as 'Strict' | 'Lax' | 'None' | undefined) ?? 'Lax',
-          },
-        ]);
-        applied += 1;
-      } catch {
-        failed += 1;
-      }
-    }
-    return { total, skipped: 0, normalized: applied + failed, applied, failedIndividual: failed };
+    return this.pageState.restore(this.cdpSession, this.page, state);
   }
 
   async exportState(): Promise<BrowserState> {
-    if (!this.context) {
+    if (!this.chrome || !this.cdpSession || !this.page) {
       return { cookies: [], localStorage: [], idbRecords: [], history: [] };
     }
-    const raw = await this.context.cookies();
-    return {
-      cookies: raw.map((c) => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain,
-        path: c.path,
-        expires: c.expires,
-        httpOnly: c.httpOnly,
-        secure: c.secure,
-        sameSite: c.sameSite,
-      })),
-      localStorage: [],
-      idbRecords: [],
-      history: [],
-    };
+    return this.pageState.export(this.cdpSession, this.page);
   }
 
   async navigate(url: string): Promise<void> {
@@ -513,6 +538,8 @@ export class PageProjectionBrowserSession {
     }
     this.editableFocus.stop();
     try {
+      // Seed LS/IDB for non-target origins before establish (cookies already via restore).
+      await this.seedPendingStorageOrigins(url);
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const budget = this.launchBudget ?? new LaunchBudget();
       await this.dataPlane.waitEstablished({
@@ -525,6 +552,7 @@ export class PageProjectionBrowserSession {
     this.generation = this.dataPlane.establishedGeneration;
     this.url = this.page.url() || url;
     this.events.onLocationChanged(this.url);
+    await this.applyPendingStorageForCurrentPage();
     cspDiagLog('navigate complete', {
       url: this.url,
       dataPlaneEstablished: this.dataPlane.isEstablished,
@@ -541,17 +569,17 @@ export class PageProjectionBrowserSession {
   async goBack(): Promise<void> {
     const page = this.page;
     if (!page) return;
+    const before = page.url();
     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => undefined);
-    this.url = page.url();
-    this.events.onLocationChanged(this.url);
+    await this.enforceAllowedUrlAfterHistory(page, before);
   }
 
   async goForward(): Promise<void> {
     const page = this.page;
     if (!page) return;
+    const before = page.url();
     await page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => undefined);
-    this.url = page.url();
-    this.events.onLocationChanged(this.url);
+    await this.enforceAllowedUrlAfterHistory(page, before);
   }
 
   async resize(request: BrowserResizeRequest): Promise<BrowserResizeResult> {
@@ -1535,6 +1563,14 @@ export class PageProjectionBrowserSession {
       mutators: [cspDocumentMutator],
       context,
       page: p,
+      domainGuard:
+        options.allowedNavigationDomains && options.allowedNavigationDomains.length > 0
+          ? {
+              allowedNavigationDomains: options.allowedNavigationDomains,
+              onBlocked: (u) => this.events.onMainFrameNavigationBlocked(u),
+              sessionId: this.sessionId,
+            }
+          : null,
     });
     // Locale / OAuth popups → same tab so CSP surgery + data plane stay on the primary page.
     const adoptUrlOnPrimary = async (url: string) => {
@@ -1560,6 +1596,7 @@ export class PageProjectionBrowserSession {
       this.generation = this.dataPlane.establishedGeneration;
       this.url = p.url() || url;
       this.events.onLocationChanged(this.url);
+      await this.applyPendingStorageForCurrentPage();
       this.editableFocus.rebind(p);
     };
     installSingleTabAdoption({
@@ -1568,6 +1605,15 @@ export class PageProjectionBrowserSession {
       adoptUrlOnPrimary,
     });
     commitPrimaryPageReplace(context, p, adoptUrlOnPrimary);
+    if (this.permissionGate) {
+      this.permissionGate.rebind(p);
+    } else {
+      this.permissionGate = attachPermissionGate({
+        context,
+        page: p,
+        events: this.events,
+      });
+    }
     // Lockstep prove — same as video launch/resize (Q14 / PP-SURF-5).
     try {
       await proveLogicalViewport(this.cdpSession, this.width, this.height, this.device, {
@@ -1589,6 +1635,76 @@ export class PageProjectionBrowserSession {
   private requirePage(): Page {
     if (!this.page) throw new Error('PageProjectionBrowserSession: page not open');
     return this.page;
+  }
+
+  /** After history nav: if landed outside allowlist, emit blocked and revert. */
+  private async enforceAllowedUrlAfterHistory(page: Page, beforeUrl: string): Promise<void> {
+    const allowed = this.launchOpts?.allowedNavigationDomains;
+    const after = page.url();
+    if (allowed && allowed.length > 0 && isMainFrameNavigationBlocked(after, allowed)) {
+      this.events.onMainFrameNavigationBlocked(after);
+      try {
+        if (beforeUrl && beforeUrl !== after) {
+          await page.goto(beforeUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        } else {
+          await page.goForward({ waitUntil: 'domcontentloaded', timeout: 5_000 }).catch(() =>
+            page.goBack({ waitUntil: 'domcontentloaded', timeout: 5_000 }),
+          );
+        }
+      } catch {
+        /* best-effort revert */
+      }
+    }
+    this.url = page.url();
+    this.events.onLocationChanged(this.url);
+  }
+
+  private async applyPendingStorageForCurrentPage(): Promise<void> {
+    const state = this.pendingState;
+    const page = this.page;
+    if (!state || !page) return;
+    try {
+      await this.pageState.importLocalStorage(page, state);
+      await this.pageState.importIndexedDbForPage(page, state);
+    } catch {
+      /* page may navigate away before import finishes */
+    }
+  }
+
+  /**
+   * Walk non-target origins from pending LS/IDB so storage is seeded before the
+   * establish navigate to `targetUrl`. Cookies are already applied via CDP restore.
+   */
+  private async seedPendingStorageOrigins(targetUrl: string): Promise<void> {
+    const state = this.pendingState;
+    const page = this.page;
+    if (!state || !page) return;
+
+    let targetOrigin = '';
+    try {
+      if (targetUrl.startsWith('http')) targetOrigin = new URL(targetUrl).origin;
+    } catch {
+      return;
+    }
+
+    const origins = new Set<string>();
+    for (const item of state.localStorage ?? []) {
+      if (item.origin?.startsWith('http')) origins.add(item.origin);
+    }
+    for (const rec of state.idbRecords ?? []) {
+      if (rec.origin?.startsWith('http')) origins.add(rec.origin);
+    }
+
+    for (const origin of origins) {
+      if (origin === targetOrigin) continue;
+      try {
+        await page.goto(origin + '/', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        await this.pageState.importLocalStorage(page, state);
+        await this.pageState.importIndexedDbForPage(page, state);
+      } catch {
+        /* best-effort per origin */
+      }
+    }
   }
 
   private requireLaunch(): BrowserLaunchOptions {

@@ -492,7 +492,7 @@ function PageProjectionV2Surface({
     <div
       ref={hostRef}
       className={className}
-      style={{ position: 'relative', width: '100%', height: '100%' }}
+      style={{ position: 'relative', width: '100%', height: '100%', touchAction: 'manipulation' }}
       data-pp-surface-host
     />
   )

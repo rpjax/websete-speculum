@@ -143,6 +143,8 @@ internal static class GrpcSessionMappers
         {
             request.AllowedNavigationDomains.AddRange(domains);
         }
+
+        request.CpuProfiling = configuration.CpuProfiling;
     }
 
     private static void ApplyCommonLaunchFields(
@@ -192,6 +194,8 @@ internal static class GrpcSessionMappers
         {
             request.AllowedNavigationDomains.AddRange(domains);
         }
+
+        request.CpuProfiling = configuration.CpuProfiling;
     }
 
     public static double ClampScreencastMaxEncodeScale(double value)

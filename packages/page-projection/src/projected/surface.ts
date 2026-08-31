@@ -28,8 +28,8 @@ export type SurfaceHost = {
 async function attachBareIframe(container: HTMLElement): Promise<HTMLIFrameElement> {
   const iframe = document.createElement('iframe');
   iframe.title = 'Projected surface';
-  iframe.sandbox.add('allow-same-origin');
-  iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff';
+  iframe.style.cssText =
+    'position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;touch-action:manipulation';
   // K4: first navigation is standards — never touch about:blank's BackCompat document.
   stampProjectedStandardsSrcdoc(iframe);
   container.appendChild(iframe);
@@ -58,7 +58,7 @@ export async function createSurfaceHost(
   let cssW = Math.max(1, Math.round(opts.width));
   let cssH = Math.max(1, Math.round(opts.height));
   stage.style.cssText =
-    `position:absolute;left:0;top:0;overflow:hidden;width:${cssW}px;height:${cssH}px`;
+    `position:absolute;left:0;top:0;overflow:hidden;touch-action:manipulation;width:${cssW}px;height:${cssH}px`;
   container.appendChild(stage);
 
   let activeIframe = await attachBareIframe(stage);

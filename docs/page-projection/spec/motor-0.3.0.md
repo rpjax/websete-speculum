@@ -2,7 +2,8 @@
 
 **Status:** in progress (2026-08-30).  
 **Previous:** [0.2.0](../../../CHANGELOG.md) (screencast / sessions polish).  
-**Normative index:** [README.md](README.md) **Now** · [open.md](open.md) · [runtime-redesign.md](runtime-redesign.md) §15.
+**Normative index:** [README.md](README.md) **Now** · [open.md](open.md) · [runtime-redesign.md](runtime-redesign.md) §15.  
+**Implementation TODOs (A tag → B Live preview → C M1):** [../LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md).
 
 ---
 
@@ -42,6 +43,7 @@ This supports **“PP engine lab-proven on hostile browse”** — not full acce
 | PP algorithm | DOM table, CSSOM poll+apply, shadow, OPEN-6 same-origin nested, sparse-cdp input, resync + apply gate |
 | Session path | `PageProjectionBrowserSession` + sealed factory; loopback WS; **per-session** extension dir (B1) |
 | Lab | Browse + dossier on **http://127.0.0.1:4077/**; CPU profile; wire invariants |
+| **iOS / WebKit touch** | Projected surface: no `iframe.sandbox` (blocks touch delivery); K5 via CSP meta in stamped srcdoc + `ensureProjectedK5Csp` on apply |
 | Proof class | Eneba `/br/` direct — protocol + input green |
 
 ## What 0.3.0 does **not** promise
@@ -116,5 +118,6 @@ Dossier: `sidecar/lab-runs/2026-08-30T06-10-17-942Z-www.eneba.com` (`probes/cpu/
 - **PP-LOOPBACK-DOC-INSTALL** — same-socket hello generation supersede; `waitEstablished({ afterGeneration })`.
 - **PP-APPLY-GATE-OVERRUN** — `ProjectedApplyGate`; cap 64; overflow anti-loop (streak 3).
 - **Cold resync on armed surface** — full recreate, not standby-only async.
+- **K5 / iOS touch** — `iframe.sandbox` removed (WebKit touch block); K5 enforced via CSP on Projected document (`projectedBlankIframe.ts`, `applyDom.ts`).
 
 Detail: [open.md](open.md) · [decision-log.md](decision-log.md) §L · §M.

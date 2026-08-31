@@ -22,6 +22,11 @@ public class SessionsConfiguration
   public MirrorMode MirrorMode { get; init; } = MirrorMode.VideoStreaming;
 
     /// <summary>
+    /// Enable CDP CPU profiling RPCs on the Virtual Chromium (lab/diag). Default false.
+    /// </summary>
+    public bool CpuProfiling { get; init; }
+
+    /// <summary>
     /// Bounded PageProjection Diff queue depth (sidecar EventBridge Dom + API
     /// sequenced channels). Overflow still DropAll → client sequence_gap (T5/D13).
     /// Default matches <c>SequencedDiffChannels.DefaultCapacity</c>.

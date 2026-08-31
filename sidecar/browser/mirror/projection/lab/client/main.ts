@@ -24,6 +24,16 @@ import { snapshotFormControls } from '@speculum/page-projection/projected/formCo
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '@speculum/page-projection/core/telemetry';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
+import { NGROK_SKIP_HEADERS } from '../labPublicOrigin';
+import labBuildStamp from '../static/labBuildStamp.json';
+
+function labFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  for (const [key, value] of Object.entries(NGROK_SKIP_HEADERS)) {
+    headers.set(key, value);
+  }
+  return fetch(input, { ...init, headers });
+}
 
 type ContextStreamStats = {
   wireFrames: number;
@@ -191,6 +201,10 @@ function setChip(id: string, text: string, kind?: 'ok' | 'warn' | 'danger' | 'li
 }
 
 export function bootLabClient(): void {
+  const buildLabel = `build #${labBuildStamp.seq}`;
+  setChip('chipBuild', buildLabel, 'live');
+  $('chipBuild').title = `${buildLabel}${labBuildStamp.builtAt ? ` · ${labBuildStamp.builtAt}` : ''}`;
+
   let ws: WebSocket | null = null;
   let projection: LabProjectedHarness | null = null;
   const inputDetachers = new Map<number, () => void>();
@@ -941,7 +955,7 @@ export function bootLabClient(): void {
 
   async function loadFixtures(): Promise<void> {
     try {
-      const res = await fetch('/lab/fixtures');
+      const res = await labFetch('/lab/fixtures');
       const list = (await res.json()) as FixtureEntry[];
       fixtureSelect.innerHTML = '';
       for (const f of list) {
@@ -963,7 +977,7 @@ export function bootLabClient(): void {
 
   async function loadBlueprints(): Promise<void> {
     try {
-      const res = await fetch('/lab/blueprints');
+      const res = await labFetch('/lab/blueprints');
       const data = (await res.json()) as { blueprints: BlueprintSummary[] };
       blueprints = data.blueprints;
       blueprintSelect.innerHTML = '';
@@ -1251,13 +1265,17 @@ export function bootLabClient(): void {
         console.log('[input-click-diag]', diagnostic);
         const intent = diagnostic.lastIntent as Record<string, unknown> | null | undefined;
         const resolve = diagnostic.lastResolve as Record<string, unknown> | null | undefined;
-        const capture = diagnostic.projectedCapture as { emittedByType?: Record<string, number> } | null;
+        const capture = diagnostic.projectedCapture as {
+          emittedByType?: Record<string, number>;
+          touchstartSeen?: number;
+        } | null;
         const rejects = diagnostic.sidecarRejects as { total?: number } | null;
         logActivity(
           `input.diag ctx=${intent?.contextId ?? '?'} node=${intent?.nodeId ?? '?'} ` +
             `xy=${resolve?.ok === true ? `${resolve.x},${resolve.y}` : resolve?.reason ?? '—'} ` +
             `efp=${String(diagnostic.rootElementFromPoint ?? 'null')} ` +
-            `emit=${JSON.stringify(capture?.emittedByType ?? {})} rejects=${rejects?.total ?? 0}`,
+            `emit=${JSON.stringify(capture?.emittedByType ?? {})} touch=${capture?.touchstartSeen ?? 0} ` +
+            `rejects=${rejects?.total ?? 0}`,
         );
         return;
       }

@@ -14,10 +14,14 @@ import { executeBlueprint } from '../runner/execute';
 import { labAssetRoots } from '../assetRoots';
 import { reportExitCode } from '../dossier/types';
 import { captureProjectedViewportClip } from './labProjectedCapture';
+import { rewriteVirtualFixtureUrl } from '../labPublicOrigin';
 
 export type WsLabOptions = {
   headless: boolean;
+  /** Browser-visible origin (ngrok or local). */
   publicOrigin: string;
+  /** Loopback origin for same-machine Virtual navigation. */
+  localOrigin: string;
 };
 
 type SnapshotRequest = {
@@ -164,10 +168,12 @@ export class WsLabConnection {
   }
 
   private resolveUrl(raw: string): string {
-    if (/^https?:\/\//i.test(raw)) return raw;
+    if (/^https?:\/\//i.test(raw)) {
+      return rewriteVirtualFixtureUrl(raw, this.opts.publicOrigin, this.opts.localOrigin);
+    }
     const path = raw.replace(/^\/+/, '');
     const rel = path.startsWith('fixtures/') ? path : `fixtures/${path}`;
-    return `${this.opts.publicOrigin}/${rel}`;
+    return `${this.opts.localOrigin}/${rel}`;
   }
 
   async requestClientSnapshot(

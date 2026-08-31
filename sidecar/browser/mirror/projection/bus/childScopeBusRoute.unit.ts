@@ -23,7 +23,7 @@ function testChildScopeIndexReverseAndWindowLookup(): void {
   let next = 2;
   const index = new ChildScopeIndex(() => next++);
   const winA = { tag: 'A' };
-  const hostA = { nodeType: 1, isConnected: true, contentWindow: winA };
+  const hostA = { nodeType: 1, isConnected: true, localName: 'iframe', contentWindow: winA };
   const nodes = new Map<number, object>([[10, hostA]]);
 
   const admit = index.admit(10, hostA as never);
@@ -51,7 +51,7 @@ function testChildScopeDropRemovesContext(): void {
   let next = 2;
   const index = new ChildScopeIndex(() => next++);
   const winA = { tag: 'A' };
-  const hostA = { nodeType: 1, isConnected: true, contentWindow: winA };
+  const hostA = { nodeType: 1, isConnected: true, localName: 'iframe', contentWindow: winA };
   const nodes = new Map<number, object>([[10, hostA]]);
   index.admit(10, hostA as never);
   index.drop(10);
@@ -65,7 +65,7 @@ function testChildScopeRebindsWindowAfterReplace(): void {
   const index = new ChildScopeIndex(() => next++);
   const winOld = { tag: 'old' };
   const winNew = { tag: 'new' };
-  const hostA = { nodeType: 1, isConnected: true, contentWindow: winOld as object | null };
+  const hostA = { nodeType: 1, isConnected: true, localName: 'iframe', contentWindow: winOld as object | null };
   const nodes = new Map<number, object>([[10, hostA]]);
   index.admit(10, hostA as never);
 

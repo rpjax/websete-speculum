@@ -79,6 +79,7 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
     aggregateIntervalMs: resolvePositiveIntOrUndefined(
       req.aggregateIntervalMs ?? req.aggregate_interval_ms,
     ),
+    cpuProfiling: req.cpuProfiling === true || req.cpu_profiling === true,
   };
 }
 

@@ -101,6 +101,8 @@ message LaunchVideoStreamingRequest {
   int32 display_width = 14;
   int32 display_height = 15;
   double screencast_max_encode_scale = 16;
+  // When true, Virtual CDP Profiler may be started via session startCpuProfile.
+  bool cpu_profiling = 17;
 }
 
 message LaunchPageProjectionRequest {
@@ -137,6 +139,8 @@ message LaunchPageProjectionRequest {
   int32 swap_timeout_ms = 32;
   int32 client_state_ms = 33;
   int32 apply_budget_ms = 34;
+  // When true, Virtual CDP Profiler may be started via session startCpuProfile.
+  bool cpu_profiling = 35;
 }
 
 message ReadyInfo {

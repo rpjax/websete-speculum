@@ -60,6 +60,7 @@ function baseOpts(overrides?: Partial<ProjectedInputCaptureOptions>): ProjectedI
 export async function runProjectedInputCaptureUnitTests(): Promise<void> {
   await testSparseNeverEmitsMove();
   await testSparseResolvesNodeIdFromEventTarget();
+  await testSparsePointerCancelEmitsUpAfterDown();
   await testSparseMissSkipsWhenTargetUnregistered();
   await testEditableKeyPreventDefault();
   await testHistoryShortcutEmitsNavIntent();
@@ -119,6 +120,36 @@ async function testSparseResolvesNodeIdFromEventTarget(): Promise<void> {
       assert.strictEqual(sent[0]!.localX, 1);
       assert.strictEqual(sent[0]!.localY, 0.5);
     }
+  } finally {
+    detach();
+  }
+}
+
+/** iOS Safari: pointercancel must lift a prior down (same as canvas path). */
+async function testSparsePointerCancelEmitsUpAfterDown(): Promise<void> {
+  const target = {
+    nodeType: 1,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
+  };
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', { pointerId: 7, clientX: 50, clientY: 25, button: 0, target });
+    doc.dispatch('pointercancel', { pointerId: 7, clientX: 50, clientY: 25, button: 0, target });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 2);
+    assert.strictEqual(sent[0]!.type, 'down');
+    assert.strictEqual(sent[1]!.type, 'up');
   } finally {
     detach();
   }

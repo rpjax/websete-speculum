@@ -6,7 +6,7 @@
   "scripts": {
     "build:page-projection": "npm run build --prefix ../packages/page-projection",
     "build:virtual": "esbuild ../packages/page-projection/src/virtual/bootstrap.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=dist/browser/mirror/projection/virtual.js && node -e \"require('fs').copyFileSync('dist/browser/mirror/projection/virtual.js','extensions/speculum-pp/main/virtual.js')\"",
-    "build:lab-client": "esbuild browser/mirror/projection/lab/client/main.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=browser/mirror/projection/lab/static/client.js",
+    "build:lab-client": "node scripts/bump-lab-build-stamp.js && esbuild browser/mirror/projection/lab/client/main.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=browser/mirror/projection/lab/static/client.js",
     "build:snapshot": "esbuild ../packages/page-projection/src/core/snapshot/domTreeSnapshot.ts --bundle --format=iife --global-name=__speculumSnapshot --platform=browser --target=es2022 --outfile=dist/browser/mirror/projection/domTreeSnapshot.js",
     "build:producer": "npm run build:virtual",
     "build:inpage": "npm run build:virtual",

@@ -78,6 +78,27 @@ export async function runDocumentResponseHookUnitTests(): Promise<void> {
     'must listen Fetch.requestPaused on frame',
   );
 
+  // Domain guard merges Request-stage Document into the same Fetch.enable.
+  const root2 = makeSession('root2');
+  await installDocumentResponseHook(root2 as unknown as import('patchright').CDPSession, {
+    mutators: [(ctx) => ({ headers: ctx.headers, bodyHtml: ctx.bodyHtml, changed: false })],
+    domainGuard: {
+      allowedNavigationDomains: ['example.com'],
+      onBlocked: () => undefined,
+    },
+  });
+  const enable2 = root2.sessionCalls.find((c) => c.method === 'Fetch.enable');
+  const patterns2 =
+    (enable2?.params as { patterns?: Array<{ requestStage?: string }> })?.patterns ?? [];
+  assert.ok(
+    patterns2.some((p) => p.requestStage === 'Request'),
+    'domain guard must add Document Request pattern',
+  );
+  assert.ok(
+    patterns2.some((p) => p.requestStage === 'Response'),
+    'domain guard must keep Document Response pattern',
+  );
+
   console.log('[unit] documentResponseHook OOPIF frame CDPSession ok');
 
   await runDocumentResponseHookHeaderFallbackUnitTests();

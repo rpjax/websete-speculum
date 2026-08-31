@@ -254,7 +254,7 @@
         padding-left: 1.15rem;
         line-height: 1.55;
       }
-      #surfaceHost { min-height: 100%; width: 100%; height: 100%; }
+      #surfaceHost { min-height: 100%; width: 100%; height: 100%; touch-action: manipulation; }
       .surface-wrap.is-crashed #surfaceHost {
         pointer-events: none;
         user-select: none;
@@ -656,6 +656,7 @@
         </div>
         <p class="mode-blurb" id="modeBlurb">Free navigation — pick a fixture or edit the URL, then Start Virtual.</p>
         <div id="statusStrip" aria-live="polite">
+          <span class="chip" id="chipBuild" title="Lab client build">build —</span>
           <span class="chip" id="chipWs" title="WebSocket">ws idle</span>
           <span class="chip" id="chipPhase" title="Phase">idle</span>
           <span class="chip" id="chipSession" title="Session" hidden>—</span>

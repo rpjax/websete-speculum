@@ -2761,7 +2761,16 @@
         return { width, height };
       }
       exports.layoutViewportSize = layoutViewportSize;
-      function attachProjectedNativeGuard(doc) {
+      function installProjectedTouchSurface(doc) {
+        const touchAction = "manipulation";
+        const root = doc.documentElement;
+        if (root)
+          root.style.touchAction = touchAction;
+        if (doc.body)
+          doc.body.style.touchAction = touchAction;
+      }
+      function attachProjectedNativeGuard(doc, opts) {
+        installProjectedTouchSurface(doc);
         const onActivate = (event) => suppressProjectedDefault(event);
         const onPointerDown = (event) => {
           const pe = event;
@@ -2771,6 +2780,7 @@
             suppressProjectedDefault(event);
         };
         const onTouchStart = (event) => {
+          opts?.onTouchStartSeen?.();
           if (isProjectedNavigable(event.target))
             suppressProjectedDefault(event);
         };
@@ -3942,8 +3952,7 @@
       async function attachBareIframe(container) {
         const iframe = document.createElement("iframe");
         iframe.title = "Projected surface";
-        iframe.sandbox.add("allow-same-origin");
-        iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff";
+        iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;touch-action:manipulation";
         (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
         container.appendChild(iframe);
         await (0, projectedBlankIframe_1.whenProjectedStandardsReady)(iframe);
@@ -3965,7 +3974,7 @@
         stage.setAttribute("data-pp-surface-stage", "");
         let cssW = Math.max(1, Math.round(opts.width));
         let cssH = Math.max(1, Math.round(opts.height));
-        stage.style.cssText = `position:absolute;left:0;top:0;overflow:hidden;width:${cssW}px;height:${cssH}px`;
+        stage.style.cssText = `position:absolute;left:0;top:0;overflow:hidden;touch-action:manipulation;width:${cssW}px;height:${cssH}px`;
         container.appendChild(stage);
         let activeIframe = await attachBareIframe(stage);
         let standbyIframe = null;
@@ -4864,6 +4873,7 @@
       exports.attachNestedProjectedInputCapture = exports.attachProjectedInputCapture = void 0;
       var unifiedIntentTypes_1 = require_unifiedIntentTypes();
       var ClientBuffer_1 = require_ClientBuffer();
+      var projectedNativeGuard_1 = require_projectedNativeGuard();
       function isElement(node) {
         return !!node && typeof node === "object" && node.nodeType === 1;
       }
@@ -4905,6 +4915,7 @@
         const win = doc.defaultView;
         const buffer = new ClientBuffer_1.ClientBuffer();
         let edgeSwipe = null;
+        const pendingPointers = /* @__PURE__ */ new Set();
         const fireHistoryNav = (direction) => {
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -4978,8 +4989,9 @@
               break;
             }
           }
-          const visW = rootWin.innerWidth;
-          const visH = rootWin.innerHeight;
+          const vis = (0, projectedNativeGuard_1.layoutViewportSize)(rootWin);
+          const visW = vis.width;
+          const visH = vis.height;
           if (visW <= 0 || visH <= 0)
             return null;
           const { width: vw, height: vh } = opts.getViewportSize();
@@ -5037,6 +5049,10 @@
             contextId: opts.contextId,
             nodeId
           });
+          if (type === "down")
+            pendingPointers.add(event.pointerId);
+          else
+            pendingPointers.delete(event.pointerId);
         };
         const onPointerEdge = (event, type) => {
           runPointerEdge(event, type);
@@ -5150,9 +5166,29 @@
             return;
           opts.onMarkPropDirty?.(nodeId);
         };
+        const pointerOpts = { capture: true, passive: false };
+        const capturePointer = (event) => {
+          const target = event.target;
+          if (!target || typeof target !== "object" || !("setPointerCapture" in target))
+            return;
+          try {
+            target.setPointerCapture(event.pointerId);
+          } catch {
+          }
+        };
+        const releasePointer = (event) => {
+          const target = event.target;
+          if (!target || typeof target !== "object" || !("releasePointerCapture" in target))
+            return;
+          try {
+            target.releasePointerCapture(event.pointerId);
+          } catch {
+          }
+        };
         const onPointerDown = (event) => {
           if (event.pointerType === "touch" && win) {
-            const vw = win.innerWidth;
+            const rootWin = opts.getRootWindow?.() ?? win;
+            const vw = (0, projectedNativeGuard_1.layoutViewportSize)(rootWin).width;
             if (event.clientX <= EDGE_SWIPE_PX) {
               edgeSwipe = {
                 pointerId: event.pointerId,
@@ -5176,6 +5212,11 @@
               return;
             }
           }
+          if (event.pointerType === "touch") {
+            event.preventDefault();
+            event.stopPropagation();
+            capturePointer(event);
+          }
           onPointerEdge(event, "down");
         };
         const onPointerMove = (event) => {
@@ -5183,6 +5224,19 @@
             return;
           event.preventDefault();
           event.stopPropagation();
+        };
+        const clearEdgeSwipe = (event) => {
+          if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId)
+            return false;
+          edgeSwipe = null;
+          event.preventDefault();
+          event.stopPropagation();
+          return true;
+        };
+        const finishPendingPointer = (event) => {
+          if (!pendingPointers.delete(event.pointerId))
+            return;
+          runPointerEdge(event, "up");
         };
         const onPointerUp = (event) => {
           if (edgeSwipe && event.pointerId === edgeSwipe.pointerId) {
@@ -5204,11 +5258,38 @@
             }
             return;
           }
+          if (event.pointerType === "touch") {
+            event.preventDefault();
+            event.stopPropagation();
+            releasePointer(event);
+          }
           onPointerEdge(event, "up");
         };
-        doc.addEventListener("pointerdown", onPointerDown, true);
-        doc.addEventListener("pointermove", onPointerMove, true);
-        doc.addEventListener("pointerup", onPointerUp, true);
+        const onPointerCancel = (event) => {
+          if (clearEdgeSwipe(event))
+            return;
+          if (event.pointerType === "touch") {
+            event.preventDefault();
+            event.stopPropagation();
+            releasePointer(event);
+          }
+          finishPendingPointer(event);
+        };
+        const onLostPointerCapture = (event) => {
+          if (edgeSwipe?.pointerId === event.pointerId) {
+            edgeSwipe = null;
+            return;
+          }
+          finishPendingPointer(event);
+        };
+        doc.addEventListener("pointerdown", onPointerDown, pointerOpts);
+        doc.addEventListener("pointermove", onPointerMove, pointerOpts);
+        doc.addEventListener("pointerup", onPointerUp, pointerOpts);
+        doc.addEventListener("pointercancel", onPointerCancel, pointerOpts);
+        doc.addEventListener("lostpointercapture", onLostPointerCapture, pointerOpts);
+        const detachNativeGuard = (0, projectedNativeGuard_1.attachProjectedNativeGuard)(doc, {
+          onTouchStartSeen: () => opts.metrics?.noteTouchStartSeen()
+        });
         doc.addEventListener("click", onClick, true);
         doc.addEventListener("submit", onSubmit, true);
         doc.addEventListener("contextmenu", onContextMenu, true);
@@ -5222,9 +5303,13 @@
         return () => {
           buffer.dispose();
           detachHistoryTrap();
-          doc.removeEventListener("pointerdown", onPointerDown, true);
-          doc.removeEventListener("pointermove", onPointerMove, true);
-          doc.removeEventListener("pointerup", onPointerUp, true);
+          doc.removeEventListener("pointerdown", onPointerDown, pointerOpts);
+          doc.removeEventListener("pointermove", onPointerMove, pointerOpts);
+          doc.removeEventListener("pointerup", onPointerUp, pointerOpts);
+          doc.removeEventListener("pointercancel", onPointerCancel, pointerOpts);
+          doc.removeEventListener("lostpointercapture", onLostPointerCapture, pointerOpts);
+          detachNativeGuard();
+          pendingPointers.clear();
           doc.removeEventListener("click", onClick, true);
           doc.removeEventListener("submit", onSubmit, true);
           doc.removeEventListener("contextmenu", onContextMenu, true);
@@ -5277,6 +5362,7 @@
         skippedDisarmed = 0;
         skippedNoCoords = 0;
         skippedNoNodeId = 0;
+        touchstartSeen = 0;
         lastEmitWallMs = null;
         intervalSamples = [];
         noteEmit(type) {
@@ -5308,6 +5394,9 @@
           else
             this.skippedNoNodeId += 1;
         }
+        noteTouchStartSeen() {
+          this.touchstartSeen += 1;
+        }
         snapshot() {
           return {
             emitted: this.emitted,
@@ -5317,6 +5406,7 @@
             skippedDisarmed: this.skippedDisarmed,
             skippedNoCoords: this.skippedNoCoords,
             skippedNoNodeId: this.skippedNoNodeId,
+            touchstartSeen: this.touchstartSeen,
             emitIntervalMs: latencyStats(this.intervalSamples),
             lastEmitWallMs: this.lastEmitWallMs
           };
@@ -6642,6 +6732,27 @@
   var import_decode = __toESM(require_decode());
   var import_telemetry = __toESM(require_telemetry());
   var import_frame2 = __toESM(require_frame());
+
+  // browser/mirror/projection/lab/labPublicOrigin.ts
+  var NGROK_SKIP_BROWSER_WARNING = "ngrok-skip-browser-warning";
+  var NGROK_SKIP_HEADERS = {
+    [NGROK_SKIP_BROWSER_WARNING]: "1"
+  };
+
+  // browser/mirror/projection/lab/static/labBuildStamp.json
+  var labBuildStamp_default = {
+    seq: 10,
+    builtAt: "2026-08-30T15:59:04.708Z"
+  };
+
+  // browser/mirror/projection/lab/client/main.ts
+  function labFetch(input, init) {
+    const headers = new Headers(init?.headers);
+    for (const [key, value] of Object.entries(NGROK_SKIP_HEADERS)) {
+      headers.set(key, value);
+    }
+    return fetch(input, { ...init, headers });
+  }
   function emptyContextStats() {
     return {
       wireFrames: 0,
@@ -6758,6 +6869,9 @@
     el.hidden = false;
   }
   function bootLabClient() {
+    const buildLabel = `build #${labBuildStamp_default.seq}`;
+    setChip("chipBuild", buildLabel, "live");
+    $("chipBuild").title = `${buildLabel}${labBuildStamp_default.builtAt ? ` \xB7 ${labBuildStamp_default.builtAt}` : ""}`;
     let ws = null;
     let projection = null;
     const inputDetachers = /* @__PURE__ */ new Map();
@@ -7378,7 +7492,7 @@
     }
     async function loadFixtures() {
       try {
-        const res = await fetch("/lab/fixtures");
+        const res = await labFetch("/lab/fixtures");
         const list = await res.json();
         fixtureSelect.innerHTML = "";
         for (const f of list) {
@@ -7399,7 +7513,7 @@
     }
     async function loadBlueprints() {
       try {
-        const res = await fetch("/lab/blueprints");
+        const res = await labFetch("/lab/blueprints");
         const data = await res.json();
         blueprints = data.blueprints;
         blueprintSelect.innerHTML = "";
@@ -7651,7 +7765,7 @@
           const capture = diagnostic.projectedCapture;
           const rejects = diagnostic.sidecarRejects;
           logActivity(
-            `input.diag ctx=${intent?.contextId ?? "?"} node=${intent?.nodeId ?? "?"} xy=${resolve?.ok === true ? `${resolve.x},${resolve.y}` : resolve?.reason ?? "\u2014"} efp=${String(diagnostic.rootElementFromPoint ?? "null")} emit=${JSON.stringify(capture?.emittedByType ?? {})} rejects=${rejects?.total ?? 0}`
+            `input.diag ctx=${intent?.contextId ?? "?"} node=${intent?.nodeId ?? "?"} xy=${resolve?.ok === true ? `${resolve.x},${resolve.y}` : resolve?.reason ?? "\u2014"} efp=${String(diagnostic.rootElementFromPoint ?? "null")} emit=${JSON.stringify(capture?.emittedByType ?? {})} touch=${capture?.touchstartSeen ?? 0} rejects=${rejects?.total ?? 0}`
           );
           return;
         }

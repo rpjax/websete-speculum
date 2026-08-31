@@ -9,9 +9,11 @@
 
 ## Now (2026-08-30) — start a new chat here
 
-**Motor 0.3.0:** in progress — **[motor milestone only](motor-0.3.0.md)** (not production RBI). Opus/Rodrigo 2026-08-30: PP **core** lab-proven; tag gates = gen-pack revert, Eneba redirect proof, B3 if red, full Windows gates. **B1 done** · **B2 withdrawn** · dirty tree **committed**.
+**Motor 0.3.0:** in progress — **[motor milestone only](motor-0.3.0.md)** (not production RBI). Opus/Rodrigo 2026-08-30: PP **core** lab-proven; tag gates = gen-pack revert, Eneba redirect proof, B3 if red, full Windows gates. **B1 done** · **B2 withdrawn** · dirty tree **committed**.  
+**Ordered TODOs (tag → Live preview → M1):** [../LIVE-PP-0.3.0-IMPLEMENTATION.md](../LIVE-PP-0.3.0-IMPLEMENTATION.md).
 
 **Shipped (2026-08-29…30):**
+- **K5 / iOS touch** — `iframe.sandbox` removed (WebKit blocks touch); K5 via CSP in `PROJECTED_STANDARDS_SRCDOC` + `ensureProjectedK5Csp` on apply. Units: `projectedK5.unit.ts`, `projectedNativeGuard.unit.ts`. Decision: [decision-log.md](decision-log.md) 2026-08-30.
 - **Loopback `document.install`** — same-socket hello: higher gen adopts; idempotent re-hello; lower gen rejected. Session chains `waitEstablished({ afterGeneration })` after install. Units: `nodeDataPlane.unit.ts`.
 - **Projected apply gate** — `ProjectedApplyGate` queues frames during async recreate/cold resync (`flightDepth`, `draining`, cap **64** sized for ~59 ms cold apply class, overflow streak **3** → `apply_gate_overflow_loop`). `discardPending()` on generation bump only; full `clear()` on reset/dispose only. Units: `projectedApplyGate.unit.ts`.
 - **Cold resync on armed surface** — `everArmed && resync && sequence === 1` → `recreateForGenerationAsync` (not standby async racing increments).
@@ -147,7 +149,7 @@ Lab units: `sidecar/unit.ts` (includes V4 session + lab scheduler tests).
 
 ## What V4 is (one paragraph)
 
-The replicated structure is a **node table** (`ReplicatedTable`), not a belief about the DOM (P0). Each tick the producer coalesces `MutationRecord`s into one **frame** of opcodes (`NODE_NEW`, `INSERT`, `REMOVE`, `ATTR_*`, `TEXT_SET`, `CHECK`, `EPOCH_RESET`, `NODE_DROP`, CSSOM ops). The client **two-phase applies**: table first (validate `preTableHash` + ops + closing `CHECK`), then materialize to a sandboxed iframe. There is **no establish phase**: cold start is `resyncVirtual` (walk live DOM, fill identity map, `emitResyncFrame`). Mid-session desync is client-initiated `emitResyncFrame` into a **real double-buffer** iframe; swap after that frame’s closing `CHECK` verifies. `generation` bumps only on top-level Document replacement (`EPOCH_RESET`). Soft-nav does not bump. Resync does not bump.
+The replicated structure is a **node table** (`ReplicatedTable`), not a belief about the DOM (P0). Each tick the producer coalesces `MutationRecord`s into one **frame** of opcodes (`NODE_NEW`, `INSERT`, `REMOVE`, `ATTR_*`, `TEXT_SET`, `CHECK`, `EPOCH_RESET`, `NODE_DROP`, CSSOM ops). The client **two-phase applies**: table first (validate `preTableHash` + ops + closing `CHECK`), then materialize to the **projected iframe** (K5: CSP-hardened document — not `iframe.sandbox`; see [decision-log.md](decision-log.md) 2026-08-30). There is **no establish phase**: cold start is `resyncVirtual` (walk live DOM, fill identity map, `emitResyncFrame`). Mid-session desync is client-initiated `emitResyncFrame` into a **real double-buffer** iframe; swap after that frame’s closing `CHECK` verifies. `generation` bumps only on top-level Document replacement (`EPOCH_RESET`). Soft-nav does not bump. Resync does not bump.
 
 ---
 

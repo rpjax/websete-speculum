@@ -1,5 +1,5 @@
 /**
- * Projected surface runs `sandbox` without `allow-scripts` (K5 — no page JS). With scripting off,
+ * Projected surface has no page JS (K5 — CSP `script-src 'none'`). With scripting blocked,
  * HTML renders `<noscript>` fallbacks; Virtual has scripting on and hides them. This emulates
  * Chromium UA paint when scripting is enabled — DOM/table stream unchanged.
  *

@@ -19,6 +19,8 @@ export type ProjectedInputCaptureMetricsSnapshot = {
   skippedDisarmed: number;
   skippedNoCoords: number;
   skippedNoNodeId: number;
+  /** Guard touchstart (capture) — separates "touch reaches doc" vs "pointerdown missing" on iOS. */
+  touchstartSeen: number;
   /** Wall interval between successive emits (detect stalls / floods). */
   emitIntervalMs: InputLatencyStats;
   lastEmitWallMs: number | null;
@@ -52,6 +54,7 @@ export class ProjectedInputCaptureMetrics {
   private skippedDisarmed = 0;
   private skippedNoCoords = 0;
   private skippedNoNodeId = 0;
+  private touchstartSeen = 0;
   private lastEmitWallMs: number | null = null;
   private readonly intervalSamples: number[] = [];
 
@@ -84,6 +87,10 @@ export class ProjectedInputCaptureMetrics {
     else this.skippedNoNodeId += 1;
   }
 
+  noteTouchStartSeen(): void {
+    this.touchstartSeen += 1;
+  }
+
   snapshot(): ProjectedInputCaptureMetricsSnapshot {
     return {
       emitted: this.emitted,
@@ -93,6 +100,7 @@ export class ProjectedInputCaptureMetrics {
       skippedDisarmed: this.skippedDisarmed,
       skippedNoCoords: this.skippedNoCoords,
       skippedNoNodeId: this.skippedNoNodeId,
+      touchstartSeen: this.touchstartSeen,
       emitIntervalMs: latencyStats(this.intervalSamples),
       lastEmitWallMs: this.lastEmitWallMs,
     };

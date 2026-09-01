@@ -7,7 +7,7 @@ on:
 
 jobs:
   dotnet:
-    name: dotnet
+    name: refactor-dotnet
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
           -c Release --verbosity normal
 
   sidecar:
-    name: sidecar
+    name: refactor-sidecar
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -54,7 +54,7 @@ jobs:
           npm test
 
   web:
-    name: web
+    name: refactor-web
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +94,7 @@ jobs:
           if-no-files-found: error
 
   compose:
-    name: compose
+    name: refactor-compose
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +108,7 @@ jobs:
           grep -q 'SPECULUM_INPUT_BACKEND' deploy/compose/docker-compose.dev.nouinput.yml
 
   dockup:
-    name: dockup
+    name: refactor-dockup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

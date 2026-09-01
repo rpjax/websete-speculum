@@ -61,10 +61,12 @@ Do **not** routinely run the SessionsTest Docker stack (sidecar + Xvfb + Chromiu
 
 | Job | Role |
 |-----|------|
-| `dotnet` | Journal + Sessions + Telemetry unit tests |
-| `sidecar` / `web` | npm test (+ lint/build for web) |
-| `compose` / `dockup` | compose + dockup validate |
-| **`sessions-test`** | Act→Assert stack (Chrome) |
+| `refactor-dotnet` | Journal + Sessions + Telemetry unit tests |
+| `refactor-sidecar` / `refactor-web` | npm test (+ lint/build for web; PP package build) |
+| `refactor-compose` / `refactor-dockup` | compose + dockup validate |
+| `page-projection-oracles` | O1–O5 fixture gates + PP-DEN-2 baseline |
+| **`sessions-test`** | PageProjection + SessionsTest Act→Assert (Chrome) |
+| `conventional-title` | PR title (separate workflow) |
 
 **Branch protection on `main` is mandatory** — require every CI job above **and** the PR title check. Prefer **squash merge** so the merge commit subject is the PR title (Release Please reads conventional commits on `main` only after merge).
 
@@ -127,7 +129,7 @@ When you change behaviour, update the relevant README in the same PR:
 1. Branch from `main` (or `master`).
 2. Use a **Conventional Commits** PR title (enforced by CI), e.g. `feat: …`, `fix: …`, `perf: …`, `chore: …`, `docs: …`, `ci: …`, `test: …`, `refactor: …`.
 3. **Squash-merge** into `main` so the squash commit subject matches that title.
-4. Ensure CI checks pass (including MotorAssert and PR title).
+4. Ensure CI checks pass (including SessionsTest and PR title).
 5. Describe **what** changed and **why** in the PR body.
 6. Include a test plan (commands run, manual steps for UI if applicable).
 

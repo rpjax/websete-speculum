@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Input scroll matrix</title>
+    <style>
+      :root {
+        --ink: #1a1f2e;
+        --paper: #f3efe6;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          repeating-linear-gradient(
+            180deg,
+            #f3efe6 0 96px,
+            #e7e0d2 96px 192px
+          );
+        color: var(--ink);
+        min-height: 3200px;
+      }
+      .page-mark {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.55rem 1rem;
+        background: rgb(26 31 46 / 92%);
+        color: #f6f3ec;
+        font: 600 0.85rem/1.3 ui-monospace, Consolas, monospace;
+        border-bottom: 2px solid #f4a261;
+      }
+      header.intro {
+        padding: 1rem 1.25rem 0.5rem;
+      }
+      header.intro h1 {
+        margin: 0;
+        font-size: 1.4rem;
+      }
+      header.intro p {
+        margin: 0.4rem 0 0;
+        max-width: 52rem;
+        color: #4d5568;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        padding: 0.75rem 1.25rem 1.25rem;
+      }
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        background: #fff;
+        border: 2px solid var(--ink);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 10px 24px rgb(26 31 46 / 12%);
+      }
+      .card h2 {
+        margin: 0;
+        padding: 0.65rem 0.85rem;
+        font-size: 0.95rem;
+        border-bottom: 1px solid #d8d0c2;
+        background: #faf7f1;
+      }
+      .card .meta {
+        padding: 0.35rem 0.85rem 0.55rem;
+        font-size: 0.8rem;
+        color: #5b6475;
+      }
+      .scroller {
+        height: 260px;
+        overflow: auto;
+        border-top: 1px solid #d8d0c2;
+        background: #0f121a;
+      }
+      .scroller .sticky {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 0.35rem 0.7rem;
+        background: rgb(15 18 26 / 90%);
+        color: #f6f3ec;
+        font: 600 0.75rem/1.2 ui-monospace, Consolas, monospace;
+        border-bottom: 1px solid rgb(255 255 255 / 16%);
+      }
+      .band {
+        display: grid;
+        grid-template-columns: 72px 1fr auto;
+        align-items: center;
+        gap: 0.75rem;
+        min-height: 88px;
+        padding: 0 0.85rem;
+        color: #fff;
+        font-weight: 700;
+        border-bottom: 1px solid rgb(255 255 255 / 16%);
+        text-shadow: 0 1px 0 rgb(0 0 0 / 30%);
+      }
+      #panel-list .band:nth-child(odd) {
+        background: linear-gradient(90deg, #3d5a80, #98c1d9);
+      }
+      #panel-list .band:nth-child(even) {
+        background: linear-gradient(90deg, #1d3557, #457b9d);
+      }
+      #panel-feed .band:nth-child(odd) {
+        background: linear-gradient(90deg, #7b2cbf, #c77dff);
+      }
+      #panel-feed .band:nth-child(even) {
+        background: linear-gradient(90deg, #5a189a, #9d4edd);
+      }
+      .iframe-wrap {
+        padding: 0 1.25rem 2rem;
+      }
+      .iframe-wrap h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1rem;
+      }
+      iframe#child {
+        width: 100%;
+        height: 380px;
+        border: 2px solid #e76f51;
+        border-radius: 10px;
+        background: #fff;
+      }
+      .page-stripes {
+        padding: 1rem 1.25rem 3rem;
+      }
+      .page-stripes .lane {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 110px;
+        margin: 0.55rem 0;
+        padding: 0 1rem;
+        border-radius: 8px;
+        color: #fff;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+      }
+      .page-stripes .lane:nth-child(odd) {
+        background: linear-gradient(90deg, #d62828, #f77f00);
+      }
+      .page-stripes .lane:nth-child(even) {
+        background: linear-gradient(90deg, #023e8a, #00b4d8);
+      }
+      #page-readout,
+      #list-readout,
+      #feed-readout {
+        font: 600 0.8rem/1.2 ui-monospace, Consolas, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-mark">
+      <span>PAGE viewport scroll · sticky</span>
+      <span id="page-readout">scrollY: 0</span>
+    </div>
+
+    <header class="intro">
+      <h1>Input scroll matrix</h1>
+      <p>
+        Three surfaces: <strong>page</strong> (document), <strong>component</strong> panels
+        (#panel-list / #panel-feed), and a <strong>nested iframe</strong> (#inner-scroller).
+        Wheel each one — colored bands must move smoothly under the sticky bars.
+      </p>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Component A — message list</h2>
+        <div class="meta">Overflow box · id <code>panel-list</code> · <span id="list-readout">scrollTop: 0</span></div>
+        <div id="panel-list" class="scroller">
+          <div class="sticky">component sticky A</div>
+          <div class="band"><span>L-000</span><span>LIST STEEL</span><span>0</span></div>
+          <div class="band"><span>L-088</span><span>LIST NAVY</span><span>88</span></div>
+          <div class="band"><span>L-176</span><span>LIST STEEL</span><span>176</span></div>
+          <div class="band"><span>L-264</span><span>LIST NAVY</span><span>264</span></div>
+          <div class="band"><span>L-352</span><span>LIST STEEL</span><span>352</span></div>
+          <div class="band"><span>L-440</span><span>LIST NAVY</span><span>440</span></div>
+          <div class="band"><span>L-528</span><span>LIST STEEL</span><span>528</span></div>
+          <div class="band"><span>L-616</span><span>LIST NAVY</span><span>616</span></div>
+          <div class="band"><span>L-704</span><span>LIST STEEL</span><span>704</span></div>
+          <div class="band"><span>L-792</span><span>LIST NAVY</span><span>792</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Component B — activity feed</h2>
+        <div class="meta">Overflow box · id <code>panel-feed</code> · <span id="feed-readout">scrollTop: 0</span></div>
+        <div id="panel-feed" class="scroller">
+          <div class="sticky">component sticky B</div>
+          <div class="band"><span>F-000</span><span>FEED VIOLET</span><span>0</span></div>
+          <div class="band"><span>F-088</span><span>FEED PLUM</span><span>88</span></div>
+          <div class="band"><span>F-176</span><span>FEED VIOLET</span><span>176</span></div>
+          <div class="band"><span>F-264</span><span>FEED PLUM</span><span>264</span></div>
+          <div class="band"><span>F-352</span><span>FEED VIOLET</span><span>352</span></div>
+          <div class="band"><span>F-440</span><span>FEED PLUM</span><span>440</span></div>
+          <div class="band"><span>F-528</span><span>FEED VIOLET</span><span>528</span></div>
+          <div class="band"><span>F-616</span><span>FEED PLUM</span><span>616</span></div>
+          <div class="band"><span>F-704</span><span>FEED VIOLET</span><span>704</span></div>
+          <div class="band"><span>F-792</span><span>FEED PLUM</span><span>792</span></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="iframe-wrap">
+      <h2>Nested iframe (same-origin) — scroll inside child document</h2>
+      <iframe id="child" src="input-scroll-iframe-inner.html" title="nested-scroll-child"></iframe>
+    </div>
+
+    <div class="page-stripes" aria-label="page scroll lanes">
+      <div class="lane"><span>PAGE-000</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-110</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-220</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-330</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-440</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-550</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-660</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-770</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-880</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-990</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-1100</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-1210</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-1320</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-1430</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-1540</span><span>viewport stripe</span></div>
+      <div class="lane"><span>PAGE-1650</span><span>viewport stripe</span></div>
+    </div>
+
+    <script>
+      (function () {
+        var pageOut = document.getElementById('page-readout');
+        var list = document.getElementById('panel-list');
+        var feed = document.getElementById('panel-feed');
+        var listOut = document.getElementById('list-readout');
+        var feedOut = document.getElementById('feed-readout');
+        window.addEventListener(
+          'scroll',
+          function () {
+            pageOut.textContent = 'scrollY: ' + Math.round(window.scrollY);
+          },
+          { passive: true },
+        );
+        list.addEventListener(
+          'scroll',
+          function () {
+            listOut.textContent = 'scrollTop: ' + Math.round(list.scrollTop);
+          },
+          { passive: true },
+        );
+        feed.addEventListener(
+          'scroll',
+          function () {
+            feedOut.textContent = 'scrollTop: ' + Math.round(feed.scrollTop);
+          },
+          { passive: true },
+        );
+      })();
+    </script>
+  </body>
+</html>

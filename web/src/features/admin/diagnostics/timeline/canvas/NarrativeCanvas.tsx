@@ -14,10 +14,10 @@ import type {
   NarrativeLane,
   NarrativeLayers,
 } from '../model/narrativeTypes'
-import { useTimeScale } from './TimeRail'
+import { useTimeScale, LANE_LABEL_W } from './TimeRail'
 import { TimeRailInteract } from './TimeRailInteract'
 import { SessionLane } from './SessionLane'
-import { BeatRibbon } from './BeatRibbon'
+import { BeatRibbonRow } from './BeatRibbon'
 import { GovernanceBandLayer } from '../layers/GovernanceBandLayer'
 import { SignalOverlayLayer } from '../layers/SignalOverlayLayer'
 import {
@@ -51,8 +51,6 @@ interface NarrativeCanvasProps {
   hasEarlier?: boolean
   loadingEarlier?: boolean
 }
-
-const LANE_LABEL_W = 176
 
 export const NarrativeCanvas = forwardRef<NarrativeCanvasHandle, NarrativeCanvasProps>(
   function NarrativeCanvas(
@@ -207,12 +205,12 @@ export const NarrativeCanvas = forwardRef<NarrativeCanvasHandle, NarrativeCanvas
         tabIndex={0}
         role="region"
         aria-label="Narrative canvas. Drag or arrow keys pan the time rail, wheel or plus/minus zoom, Enter opens focused chapter."
-        className="flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="flex w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       >
-        <div className="sticky top-0 z-20 shrink-0 border-b border-border/50 bg-card/95 backdrop-blur-sm">
+        <div className="z-20 shrink-0 border-b border-border/50 bg-card">
           <div className="flex min-w-0">
             <div
-              className="shrink-0 border-r border-border/40 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+              className="flex shrink-0 items-end border-r border-border/40 px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
               style={{ width: LANE_LABEL_W }}
             >
               Lane
@@ -231,12 +229,12 @@ export const NarrativeCanvas = forwardRef<NarrativeCanvasHandle, NarrativeCanvas
           </div>
         </div>
 
-        <div className="min-w-0 w-full overflow-x-hidden">
+        <div className="flex min-w-0 flex-col overflow-x-hidden">
           {layers.governanceBands && width > 0 && (
             <GovernanceBandLayer
               events={narrative.chapters.flatMap((c) => c.beats.map((b) => b.event))}
               scale={scale}
-              width={width}
+              width={railWidth}
               startMs={view.fromMs}
               endMs={view.toMs}
             />
@@ -246,54 +244,66 @@ export const NarrativeCanvas = forwardRef<NarrativeCanvasHandle, NarrativeCanvas
             <SignalOverlayLayer
               startMs={view.fromMs}
               endMs={view.toMs}
-              width={width}
+              width={railWidth}
               scale={scale}
             />
           )}
 
-          {width > 0 &&
-            narrative.lanes.map((lane) => (
-              <SessionLane
-                key={lane.id}
-                lane={lane}
-                scale={scale}
-                viewStart={view.fromMs}
-                viewEnd={view.toMs}
-                width={width}
-                granularity={granularity}
-                highlightChapterKey={highlightChapterKey ?? focusedKey}
-                highlightSpanIds={highlightSpanIds}
-                onSelectChapter={onSelectChapter}
-                onHoverChapter={onHoverChapter}
-                onSelectLane={() => onSelectLane(lane)}
-                onJumpToMs={jumpToMs}
-              />
-            ))}
-
-          {layers.beatRibbon && railWidth > 0 && (
-            <div className="flex min-w-0 border-t border-border/40">
-              <div
-                className="shrink-0 border-r border-border/40 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-                style={{ width: LANE_LABEL_W }}
-              >
-                Beats
-              </div>
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <BeatRibbon
-                  clusters={narrative.clusters}
+          <div className="shrink-0">
+            {width > 0 &&
+              narrative.lanes.map((lane) => (
+                <SessionLane
+                  key={lane.id}
+                  lane={lane}
                   scale={scale}
-                  width={railWidth}
                   viewStart={view.fromMs}
                   viewEnd={view.toMs}
+                  width={width}
                   granularity={granularity}
-                  onSelectCluster={onSelectCluster}
+                  highlightChapterKey={highlightChapterKey ?? focusedKey}
+                  highlightSpanIds={highlightSpanIds}
+                  onSelectChapter={onSelectChapter}
+                  onHoverChapter={onHoverChapter}
+                  onSelectLane={() => onSelectLane(lane)}
+                  onJumpToMs={jumpToMs}
                 />
-              </div>
-            </div>
+              ))}
+          </div>
+
+          {layers.beatRibbon && railWidth > 0 && (
+            <BeatRibbonRow
+              clusters={narrative.clusters}
+              scale={scale}
+              width={railWidth}
+              viewStart={view.fromMs}
+              viewEnd={view.toMs}
+              granularity={granularity}
+              onSelectCluster={onSelectCluster}
+            />
           )}
 
+          <div className="shrink-0 border-t border-border/30 px-3 py-1.5">
+            <p className="text-[11px] text-muted-foreground">
+              <span className="mr-3 inline-flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Ok
+              </span>
+              <span className="mr-3 inline-flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Warn
+              </span>
+              <span className="mr-3 inline-flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                Failed
+              </span>
+              <span className="tabular-nums text-muted-foreground/80">
+                {narrative.eventCount} beats · {narrative.lanes.length} lanes · {narrative.chapters.length} chapters
+              </span>
+            </p>
+          </div>
+
           {hasEarlier && onLoadEarlier && (
-            <div className="flex justify-center border-t border-border/30 py-2">
+            <div className="flex shrink-0 justify-center border-t border-border/30 py-2">
               <Button
                 type="button"
                 variant="ghost"

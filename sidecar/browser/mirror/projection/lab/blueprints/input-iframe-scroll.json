@@ -1,0 +1,39 @@
+{
+  "id": "input-iframe-scroll",
+  "description": "OS scrollSet — nested #inner-scroller (contextId=2)",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-scroll-matrix.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 6500 } },
+        {
+          "id": "scroll-inner",
+          "type": "pushInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [
+              {
+                "type": "resolveAndScrollElement",
+                "selector": "#inner-scroller",
+                "scrollTop": 216,
+                "contextId": 2
+              }
+            ]
+          }
+        },
+        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-inner"], "params": { "ms": 600 } },
+        {
+          "id": "assert-inner",
+          "type": "evaluate",
+          "dependsOn": ["wait-scroll"],
+          "params": {
+            "expression": "(() => { const f = document.getElementById('child'); const t = f?.contentDocument?.getElementById('inner-scroller')?.scrollTop ?? 0; if (t < 150) throw new Error('inner scrollTop=' + t); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-inner"] }
+      ]
+    }
+  ]
+}

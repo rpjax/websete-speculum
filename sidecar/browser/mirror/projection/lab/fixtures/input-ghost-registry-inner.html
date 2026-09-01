@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ghost registry inner (hang load)</title>
+  </head>
+  <body>
+    <p id="inner-label">inner-pending</p>
+    <!-- Blocks iframe `load` until /hang is released by the diag gate. -->
+    <img id="hang-img" src="/hang" width="1" height="1" alt="" />
+  </body>
+</html>

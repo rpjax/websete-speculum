@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Input latency perf fixture</title>
+  </head>
+  <body>
+    <button id="btn" type="button">Click me</button>
+    <input id="text" type="text" />
+    <label><input id="chk" type="checkbox" /> check</label>
+    <div id="log" data-click="[]" data-input="[]" data-change="[]" hidden></div>
+    <script>
+      // Timestamps go on a DOM attribute, not a `window` property — `session.evaluate()`
+      // (PageProjectionBrowserSession) runs in a Patchright isolated world, which shares the
+      // DOM tree with the page's main world but NOT its JS global object. A plain
+      // `window.__hits = ...` set here is invisible from that isolated world; DOM attributes
+      // are platform state shared by every world in the frame, so they round-trip fine.
+      // Date.now() (wall clock) — this page's Chrome subprocess and the perf script's host
+      // process share the same container clock, so the two are directly comparable.
+      function push(kind) {
+        var el = document.getElementById('log');
+        var arr = JSON.parse(el.getAttribute('data-' + kind));
+        arr.push(Date.now());
+        el.setAttribute('data-' + kind, JSON.stringify(arr));
+      }
+      document.getElementById('btn').addEventListener('click', function () {
+        push('click');
+      });
+      document.getElementById('text').addEventListener('input', function () {
+        push('input');
+      });
+      document.getElementById('chk').addEventListener('change', function () {
+        push('change');
+      });
+    </script>
+  </body>
+</html>

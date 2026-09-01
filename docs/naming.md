@@ -2,7 +2,8 @@
 
 This document defines vocabulary and naming rules for the API and sidecar codebases.
 
-> Broader mandatory engineering law (architecture, tests, CI, anti-patterns): **[engineering-standards.md](engineering-standards.md)**. Agents start at [../AGENTS.md](../AGENTS.md).
+> Broader mandatory engineering law (architecture, tests, CI, anti-patterns): **[engineering-standards.md](engineering-standards.md)**. Agents start at [../AGENTS.md](../AGENTS.md).  
+> **Ad-hoc / workaround code is strictly forbidden** — fix the designed algorithm; never paper over with a banned second path (see acceptance + engineering standards).
 
 ## Product vocabulary
 
@@ -16,15 +17,32 @@ This document defines vocabulary and naming rules for the API and sidecar codeba
 | **Edge** | Traefik, TLS, CORS | `EdgeSynchronizer`, `TraefikYamlBuilder` |
 | **Diagnostics** | Assertable observability (events, probes, governance) | `IDiagnosticsRuntime`, `/w7s/api/admin/diagnostics/v1` |
 | **Journal** | Operational fact log (admission + durable drain); not event-sourcing; not Diagnostics capabilities | `IJournalWriter`, `JournalEntry`, `PublishPolicy` |
-| **Telemetry** | Observability module: **event** hops/infra facts + **sampling** composites; not Sessions domain narrative | `Telemetry.Sessions.Input.*`, `Telemetry.Sampling.SampleCollected`, `ISessionTelemetryEventsFactory` |
+| **Mirror** | Sessions product technique for projecting a live browser to the client (`MirrorMode`). Covers **VideoStreaming** and **PageProjection** — not a single pipe name | `MirrorMode`, public client-config `mirrorMode` |
+| **PageProjection** | `MirrorMode` for structural page mirror: **one** chronological pipe with `plane: dom \| cssom`. Replaces legacy name `DomProjection` (mode/pipe only; `Dom*` remains for the DOM plane) | `MirrorMode.PageProjection`, `PageProjection.Resync`, `Telemetry.Sessions.PageProjection.*` |
+| **Telemetry** | Observability module: **event** hops/infra facts + **sampling** composites; not Sessions domain narrative | `Telemetry.Sessions.VideoStreamingInput.*`, `Telemetry.Sessions.PageProjection.*`, `Telemetry.Sampling.SampleCollected`, `ISessionTelemetryEventsFactory` |
 | **Database** | Unified Speculum SQLite store for the API | `SpeculumDbContext`, `AddDatabase`, `EnsureDatabase`, `DatabaseOptions` |
 
 **W7S must not appear** in C# namespaces, internal class names, application logs, or API folder names.
 The public HTTP mount **`/w7s`** (PathBase + SPA surfaces) and the query param **`_w7s_nso`** are wire/UI boundary only — not domain vocabulary.
 
+**`DomProjection` is retired mode/pipe vocabulary** (cutover complete). Do not
+introduce new `DomProjection` mode, stream, or catalog names. `Dom*` stays
+valid for **DOM-plane** types (`DomSelector`, `DomNode`, DOM-plane input).
+
+**PageProjection (algorithm vs lab).** The **algorithm** lives in the shared package
+`@speculum/page-projection` (`packages/page-projection` — `core` / `virtual` /
+`projected`). Sidecar `lab/`, `session/`, and CDP `input/` are **callers**. Do not name the
+algorithm “lab”. Do not put lab harness code inside the package.
+
+**PageProjection off-`childNodes` subtrees.** Two kinds only: **shadow** (same Document, same instance) and **nested browsing context** (new Document). Premise: [page-projection/spec/subtrees.md](page-projection/spec/subtrees.md). Feature 1: [shadow.md](page-projection/spec/shadow.md). Feature 2: [multi-document.md](page-projection/spec/multi-document.md).
+
+**PageProjection transport.** One contract: `DataPlane.send(channel, payload)`. `PlaneChannel` is
+message kind (`Frame` / `Control` / `Telemetry`). The DataPlane does **not** track documents.
+`contextId` is on the PP frame. Nested identity is the parent context’s `hosts` map (`nodeId → contextId`) — not a session document table, not a field on the live element.
+
 **Motor is legacy vocabulary.** It remains only where an existing artifact
 still has that proper name (for example `MotorHub`,
-`Speculum.MotorAssert.Tests`, or `web/src/features/motor/`). Do not introduce
+`Legacy/web/` (pre-promotion SPA), or historical `web/src/features/motor/`). Do not introduce
 `Motor` in new domain types, folders, diagnostics domains, configuration, or
 client APIs. Structural migrations replace those identifiers with
 `Session`/`Sessions`; no compatibility aliases are added during V1.
@@ -74,7 +92,7 @@ The legacy React app still uses historical Motor folders:
 | `web/src/features/motor/live/` | How does the live SignalR session work in the browser? |
 | `web/src/features/motor/mapping/` | How does the client sync its address bar (not server HostMapper)? |
 
-New browser libraries use `Refactor/Speculum.Api/wwwroot/speculum/`; their
+New browser libraries use `Speculum.Api/wwwroot/speculum/`; their
 public types use `SessionClient` and `LiveSession`. W7S remains wire/UI boundary
 only (e.g. `_w7s_nso`, setup copy). Do not invent parallel virtualization
 vocabulary.

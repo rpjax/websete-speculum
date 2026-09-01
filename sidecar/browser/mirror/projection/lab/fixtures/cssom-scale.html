@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CSSOM poll scale</title>
+  </head>
+  <body>
+    <p id="hud">building…</p>
+    <script>
+      const q = new URLSearchParams(location.search);
+      const n = Math.max(1, Number(q.get('n') || 5000) || 5000);
+      const sheetCount = Math.max(1, Number(q.get('sheets') || 1) || 1);
+      const nested = Math.max(0, Number(q.get('nested') || 0) || 0);
+      const mode = q.get('mode') || 'static';
+
+      function share(total, parts, i) {
+        const base = Math.floor(total / parts);
+        return base + (i < total % parts ? 1 : 0);
+      }
+
+      const sheets = [];
+      let builtTop = 0;
+      let builtInner = 0;
+      for (let s = 0; s < sheetCount; s++) {
+        const inners = share(nested, sheetCount, s);
+        const media = inners > 0 ? 1 : 0;
+        const top = share(n, sheetCount, s);
+        const styles = Math.max(0, top - media);
+        const parts = [];
+        for (let i = 0; i < styles; i++) parts.push(`.s${s}c${i}{color:red;margin:0}`);
+        if (media) {
+          const inner = [];
+          for (let i = 0; i < inners; i++) inner.push(`.s${s}n${i}{display:block}`);
+          parts.push(`@media all{${inner.join('')}}`);
+        }
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(parts.join('\n'));
+        sheets.push(sheet);
+        builtTop += sheet.cssRules.length;
+        builtInner += inners;
+      }
+      document.adoptedStyleSheets = sheets;
+
+      const hud = document.getElementById('hud');
+      hud.textContent =
+        `sheets=${sheetCount} top=${builtTop} nestedInner=${builtInner} ` +
+        `walk≈${builtTop + builtInner} mode=${mode}`;
+
+      const first = sheets[0];
+      const firstLen = first.cssRules.length;
+      let tick = 0;
+      if (mode === 'styleSet' && firstLen > 0) {
+        setInterval(() => {
+          const rule = first.cssRules[tick % firstLen];
+          if (rule && rule.style) rule.style.color = tick % 2 ? 'blue' : 'red';
+          tick += 1;
+        }, 16);
+      } else if (mode === 'insertRule') {
+        setInterval(() => {
+          first.insertRule(`.x${tick}{opacity:1}`, 0);
+          tick += 1;
+          if (first.cssRules.length > firstLen + 32) first.deleteRule(first.cssRules.length - 1);
+        }, 50);
+      }
+    </script>
+  </body>
+</html>

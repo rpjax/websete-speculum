@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Input scroll iframe inner</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #10141c;
+        color: #f4f1ea;
+      }
+      .hud {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.4rem 0.65rem;
+        background: rgb(16 20 28 / 92%);
+        border-bottom: 1px solid rgb(255 255 255 / 18%);
+        font: 600 0.75rem/1.2 ui-monospace, Consolas, monospace;
+      }
+      #inner-scroller {
+        height: 280px;
+        overflow: auto;
+        border: 2px solid #f4a261;
+        border-radius: 6px;
+        margin: 0.65rem;
+        background: #0b0e14;
+      }
+      .band {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 72px;
+        padding: 0 0.85rem;
+        border-bottom: 1px solid rgb(255 255 255 / 16%);
+        font-weight: 700;
+      }
+      .band:nth-child(odd) {
+        background: linear-gradient(90deg, #e76f51, #f4a261);
+      }
+      .band:nth-child(even) {
+        background: linear-gradient(90deg, #2a9d8f, #8ecae6);
+      }
+      h1 {
+        margin: 0.65rem 0.75rem 0;
+        font-size: 1rem;
+      }
+      p {
+        margin: 0.25rem 0.75rem 0.5rem;
+        font-size: 0.8rem;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Nested iframe scroller</h1>
+    <p>Wheel here — bands must glide under the sticky HUD (context ≠ root).</p>
+    <div id="inner-scroller">
+      <div class="hud">
+        <span>inner sticky</span>
+        <span id="inner-readout">scrollTop: 0</span>
+      </div>
+      <div class="band"><span>N-000</span><span>NESTED AMBER</span></div>
+      <div class="band"><span>N-072</span><span>NESTED TEAL</span></div>
+      <div class="band"><span>N-144</span><span>NESTED AMBER</span></div>
+      <div class="band"><span>N-216</span><span>NESTED TEAL</span></div>
+      <div class="band"><span>N-288</span><span>NESTED AMBER</span></div>
+      <div class="band"><span>N-360</span><span>NESTED TEAL</span></div>
+      <div class="band"><span>N-432</span><span>NESTED AMBER</span></div>
+      <div class="band"><span>N-504</span><span>NESTED TEAL</span></div>
+      <div class="band"><span>N-576</span><span>NESTED AMBER</span></div>
+      <div class="band"><span>N-648</span><span>NESTED TEAL</span></div>
+      <div class="band"><span>N-720</span><span>NESTED AMBER</span></div>
+      <div class="band"><span>N-792</span><span>NESTED TEAL</span></div>
+    </div>
+    <script>
+      (function () {
+        var el = document.getElementById('inner-scroller');
+        var out = document.getElementById('inner-readout');
+        el.addEventListener(
+          'scroll',
+          function () {
+            out.textContent = 'scrollTop: ' + Math.round(el.scrollTop);
+          },
+          { passive: true },
+        );
+      })();
+    </script>
+  </body>
+</html>

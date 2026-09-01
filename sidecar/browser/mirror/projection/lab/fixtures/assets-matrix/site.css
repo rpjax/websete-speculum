@@ -1,0 +1,12 @@
+/* assets-matrix site.css — relative + root-relative + @import */
+@import "./nested.css";
+@font-face {
+  font-family: "MatrixFont";
+  src: url(fonts/matrix.woff2) format("woff2");
+}
+body {
+  background: url(/fixtures/assets-matrix/bg-root.png) no-repeat;
+  font-family: MatrixFont, system-ui, sans-serif;
+}
+#title { color: #0a7; }
+

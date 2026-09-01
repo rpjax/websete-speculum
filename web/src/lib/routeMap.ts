@@ -1,48 +1,49 @@
 /**
- * Centralized route metadata registry.
- *
- * Every admin route declares its display label and optional parent path.
- * Dynamic segments (`:id`, `:connectionId`) are resolved at render time
- * via `resolveLabel`.
- *
- * Used by `<PageBreadcrumbs />` to build navigation trails automatically.
+ * Admin route metadata for breadcrumbs / command palette helpers.
+ * Keep aligned with frontend/wireframe/ia-map.md (paths under `/w7s`).
  */
 
+import { W7S_PREFIX } from '@/lib/w7s'
+
 export interface RouteEntry {
-  /** Human-readable label shown in breadcrumbs */
   label: string
-  /** Absolute parent path (omit for top-level admin pages) */
   parent?: string
 }
 
+const A = `${W7S_PREFIX}/admin`
+
 const ROUTE_MAP: Record<string, RouteEntry> = {
-  '/admin':                         { label: 'Dashboard' },
-  '/admin/forwarding':              { label: 'Forwarding' },
-  '/admin/capacity':                { label: 'Capacity & bridges' },
-  '/admin/hosting':                 { label: 'Hosting' },
-  '/admin/script-injection':        { label: 'Script injection' },
-  '/admin/scripts':                 { label: 'Scripts' },
-  '/admin/sessions':                { label: 'Sessions' },
-  '/admin/sessions/:id':            { label: ':id', parent: '/admin/sessions' },
-  '/admin/diagnostics':             { label: 'Diagnostics' },
-  '/admin/diagnostics/health':      { label: 'Health', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/telemetry':   { label: 'Telemetry', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/telemetry/explore': { label: 'Monitor expanded', parent: '/admin/diagnostics/telemetry' },
-  '/admin/diagnostics/telemetry/analysis': { label: 'Telemetry analysis', parent: '/admin/diagnostics/telemetry' },
-  '/admin/diagnostics/timeline':    { label: 'Timeline', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/analysis':    { label: 'Analysis', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/investigate': { label: 'Investigate', parent: '/admin/diagnostics' },
-  '/admin/diagnostics/governance':  { label: 'Governance', parent: '/admin/diagnostics' },
-  '/admin/api-key':                 { label: 'API key' },
-  '/admin/openapi':                 { label: 'OpenAPI' },
+  [A]: { label: 'Home' },
+  [`${A}/sessions`]: { label: 'Sessions' },
+  [`${A}/sessions/:sessionId`]: { label: ':sessionId', parent: `${A}/sessions` },
+  [`${A}/profiles`]: { label: 'Profiles' },
+  [`${A}/profiles/:profileId`]: { label: ':profileId', parent: `${A}/profiles` },
+  [`${A}/profiles/:profileId/delete`]: { label: 'Delete', parent: `${A}/profiles/:profileId` },
+  [`${A}/scripts`]: { label: 'Scripts' },
+  [`${A}/scripts/upload`]: { label: 'Upload', parent: `${A}/scripts` },
+  [`${A}/scripts/injections/new`]: { label: 'Add injection', parent: `${A}/scripts` },
+  [`${A}/scripts/injections/:index/edit`]: { label: 'Edit injection', parent: `${A}/scripts` },
+  [`${A}/scripts/injections/:index/remove`]: { label: 'Remove injection', parent: `${A}/scripts` },
+  [`${A}/configurations`]: { label: 'Configurations' },
+  [`${A}/configurations/:section`]: { label: ':section', parent: `${A}/configurations` },
+  [`${A}/host-resources`]: { label: 'Host resources' },
+  [`${A}/host-resources/preview`]: { label: 'Preview', parent: `${A}/host-resources` },
+  [`${A}/host-resources/apply`]: { label: 'Apply', parent: `${A}/host-resources` },
+  // Hub redirects to Health — kept so breadcrumbs can show the Diagnostics section.
+  [`${A}/diagnostics`]: { label: 'Diagnostics' },
+  [`${A}/diagnostics/health`]: { label: 'Health', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/resources`]: { label: 'Resources', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/resources/explore`]: { label: 'Explore', parent: `${A}/diagnostics/resources` },
+  [`${A}/diagnostics/signals`]: { label: 'Signals', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/timeline`]: { label: 'Journal', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/investigate`]: { label: 'Investigate', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/reports`]: { label: 'Reports', parent: `${A}/diagnostics` },
+  [`${A}/diagnostics/reports/new`]: { label: 'Generate report', parent: `${A}/diagnostics/reports` },
+  [`${A}/diagnostics/reports/:reportId`]: { label: ':reportId', parent: `${A}/diagnostics/reports` },
+  [`${A}/diagnostics/governance`]: { label: 'Governance', parent: `${A}/diagnostics` },
+  [`${A}/change-password`]: { label: 'Change password' },
 }
 
-/**
- * Match a concrete path like `/admin/sessions/conn-abc` against
- * route patterns like `/admin/sessions/:id`.
- *
- * Returns the entry and a map of resolved params.
- */
 export function resolveRoute(pathname: string): { entry: RouteEntry; params: Record<string, string> } | null {
   const segments = pathname.replace(/\/$/, '').split('/')
 
@@ -70,23 +71,12 @@ export interface BreadcrumbSegment {
   to?: string
 }
 
-/**
- * Build a breadcrumb trail for a given pathname.
- *
- * Walks up the `parent` chain from the matched route, producing
- * an array from root → leaf. The leaf segment has no `to` (it's the
- * current page).
- *
- * @param labelOverrides - map of param name → display string,
- *   e.g. `{ id: 'Session AAAA-111' }` to replace `:id` in the label.
- */
 export function buildBreadcrumbs(
   pathname: string,
   labelOverrides?: Record<string, string>,
 ): BreadcrumbSegment[] {
   const result: BreadcrumbSegment[] = []
   let current = pathname.replace(/\/$/, '')
-
   const visited = new Set<string>()
 
   while (current) {
@@ -97,7 +87,6 @@ export function buildBreadcrumbs(
     if (!resolved) break
 
     let label = resolved.entry.label
-    // Replace `:param` references in label with overrides or raw values
     for (const [param, value] of Object.entries(resolved.params)) {
       if (label === `:${param}`) {
         label = labelOverrides?.[param] ?? value
@@ -106,7 +95,9 @@ export function buildBreadcrumbs(
 
     result.unshift({ label, to: result.length > 0 ? current : undefined })
 
-    current = resolved.entry.parent ?? ''
+    const parent = resolved.entry.parent
+    if (!parent) break
+    current = parent.replace(/:([A-Za-z]+)/g, (_, key: string) => resolved.params[key] ?? _)
   }
 
   return result

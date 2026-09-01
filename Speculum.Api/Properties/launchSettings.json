@@ -1,17 +1,12 @@
-﻿{
-  "$schema": "https://json.schemastore.org/launchsettings.json",
+{
   "profiles": {
-    "http": {
+    "Speculum.Api": {
       "commandName": "Project",
-      "dotnetRunMessages": true,
-      "launchBrowser": false,
+      "launchBrowser": true,
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "HttpAddress": "0.0.0.0:8080",
-        "Database__Path": "data/speculum.db",
-        "Sidecar__BaseUrl": "ws://localhost:3000",
-        "Cors__AllowedOrigins": "http://localhost:5173;http://speculum.localhost:8080"
-      }
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:51852;http://localhost:51853"
     }
   }
 }

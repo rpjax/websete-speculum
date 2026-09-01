@@ -5,7 +5,7 @@
 
 **Remote browser isolation** for the Websete (W7S) platform. A real Chromium instance runs on the server; users interact through a low-latency JPEG screencast in a React canvas. Runtime motor configuration lives in **SQLite** and is managed through the Admin API and admin UI.
 
-> **Development status:** Speculum **V1.0.0** is **in active development** — not released yet. There are no semver tags, release branches, or changelog entries until launch is announced. The codebase does **not** carry backward-compatibility bridges; config/API shape changes are allowed until then.
+> **Development status:** Speculum **V1.0.0** is **in active development** — not released yet. Motor semver is tracked in [version.txt](version.txt) (currently **0.3.0** — see [docs/page-projection/spec/motor-0.3.0.md](docs/page-projection/spec/motor-0.3.0.md)). There are no semver tags until launch is announced. The codebase does **not** carry backward-compatibility bridges; config/API shape changes are allowed until then.
 
 ---
 
@@ -33,11 +33,11 @@ Prerequisites: [Docker](https://docs.docker.com/get-docker/), [Node.js 22+](http
 npm install -g @rodrigopjax/dockup   # >= 2.0.2
 
 cd deploy
-cp speculum.dockup.example.json speculum.dockup.json
+cp dockup.json speculum.dockup.json
 # Edit domains if needed (defaults work for local dev)
 
-dockup validate -c speculum.dockup.example.json --root ..
-dockup deploy --env dev --root ..
+dockup validate -c dockup.json --root ..
+dockup deploy --env dev -c dockup.json --root ..
 ```
 
 If you already copied to `speculum.dockup.json` (gitignored), `dockup validate --root ..` also works.
@@ -72,21 +72,30 @@ Set `VITE_API_URL` only for cross-origin dev (optional). Default empty = same-or
 
 ```
 Speculum/
-├── Speculum.Api/           # .NET 10 API (+ Dockerfile → speculum-api)
-├── Speculum.Api.Tests/     # Integration and unit tests
-├── web/                    # React SPA (+ Dockerfile → speculum-web)
-├── sidecar/                # Chrome sidecar (+ Dockerfile → speculum-sidecar)
-├── deploy/                 # dockup config (canonical deploy path)
-│   ├── speculum.dockup.example.json
-│   └── compose/            # Optional reference docker-compose
-├── docs/                   # Architecture and motor reference
+├── Speculum.Api/                      # .NET 10 API
+├── Speculum.Api.Journal.Tests/
+├── Speculum.Api.Sessions.Tests/
+├── Speculum.Api.SessionsTest.Tests/   # Act→Assert (CI Chrome)
+├── Speculum.Api.Telemetry.Tests/
+├── web/                               # React SPA (promoted)
+├── Legacy/web/                        # Pre-promotion SPA (archive only)
+├── sidecar/                           # Chrome sidecar
+├── packages/page-projection/          # Shared PageProjection lib
+├── page-projection-oracles/
+├── proto/
+├── tests/motor-fixture/               # SessionsTest fixture site
+├── deploy/                            # dockup + compose
+│   ├── dockup.json
+│   └── compose/
+├── docs/
+├── frontend/wireframe/                # Admin UI build-contract
 ├── Speculum.sln
 └── .github/workflows/ci.yml
 ```
 
 | Artifact | Purpose |
 |----------|---------|
-| `deploy/speculum.dockup.json` | Your local dockup config (gitignored; copy from example) |
+| `deploy/speculum.dockup.json` | Your local dockup override (gitignored; copy from `dockup.json`) |
 | `deploy/out/{dev,prod}/` | Generated compose stacks (gitignored) |
 
 ---
@@ -192,14 +201,14 @@ Example requests: `Speculum.Api/Speculum.Api.http`
 
 ```bash
 # Fast gate (no Chrome / no sidecar Docker)
-dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive&Category!=MotorPerf"
+dotnet test Speculum.sln -c Release --filter "Category!=SessionsTest"
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm test && npm run lint && npm run build
 ```
 
-CI also runs the required **`motor-assertive`** job (fixture + sidecar Chromium) on GitHub Actions only — see [docs/diagnostics.md](docs/diagnostics.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Do not treat that stack as day-to-day local QA.
+CI also runs the required **`sessions-test`** job (fixture + sidecar Chromium) on GitHub Actions only — see [docs/diagnostics.md](docs/diagnostics.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Do not treat that stack as day-to-day local QA.
 
-If MotorAssert fails, triage with [docs/assert-failure-policy.md](docs/assert-failure-policy.md) — never soften asserts to force green.
+If SessionsTest fails, triage with [docs/assert-failure-policy.md](docs/assert-failure-policy.md) — never soften asserts to force green.
 
 ### Component READMEs
 
@@ -221,9 +230,9 @@ dockup deploy --env prod --root ..   # Let's Encrypt on :443
 
 Production VPS workflow: generate `out/prod/`, copy to server, `docker compose up -d`. Details in [deploy/README.md](deploy/README.md).
 
-An optional hand-maintained compose file lives at [deploy/compose/docker-compose.reference.yml](deploy/compose/docker-compose.reference.yml) for environments without dockup.
+SessionsTest compose: [deploy/compose/docker-compose.sessions-test.yml](deploy/compose/docker-compose.sessions-test.yml).
 
-CI-only motor assert stack (Chrome): [deploy/compose/docker-compose.motor-assert.yml](deploy/compose/docker-compose.motor-assert.yml).
+CI-only SessionsTest stack (Chrome): same compose file above.
 
 ---
 
@@ -232,14 +241,14 @@ CI-only motor assert stack (Chrome): [deploy/compose/docker-compose.motor-assert
 After changes, run the **fast gate** (no Chrome):
 
 ```bash
-dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive&Category!=MotorPerf"
+dotnet test Speculum.sln -c Release --filter "Category!=SessionsTest"
 cd sidecar && npm test
 cd web && npm run lint && npm test && npm run build
 ```
 
 For dockup stacks: `dockup validate --root ..` before deploy (requires **dockup >= 2.0.2**).
 
-Full motor assert (fixture + Chromium) runs only in GitHub Actions job `motor-assertive`.
+Full SessionsTest (fixture + Chromium) runs only in GitHub Actions job `sessions-test`.
 ---
 
 ## Documentation index

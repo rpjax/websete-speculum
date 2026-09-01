@@ -92,7 +92,7 @@ export function TimeRailInteract({
         'relative select-none touch-none',
         dragging ? 'cursor-grabbing' : 'cursor-grab',
       )}
-      style={{ width, height: 28 }}
+      style={{ width, height: 36 }}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

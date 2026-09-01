@@ -19,6 +19,9 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc) | Cursor | Frontend rule when editing `web/**` |
 | [../readme.md](../readme.md) | Everyone | Project overview, quick start, repository map |
 | [architecture.md](architecture.md) | Architects, operators | System design, data flows, security boundaries |
+| **[page-projection/spec/README.md](page-projection/spec/README.md)** | **Agents + Sessions (mandatory)** | **V4 spec index — start here** |
+| **[page-projection/spec/acceptance.md](page-projection/spec/acceptance.md)** | **Agents + Sessions (mandatory)** | **Accept = absolute 1:1 parity** |
+| **[page-projection/spec/frame-protocol.md](page-projection/spec/frame-protocol.md)** | Agents + Sessions | V4 frame / table / resync protocol |
 | [naming.md](naming.md) | Developers / agents | Speculum / Sessions / W7S vocabulary |
 | [diagnostics.md](diagnostics.md) | Backend / QA | Assertable observability contracts + Assert Cookbook |
 | [stealth-suite.md](stealth-suite.md) | Agents / QA | In-session antibot fingerprint suite (CreepJS etc.) + report template |
@@ -35,7 +38,7 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 | Web client (React) | `web/` | [README](../web/README.md) |
 | Browser sidecar (Node) | `sidecar/` | [README](../sidecar/README.md) |
 | Tests | `Speculum.Api.Tests/` | [README](../Speculum.Api.Tests/README.md) |
-| MotorAssert (CI Chrome) | `Speculum.MotorAssert.Tests/` | [README](../Speculum.MotorAssert.Tests/README.md) |
+| MotorAssert (CI Chrome) | `Speculum.Api.SessionsTest.Tests/` | [README](../Speculum.Api.SessionsTest.Tests/README.md) |
 | Motor fixture site | `tests/motor-fixture/` | [README](../tests/motor-fixture/README.md) |
 
 ## Archive
@@ -52,4 +55,4 @@ Technical documentation for the **Speculum** remote browser isolation platform (
 - **Configuration:** infrastructure via environment variables; motor behaviour via SQLite + Admin API.
 - **Domains:** same-origin — SPA, `/api`, and `/vhub` share one motor host; `EdgeSynchronizer` materializes Traefik routes per **Hosting** profile.
 - **Naming:** see [naming.md](naming.md) (Speculum / Sessions / W7S vocabulary).
-- **MotorAssert matrix:** [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).
+- **MotorAssert matrix:** [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md).

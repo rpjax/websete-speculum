@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ScaleTime } from 'd3-scale'
 import { diagnosticsApi, type TelemetrySampleRecord } from '@/lib/diagnosticsApi'
-import { msToX } from '../canvas/TimeRail'
+import { LANE_LABEL_W, msToX } from '../canvas/TimeRail'
 
 interface SignalOverlayLayerProps {
   startMs: number
   endMs: number
+  /** Rail width (excludes lane gutter). */
   width: number
   scale: ScaleTime<number, number>
 }
@@ -47,7 +48,10 @@ export function SignalOverlayLayer({ startMs, endMs, width, scale }: SignalOverl
 
   if (points.length < 2) {
     return (
-      <div className="border-b border-border/20 px-3 py-2 text-[10px] text-muted-foreground" style={{ marginLeft: 160 }}>
+      <div
+        className="border-b border-border/20 px-3 py-2 text-[10px] text-muted-foreground"
+        style={{ marginLeft: LANE_LABEL_W }}
+      >
         Signal overlay: no machine CPU samples in range
       </div>
     )
@@ -64,8 +68,8 @@ export function SignalOverlayLayer({ startMs, endMs, width, scale }: SignalOverl
     .join(' ')
 
   return (
-    <div className="border-b border-border/20" style={{ marginLeft: 160 }}>
-      <svg width={width - 160} height={h} className="block text-amber-400/70">
+    <div className="border-b border-border/20" style={{ marginLeft: LANE_LABEL_W }}>
+      <svg width={width} height={h} className="block text-amber-600/70 dark:text-amber-400/70">
         <path d={path} fill="none" stroke="currentColor" strokeWidth={1.5} />
         <text x={8} y={12} className="fill-muted-foreground text-[9px]">Machine CPU (telemetry)</text>
       </svg>

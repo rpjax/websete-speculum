@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Speculum PageProjection",
+  "version": "1.0",
+  "description": "Unified WebGL spoof + extension plane + PageProjection Virtual runtime (runtime-redesign.md).",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["<all_urls>", "ws://*/*", "wss://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "main/webgl.js",
+        "main/csp-neutralize.js",
+        "main/single-tab.js",
+        "main/runtime-bridge.js",
+        "main/plane-shim.js",
+        "main/virtual.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_origin_as_fallback": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-isolated.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_origin_as_fallback": true
+    }
+  ]
+}

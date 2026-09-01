@@ -17,7 +17,7 @@ export function GranularityControl({ value, onChange, compact }: GranularityCont
   return (
     <Select value={value} onValueChange={(v) => onChange(v as NarrativeGranularity)}>
       <SelectTrigger
-        className={compact ? 'h-7 w-[118px] shrink-0 text-[11px]' : 'h-8 w-[160px] text-xs'}
+        className={compact ? 'h-7 min-w-[9rem] flex-1 sm:flex-none sm:w-[10.5rem] text-[11px] [&>span]:truncate' : 'h-8 w-[160px] text-xs'}
         aria-label="Detail granularity"
       >
         {!compact && <span className="mr-1 text-muted-foreground">Detail:</span>}

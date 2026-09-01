@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mutation churn fixture</title>
+    <style>
+      body { margin: 1rem; font-family: system-ui, sans-serif; background: #eef2ff; }
+      #list { border: 1px solid #222; background: #fff; padding: 0.5rem; min-height: 8rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Mutation churn</h1>
+    <div id="list"></div>
+    <script>
+      const list = document.getElementById('list');
+      let n = 0;
+      setInterval(() => {
+        n += 1;
+        const row = document.createElement('div');
+        row.textContent = 'churn ' + n;
+        list.appendChild(row);
+        if (list.childElementCount > 40) list.firstElementChild?.remove();
+      }, 400);
+    </script>
+  </body>
+</html>

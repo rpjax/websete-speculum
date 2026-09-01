@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Projection lab fixture</title>
+    <style>
+      body {
+        margin: 2rem;
+        font-family: Georgia, serif;
+        background: linear-gradient(160deg, #e8f1ff, #fff8f0);
+        min-height: 100vh;
+      }
+      h1 { font-size: 2rem; }
+      #box {
+        margin-top: 1.5rem;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 2px solid #333;
+        max-width: 28rem;
+      }
+      button {
+        margin-top: 1rem;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab fixture</h1>
+    <p>Mutations here should produce live PP frames on the lab client.</p>
+    <div id="box">Idle</div>
+    <button type="button" id="bump">Bump</button>
+    <script>
+      let n = 0;
+      document.getElementById('bump').addEventListener('click', () => {
+        n += 1;
+        const box = document.getElementById('box');
+        box.textContent = 'Bump #' + n + ' @ ' + new Date().toLocaleTimeString();
+        const el = document.createElement('p');
+        el.textContent = 'row ' + n;
+        document.body.appendChild(el);
+      });
+      // Auto-mutate so Start alone yields frames without clicking.
+      setInterval(() => {
+        document.getElementById('bump').click();
+      }, 1000);
+    </script>
+  </body>
+</html>

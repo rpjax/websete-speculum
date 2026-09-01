@@ -39,17 +39,27 @@ export function MultiSelectFilter({ label, options, selected, onChange }: MultiS
           {options.map((opt) => (
             <button
               key={opt.value}
+              type="button"
               onClick={() => toggle(opt.value)}
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-muted"
             >
-              <div className={cn('flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border', selected.includes(opt.value) && 'bg-primary border-primary')}>
+              <div
+                className={cn(
+                  'flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border',
+                  selected.includes(opt.value) && 'bg-primary border-primary',
+                )}
+              >
                 {selected.includes(opt.value) && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
               </div>
               {opt.label}
             </button>
           ))}
           {selected.length > 0 && (
-            <button onClick={() => onChange([])} className="mt-1 w-full rounded-sm px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted">
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="mt-1 w-full rounded-sm px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+            >
               Clear all
             </button>
           )}

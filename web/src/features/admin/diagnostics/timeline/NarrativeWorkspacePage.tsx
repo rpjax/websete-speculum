@@ -1,22 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import { useNarrativeQuery } from './hooks/useNarrativeQuery'
 import { useNarrativeTail } from './hooks/useNarrativeTail'
 import { useNarrativeSelection } from './hooks/useNarrativeSelection'
-import { ReadingStrip } from './reading/ReadingStrip'
-import { NarrativeCanvas, type NarrativeCanvasHandle } from './canvas/NarrativeCanvas'
-import { ChapterSheet } from './panels/ChapterSheet'
-import { BeatSheet } from './panels/BeatSheet'
-import { SessionPeekSheet } from './panels/SessionPeekSheet'
-import { resolvePeriodBounds } from './model/buildNarrative'
+import { AttentionStrip } from './panels/AttentionStrip'
+import { JournalEventStream } from './panels/JournalEventStream'
+import { JournalFactDetail } from './panels/JournalFactDetail'
+import { JournalToolbar } from './panels/JournalToolbar'
+import { DEFAULT_JOURNAL_GROUPING, type JournalGroupingOptions, type JournalSortOrder } from './panels/journalStreamModel'
+import { eventTone } from './model/eventSemantics'
+import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
 
 export default function NarrativeWorkspacePage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const connectionId = searchParams.get('connectionId')
+  const connectionId = searchParams.get('connectionId') ?? searchParams.get('sessionId')
   const fromParam = searchParams.get('from')
   const toParam = searchParams.get('to')
-  const canvasRef = useRef<NarrativeCanvasHandle>(null)
+  const [grouping, setGrouping] = useState<JournalGroupingOptions>(DEFAULT_JOURNAL_GROUPING)
+  const [sortOrder, setSortOrder] = useState<JournalSortOrder>('newest')
 
   const initialPeriod =
     fromParam && toParam && Number.isFinite(Date.parse(fromParam)) && Number.isFinite(Date.parse(toParam))
@@ -29,135 +32,202 @@ export default function NarrativeWorkspacePage() {
   })
 
   useEffect(() => {
-    if (connectionId) {
-      query.setScope({ kind: 'session', connectionId })
-    }
-  }, [connectionId]) // eslint-disable-line react-hooks/exhaustive-deps -- sync URL → scope once per param change
+    if (connectionId) query.setScope({ kind: 'session', connectionId })
+  }, [connectionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selection = useNarrativeSelection()
-
-  const latestUtc = useMemo(() => {
-    if (query.rawEvents.length === 0) return null
-    return query.rawEvents.reduce((a, b) => (a.utc > b.utc ? a : b)).utc
-  }, [query.rawEvents])
 
   useNarrativeTail({
     enabled: query.layers.liveTail,
     scope: query.scope,
-    sinceUtc: latestUtc,
+    afterSequence: query.latestSequence,
     onEvents: query.appendEvents,
   })
 
   const onScopeChange = useCallback(
     (scope: typeof query.scope) => {
       query.setScope(scope)
+      selection.clear()
       setSearchParams(
         (p) => {
-          if (scope.kind === 'session') p.set('connectionId', scope.connectionId)
-          else p.delete('connectionId')
+          if (scope.kind === 'session') {
+            p.set('sessionId', scope.connectionId)
+            p.delete('connectionId')
+          } else {
+            p.delete('sessionId')
+            p.delete('connectionId')
+          }
           return p
         },
         { replace: true },
       )
     },
-    [query, setSearchParams],
+    [query, setSearchParams, selection],
   )
 
-  const analysisHref = useMemo(() => {
-    const { fromMs, toMs } = resolvePeriodBounds(query.period)
-    const q = new URLSearchParams()
-    q.set('from', new Date(fromMs).toISOString())
-    q.set('to', new Date(toMs).toISOString())
-    if (query.scope.kind === 'session') q.set('connectionId', query.scope.connectionId)
-    return `/admin/diagnostics/analysis?${q.toString()}`
-  }, [query.period, query.scope])
+  const streamEvents = useMemo(() => {
+    const fromChapters = query.narrative.chapters.flatMap((c) => c.beats.map((b) => b.event))
+    if (fromChapters.length > 0) return fromChapters
+    return query.narrative.clusters.flatMap((c) => c.beats.map((b) => b.event))
+  }, [query.narrative.chapters, query.narrative.clusters])
 
-  const chapterOpen = selection.selection?.kind === 'chapter'
-  const beatOpen = selection.selection?.kind === 'beat' || selection.selection?.kind === 'cluster'
-  const laneOpen = selection.selection?.kind === 'lane'
+  const selectedEvent: DiagnosticsEventRecord | null =
+    selection.selection?.kind === 'beat'
+      ? selection.selection.beat.event
+      : selection.selection?.kind === 'cluster'
+        ? (selection.selection.cluster.beats[0]?.event ?? null)
+        : selection.selection?.kind === 'chapter'
+          ? (selection.selection.chapter.beats[selection.selection.chapter.beats.length - 1]?.event ?? null)
+          : null
+
+  const onSelectEvent = useCallback(
+    (event: DiagnosticsEventRecord) => {
+      // Clicking the active fact again clears selection (empty inspector).
+      if (
+        (selection.selection?.kind === 'beat' && selection.selection.beat.event.id === event.id) ||
+        (selection.selection?.kind === 'cluster' &&
+          selection.selection.cluster.beats[0]?.event.id === event.id)
+      ) {
+        selection.clear()
+        return
+      }
+      selection.selectBeat({ event, ms: Date.parse(event.utc), clusterKey: null })
+    },
+    [selection],
+  )
+
+  const onSelectChapter = useCallback(
+    (chapter: Parameters<typeof selection.selectChapter>[0]) => {
+      const interesting =
+        [...chapter.beats].reverse().find((b) => eventTone(b.event) === 'fault') ??
+        [...chapter.beats].reverse().find((b) => eventTone(b.event) !== 'metric') ??
+        chapter.beats[chapter.beats.length - 1]
+      if (!interesting) return
+      selection.selectBeat({
+        event: interesting.event,
+        ms: Date.parse(interesting.event.utc),
+        clusterKey: null,
+      })
+    },
+    [selection],
+  )
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      if (query.filters.search) {
+        query.setFilters({ ...query.filters, search: '' })
+        return
+      }
+      if (selection.selection) selection.clear()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [query, selection])
+
+  // Drop selection only when the selected fact leaves the visible stream — never auto-pick a replacement.
+  useEffect(() => {
+    if (!selectedEvent) return
+    if (streamEvents.length === 0 || !streamEvents.some((e) => e.id === selectedEvent.id)) {
+      selection.clear()
+    }
+  }, [streamEvents, selectedEvent, selection])
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] min-h-0 flex-col gap-3">
-      <div className="shrink-0">
-        <ReadingStrip
-          scope={query.scope}
-          onScopeChange={onScopeChange}
-          period={query.period}
-          onPeriodChange={query.setPeriod}
-          granularity={query.granularity}
-          onGranularityChange={query.setGranularity}
-          layers={query.layers}
-          onLayersChange={query.setLayers}
-          filters={query.filters}
-          onFiltersChange={query.setFilters}
-          onRefresh={() => void query.reload()}
-          analysisHref={analysisHref}
-          stats={{
-            beats: query.narrative.eventCount,
-            lanes: query.narrative.lanes.length,
-            chapters: query.narrative.chapters.length,
-          }}
-          onZoomIn={() => canvasRef.current?.zoomIn()}
-          onZoomOut={() => canvasRef.current?.zoomOut()}
-          onFit={() => canvasRef.current?.fit()}
-        />
+    <div className="flex h-[calc(100dvh-3.5rem-1.75rem)] min-h-0 flex-col gap-1.5">
+      <div className="flex shrink-0 items-baseline gap-2">
+        <h1 className="text-sm font-semibold tracking-tight">Journal</h1>
+        <p className="text-[11px] text-muted-foreground">Diagnostic facts</p>
       </div>
 
+      <JournalToolbar
+        scope={query.scope}
+        onScopeChange={onScopeChange}
+        period={query.period}
+        onPeriodChange={query.setPeriod}
+        grouping={grouping}
+        onGroupingChange={setGrouping}
+        sortOrder={sortOrder}
+        onSortOrderChange={setSortOrder}
+        filters={query.filters}
+        onFiltersChange={query.setFilters}
+        followNew={query.layers.liveTail}
+        onFollowNewChange={(follow) => query.setLayers({ ...query.layers, liveTail: follow })}
+        onRefresh={() => void query.reload()}
+        factCount={streamEvents.length}
+        loading={query.loading}
+      />
+
       {query.error && (
-        <div className="shrink-0 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+        <div className="shrink-0 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-sm text-destructive">
           {query.error}
-          <button type="button" className="ml-3 underline" onClick={() => void query.reload()}>
+          <button type="button" className="ml-2 underline" onClick={() => void query.reload()}>
             Retry
           </button>
         </div>
       )}
 
-      <div className="min-h-0 min-w-0 flex-1">
-        {query.loading ? (
-          <Skeleton className="h-full min-h-[min(60vh,520px)] w-full rounded-xl" />
-        ) : (
-          <NarrativeCanvas
-            ref={canvasRef}
-            narrative={query.narrative}
-            granularity={query.granularity}
-            layers={query.layers}
-            highlightChapterKey={selection.highlightChapterKey}
-            highlightSpanIds={selection.highlightSpanIds}
-            onSelectChapter={selection.selectChapter}
-            onHoverChapter={(c) =>
-              selection.hoverChapter(c?.key ?? null, c?.spans.map((s) => s.spanId) ?? [])
-            }
-            onSelectCluster={selection.selectCluster}
-            onSelectLane={selection.selectLane}
-            onLoadEarlier={() => void query.loadEarlier()}
-            hasEarlier={query.hasEarlier}
-            loadingEarlier={query.loadingEarlier}
-          />
-        )}
-      </div>
+      {query.narrative.completeness.note && (
+        <p className="shrink-0 text-[11px] text-amber-600 dark:text-amber-400">{query.narrative.completeness.note}</p>
+      )}
 
-      <ChapterSheet
-        chapter={selection.selection?.kind === 'chapter' ? selection.selection.chapter : null}
-        open={chapterOpen}
-        onOpenChange={(o) => {
-          if (!o) selection.clear()
-        }}
-      />
-      <BeatSheet
-        beat={selection.selection?.kind === 'beat' ? selection.selection.beat : null}
-        cluster={selection.selection?.kind === 'cluster' ? selection.selection.cluster : null}
-        open={beatOpen}
-        onOpenChange={(o) => {
-          if (!o) selection.clear()
-        }}
-      />
-      <SessionPeekSheet
-        lane={selection.selection?.kind === 'lane' ? selection.selection.lane : null}
-        open={laneOpen}
-        onOpenChange={(o) => {
-          if (!o) selection.clear()
-        }}
-      />
+      {!query.loading && (
+        <AttentionStrip
+          chapters={query.narrative.chapters}
+          selectedKey={null}
+          onSelect={onSelectChapter}
+        />
+      )}
+
+      {query.loading && streamEvents.length === 0 ? (
+        <Skeleton className="min-h-0 flex-1 rounded-lg" />
+      ) : (
+        <div
+          className={cn(
+            'grid min-h-0 flex-1 grid-cols-1 gap-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(240px,34%)]',
+            query.loading && 'opacity-60',
+          )}
+        >
+          <JournalEventStream
+            className="min-h-0"
+            events={streamEvents}
+            selectedId={selectedEvent?.id ?? null}
+            onSelect={onSelectEvent}
+            onFilterSession={
+              query.scope.kind === 'session'
+                ? undefined
+                : (id) => onScopeChange({ kind: 'session', connectionId: id })
+            }
+            grouping={grouping}
+            sortOrder={sortOrder}
+            emptyHint={{
+              onWidenPeriod: () => query.setPeriod({ preset: '6h', fromMs: null, toMs: null }),
+            }}
+          />
+          <div className="min-h-0">
+            {selectedEvent ? (
+              <JournalFactDetail
+                event={selectedEvent}
+                onClose={selection.clear}
+                onFilterSession={
+                  selectedEvent.connectionId
+                    ? () => onScopeChange({ kind: 'session', connectionId: selectedEvent.connectionId! })
+                    : undefined
+                }
+              />
+            ) : (
+              <div
+                id="journal-fact"
+                className="flex h-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border px-3 text-center"
+                aria-label="Journal fact detail"
+              >
+                <p className="text-[12px] text-muted-foreground">Nothing selected</p>
+                <p className="text-[10px] text-muted-foreground/80">Click a fact · Esc clears · ↑↓ moves</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

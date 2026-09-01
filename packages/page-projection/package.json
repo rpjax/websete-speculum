@@ -1,0 +1,99 @@
+{
+  "name": "@speculum/page-projection",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PageProjection V4 shared algorithm — core wire, virtual producer, projected apply",
+  "exports": {
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./core/plane": {
+      "types": "./dist/core/plane/index.d.ts",
+      "default": "./dist/core/plane/index.js"
+    },
+    "./core/input/unifiedIntentTypes": {
+      "types": "./dist/core/input/unifiedIntentTypes.d.ts",
+      "default": "./dist/core/input/unifiedIntentTypes.js"
+    },
+    "./projected/scroll/scrollableIndex": {
+      "types": "./dist/projected/scroll/scrollableIndex.d.ts",
+      "default": "./dist/projected/scroll/scrollableIndex.js"
+    },
+    "./core/snapshot/domTreeSnapshot": {
+      "types": "./dist/core/snapshot/domTreeSnapshot.d.ts",
+      "default": "./dist/core/snapshot/domTreeSnapshot.js"
+    },
+    "./core/*": {
+      "types": "./dist/core/*.d.ts",
+      "default": "./dist/core/*.js"
+    },
+    "./projected": {
+      "types": "./dist/projected/index.d.ts",
+      "default": "./dist/projected/index.js"
+    },
+    "./projected/ProjectionClient": {
+      "types": "./dist/projected/ProjectionClient.d.ts",
+      "default": "./dist/projected/ProjectionClient.js"
+    },
+    "./projected/input/projectedInputCapture": {
+      "types": "./dist/projected/input/projectedInputCapture.d.ts",
+      "default": "./dist/projected/input/projectedInputCapture.js"
+    },
+    "./projected/formControlSnapshot": {
+      "types": "./dist/projected/formControlSnapshot.d.ts",
+      "default": "./dist/projected/formControlSnapshot.js"
+    },
+    "./projected/*": {
+      "types": "./dist/projected/*.d.ts",
+      "default": "./dist/projected/*.js"
+    },
+    "./virtual": {
+      "types": "./dist/virtual/bootstrap.d.ts",
+      "default": "./dist/virtual/bootstrap.js"
+    },
+    "./virtual/config/projectionConfig": {
+      "types": "./dist/virtual/config/projectionConfig.d.ts",
+      "default": "./dist/virtual/config/projectionConfig.js"
+    },
+    "./virtual/frame/binaryFrameEncoder": {
+      "types": "./dist/virtual/frame/binaryFrameEncoder.d.ts",
+      "default": "./dist/virtual/frame/binaryFrameEncoder.js"
+    },
+    "./virtual/cssom/cssomWalk": {
+      "types": "./dist/virtual/cssom/cssomWalk.d.ts",
+      "default": "./dist/virtual/cssom/cssomWalk.js"
+    },
+    "./virtual/cssom/cssomIds": {
+      "types": "./dist/virtual/cssom/cssomIds.d.ts",
+      "default": "./dist/virtual/cssom/cssomIds.js"
+    },
+    "./virtual/cssom/cssomOps": {
+      "types": "./dist/virtual/cssom/cssomOps.d.ts",
+      "default": "./dist/virtual/cssom/cssomOps.js"
+    },
+    "./virtual/cssom/fnv32": {
+      "types": "./dist/virtual/cssom/fnv32.d.ts",
+      "default": "./dist/virtual/cssom/fnv32.js"
+    },
+    "./virtual/cssom/cssomReconcile": {
+      "types": "./dist/virtual/cssom/cssomReconcile.d.ts",
+      "default": "./dist/virtual/cssom/cssomReconcile.js"
+    },
+    "./virtual/*": {
+      "types": "./dist/virtual/*.d.ts",
+      "default": "./dist/virtual/*.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["src", "dist", "package.json"],
+  "sideEffects": ["./src/virtual/**", "./dist/virtual/**"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check-boundaries": "node scripts/check-boundaries.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

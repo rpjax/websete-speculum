@@ -339,6 +339,20 @@ Motor depends on SignalR streaming, which cannot be meaningfully mocked in V1. `
 
 ---
 
+## 7.5 Session front observation + Telemetry config
+
+**Write path (only):** `GET|PUT /api/configurations/Telemetry` (Admin section page) or the same
+section inside `PUT /api/configurations` batch (Lab Config shortcut). No separate Lab-only
+config API for Telemetry events or ClientObservation.
+
+**UI:** dedicated toggles live in Admin Configurations → Telemetry (`TelemetrySessionEventsFields`
++ `TelemetryClientObservationFields`). Lab Config embeds the same components.
+
+**Read path for Live/Lab session surfaces:** `Telemetry.ClientObservation` projected on
+`/api/public/client-config` after Apply.
+
+---
+
 ## 8. Where this sits
 
 | Doc | Role |

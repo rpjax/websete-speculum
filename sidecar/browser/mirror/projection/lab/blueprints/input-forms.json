@@ -1,0 +1,32 @@
+{
+  "id": "input-forms",
+  "description": "OS keyboard — resolveAndType → uinput keys update Virtual input value",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-forms.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2800 } },
+        {
+          "id": "type-field",
+          "type": "pushInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [{ "type": "resolveAndType", "selector": "#field", "value": "hello-input" }]
+          }
+        },
+        { "id": "wait-type", "type": "sleep", "dependsOn": ["type-field"], "params": { "ms": 700 } },
+        {
+          "id": "assert-value",
+          "type": "evaluate",
+          "dependsOn": ["wait-type"],
+          "params": {
+            "expression": "(() => { const v = document.getElementById('field')?.value; if (v !== 'hello-input') throw new Error('value=' + v); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-value"] }
+      ]
+    }
+  ]
+}

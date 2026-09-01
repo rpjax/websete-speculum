@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cross-origin iframe inner</title>
+    <style>
+      body { margin: 1rem; font-family: Georgia, serif; background: #eef0f6; color: #214; }
+    </style>
+  </head>
+  <body>
+    <p id="inner-label">XO-INNER-BOOT</p>
+    <button id="inner-click" type="button">XO inner click</button>
+    <p id="inner-status" data-state="idle">idle</p>
+    <script>
+      console.log('[xo-inner] alive', location.href);
+      document.getElementById('inner-click').addEventListener('click', function () {
+        var el = document.getElementById('inner-status');
+        el.textContent = 'clicked';
+        el.setAttribute('data-state', 'clicked');
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Closed shadow</title>
+  </head>
+  <body>
+    <h1>Closed shadow</h1>
+    <div id="closed-host">light</div>
+    <script>
+      const host = document.getElementById('closed-host');
+      const root = host.attachShadow({ mode: 'closed' });
+      root.innerHTML = '<p id="secret">closed</p>';
+      window.__speculumClosedRoot = root;
+    </script>
+  </body>
+</html>

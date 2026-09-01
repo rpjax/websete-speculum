@@ -1,0 +1,48 @@
+{
+  "id": "input-forms-keycode",
+  "description": "OS keys via UIEvent.code (KeyE) after ABS click — matches Projected capture",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-forms.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2500 } },
+        {
+          "id": "click-field",
+          "type": "pushInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [{ "type": "resolveAndClick", "selector": "#field", "contextId": 1 }]
+          }
+        },
+        { "id": "settle", "type": "sleep", "dependsOn": ["click-field"], "params": { "ms": 200 } },
+        {
+          "id": "type-keycode",
+          "type": "pushInput",
+          "dependsOn": ["settle"],
+          "params": {
+            "sequence": [
+              { "type": "keyDown", "key": "a", "code": "KeyA" },
+              { "type": "keyUp", "key": "a", "code": "KeyA" },
+              { "type": "keyDown", "key": "b", "code": "KeyB" },
+              { "type": "keyUp", "key": "b", "code": "KeyB" },
+              { "type": "keyDown", "key": "-", "code": "Minus" },
+              { "type": "keyUp", "key": "-", "code": "Minus" }
+            ]
+          }
+        },
+        { "id": "wait-type", "type": "sleep", "dependsOn": ["type-keycode"], "params": { "ms": 800 } },
+        {
+          "id": "assert",
+          "type": "evaluate",
+          "dependsOn": ["wait-type"],
+          "params": {
+            "expression": "(() => { const v = document.getElementById('field')?.value; const m = document.getElementById('mirror')?.getAttribute('data-value'); const a = document.activeElement?.id; if (v !== 'ab-' || m !== 'ab-') throw new Error('v=' + v + ' m=' + m + ' active=' + a); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert"] }
+      ]
+    }
+  ]
+}

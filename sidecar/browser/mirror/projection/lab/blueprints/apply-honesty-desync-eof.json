@@ -1,0 +1,24 @@
+{
+  "id": "apply-honesty-desync-eof",
+  "description": "EOF desync — ghost live CSS rule then CHECK (DOM client required)",
+  "sessionPolicy": "cold",
+  "fold": "apply-honesty-desync",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/static-dom.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2500 } },
+        {
+          "id": "inject-eof",
+          "type": "injectFrame",
+          "dependsOn": ["wait-settle"],
+          "continueOnFail": true,
+          "params": { "kind": "eof" }
+        },
+        { "id": "fold", "type": "fold", "awaits": ["inject-eof"], "params": { "ruleset": "apply-honesty-desync", "kind": "eof" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

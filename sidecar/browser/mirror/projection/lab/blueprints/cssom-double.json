@@ -1,0 +1,19 @@
+{
+  "id": "cssom-double",
+  "description": "PP-CSSOM-A-2 — author <style> + constructed adopted; one paint path",
+  "sessionPolicy": "cold",
+  "fold": "cssom-double",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/cssom-double.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 1500 } },
+        { "id": "snap-settle", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "settle", "cssom": "scan" } },
+        { "id": "iso-settle", "type": "iso", "dependsOn": ["snap-settle"] },
+        { "id": "fold", "type": "fold", "awaits": ["iso-settle", "snap-settle"], "params": { "ruleset": "cssom-double" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,7 @@ Thank you for improving Speculum. This guide covers local workflow, quality expe
 3. Read [readme.md](readme.md) for repository layout.
 4. Read [docs/architecture.md](docs/architecture.md) if your change crosses API, web, or sidecar boundaries.
 5. Deploy changes should go through [deploy/README.md](deploy/README.md) (dockup manifest), not ad-hoc compose edits in `deploy/out/`.
+6. **Ad-hoc / workaround code is strictly forbidden** — fix the designed algorithm. Never paper over failures with a second path that restores a banned cost (e.g. cold full DomMap “bootstrap” after a stream seed). See [docs/page-projection/spec/acceptance.md](docs/page-projection/spec/acceptance.md). PageProjection work: start at [docs/page-projection/spec/README.md](docs/page-projection/spec/README.md).
 
 ---
 
@@ -23,10 +24,11 @@ Thank you for improving Speculum. This guide covers local workflow, quality expe
 Requires [@rodrigopjax/dockup](https://github.com/rpjax/npm-dockup) **>= 2.0.2**.
 
 ```bash
-cd deploy && cp speculum.dockup.example.json speculum.dockup.json
-dockup validate -c speculum.dockup.example.json --root ..   # also works before copy
-# or, after copy: dockup validate --root ..
-dockup deploy --env dev --root ..
+cd deploy
+# local override is gitignored — copy from dockup.json if you need one
+cp dockup.json speculum.dockup.json   # optional
+dockup validate -c dockup.json --root ..
+dockup deploy --env dev -c dockup.json --root ..
 ```
 
 ### Component-only (faster iteration)
@@ -44,27 +46,27 @@ Run sidecar, API, and web separately — see component READMEs:
 ### Local (fast gate — no Chrome)
 
 ```bash
-dotnet test Speculum.sln -c Release --filter "Category!=MotorAssertive&Category!=MotorPerf"
+dotnet test Speculum.sln -c Release --filter "Category!=SessionsTest"
 cd sidecar && npm ci && npm test
 cd web && npm ci && npm test && npm run lint && npm run build
-cd deploy && dockup validate -c speculum.dockup.example.json --root ..
-docker compose -f deploy/compose/docker-compose.motor-assert.yml config
+cd deploy && dockup validate -c dockup.json --root ..
+docker compose -f deploy/compose/docker-compose.sessions-test.yml config
 ```
 
 If you maintain a local `deploy/speculum.dockup.json` (gitignored), `dockup validate --root ..` from `deploy/` works the same.
 
-Do **not** routinely run the motor-assertive Docker stack (sidecar + Xvfb + Chromium) on a laptop — that job is GitHub Actions only.
+Do **not** routinely run the SessionsTest Docker stack (sidecar + Xvfb + Chromium) on a laptop — that job is GitHub Actions only.
 
 ### CI (required for `main`)
-
-Refactor-only (legacy root `Speculum.sln` / MotorAssert / root `web`+`sidecar` are **not** in CI until `Refactor/` is promoted):
 
 | Job | Role |
 |-----|------|
 | `refactor-dotnet` | Journal + Sessions + Telemetry unit tests |
-| `refactor-sidecar` / `refactor-web` | npm test (+ lint/build for web) |
+| `refactor-sidecar` / `refactor-web` | npm test (+ lint/build for web; PP package build) |
 | `refactor-compose` / `refactor-dockup` | compose + dockup validate |
-| **`sessions-test`** | Refactor Act→Assert stack (Chrome) |
+| `page-projection-oracles` | O1–O5 fixture gates + PP-DEN-2 baseline |
+| **`sessions-test`** | PageProjection + SessionsTest Act→Assert (Chrome) |
+| `conventional-title` | PR title (separate workflow) |
 
 **Branch protection on `main` is mandatory** — require every CI job above **and** the PR title check. Prefer **squash merge** so the merge commit subject is the PR title (Release Please reads conventional commits on `main` only after merge).
 
@@ -77,7 +79,7 @@ Full constitution: **[docs/engineering-standards.md](docs/engineering-standards.
 - **Minimal scope** — one logical change per commit/PR when possible.
 - **Match conventions** — follow [docs/naming.md](docs/naming.md) (Speculum / Motor / W7S vocabulary).
 - **No drive-by refactors** — avoid unrelated formatting or renames.
-- **Tests when behaviour changes** — pyramid: units (Api / sidecar / web) + MotorAssert Act→Assert on CI Chrome; Perf only for SLOs. Extend MATRIX when coverage depth changes. Never weaken asserts to get green ([docs/assert-failure-policy.md](docs/assert-failure-policy.md)).
+- **Tests when behaviour changes** — pyramid: units (Api / sidecar / web) + SessionsTest Act→Assert on CI Chrome; Perf only for SLOs. Extend [MATRIX](Speculum.Api.SessionsTest.Tests/MATRIX.md) when coverage depth changes. Never weaken asserts to get green ([docs/assert-failure-policy.md](docs/assert-failure-policy.md)).
 - **Frontend** — shadcn-only, revealing UI, enriched visualization of complex data/flows ([docs/frontend-standards.md](docs/frontend-standards.md)).
 ---
 
@@ -86,10 +88,12 @@ Full constitution: **[docs/engineering-standards.md](docs/engineering-standards.
 | Change type | Location |
 |-------------|----------|
 | API / SignalR / config store | `Speculum.Api/` |
-| Motor UI / admin UI | `web/src/features/` |
-| Chrome / screencast / input | `sidecar/src/` |
-| Container images / Traefik | `deploy/speculum.dockup.example.json`, Dockerfiles |
+| Sessions / admin UI | `web/src/features/` |
+| Chrome / screencast / input | `sidecar/` |
+| Shared PageProjection lib | `packages/page-projection/` |
+| Container images / Traefik | `deploy/dockup.json`, Dockerfiles |
 | Architecture docs | `docs/` |
+| Pre-promotion SPA (archive only) | `Legacy/web/` |
 | User-facing overview | `readme.md` |
 
 ---
@@ -99,7 +103,7 @@ Full constitution: **[docs/engineering-standards.md](docs/engineering-standards.
 - Never commit `deploy/speculum.dockup.json` (gitignored).
 - Never commit `.env` files with real API keys.
 - Use `ADMIN_BOOTSTRAP_KEY` only for local/bootstrap scenarios.
-- Update `speculum.dockup.example.json` when adding new **required** deploy env vars.
+- Update `dockup.json` when adding new **required** deploy env vars.
 
 ---
 
@@ -112,7 +116,7 @@ When you change behaviour, update the relevant README in the same PR:
 | Engineering standards (agents + humans) | `docs/engineering-standards.md`, `AGENTS.md` |
 | Frontend UX / IA / shadcn patterns | `docs/frontend-standards.md`, `docs/frontend-patterns.md`, `.cursor/rules/speculum-frontend-standards.mdc` |
 | Cross-cutting design | `docs/architecture.md`, `docs/naming.md` |
-| Diagnostics / Act→Assert | `docs/diagnostics.md`, `docs/assert-failure-policy.md`, `Speculum.MotorAssert.Tests/MATRIX.md` |
+| Diagnostics / Act→Assert | `docs/diagnostics.md`, `docs/assert-failure-policy.md`, `Speculum.Api.SessionsTest.Tests/MATRIX.md` |
 | W7S sidecar wire | `docs/w7s-sidecar-protocol.md` |
 | Motor / protocol | `docs/motor-reference.md` |
 | Deploy | `deploy/README.md` |
@@ -125,7 +129,7 @@ When you change behaviour, update the relevant README in the same PR:
 1. Branch from `main` (or `master`).
 2. Use a **Conventional Commits** PR title (enforced by CI), e.g. `feat: …`, `fix: …`, `perf: …`, `chore: …`, `docs: …`, `ci: …`, `test: …`, `refactor: …`.
 3. **Squash-merge** into `main` so the squash commit subject matches that title.
-4. Ensure CI checks pass (including MotorAssert and PR title).
+4. Ensure CI checks pass (including SessionsTest and PR title).
 5. Describe **what** changed and **why** in the PR body.
 6. Include a test plan (commands run, manual steps for UI if applicable).
 
@@ -162,7 +166,7 @@ Branch protection on `main`: require CI jobs + PR title check; enable squash mer
 
 **Manual republish** (rare): `gh workflow run "Publish images" -f tag=vX.Y.Z` or create/publish a GitHub Release for that tag (human-authored `release` events still trigger publish).
 
-Details: [Refactor/deploy/README.md](Refactor/deploy/README.md) (Releases and image publish).
+Details: [deploy/README.md](deploy/README.md) (Releases and image publish).
 
 ---
 

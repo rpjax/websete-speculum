@@ -1,6 +1,7 @@
 import type { ScaleTime } from 'd3-scale'
 import type { NarrativeChapter, NarrativeGranularity, NarrativeLane } from '../model/narrativeTypes'
 import { CHAPTER_ROW_PITCH, ChapterTrack, packChapterRows } from './ChapterTrack'
+import { LANE_LABEL_W, TimeGrid } from './TimeRail'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -33,7 +34,7 @@ export function SessionLane({
   onSelectLane,
   onJumpToMs,
 }: SessionLaneProps) {
-  const trackWidth = Math.max(0, width - 176)
+  const trackWidth = Math.max(0, width - LANE_LABEL_W)
   const visible = lane.chapters.filter((c) => c.endMs >= viewStart && c.startMs <= viewEnd)
   const earlier = lane.chapters.filter((c) => c.endMs < viewStart).sort((a, b) => b.endMs - a.endMs)
   const later = lane.chapters.filter((c) => c.startMs > viewEnd).sort((a, b) => a.startMs - b.startMs)
@@ -52,9 +53,10 @@ export function SessionLane({
           type="button"
           onClick={onSelectLane}
           className={cn(
-            'z-10 flex w-44 shrink-0 items-start border-r border-border/40 bg-card px-3 py-2.5 text-left',
-            lane.kind === 'system' ? 'text-amber-400' : 'text-foreground',
+            'z-10 flex shrink-0 items-start border-r border-border/40 bg-card px-3 py-2.5 text-left',
+            lane.kind === 'system' ? 'text-amber-600 dark:text-amber-400' : 'text-foreground',
           )}
+          style={{ width: LANE_LABEL_W }}
         >
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">{lane.label}</p>
@@ -65,9 +67,10 @@ export function SessionLane({
         </button>
 
         <div
-          className="relative min-w-0 flex-1 overflow-hidden"
+          className="relative min-w-0 flex-1 overflow-hidden bg-muted/10"
           style={{ minHeight: trackHeight }}
         >
+          <TimeGrid startMs={viewStart} endMs={viewEnd} width={trackWidth} height={trackHeight} />
           {visible.map((chapter) => (
             <ChapterTrack
               key={chapter.key}

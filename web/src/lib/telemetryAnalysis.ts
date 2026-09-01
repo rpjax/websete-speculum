@@ -1,8 +1,8 @@
 import type {
   ApiProcessTelemetry,
-  DiagnosticsEventRecord,
-  DiagnosticsOverview,
-  DiagnosticsRuntimeSnapshot,
+  DiagnosticsEventRecord as TelemetryContextEventRecord,
+  DiagnosticsOverview as TelemetryOverviewSnapshot,
+  DiagnosticsRuntimeSnapshot as TelemetryRuntimeSnapshot,
   HostTelemetry,
 } from '@/lib/diagnosticsApi'
 import { EVENT_DESCRIPTIONS } from '@/lib/diagnosticsDescriptions'
@@ -37,9 +37,9 @@ export interface AnalysisWindow {
 
 export interface AnalysisConsumeInput {
   samples: ResourceSample[]
-  events: DiagnosticsEventRecord[]
-  runtime: DiagnosticsRuntimeSnapshot | null
-  overview: DiagnosticsOverview | null
+  events: TelemetryContextEventRecord[]
+  runtime: TelemetryRuntimeSnapshot | null
+  overview: TelemetryOverviewSnapshot | null
   host: HostTelemetry | null
   apiProcess: ApiProcessTelemetry | null
   window: AnalysisWindow
@@ -48,7 +48,7 @@ export interface AnalysisConsumeInput {
 
 /* ── Report types ─────────────────────────────────────────────────────────── */
 
-export type HealthVerdict = 'healthy' | 'watch' | 'degraded' | 'critical'
+export type HealthVerdict = 'healthy' | 'watch' | 'degraded' | 'critical' | 'no_data'
 
 export interface AnalysisChapter {
   id: string
@@ -155,18 +155,18 @@ export interface TelemetryAnalysisReport {
 /* ── Engine ───────────────────────────────────────────────────────────────── */
 
 const CORRELATION_PAIRS: { x: string; y: string; expected: boolean; why: string }[] = [
-  { x: 'motor.live', y: 'host.cpu', expected: true, why: 'Machine CPU should track live session load roughly linearly.' },
-  { x: 'motor.live', y: 'host.memory', expected: true, why: 'Machine memory use usually rises with live sessions.' },
-  { x: 'motor.live', y: 'apiProcess.cpu', expected: true, why: 'API process CPU should rise with live session orchestration load.' },
-  { x: 'motor.live', y: 'apiProcess.memory', expected: true, why: 'API working set usually grows with live session bookkeeping.' },
-  { x: 'motor.live', y: 'derived.cpuPerSession', expected: false, why: 'Per-session CPU should stay stable when scaling is healthy.' },
+  { x: 'sessions.live', y: 'host.cpu', expected: true, why: 'Machine CPU should track live session load roughly linearly.' },
+  { x: 'sessions.live', y: 'host.memory', expected: true, why: 'Machine memory use usually rises with live sessions.' },
+  { x: 'sessions.live', y: 'apiProcess.cpu', expected: true, why: 'API process CPU should rise with live session orchestration load.' },
+  { x: 'sessions.live', y: 'apiProcess.memory', expected: true, why: 'API working set usually grows with live session bookkeeping.' },
+  { x: 'sessions.live', y: 'derived.cpuPerSession', expected: false, why: 'Per-session CPU should stay stable when scaling is healthy.' },
   { x: 'host.cpu', y: 'host.memory', expected: true, why: 'Machine CPU and memory often move together under real work.' },
   { x: 'host.cpu', y: 'apiProcess.cpu', expected: true, why: 'API process CPU is a share of machine CPU under normal load.' },
   { x: 'apiProcess.gcHeap', y: 'apiProcess.memory', expected: true, why: 'Managed heap growth usually appears in the API working set.' },
-  { x: 'motor.live', y: 'sidecar.connected', expected: true, why: 'Connected sidecars should match live browsing sessions.' },
-  { x: 'pipeline.usedPct', y: 'pipeline.eventsDropped', expected: true, why: 'Storage pressure tends to precede drops.' },
-  { x: 'host.cpu', y: 'pipeline.recentSlowWrites', expected: true, why: 'Machine load can slow diagnostics sink writes.' },
-  { x: 'motor.capacityPct', y: 'motor.live', expected: true, why: 'Capacity used is driven by live (+ starting) sessions.' },
+  { x: 'sessions.live', y: 'sidecar.open', expected: true, why: 'Open sidecar browser sessions should broadly match live browsing sessions.' },
+  { x: 'journal.queueDepth', y: 'journal.droppedTotal', expected: true, why: 'Journal pressure tends to precede dropped facts.' },
+  { x: 'host.cpu', y: 'journal.persistFailures', expected: true, why: 'Machine load can surface as Journal persist failures.' },
+  { x: 'sessions.capacityPct', y: 'sessions.live', expected: true, why: 'Capacity used is driven by live sessions.' },
 ]
 
 function fmt(n: number | null | undefined, digits = 1): string {
@@ -285,7 +285,24 @@ function buildCorrelations(samples: ResourceSample[]): CorrelationFinding[] {
   return out
 }
 
-function countEvents(events: DiagnosticsEventRecord[]): Record<string, number> {
+function describeContextEvent(name: string): string {
+  switch (name) {
+    case 'Diagnostics.Degraded':
+      return 'Operator/runtime safeguards reported degraded event-store conditions.'
+    case 'Diagnostics.Recovered':
+      return 'Operator/runtime safeguards reported that degraded event-store conditions recovered.'
+    case 'Diagnostics.ElevateStarted':
+      return 'An elevated operator-access window started.'
+    case 'Diagnostics.ElevateExpired':
+      return 'The elevated operator-access window expired.'
+    case 'Diagnostics.StorageOverflow':
+      return 'The event store overflowed and dropped or rejected data.'
+    default:
+      return EVENT_DESCRIPTIONS[name] ?? name
+  }
+}
+
+function countEvents(events: TelemetryContextEventRecord[]): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const e of events) {
     counts[e.name] = (counts[e.name] ?? 0) + 1
@@ -293,17 +310,15 @@ function countEvents(events: DiagnosticsEventRecord[]): Record<string, number> {
   return counts
 }
 
-function buildChronology(events: DiagnosticsEventRecord[], windows: StateWindow[]): ChronologyEntry[] {
+function buildChronology(events: TelemetryContextEventRecord[], windows: StateWindow[]): ChronologyEntry[] {
   const entries: ChronologyEntry[] = []
   for (const w of windows) {
     entries.push({
       utc: w.startUtc,
       kind: 'state',
-      title: w.kind === 'degraded' ? 'Diagnostics entered Degraded' : 'Browser Query elevate became active',
-      detail: w.kind === 'degraded'
-        ? `Circuit breaker pressure window lasting until ${new Date(w.endUtc).toLocaleString()}. Probes and deeper capabilities may have been capped.`
-        : `Temporary elevation window lasting until ${new Date(w.endUtc).toLocaleString()}. Deeper browser inspection was unlocked.`,
-      severity: w.kind === 'degraded' ? 'warning' : 'info',
+      title: 'Journal entered degraded state',
+      detail: `Journal drain pressure lasted until ${new Date(w.endUtc).toLocaleString()}. Treat this as Telemetry/Journal write health, not a session-runtime failure by itself.`,
+      severity: 'warning',
     })
   }
   const notable = new Set([
@@ -313,7 +328,7 @@ function buildChronology(events: DiagnosticsEventRecord[], windows: StateWindow[
   ])
   for (const e of events) {
     if (!notable.has(e.name)) continue
-    const desc = EVENT_DESCRIPTIONS[e.name] ?? e.name
+    const desc = describeContextEvent(e.name)
     entries.push({
       utc: e.utc,
       kind: 'event',
@@ -382,7 +397,7 @@ function buildAnomalies(
           severity: etaHours < 48 ? 'critical' : 'watch',
           startUtc: samples[0].utc,
           endUtc: samples[samples.length - 1].utc,
-          action: 'Check diagnostics storage budgets, purge policy, and host volume capacity.',
+          action: 'Check Journal retention, sample cadence, and host volume capacity.',
         })
       }
     }
@@ -391,12 +406,12 @@ function buildAnomalies(
   for (const w of windows.filter((x) => x.kind === 'degraded')) {
     out.push({
       id: `state-deg-${w.startIndex}`,
-      title: 'Diagnostics degraded window',
-      detail: `The diagnostics circuit was degraded from ${new Date(w.startUtc).toLocaleString()} to ${new Date(w.endUtc).toLocaleString()}. During this time, deeper capabilities may have been capped and pipeline pressure elevated.`,
+      title: 'Journal degraded window',
+      detail: `Journal health was degraded from ${new Date(w.startUtc).toLocaleString()} to ${new Date(w.endUtc).toLocaleString()}. This indicates Telemetry write pressure or drain trouble, not session control-plane degradation by itself.`,
       severity: 'warning',
       startUtc: w.startUtc,
       endUtc: w.endUtc,
-      action: 'Review recent drops/slow writes and recover the circuit if it is still degraded.',
+      action: 'Review queue depth, dropped facts, persist failures, and current sample cadence.',
     })
   }
 
@@ -413,13 +428,13 @@ function buildAnomalies(
   }
 
   // Capacity ceiling
-  const cap = samples.map((s) => s.values?.['motor.capacityPct']).filter((v): v is number => typeof v === 'number')
+  const cap = samples.map((s) => s.values?.['sessions.capacityPct']).filter((v): v is number => typeof v === 'number')
   if (cap.some((v) => v >= 90)) {
     const peak = Math.max(...cap)
     out.push({
       id: 'cap-ceiling',
       title: 'Capacity near ceiling',
-      detail: `Motor capacity used peaked at ${fmt(peak)}%. Session refusals become likely when capacity saturates.`,
+      detail: `Session capacity used peaked at ${fmt(peak)}%. Session refusals become likely when capacity saturates.`,
       severity: peak >= 98 ? 'critical' : 'warning',
       startUtc: samples[0].utc,
       endUtc: samples[samples.length - 1].utc,
@@ -464,21 +479,21 @@ function buildStability(
     })
   }
 
-  const pipe = atlas.find((m) => m.key === 'pipeline.usedPct')
-  if (pipe?.present && pipe.max != null && pipe.max < 70) {
+  const journalDepth = atlas.find((m) => m.key === 'journal.queueDepth')
+  if (journalDepth?.present && journalDepth.max != null && journalDepth.max < 100) {
     out.push({
-      id: 'stable-pipeline',
-      title: 'Diagnostics storage stayed under budget pressure',
-      detail: `Pipeline used peaked at ${fmt(pipe.max)}% of the configured budget — no sustained storage crisis in this window.`,
+      id: 'stable-journal',
+      title: 'Journal queue stayed out of pressure territory',
+      detail: `Journal queue depth peaked at ${fmt(journalDepth.max)} — no sustained admission backlog in this window.`,
     })
   }
 
-  const deg = samples.filter((s) => s.values?.['pipeline.degraded'] === 1).length
+  const deg = samples.filter((s) => s.values?.['journal.degraded'] === 1).length
   if (deg === 0 && samples.length > 0) {
     out.push({
       id: 'stable-circuit',
-      title: 'Diagnostics circuit stayed healthy',
-      detail: 'No sample in this window reported pipeline.degraded=1. The breaker did not trip on this time axis.',
+      title: 'Journal health stayed healthy',
+      detail: 'No sample in this window reported journal.degraded=1. The Journal drain did not trip into degraded state on this time axis.',
     })
   }
 
@@ -501,11 +516,11 @@ function buildStability(
   return out
 }
 
-function buildEventChapter(events: DiagnosticsEventRecord[]): AnalysisChapter {
+function buildEventChapter(events: TelemetryContextEventRecord[]): AnalysisChapter {
   const counts = countEvents(events)
   const entries = Object.entries(counts).sort((a, b) => b[1] - a[1])
   const body: string[] = [
-    `This window contains ${events.length} diagnostics events across Motor, Sidecar, Persistence, Telemetry, and DiagnosticsSelf domains. Event volume alone does not mean trouble — it is the activity log of the motor and its observers.`,
+    `This window contains ${events.length} contextual events alongside the telemetry samples. Event volume alone does not mean trouble — it is supporting narrative around the sampled resource signals.`,
   ]
   if (entries.length === 0) {
     body.push('No non-telemetry chronology events were returned for this window. The report still covers the numeric telemetry atlas and correlations.')
@@ -513,7 +528,7 @@ function buildEventChapter(events: DiagnosticsEventRecord[]): AnalysisChapter {
     const top = entries.slice(0, 8).map(([name, n]) => `${name} (${n})`).join(', ')
     body.push(`Most frequent names: ${top}.`)
     for (const [name, n] of entries.slice(0, 5)) {
-      const desc = EVENT_DESCRIPTIONS[name]
+      const desc = describeContextEvent(name)
       if (desc) body.push(`• ${name} ×${n}: ${desc}`)
     }
     const starts = counts['Motor.SessionStarted'] ?? 0
@@ -530,7 +545,7 @@ function buildEventChapter(events: DiagnosticsEventRecord[]): AnalysisChapter {
   return {
     id: 'events',
     title: 'Event narrative',
-    summary: `${events.length} events narrate what the motor and diagnostics pipeline did alongside the numeric samples.`,
+    summary: `${events.length} events add context around the numeric telemetry samples.`,
     body,
     evidenceRefs: first && last ? [{ label: 'Events in window', since: first, until: last, kind: 'events' }] : [],
   }
@@ -558,6 +573,44 @@ function scoreHealth(anomalies: ReportAnomaly[], windows: StateWindow[], correla
 export function composeTelemetryAnalysis(input: AnalysisConsumeInput): TelemetryAnalysisReport {
   const { samples, events, runtime, overview, host, apiProcess, window, coverage } = input
   const analyzedAt = new Date().toISOString()
+  if (samples.length === 0) {
+    const spanMin = Math.round(window.spanMs / 60_000)
+    return {
+      meta: { analyzedAt, window, coverage },
+      executive: {
+        headline: `No telemetry samples in the selected ${spanMin}-minute window`,
+        healthScore: 0,
+        verdict: 'no_data',
+        periodSummary: 'Analysis could not score this window because no telemetry samples were collected inside the selected range.',
+      },
+      chapters: [{
+        id: 'no-data',
+        title: 'No telemetry data',
+        summary: 'The selected window does not contain telemetry samples.',
+        body: [
+          `No telemetry samples were found between ${new Date(window.since).toLocaleString()} and ${new Date(window.until).toLocaleString()}.`,
+          'This is a coverage gap, not a healthy verdict. Enable Telemetry, widen the window, or verify that samples are being appended to Journal.',
+          `Data sources queried: ${coverage.dataSources.join(', ') || 'telemetry history probe only'}. Context events found: ${coverage.events}.`,
+        ],
+        evidenceRefs: [],
+      }],
+      metricAtlas: [],
+      correlations: [],
+      chronology: [],
+      anomalies: [],
+      stability: [],
+      conclusions: [{
+        rank: 1,
+        title: 'No score for an empty window',
+        detail: 'Without telemetry samples, the analyzer cannot infer load, stability, or pressure. Collect data first, then re-run analysis.',
+      }],
+      guidance: [{
+        priority: 'high',
+        title: 'Collect telemetry first',
+        action: 'Enable Telemetry, confirm Journal facts are enabled, and re-run analysis on a window that contains samples.',
+      }],
+    }
+  }
   const atlas = buildMetricAtlas(samples)
   const correlations = buildCorrelations(samples)
   const windows = extractStateWindows(samples)
@@ -568,7 +621,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
   const { score, verdict } = scoreHealth(anomalies, windows, correlations)
 
   const spanMin = Math.round(window.spanMs / 60_000)
-  const live = atlas.find((m) => m.key === 'motor.live')
+  const live = atlas.find((m) => m.key === 'sessions.live')
   const hostCpu = atlas.find((m) => m.key === 'host.cpu')
   const hostMem = atlas.find((m) => m.key === 'host.memory')
   const apiCpu = atlas.find((m) => m.key === 'apiProcess.cpu')
@@ -580,7 +633,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
     summary: `Analysis covers ${spanMin} minutes with ${coverage.samples} telemetry sample(s)${coverage.truncated ? ' (substrate / truncated ingest)' : ''}. Machine resources lead; runtime overlays are secondary context.`,
     body: [
       `You asked the analyzer to explain the period from ${new Date(window.since).toLocaleString()} to ${new Date(window.until).toLocaleString()} (${spanMin} minutes). ` +
-      `This window is independent of the Monitor chart — Analysis owns its own range. The primary resource plane is the machine (host); API process, motor, sidecar, persistence, and pipeline are correlation overlays.`,
+      `This window is independent of the Monitor chart — Analysis owns its own range. The primary resource plane is the machine (host); API process, sessions, sidecar, profiles, journal, and docker are correlation overlays.`,
       coverage.bucketed || coverage.truncated
         ? `Coverage note: the ingest used a ${coverage.bucketed ? 'bucketed substrate' : 'truncated series'} (${coverage.samples} points). Findings remain directionally valid; extrema may be smoothed.`
         : `Coverage note: the full raw sample series was consumed (${coverage.samples} points). Statistical findings use that full series.`,
@@ -597,11 +650,11 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
         ? `API process overlay at analysis time: CPU ${fmt(apiProcess.cpuUsage)}%, working set ${apiProcess.memoryUsed != null ? `${fmt(apiProcess.memoryUsed / (1024 * 1024))} MB` : '—'}, threads ${apiProcess.threadCount ?? '—'} — independent of machine gauges.`
         : 'API process live probe was not available (optional overlay).',
       overview
-        ? `Overview context: ${overview.liveSessions?.activeCount ?? '—'} active / ${overview.liveSessions?.startingCount ?? '—'} starting sessions; diagnostics ${overview.degraded ? 'DEGRADED' : 'not degraded'}; elevate ${overview.elevate?.active ? 'active' : 'inactive'}.`
+        ? `Overview context: ${overview.liveSessions?.activeCount ?? '—'} active / ${overview.liveSessions?.startingCount ?? '—'} starting sessions; operator elevate ${overview.elevate?.active ? 'active' : 'inactive'}.`
         : 'Overview snapshot was not available.',
       runtime
-        ? `Diagnostics control plane (not machine resources): storage ${fmt(runtime.bytesUsed / (1024 * 1024))} MB of ${fmt(runtime.storageMaxBytes / (1024 * 1024))} MB budget; ${runtime.eventsStored} events stored, ${runtime.eventsDropped} dropped, overflow ${runtime.overflowCount}.`
-        : 'Diagnostics runtime snapshot was not available.',
+        ? `Event-store context (separate from telemetry resource samples): storage ${fmt(runtime.bytesUsed / (1024 * 1024))} MB of ${fmt(runtime.storageMaxBytes / (1024 * 1024))} MB budget; ${runtime.eventsStored} events stored, ${runtime.eventsDropped} dropped, overflow ${runtime.overflowCount}.`
+        : 'Event-store runtime snapshot was not available.',
     ],
     evidenceRefs: [{ label: 'Full analysis window', since: window.since, until: window.until, kind: 'samples' }],
   }
@@ -625,7 +678,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
     title: 'Cross-section correlations',
     summary: `${correlations.length} metric pairs evaluated; ${correlations.filter((c) => c.healthy).length} healthy, ${correlations.filter((c) => c.expected && !c.healthy).length} expected-but-broken.`,
     body: [
-      'Correlation answers whether sections move together. Machine↔live-session pairs are the primary story; API process↔motor pairs are optional overlays. Broken expected pairs are a nonlinear-scaling smell. Healthy pairs are first-class findings — they belong in the report even when nothing is wrong.',
+      'Correlation answers whether sections move together. Machine↔session pairs are the primary story; API process↔session pairs are optional overlays. Broken expected pairs are a nonlinear-scaling smell. Healthy pairs are first-class findings — they belong in the report even when nothing is wrong.',
       ...correlations.map((c) => c.narrative),
     ],
     evidenceRefs: [{ label: 'Correlation window', since: window.since, until: window.until, kind: 'samples' }],
@@ -648,7 +701,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
         : '',
       live?.present
         ? `Active sessions (runtime overlay) ranged ${fmt(live.min)}–${fmt(live.max)} (avg ${fmt(live.avg)}).`
-        : 'Motor live-session series was not present.',
+        : 'Session live-count series was not present.',
       apiCpu?.present
         ? `API process CPU averaged ${fmt(apiCpu.avg)}% (peak ${fmt(apiCpu.max)}%) — independent overlay, not machine CPU.`
         : 'API process CPU section was not present in samples.',
@@ -662,7 +715,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
         ].filter(Boolean).join(' ')
       })(),
       (() => {
-        const cap = atlas.find((m) => m.key === 'motor.capacityPct')
+        const cap = atlas.find((m) => m.key === 'sessions.capacityPct')
         return cap?.present
           ? `Capacity used averaged ${fmt(cap.avg)}% and peaked at ${fmt(cap.max)}%. Staying near 100% predicts SessionRefused events.`
           : 'Capacity percentage was not present in samples.'
@@ -679,11 +732,11 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
     title: 'State chronology',
     summary: `${windows.length} telemetry state window(s); ${chronology.length} chronology entries including notable events.`,
     body: [
-      'State chronology merges pipeline.degraded / elevateActive bands from samples with notable diagnostics and motor events. Together they explain *when* the system changed posture — not only *that* a number moved.',
+      'State chronology merges journal.degraded bands from samples with notable session and operator events. Together they explain *when* the system changed posture — not only *that* a number moved.',
       windows.length === 0
-        ? 'No degraded or elevate bands were present on the sample time axis.'
+        ? 'No journal-degraded bands were present on the sample time axis.'
         : windows.map((w) =>
-          `${w.kind === 'degraded' ? 'Degraded' : 'Elevate'} from ${new Date(w.startUtc).toLocaleString()} to ${new Date(w.endUtc).toLocaleString()}.`,
+          `${w.kind === 'degraded' ? 'Journal degraded' : 'Elevated operator access'} from ${new Date(w.startUtc).toLocaleString()} to ${new Date(w.endUtc).toLocaleString()}.`,
         ).join(' '),
       chronology.length > 0
         ? `Notable beats: ${chronology.slice(0, 6).map((c) => `${c.title} @ ${new Date(c.utc).toLocaleTimeString()}`).join('; ')}.`
@@ -740,7 +793,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
       rank: 2,
       title: 'Machine load vs sessions',
       detail: hostCpu?.present && live?.present
-        ? `Machine CPU avg ${fmt(hostCpu.avg)}%; live sessions avg ${fmt(live.avg)}. ${correlations.find((c) => c.xKey === 'motor.live' && c.yKey === 'host.cpu')?.narrative ?? ''}`
+        ? `Machine CPU avg ${fmt(hostCpu.avg)}%; live sessions avg ${fmt(live.avg)}. ${correlations.find((c) => c.xKey === 'sessions.live' && c.yKey === 'host.cpu')?.narrative ?? ''}`
         : hostCpu?.present
           ? `Machine CPU avg ${fmt(hostCpu.avg)}% (peak ${fmt(hostCpu.max)}%). Live-session overlay was absent.`
           : live?.present && apiCpu?.present
@@ -749,10 +802,10 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
     },
     {
       rank: 3,
-      title: 'Diagnostics posture',
+      title: 'Telemetry write posture',
       detail: windows.some((w) => w.kind === 'degraded')
-        ? 'At least one degraded window occurred — treat pipeline pressure and recoverability as part of the story.'
-        : 'No degraded sample bands; diagnostics posture on the time axis stayed up.',
+        ? 'At least one journal-degraded window occurred — treat queue pressure, dropped facts, and drain recoverability as part of the story.'
+        : 'No journal-degraded sample bands were observed in this window.',
     },
   ]
 
@@ -780,7 +833,7 @@ export function composeTelemetryAnalysis(input: AnalysisConsumeInput): Telemetry
       : verdict === 'watch'
         ? `Watch items on machine resources in a ${spanMin}-minute window`
         : verdict === 'degraded'
-          ? `Degraded machine or pipeline signals across the analyzed ${spanMin}-minute window`
+          ? `Degraded machine or journal signals across the analyzed ${spanMin}-minute window`
           : `Critical pressure detected in the analyzed ${spanMin}-minute window`
 
   const periodSummary =

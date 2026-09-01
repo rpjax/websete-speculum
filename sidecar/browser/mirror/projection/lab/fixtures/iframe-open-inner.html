@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Nested iframe inner</title>
+    <style>
+      body { margin: 1rem; font-family: Georgia, serif; background: #eef6ee; color: #142; }
+      #inner-label { font-size: 1.25rem; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <p id="inner-label">INNER-BOOT</p>
+    <button id="inner-click" type="button">Inner click</button>
+    <p id="inner-status" data-state="idle">idle</p>
+    <script>
+      document.getElementById('inner-click').addEventListener('click', function () {
+        var el = document.getElementById('inner-status');
+        el.textContent = 'clicked';
+        el.setAttribute('data-state', 'clicked');
+      });
+    </script>
+  </body>
+</html>

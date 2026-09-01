@@ -41,7 +41,7 @@ export const sectionData: Record<string, unknown> = {
     },
   } satisfies DiagnosticsOptions,
   ScriptInjection: [
-    { scriptId: 'scr-001', url: null, position: 'HeaderTop', type: 'Classic' },
-    { scriptId: null, url: 'https://cdn.example.com/analytics.js', position: 'BodyBottom', type: 'Module' },
+    { scriptId: 'scr-001', url: null, type: 'Classic' },
+    { scriptId: null, url: 'https://cdn.example.com/analytics.js', type: 'Module' },
   ],
 }

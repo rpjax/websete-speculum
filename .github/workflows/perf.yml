@@ -1,6 +1,5 @@
-# Legacy MotorPerf (root Speculum.MotorPerf.Tests + motor-assert compose) is paused.
-# CI is Refactor-only until Refactor/ is promoted to repo root. Reintroduce a
-# Refactor capacity job here when needed; do not resurrect the root stack.
+# Capacity / SLO jobs. Functional correctness stays in ci.yml.
+# Reintroduce a capacity job here when needed.
 name: Perf
 
 on:
@@ -10,7 +9,7 @@ jobs:
   skipped:
     runs-on: ubuntu-latest
     steps:
-      - name: Legacy perf disabled
+      - name: Perf placeholder
         run: |
-          echo "Refactor-only CI era: root MotorPerf is not run."
-          echo "Use workflow_dispatch only as a placeholder until a Refactor perf job exists."
+          echo "No capacity job wired yet."
+          echo "Use workflow_dispatch as a placeholder until a perf job exists."

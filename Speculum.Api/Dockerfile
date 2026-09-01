@@ -1,24 +1,45 @@
 # syntax=docker/dockerfile:1.4
+# Build from repo root: docker build -f Speculum.Api/Dockerfile .
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY ["Speculum.Api.csproj", "./"]
+COPY Speculum.Api/Speculum.Api.csproj Speculum.Api/
+COPY proto/ proto/
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet restore "Speculum.Api.csproj"
+    dotnet restore Speculum.Api/Speculum.Api.csproj
 
-COPY . .
+COPY Speculum.Api/ Speculum.Api/
+
+# Host obj/ embeds Windows NuGet fallback paths and breaks Linux publish --no-restore.
+RUN rm -rf Speculum.Api/bin Speculum.Api/obj
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet publish "Speculum.Api.csproj" \
+    dotnet restore Speculum.Api/Speculum.Api.csproj \
+    && dotnet publish Speculum.Api/Speculum.Api.csproj \
         -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+
+# WebTransport needs HTTP/3 (QUIC). Kestrel silently drops H3 without libmsquic on Linux.
+# Download inside RUN (with retries) — ADD https:// always hits the network for the
+# cache key and fails the whole build on a flaky packages.microsoft.com EOF.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 \
+         -o /tmp/packages-microsoft-prod.deb \
+         https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
+    && dpkg -i /tmp/packages-microsoft-prod.deb \
+    && rm /tmp/packages-microsoft-prod.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libmsquic \
     && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=build /app/publish .
 
 EXPOSE 8080/tcp
+EXPOSE 8443/tcp
+EXPOSE 8443/udp
 ENTRYPOINT ["dotnet", "Speculum.Api.dll"]

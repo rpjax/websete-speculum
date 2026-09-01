@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Input click fixture</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+      #status {
+        margin-top: 1rem;
+        font-size: 1.25rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Input M1a</h1>
+    <button id="click-me" type="button">Click me</button>
+    <p id="status" data-state="idle">idle</p>
+    <script>
+      document.getElementById('click-me').addEventListener('click', function () {
+        var el = document.getElementById('status');
+        el.textContent = 'clicked';
+        el.setAttribute('data-state', 'clicked');
+      });
+    </script>
+  </body>
+</html>

@@ -228,7 +228,7 @@ On first boot, `Admin.apiKey` is generated randomly (or taken from `ADMIN_BOOTST
 |---------|------|-------|
 | `/health`, `/ready` | Public | Liveness / readiness (`/ready` does not require subdomain mirroring) |
 | `GET /api/admin/config/status` | Public | Setup UI; includes `hosting.profiles` |
-| `GET /api/public/client-config` | Public | Session profiles, mirroring flags, NSO param name |
+| `GET /api/public/client-config` | Public | **PreStart bootstrap:** mirrorMode, viewportPolicy, dataStreamTransport, screencast encode scale, clientObservation, NSO param, navigation host, hosting domains. The SPA mounts the definitive mirror surface and measures geometry from this before `StartSession`. |
 | `/vhub` (SignalR) | Public | Edge protection expected from Traefik / network policy |
 | `/api/admin/*`, `/openapi/*` | Bearer `Admin.apiKey` | Enforced by `AdminAuthMiddleware` |
 | Script URL resolution | SSRF guard | `SsrfGuard` + custom DNS resolver for remote script fetches |
@@ -245,7 +245,7 @@ Defence in depth: Traefik TLS and network policy are expected at the edge; the A
 |-------|----------|----------|
 | SQLite | `Database__Path` | `config_sections`, `browser_sessions` (+ cookies/LS/IDB/history tables), injected scripts metadata |
 | Docker volume | `speculum-data` | SQLite file + Traefik dynamic config (`/data/traefik/`) in deployed stacks |
-| Client | Cookie | `speculum_client_token` (domain depends on subdomain mirroring mode) |
+| Client | Cookie | `speculum_client_token` (operator SPA identity only — not live-session binding) |
 | Client | `sessionStorage` | Admin Bearer token |
 
 ---

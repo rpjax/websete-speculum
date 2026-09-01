@@ -1,0 +1,62 @@
+{
+  "id": "input-forms-enter",
+  "description": "sparse-cdp — type in search field + Enter submits on Virtual",
+  "sessionPolicy": "cold",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/input-forms.html" } },
+        { "id": "wait", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2500 } },
+        {
+          "id": "click-search",
+          "type": "pushInput",
+          "dependsOn": ["wait"],
+          "params": {
+            "sequence": [{ "type": "resolveAndClick", "selector": "#search-field", "contextId": 1 }]
+          }
+        },
+        { "id": "settle", "type": "sleep", "dependsOn": ["click-search"], "params": { "ms": 200 } },
+        {
+          "id": "type-search",
+          "type": "pushInput",
+          "dependsOn": ["settle"],
+          "params": {
+            "sequence": [
+              { "type": "keyDown", "key": "u", "code": "KeyU" },
+              { "type": "keyUp", "key": "u", "code": "KeyU" },
+              { "type": "keyDown", "key": "s", "code": "KeyS" },
+              { "type": "keyUp", "key": "s", "code": "KeyS" },
+              { "type": "keyDown", "key": "d", "code": "KeyD" },
+              { "type": "keyUp", "key": "d", "code": "KeyD" },
+              { "type": "keyDown", "key": "t", "code": "KeyT" },
+              { "type": "keyUp", "key": "t", "code": "KeyT" }
+            ]
+          }
+        },
+        { "id": "wait-type", "type": "sleep", "dependsOn": ["type-search"], "params": { "ms": 400 } },
+        {
+          "id": "enter",
+          "type": "pushInput",
+          "dependsOn": ["wait-type"],
+          "params": {
+            "sequence": [
+              { "type": "keyDown", "key": "Enter", "code": "Enter" },
+              { "type": "keyUp", "key": "Enter", "code": "Enter" }
+            ]
+          }
+        },
+        { "id": "wait-enter", "type": "sleep", "dependsOn": ["enter"], "params": { "ms": 600 } },
+        {
+          "id": "assert-submitted",
+          "type": "evaluate",
+          "dependsOn": ["wait-enter"],
+          "params": {
+            "expression": "(() => { const v = document.getElementById('search-field')?.value; const s = document.getElementById('submit-state')?.getAttribute('data-state'); if (v !== 'usdt') throw new Error('value=' + v); if (s !== 'submitted') throw new Error('state=' + s); return 'ok'; })()"
+          }
+        },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["assert-submitted"] }
+      ]
+    }
+  ]
+}

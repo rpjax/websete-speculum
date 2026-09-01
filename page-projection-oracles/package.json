@@ -1,0 +1,23 @@
+{
+  "name": "@speculum/page-projection-oracles",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "PageProjection oracles O1–O5 (redesign §7). Fixture gates must fail on current-engine evidence.",
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "oracle:o3-fixture": "node bin/run-o3-fixture.cjs",
+    "oracle:o1-fixture": "node bin/run-o1-fixture.cjs",
+    "oracle:o2-fixture": "node bin/run-o2-fixture.cjs",
+    "oracle:o5-fixture": "node bin/run-o5-fixture.cjs",
+    "oracle:density-baseline": "node bin/run-o4-density-baseline.cjs",
+    "oracle:live": "node bin/live-runner.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "pixelmatch": "^6.0.0"
+  }
+}

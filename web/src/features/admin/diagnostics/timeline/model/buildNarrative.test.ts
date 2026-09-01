@@ -67,6 +67,18 @@ describe('buildNarrative', () => {
     expect(clusters).toHaveLength(2)
     expect(clusters[0].beats).toHaveLength(2)
   })
+  it('treats SessionTimedOut as ok lifecycle, not failed', () => {
+    const events = [
+      evt({ name: 'Sessions.SessionStarting', seq: 1, offsetMs: 0, correlationId: 'c1' }),
+      evt({ name: 'Sessions.SessionTimedOut', seq: 2, offsetMs: 1000, correlationId: 'c1', severity: 'Error' }),
+    ]
+    const narrative = buildNarrative({
+      events,
+      scope: { kind: 'platform' },
+      period: { preset: 'custom', fromMs: BASE - 1000, toMs: BASE + 10_000 },
+    })
+    expect(narrative.chapters[0].outcome).toBe('ok')
+  })
 })
 
 describe('orderEvents / buildSpans re-exports', () => {

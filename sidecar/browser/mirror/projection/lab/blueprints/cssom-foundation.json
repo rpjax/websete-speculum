@@ -1,0 +1,72 @@
+{
+  "id": "cssom-foundation",
+  "description": "CSSOM foundation gate — observe then fold (Virtual table × live)",
+  "sessionPolicy": "cold",
+  "fold": "cssom-foundation",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/cssom-foundation.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 1500 } },
+        { "id": "snap-settle", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "settle", "cssom": "scan" } },
+        { "id": "snap-i8-none", "type": "snap", "dependsOn": ["snap-settle"], "params": { "id": "i8-none", "cssom": "none" } },
+        { "id": "wait-idle", "type": "sleep", "dependsOn": ["snap-i8-none"], "params": { "ms": 2000 } },
+        { "id": "op-styleSet-start", "type": "opWindow.start", "dependsOn": ["wait-idle"], "params": { "windowId": "styleSet" } },
+        { "id": "act-styleSet", "type": "act", "dependsOn": ["op-styleSet-start"], "params": { "name": "styleSet" } },
+        { "id": "wait-styleSet", "type": "sleep", "dependsOn": ["act-styleSet"], "params": { "ms": 1000 } },
+        { "id": "op-styleSet-stop", "type": "opWindow.stop", "dependsOn": ["wait-styleSet"], "params": { "windowId": "styleSet" } },
+        { "id": "snap-styleSet-committed", "type": "snap", "dependsOn": ["op-styleSet-stop"], "params": { "id": "styleSet.committed", "cssom": "committed" } },
+        { "id": "snap-styleSet-scan", "type": "snap", "dependsOn": ["snap-styleSet-committed"], "params": { "id": "styleSet.scan", "cssom": "scan" } },
+        { "id": "act-insertRule", "type": "act", "dependsOn": ["snap-styleSet-scan"], "params": { "name": "insertRule" } },
+        { "id": "wait-insertRule", "type": "sleep", "dependsOn": ["act-insertRule"], "params": { "ms": 1000 } },
+        { "id": "snap-insertRule-c", "type": "snap", "dependsOn": ["wait-insertRule"], "params": { "id": "insertRule.committed", "cssom": "committed" } },
+        { "id": "snap-insertRule-s", "type": "snap", "dependsOn": ["snap-insertRule-c"], "params": { "id": "insertRule.scan", "cssom": "scan" } },
+        { "id": "act-deleteRule", "type": "act", "dependsOn": ["snap-insertRule-s"], "params": { "name": "deleteRule" } },
+        { "id": "wait-deleteRule", "type": "sleep", "dependsOn": ["act-deleteRule"], "params": { "ms": 1000 } },
+        { "id": "snap-deleteRule-c", "type": "snap", "dependsOn": ["wait-deleteRule"], "params": { "id": "deleteRule.committed", "cssom": "committed" } },
+        { "id": "snap-deleteRule-s", "type": "snap", "dependsOn": ["snap-deleteRule-c"], "params": { "id": "deleteRule.scan", "cssom": "scan" } },
+        { "id": "act-replaceSync", "type": "act", "dependsOn": ["snap-deleteRule-s"], "params": { "name": "replaceSync" } },
+        { "id": "wait-replaceSync", "type": "sleep", "dependsOn": ["act-replaceSync"], "params": { "ms": 2000 } },
+        { "id": "snap-replaceSync-c", "type": "snap", "dependsOn": ["wait-replaceSync"], "params": { "id": "replaceSync.committed", "cssom": "committed" } },
+        { "id": "snap-replaceSync-s", "type": "snap", "dependsOn": ["snap-replaceSync-c"], "params": { "id": "replaceSync.scan", "cssom": "scan" } },
+        { "id": "act-reorderAdopted", "type": "act", "dependsOn": ["snap-replaceSync-s"], "params": { "name": "reorderAdopted" } },
+        { "id": "wait-reorder", "type": "sleep", "dependsOn": ["act-reorderAdopted"], "params": { "ms": 1000 } },
+        { "id": "snap-reorder-c", "type": "snap", "dependsOn": ["wait-reorder"], "params": { "id": "reorderAdopted.committed", "cssom": "committed" } },
+        { "id": "snap-reorder-s", "type": "snap", "dependsOn": ["snap-reorder-c"], "params": { "id": "reorderAdopted.scan", "cssom": "scan" } },
+        { "id": "act-addSheet", "type": "act", "dependsOn": ["snap-reorder-s"], "params": { "name": "addSheet" } },
+        { "id": "wait-addSheet", "type": "sleep", "dependsOn": ["act-addSheet"], "params": { "ms": 1000 } },
+        { "id": "snap-addSheet-c", "type": "snap", "dependsOn": ["wait-addSheet"], "params": { "id": "addSheet.committed", "cssom": "committed" } },
+        { "id": "snap-addSheet-s", "type": "snap", "dependsOn": ["snap-addSheet-c"], "params": { "id": "addSheet.scan", "cssom": "scan" } },
+        { "id": "op-mediaInner-start", "type": "opWindow.start", "dependsOn": ["snap-addSheet-s"], "params": { "windowId": "mediaInner" } },
+        { "id": "act-mediaInner", "type": "act", "dependsOn": ["op-mediaInner-start"], "params": { "name": "mediaInner" } },
+        { "id": "wait-media", "type": "sleep", "dependsOn": ["act-mediaInner"], "params": { "ms": 1000 } },
+        { "id": "op-mediaInner-stop", "type": "opWindow.stop", "dependsOn": ["wait-media"], "params": { "windowId": "mediaInner" } },
+        { "id": "snap-media-c", "type": "snap", "dependsOn": ["op-mediaInner-stop"], "params": { "id": "mediaInner.committed", "cssom": "committed" } },
+        { "id": "snap-media-s", "type": "snap", "dependsOn": ["snap-media-c"], "params": { "id": "mediaInner.scan", "cssom": "scan" } },
+        { "id": "iso-mediaInner", "type": "iso", "dependsOn": ["snap-media-s"] },
+        { "id": "act-addStyleEl", "type": "act", "dependsOn": ["iso-mediaInner", "snap-media-s"], "params": { "name": "addStyleEl" } },
+        { "id": "wait-styleEl", "type": "sleep", "dependsOn": ["act-addStyleEl"], "params": { "ms": 1000 } },
+        { "id": "snap-styleEl-c", "type": "snap", "dependsOn": ["wait-styleEl"], "params": { "id": "addStyleEl.committed", "cssom": "committed" } },
+        { "id": "snap-styleEl-s", "type": "snap", "dependsOn": ["snap-styleEl-c"], "params": { "id": "addStyleEl.scan", "cssom": "scan" } },
+        { "id": "act-crossOrigin", "type": "act", "dependsOn": ["snap-styleEl-s"], "params": { "name": "addCrossOriginLink" } },
+        { "id": "wait-cross", "type": "sleep", "dependsOn": ["act-crossOrigin"], "params": { "ms": 800 } },
+        { "id": "snap-i7", "type": "snap", "dependsOn": ["wait-cross"], "params": { "id": "i7-unreadable", "cssom": "scan" } },
+        {
+          "id": "act-dom-append",
+          "type": "evaluate",
+          "dependsOn": ["snap-i7"],
+          "params": {
+            "expression": "(() => { const d = document.createElement('div'); d.id = 'cssom-dom-probe'; document.body.appendChild(d); return 'ok'; })()"
+          }
+        },
+        { "id": "snap-dom-plus", "type": "snap", "dependsOn": ["act-dom-append"], "params": { "id": "dom-plus-cssom", "cssom": "scan" } },
+        { "id": "resync", "type": "requestResync", "dependsOn": ["snap-dom-plus"], "params": { "reason": "cssom-foundation" } },
+        { "id": "wait-resync", "type": "sleep", "dependsOn": ["resync"], "params": { "ms": 1500 } },
+        { "id": "snap-resync", "type": "snap", "dependsOn": ["wait-resync"], "params": { "id": "resync", "cssom": "scan" } },
+        { "id": "fold", "type": "fold", "awaits": ["snap-resync"], "params": { "ruleset": "cssom-foundation" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

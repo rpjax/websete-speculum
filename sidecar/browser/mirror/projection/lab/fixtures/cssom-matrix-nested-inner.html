@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CSSOM matrix inner</title>
+    <style>
+      :root {
+        --card-accent: #e85d04;
+      }
+      body {
+        margin: 8px;
+        background: #fafafa;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="shadow-host">light</div>
+    <script>
+      (function () {
+        const params = new URLSearchParams(location.search);
+        const xoOrigin = (params.get('xoOrigin') || 'http://127.0.0.1:4078').replace(/\/+$/, '');
+
+        const host = document.getElementById('shadow-host');
+        const root = host.attachShadow({ mode: 'closed' });
+        window.__speculumClosedRoot = root;
+
+        root.innerHTML = [
+          '<style data-class="1">',
+          '  :host { outline: 3px dashed #9333ea; display: block; padding: 4px; }',
+          '  #matrix-card { text-decoration: none; background: #f9f9f9; display: block; box-sizing: border-box; width: 280px; min-height: 120px; }',
+          '  .c1 { text-decoration: none; }',
+          '</style>',
+          '<link rel="stylesheet" href="cssom-matrix/card.css" data-class="2">',
+          '<link rel="stylesheet" href="' + xoOrigin + '/cssom-matrix/xo-no-cors.css" data-class="9a">',
+          '<link rel="stylesheet" href="' + xoOrigin + '/cssom-matrix/xo-cors.css" data-class="9b" crossorigin="anonymous">',
+          '<link rel="stylesheet" href="cssom-matrix/import-parent.css" data-class="5">',
+          '<a id="matrix-card" href="#" data-class="6" style="margin: 8px;">',
+          '  <span class="c1" data-class="1">class1</span>',
+          '  <span class="c7" data-class="7">class7</span>',
+          '  <span class="c9a" data-class="9a">class9a</span>',
+          '  <span class="c9b" data-class="9b">class9b</span>',
+          '</a>',
+        ].join('\n');
+
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync('#matrix-card { font-family: "Segoe UI", sans-serif; } .c4 { font-family: inherit; }');
+        root.adoptedStyleSheets = [sheet];
+
+        const card = root.getElementById('matrix-card');
+        const c7 = root.querySelector('.c7');
+        if (c7) c7.style.color = 'var(--card-accent)';
+
+        const c4 = document.createElement('span');
+        c4.className = 'c4';
+        c4.dataset.class = '4';
+        c4.textContent = 'class4';
+        card?.appendChild(c4);
+      })();
+    </script>
+  </body>
+</html>

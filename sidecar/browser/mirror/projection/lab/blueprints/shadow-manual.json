@@ -1,0 +1,17 @@
+{
+  "id": "shadow-manual",
+  "description": "Manual slotAssignment NIT — explicit unsupported fail",
+  "sessionPolicy": "cold",
+  "fold": "shadow-manual",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/shadow-manual.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 800 } },
+        { "id": "fold", "type": "fold", "dependsOn": ["wait-settle"], "params": { "ruleset": "shadow-manual" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

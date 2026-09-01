@@ -5,14 +5,14 @@
 
 When a hardened assert fails, **fix the product or the harness**. Do not `[Skip]`, `[Ignore]`, soften, or “temporarily” mark green.
 
-Canonical constitution: [engineering-standards.md](engineering-standards.md) §3. Agents: [../AGENTS.md](../AGENTS.md). Coverage inventory: [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md).
+Canonical constitution: [engineering-standards.md](engineering-standards.md) §3. Agents: [../AGENTS.md](../AGENTS.md). Coverage inventory: [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md).
 
 ---
 
 ## Rules
 
 1. **Missing JSON property = fail** — never `TryGetProperty` then skip as success.
-2. **Effect assert** — catalogued events, snapshots, probes, and `errorCode` values. Status `200` or `ok: true` alone is not session truth.
+2. **Effect assert** — catalogued events, snapshots, probes, and `errorCode` values. Status `200` or `ok: true` alone is not session truth. PageProjection **state** invariants (table, DOM) use coherent **probes**, not equality on event telemetry — [page-projection/spec/observability.md](page-projection/spec/observability.md).
 3. **Functional ≠ Perf** — overflow load, frame SLOs, and probe-storm capacity belong in `perf.yml` / Api sink units, not weakened MotorAssert cases.
 4. **Flake = bug** — fix wait scope, baseline isolation, or product timing. No silent retry loops.
 5. **MATRIX stays accurate** when coverage depth changes (same PR).
@@ -70,5 +70,5 @@ These unit / contract suites must remain green and strict:
 
 - [engineering-standards.md](engineering-standards.md) — testing and CI constitution  
 - [diagnostics.md](diagnostics.md) — Act→Assert cookbook  
-- [../Speculum.MotorAssert.Tests/MATRIX.md](../Speculum.MotorAssert.Tests/MATRIX.md) — coverage truth  
+- [../Speculum.Api.SessionsTest.Tests/MATRIX.md](../Speculum.Api.SessionsTest.Tests/MATRIX.md) — coverage truth  
 - [../CONTRIBUTING.md](../CONTRIBUTING.md) — local gates and PR expectations  

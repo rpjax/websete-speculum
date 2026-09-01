@@ -1,0 +1,19 @@
+{
+  "id": "svg-ns",
+  "description": "SVG/MathML namespace — NODE_NEW createElementNS, iso tree ns when a DOM client is present",
+  "sessionPolicy": "cold",
+  "fold": "svg-ns",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/svg-ns.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 1500 } },
+        { "id": "snap-ns", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "svgNs", "cssom": "none" } },
+        { "id": "iso-ns", "type": "iso", "dependsOn": ["snap-ns"] },
+        { "id": "fold", "type": "fold", "awaits": ["iso-ns", "snap-ns"], "params": { "ruleset": "svg-ns" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

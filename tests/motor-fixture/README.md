@@ -4,7 +4,7 @@ Deterministic HTTPS site that Chromium inside the Speculum sidecar opens during 
 
 ## Not for local day-to-day
 
-Do **not** routinely run sidecar+Chrome+fixture on a laptop. That stack is GitHub Actions–only (`motor-assertive`). See [CONTRIBUTING.md](../../CONTRIBUTING.md). This folder is consumed by `deploy/compose/docker-compose.motor-assert.yml`.
+Do **not** routinely run sidecar+Chrome+fixture on a laptop. That stack is GitHub Actions–only (`motor-assertive`). See [CONTRIBUTING.md](../../CONTRIBUTING.md). This folder is consumed by `deploy/compose/docker-compose.sessions-test.yml`.
 
 ## Roles
 
@@ -23,6 +23,7 @@ Do **not** routinely run sidecar+Chrome+fixture on a laptop. That stack is GitHu
 | `/click-target` | button fixed at (100,100)–(300,180); click `(200,140)`; wheel + key + touch hooks |
 | `/touch-scroll` | tall scroller for touch drag / multitouch pinch probes |
 | `/nav/a`, `/nav/b` | history |
+| `/permissions` | `navigator.permissions` / `getUserMedia` oracle on `#out[data-camera|data-microphone]` |
 | `/external-link` | link to evil-fixture |
 | `/asset-escape` | img/fetch to evil-fixture (subresource) |
 | `/popup` | window.open / target=_blank / form |

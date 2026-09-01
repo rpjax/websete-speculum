@@ -1,0 +1,822 @@
+syntax = "proto3";
+
+package speculum.sidecar.v1;
+
+option csharp_namespace = "Speculum.Api.Sidecar.V1";
+
+// ── Shared ───────────────────────────────────────────────────────────────────
+
+message SessionId {
+  string session_id = 1;
+}
+
+message Empty {}
+
+message DeviceProfile {
+  optional bool mobile = 1;
+  optional bool touch = 2;
+  optional double device_scale_factor = 3;
+  optional int32 max_touch_points = 4;
+  optional string user_agent_profile = 5;
+  optional string screen_orientation = 6;
+  // Antibot kit: phone | tablet | pc
+  optional string device_category = 7;
+}
+
+message ScriptInjection {
+  reserved 1;
+  string type = 2;
+  string file = 3;
+  string content = 4;
+  repeated UrlMatchRule target_rules = 5;
+  // Absolute http(s) URL for remote scripts. When set, sidecar fetches bytes at
+  // launch and inlines into the CDP inject bundle (no HTML <script src>).
+  // content is empty for remote on the wire until resolved.
+  string remote_url = 6;
+}
+
+message UrlMatchRule {
+  DomainPattern domain = 1;
+  PathPattern path = 2;
+}
+
+message DomainPattern {
+  string scope = 1;
+  repeated DomainLabelPattern labels = 2;
+}
+
+message DomainLabelPattern {
+  string match = 1;
+  string value = 2;
+}
+
+message PathPattern {
+  string scope = 1;
+  string match_type = 2;
+  repeated PathSegmentPattern segments = 3;
+}
+
+message PathSegmentPattern {
+  string match = 1;
+  string value = 2;
+}
+
+message Geolocation {
+  double latitude = 1;
+  double longitude = 2;
+  double accuracy = 3;
+}
+
+message EditingState {
+  optional string input_mode = 1;
+  optional bool multiline = 2;
+  optional string tag_name = 3;
+}
+
+// ── Navigation policy (M1 — injected at Launch, immutable per session) ───────
+
+message NavigationPolicyDomain {
+  string domain = 1;
+  bool is_subdomain_mirroring_enabled = 2;
+}
+
+message NavigationPolicy {
+  // Session transport host (client-facing); used for Resolve / ProjectToClient.
+  string request_host = 1;
+  string default_target_host = 2;
+  repeated NavigationPolicyDomain domains = 3;
+  repeated UrlMatchRule allowed_main_frame_urls = 4;
+  // W7S navigation-state query parameter name (e.g. "_w7s_nso").
+  string navigation_state_param = 5;
+}
+
+// ── Lifecycle ────────────────────────────────────────────────────────────────
+
+message CreateRequest {
+  // Optional client-chosen id; server generates one when empty.
+  optional string session_id = 1;
+}
+
+message CreateResponse {
+  string session_id = 1;
+}
+
+message LaunchVideoStreamingRequest {
+  string session_id = 1;
+  int32 width = 2;
+  int32 height = 3;
+  optional DeviceProfile device = 4;
+  repeated ScriptInjection scripts = 5;
+  repeated string allowed_navigation_domains = 6;
+  string locale = 7;
+  string language = 8;
+  string timezone_id = 9;
+  string color_scheme = 10;
+  optional Geolocation geolocation = 11;
+  int32 min_width = 12;
+  int32 min_height = 13;
+  int32 display_width = 14;
+  int32 display_height = 15;
+  double screencast_max_encode_scale = 16;
+  // When true, Virtual CDP Profiler may be started via session startCpuProfile.
+  bool cpu_profiling = 17;
+  NavigationPolicy navigation_policy = 18;
+}
+
+message LaunchPageProjectionRequest {
+  string session_id = 1;
+  int32 width = 2;
+  int32 height = 3;
+  optional DeviceProfile device = 4;
+  repeated ScriptInjection scripts = 5;
+  repeated string allowed_navigation_domains = 6;
+  string locale = 7;
+  string language = 8;
+  string timezone_id = 9;
+  string color_scheme = 10;
+  optional Geolocation geolocation = 11;
+  int32 min_width = 12;
+  int32 min_height = 13;
+  int32 display_width = 14;
+  int32 display_height = 15;
+  // Sessions.FrameQueueCapacity — sidecar EventBridge Dom queue (T5 DropAll).
+  int32 frame_queue_capacity = 18;
+  int32 frame_rate_hz = 19;
+  int32 max_frame_bytes = 20;
+  int32 browser_pool_size = 21;
+  int32 browser_pool_refill_per_sec = 22;
+  repeated int32 frame_rate_ladder = 23;
+  int32 hidden_rate_hz = 24;
+  int32 rate_recover_ms = 25;
+  int32 frame_stall_ms = 26;
+  reserved 27; // was establish_chunk_bytes (pre-V4; removed M6)
+  int64 mirror_max_bytes = 28;
+  int64 asset_cache_l1_max_bytes = 29;
+  int32 asset_priority_viewport_px = 30;
+  int32 aggregate_interval_ms = 31;
+  int32 swap_timeout_ms = 32;
+  reserved 33; // was client_state_ms (ReportClientState purged; removed M6)
+  int32 apply_budget_ms = 34;
+  // When true, Virtual CDP Profiler may be started via session startCpuProfile.
+  bool cpu_profiling = 35;
+  NavigationPolicy navigation_policy = 36;
+  int64 asset_cache_l2_max_bytes = 37;
+  bool asset_cache_l2_enabled = 38;
+}
+
+message ReadyInfo {
+  int32 width = 1;
+  int32 height = 2;
+}
+
+message Status {
+  bool is_open = 1;
+  int32 tab_count = 2;
+  string url = 3;
+  bool resizing = 4;
+  int32 width = 5;
+  int32 height = 6;
+  int32 display_width = 7;
+  int32 display_height = 8;
+  int32 chrome_width = 9;
+  int32 chrome_height = 10;
+}
+
+// ── Durable state ────────────────────────────────────────────────────────────
+
+message CookieState {
+  string name = 1;
+  string value = 2;
+  string domain = 3;
+  string path = 4;
+  optional double expires = 5;
+  optional bool http_only = 6;
+  optional bool secure = 7;
+  optional string same_site = 8;
+}
+
+message LocalStorageState {
+  string origin = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message IdbRecordState {
+  string origin = 1;
+  string database_name = 2;
+  string store_name = 3;
+  string key_json = 4;
+  string value_json = 5;
+}
+
+message HistoryState {
+  string url = 1;
+  optional string title = 2;
+  optional int64 visited_at_ms = 3;
+  optional string transition_type = 4;
+  optional int32 index_order = 5;
+}
+
+message BrowserState {
+  repeated CookieState cookies = 1;
+  repeated LocalStorageState local_storage = 2;
+  repeated IdbRecordState idb_records = 3;
+  repeated HistoryState history = 4;
+}
+
+message RestoreStateRequest {
+  string session_id = 1;
+  BrowserState state = 2;
+}
+
+message CookieNormalizeStats {
+  int32 total = 1;
+  int32 skipped = 2;
+  int32 normalized = 3;
+  int32 applied = 4;
+  int32 failed_individual = 5;
+}
+
+message RestoreStateResponse {
+  CookieNormalizeStats cookie_normalize = 1;
+}
+
+message ExportStateRequest {
+  string session_id = 1;
+}
+
+// ── Navigation / resize / probe / evaluate ───────────────────────────────────
+
+message NavigateRequest {
+  string session_id = 1;
+  // Absolute target URL (bootstrap / pre-resolved entry navigation).
+  string url = 2;
+  // Client path + query resolved by sidecar NavigationPolicy when set.
+  string client_path = 3;
+  string client_query = 4;
+}
+
+message ResizeRequest {
+  string session_id = 1;
+  int32 width = 2;
+  int32 height = 3;
+  DeviceProfile device = 4;
+  // Sessions.ScreencastPolicy.MaxEncodeScale — same semantics as LaunchRequest.
+  double screencast_max_encode_scale = 5;
+}
+
+message ResizeResult {
+  bool ok = 1;
+  int32 width = 2;
+  int32 height = 3;
+  optional int32 chrome_width = 4;
+  optional int32 chrome_height = 5;
+  optional int32 display_width = 6;
+  optional int32 display_height = 7;
+  optional string error_code = 8;
+  optional string phase = 9;
+  optional string message = 10;
+}
+
+message ProbeRequest {
+  string session_id = 1;
+  repeated string ops = 2;
+  optional string evaluate_expression = 3;
+  optional string dom_selector = 4;
+}
+
+message ProbeResult {
+  bool ok = 1;
+  // JSON-encoded opaque evidence when ok.
+  optional string data_json = 2;
+  optional string error_code = 3;
+  optional string message = 4;
+}
+
+message EvaluateRequest {
+  string session_id = 1;
+  string code = 2;
+}
+
+message EvaluateResult {
+  bool ok = 1;
+  string value = 2;
+  optional string error_message = 3;
+}
+
+// ── Outbound streams (sidecar → Api) ─────────────────────────────────────────
+
+message VideoFrame {
+  bytes jpeg = 1;
+}
+
+message AudioFrame {
+  bytes chunk = 1;
+}
+
+message ConsoleEvent {
+  int32 level = 1;
+  string text = 2;
+}
+
+message LocationEvent {
+  string url = 1;
+}
+
+message NavigationBlockedEvent {
+  string url = 1;
+}
+
+message EditableFocusEvent {
+  // Absent / unset editing means blur (dismiss native keyboard).
+  optional EditingState editing = 1;
+  bool focused = 2;
+}
+
+message CrashEvent {
+  string error_code = 1;
+  string message = 2;
+  optional string phase = 3;
+}
+
+// Opt-in VideoStreamingInput path hop (API journals
+// Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted when enabled).
+message VideoStreamingInputPathEvent {
+  string phase = 1; // admit
+  string kind = 2;  // mousedown, keydown, …
+  int64 unix_ms = 3;
+}
+
+// Opt-in PageProjection input path hop (API journals
+// Telemetry.Sessions.PageProjection.Input.SidecarAdmitted / CdpDropped when enabled).
+message PageProjectionInputPathEvent {
+  string phase = 1; // sidecar_admitted | cdp_dropped
+  string kind = 2;
+  int64 unix_ms = 3;
+  optional string reason = 4; // cdp_dropped only
+  optional int64 generation = 5;
+}
+
+// Opt-in PageProjection lifecycle (API journals
+// Telemetry.Sessions.PageProjection.Frame.GenerationBumped / QueueDropped when enabled).
+message PageProjectionLifecycleEvent {
+  string kind = 1; // generation_bumped | queue_dropped
+  int64 from_generation = 2;
+  int64 to_generation = 3;
+  // generation_bumped: main_frame_navigated | page_emit_sync
+  // queue_dropped stage: sidecar_bridge | sidecar_grpc_congested
+  string reason = 4;
+  optional string url = 5; // generation_bumped: page url; queue_dropped: plane (dom|cssom)
+  optional string frame_kind = 6; // generation_bumped: plane when page_emit_sync; queue_dropped: operation
+  int64 unix_ms = 7;
+  optional int32 dropped_count = 8; // queue_dropped
+  optional int32 capacity = 9; // queue_dropped
+  optional int64 sequence = 10; // queue_dropped kept envelope (surviving write)
+  optional int64 lowest_dropped_sequence = 11; // queue_dropped drained backlog min
+  optional int64 highest_dropped_sequence = 12; // queue_dropped drained backlog max
+  reserved 13; // was payload_json (parity_* motor JSON; removed M6)
+  // session_pool_acquired
+  optional int32 display_width = 14;
+  optional int32 display_height = 15;
+  optional int32 pool_size = 16;
+  optional int64 wait_ms = 17;
+  // session_pool_released
+  optional int64 held_ms = 18;
+}
+
+// Opt-in allocation lifecycle (API journals Telemetry.Sessions.Sidecar.* when enabled).
+message AllocationLifecycleEvent {
+  string kind = 1; // session_allocated | session_released | display_allocated | display_released | allocation_faulted
+  optional int32 display_width = 2;
+  optional int32 display_height = 3;
+  optional int32 logical_width = 4;
+  optional int32 logical_height = 5;
+  optional string input_backend = 6; // os | patchright
+  optional string error_code = 7;
+  optional string phase = 8;
+  optional string reason = 9;
+  int64 unix_ms = 10;
+}
+
+// PageProjection outbound (sidecar → Api). Transitional envelope: `plane` and
+// `operation` were the V1 JSON-body scheme (docs/page-projection-diff-pipeline.md,
+// now superseded) and are DEPRECATED for binary frames — leave them empty string
+// on the redesigned path. `body` there is the opaque §5.5 binary wire payload
+// (magic/version/flags/generation/sequence/partIndex/partCount/strings/ops);
+// the API relays it without parsing (PP-WIRE-1). See
+// docs/page-projection-engine-redesign.md §5.5, §5.16.
+message PageProjectionFrame {
+  int64 sequence = 1;
+  int64 generation = 2;
+  reserved 3, 4; // was plane / operation (V1 JSON routing; removed M6)
+  int64 timestamp_ms = 5;
+  bytes body = 6; // opaque §5.5 binary frame/part
+  uint32 part_index = 7;
+  uint32 part_count = 8;
+  uint32 flags = 9; // bit0 establish, bit1 resync
+  uint32 version = 10;
+  uint32 context_id = 11; // browsing context; root = 1
+}
+
+message DomInputEvent {
+  string session_id = 1;
+  string type = 2; // move|down|up|keyDown|keyUp|scrollSet|setFiles (legacy V2 aliases accepted)
+  reserved 3; // was anchor (V1 speculum-anchor; removed M6)
+  string payload_json = 4; // PageProjectionIntentPayload JSON
+  int64 generation = 5;
+  double timestamp_client = 6;
+  // reserved 7; — gap kept for a still-undecided companion field
+  // Redesign id-addressed intents (§5.11): resolved through the sidecar's
+  // reverse id map (identity.ts); a miss follows the retry-then-drop policy.
+  optional uint32 target_id = 8;
+  // V4 multi-document browsing context (root = 1).
+  optional uint32 context_id = 9;
+  // Unified input (§10.6)
+  optional int32 schema_version = 10;
+  optional int32 viewport_w = 11;
+  optional int32 viewport_h = 12;
+  optional string census = 13; // ScrollCensus JSON (PP down/up)
+}
+
+message GetDomAssetRequest {
+  string session_id = 1;
+  string key = 2; // virtual-assets path key, or blob/data id
+  string kind = 3; // asset | blob | data (empty = infer)
+  string range_header = 4; // optional HTTP Range
+}
+
+message GetDomAssetResponse {
+  bytes body = 1;
+  string content_type = 2;
+  int32 status_code = 3; // 200 / 206 for pass-through
+  string content_range = 4;
+  bool pass_through = 5;
+  // §5.12.2.1 shareability signals — only populated for a fresh, non-pass-through
+  // "asset" fetch (cache-mode hit); the API's SharedAssetCacheL2 predicate reads these
+  // before deciding whether the fetched body may be dedup-served host-wide. Empty/false
+  // on every pass-through / range / blob / data response (never shareable).
+  bool request_had_cookie = 6;
+  // Raw `Cache-Control` response header value, comma-joined directives as sent.
+  string cache_control = 7;
+  // Raw `Vary` response header value, comma-joined values as sent.
+  string vary = 8;
+  // §5.12.2.1 — true when the *original* in-page fetch carried an Authorization header
+  // (recorded via Network.requestWillBeSent). Always false for pass-through / range / blob / data.
+  bool request_had_authorization = 9;
+}
+
+// Sealed one-path resync — response is a frame on WatchPageProjectionFrames.
+message RequestResyncRequest {
+  string session_id = 1;
+  uint32 context_id = 2;
+  string reason = 3;
+}
+
+message OkResult {
+  bool ok = 1;
+  string reason = 2;
+}
+
+message EmitFrameRequest {
+  string session_id = 1;
+  uint32 context_id = 2;
+}
+
+message EmitFrameResult {
+  bool ok = 1;
+  string reason = 2;
+  int64 generation = 3;
+  int64 sequence = 4;
+}
+
+message GetStateSnapshotRequest {
+  string session_id = 1;
+  uint32 context_id = 2;
+  string table = 3; // digest | full
+  bool live_child_order = 4;
+  string cssom = 5; // none | committed | scan
+  bool tree = 6;
+  bool form_props = 7;
+  bool frame_new_nodes = 8;
+}
+
+message GetStateSnapshotResponse {
+  bool ok = 1;
+  string reason = 2;
+  uint32 context_id = 3;
+  int64 generation = 4;
+  int64 sequence = 5;
+  string snapshot_json = 6;
+}
+
+message PutDomUploadRequest {
+  string session_id = 1;
+  string upload_id = 2;
+  bytes body = 3;
+  string content_type = 4;
+  string name = 5;
+}
+
+// ── Inbound streams (Api → sidecar) ──────────────────────────────────────────
+
+message TouchPoint {
+  int32 id = 1;
+  double x = 2;
+  double y = 3;
+  optional double radius_x = 4;
+  optional double radius_y = 5;
+  optional double force = 6;
+}
+
+message InputEvent {
+  string session_id = 1;
+  oneof payload {
+    MouseMove mouse_move = 10;
+    MouseButton mouse_down = 11;
+    MouseButton mouse_up = 12;
+    Wheel wheel = 13;
+    Key key_down = 14;
+    Key key_up = 15;
+    TypeText type = 16;
+    TextInput text = 17;
+    Touch touch = 18;
+    HistoryNav goback = 19;
+    HistoryNav goforward = 20;
+  }
+}
+
+message MouseMove {
+  double x = 1;
+  double y = 2;
+}
+
+message MouseButton {
+  double x = 1;
+  double y = 2;
+  int32 button = 3;
+}
+
+message Wheel {
+  double x = 1;
+  double y = 2;
+  double delta_x = 3;
+  double delta_y = 4;
+}
+
+message Key {
+  string key = 1;
+}
+
+message TypeText {
+  string text = 1;
+}
+
+message TextInput {
+  string text = 1;
+  optional string source = 2;
+}
+
+message Touch {
+  string phase = 1; // start | move | end | cancel
+  repeated TouchPoint points = 2;
+  repeated int32 changed_ids = 3;
+}
+
+message HistoryNav {}
+
+message MediaChunk {
+  string session_id = 1;
+  bytes data = 2;
+}
+
+// ── Host control bidi (host level, permanent — I8: no session_id) ──────────
+
+message HostControlFromSidecar {
+  // Echo of the host ping sequence.
+  uint64 ack_seq = 1;
+}
+
+message HostControlToSidecar {
+  // Host-level keepalive / readiness probe.
+  uint64 ping_seq = 1;
+}
+
+// ── Control bidi (session socket — permission RPC reverse) ───────────────────
+
+enum PermissionKind {
+  PERMISSION_KIND_UNSPECIFIED = 0;
+  PERMISSION_KIND_CAMERA = 1;
+  PERMISSION_KIND_MICROPHONE = 2;
+}
+
+message ControlFromSidecar {
+  oneof message {
+    PermissionRequest permission_request = 1;
+  }
+}
+
+message ControlToSidecar {
+  oneof message {
+    PermissionReply permission_reply = 1;
+    ConsumerPressure consumer_pressure = 2;
+  }
+}
+
+// M3: .NET reports consumer-side queue depth; motor decides rate/resync/disconnect.
+message ConsumerPressure {
+  uint32 queued_frames = 1;
+  uint64 queued_bytes = 2;
+  uint64 oldest_queued_ms = 3;
+  bool draining = 4;
+}
+
+message PermissionRequest {
+  uint32 corr_id = 1;
+  PermissionKind kind = 2;
+  string session_id = 3;
+}
+
+message PermissionReply {
+  uint32 corr_id = 1;
+  bool allow = 2;
+  string session_id = 3;
+}
+
+// ── Telemetry (process-wide; toggles carried in the request) ─────────────────
+
+message SidecarTelemetryRequest {
+  bool include_process = 1;
+  bool include_event_loop = 2;
+  bool include_chrome = 3;
+  bool include_queues = 4;
+  bool include_sessions_summary = 5;
+  bool include_faulted_ids = 6;
+  bool include_allocations_summary = 7;
+  bool include_allocation_sessions = 8;
+}
+
+message SidecarProcessTelemetry {
+  double cpu_usage = 1;
+  int64 memory_rss = 2;
+  int64 memory_heap_used = 3;
+  int64 memory_heap_total = 4;
+  int32 pid = 5;
+  double uptime_sec = 6;
+}
+
+message SidecarEventLoopTelemetry {
+  double delay_ms_p50 = 1;
+  double delay_ms_p99 = 2;
+  double utilization = 3;
+}
+
+message SidecarChromeTelemetry {
+  int32 browser_count = 1;
+  int32 page_count = 2;
+  optional int64 total_js_heap_used = 3;
+}
+
+message SidecarQueueTelemetry {
+  int32 video_depth = 1;
+  int32 audio_depth = 2;
+  int32 console_depth = 3;
+  optional int32 input_depth = 4;
+  optional int64 dropped_total = 5;
+  optional int32 input_chain_depth = 6;
+}
+
+message SidecarAllocationsSummary {
+  int32 allocated_sessions = 1;
+  int32 open_sessions = 2;
+  int32 faulted_sessions = 3;
+  int32 display_count = 4;
+  int64 allocated_display_pixels = 5;
+  int32 os_input_sessions = 6;
+  int32 patchright_input_sessions = 7;
+  int32 touch_primary_sessions = 8;
+  int32 user_data_dirs_present = 9;
+}
+
+message SidecarAllocationSession {
+  string session_id = 1;
+  bool open = 2;
+  bool faulted = 3;
+  bool display_allocated = 4;
+  int32 display_width = 5;
+  int32 display_height = 6;
+  int32 logical_width = 7;
+  int32 logical_height = 8;
+  int32 chrome_width = 9;
+  int32 chrome_height = 10;
+  string input_backend = 11;
+  bool touch_primary = 12;
+  bool user_data_dir_present = 13;
+}
+
+message SidecarAllocationsTelemetry {
+  optional SidecarAllocationsSummary summary = 1;
+  repeated SidecarAllocationSession sessions = 2;
+}
+
+message SidecarSessionsSummary {
+  int32 registered = 1;
+  int32 open = 2;
+  int32 faulted = 3;
+  repeated string faulted_session_ids = 4;
+}
+
+message SidecarTelemetryResponse {
+  optional SidecarProcessTelemetry process = 1;
+  optional SidecarEventLoopTelemetry event_loop = 2;
+  optional SidecarChromeTelemetry chrome = 3;
+  optional SidecarQueueTelemetry queues = 4;
+  optional SidecarSessionsSummary sessions = 5;
+  optional SidecarAllocationsTelemetry allocations = 6;
+}
+
+// ── Host resources (admin-driven uncap; formula lives in API) ─────────────────
+
+message ApplyHostResourcesRequest {
+  int64 shm_size_bytes = 1;
+  bool raise_ulimits = 2;
+  int64 nofile = 3;
+  int64 nproc = 4;
+}
+
+message ApplyHostResourcesResponse {
+  int64 shm_before_bytes = 1;
+  int64 shm_applied_bytes = 2;
+  bool ulimits_raised = 3;
+  optional int64 nofile_applied = 4;
+  optional int64 nproc_applied = 5;
+  repeated string warnings = 6;
+}
+
+message HostResourcesStatusResponse {
+  int64 shm_size_bytes = 1;
+  optional int64 nofile = 2;
+  optional int64 nproc = 3;
+}
+
+// ── Service ──────────────────────────────────────────────────────────────────
+
+service BrowserSessionService {
+  rpc Create(CreateRequest) returns (CreateResponse);
+  rpc LaunchPageProjection(LaunchPageProjectionRequest) returns (ReadyInfo);
+  rpc LaunchVideoStreaming(LaunchVideoStreamingRequest) returns (ReadyInfo);
+  rpc Stop(SessionId) returns (Empty);
+  rpc Dispose(SessionId) returns (Empty);
+
+  rpc GetStatus(SessionId) returns (Status);
+  rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
+  rpc ExportState(ExportStateRequest) returns (BrowserState);
+
+  rpc Navigate(NavigateRequest) returns (Empty);
+  rpc Refresh(SessionId) returns (Empty);
+  rpc GoBack(SessionId) returns (Empty);
+  rpc GoForward(SessionId) returns (Empty);
+  rpc Resize(ResizeRequest) returns (ResizeResult);
+  rpc Probe(ProbeRequest) returns (ProbeResult);
+  rpc Evaluate(EvaluateRequest) returns (EvaluateResult);
+
+  rpc WatchVideo(SessionId) returns (stream VideoFrame);
+  rpc WatchPageProjectionFrames(SessionId) returns (stream PageProjectionFrame);
+  rpc WatchAudio(SessionId) returns (stream AudioFrame);
+  rpc WatchConsole(SessionId) returns (stream ConsoleEvent);
+  rpc WatchLocation(SessionId) returns (stream LocationEvent);
+  rpc WatchNavigationBlocked(SessionId) returns (stream NavigationBlockedEvent);
+  rpc WatchEditableFocus(SessionId) returns (stream EditableFocusEvent);
+  rpc WatchCrash(SessionId) returns (stream CrashEvent);
+  rpc WatchVideoStreamingInputPath(SessionId) returns (stream VideoStreamingInputPathEvent);
+  rpc WatchPageProjectionInputPath(SessionId) returns (stream PageProjectionInputPathEvent);
+  rpc WatchPageProjectionLifecycle(SessionId) returns (stream PageProjectionLifecycleEvent);
+  rpc WatchAllocationLifecycle(SessionId) returns (stream AllocationLifecycleEvent);
+
+  rpc PushInput(stream InputEvent) returns (Empty);
+  rpc PushDomInput(stream DomInputEvent) returns (Empty);
+  rpc PushCamera(stream MediaChunk) returns (Empty);
+  rpc PushMicrophone(stream MediaChunk) returns (Empty);
+
+  rpc GetDomAsset(GetDomAssetRequest) returns (GetDomAssetResponse);
+  // One path: RequestResync → frame on WatchPageProjectionFrames.
+  rpc RequestResync(RequestResyncRequest) returns (Empty);
+  rpc PutDomUpload(PutDomUploadRequest) returns (Empty);
+
+  // Lab / assert only (PageProjection) — Live product need not call.
+  rpc HaltClocks(SessionId) returns (OkResult);
+  rpc ResumeClocks(SessionId) returns (OkResult);
+  rpc EmitFrame(EmitFrameRequest) returns (EmitFrameResult);
+  rpc GetStateSnapshot(GetStateSnapshotRequest) returns (GetStateSnapshotResponse);
+
+  rpc Control(stream ControlToSidecar) returns (stream ControlFromSidecar);
+
+  // Permanent host-level control plane (opened once per API process; never names a session).
+  rpc HostControl(stream HostControlToSidecar) returns (stream HostControlFromSidecar);
+
+  // Process-wide composite sample — not scoped to a session id.
+  rpc CollectTelemetry(SidecarTelemetryRequest) returns (SidecarTelemetryResponse);
+
+  // Admin host-resource provision — applies precomputed shm/ulimit targets.
+  rpc ApplyHostResources(ApplyHostResourcesRequest) returns (ApplyHostResourcesResponse);
+  rpc GetHostResources(Empty) returns (HostResourcesStatusResponse);
+}

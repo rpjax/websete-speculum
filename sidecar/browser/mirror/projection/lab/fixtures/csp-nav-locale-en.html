@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>EN</title>
+  <!-- Server also sends Content-Security-Policy; both must be surgically relaxed. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.binance.com; img-src 'self' https: data: blob:" />
+</head>
+<body>
+  <h1 id="title">EN</h1>
+  <p>Locale popup stand-in — opens BR with target=_blank (must fold to same tab). Lab: <code>npm run lab:csp-nav-locale</code>.</p>
+  <a id="go-br-blank" href="csp-nav-locale-br.html" target="_blank" rel="noopener">Go BR (popup)</a>
+  <a id="go-br-open" href="csp-nav-locale-br.html">Go BR (same)</a>
+  <script>
+    document.getElementById('go-br-open')?.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.open('csp-nav-locale-br.html', '_blank');
+    });
+  </script>
+</body>
+</html>

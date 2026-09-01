@@ -1,0 +1,41 @@
+{
+  "id": "cssom-heavy",
+  "description": "CSSOM heavy magazine — table×live after settle and acts",
+  "sessionPolicy": "cold",
+  "fold": "cssom-heavy",
+  "humanNotes": [
+    "Masthead bar rust ↔ steel blue",
+    "Page cream ↔ ink",
+    "One card with hot outline",
+    "Projected overlay gone once cards show"
+  ],
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/cssom-heavy.html?auto=0" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2000 } },
+        { "id": "snap-settle", "type": "snap", "dependsOn": ["wait-settle"], "params": { "id": "settle.scan", "cssom": "scan" } },
+        { "id": "op-theme-start", "type": "opWindow.start", "dependsOn": ["snap-settle"], "params": { "windowId": "theme" } },
+        { "id": "act-theme", "type": "act", "dependsOn": ["op-theme-start"], "params": { "name": "theme" } },
+        { "id": "wait-theme", "type": "sleep", "dependsOn": ["act-theme"], "params": { "ms": 1200 } },
+        { "id": "op-theme-stop", "type": "opWindow.stop", "dependsOn": ["wait-theme"], "params": { "windowId": "theme" } },
+        { "id": "snap-theme", "type": "snap", "dependsOn": ["op-theme-stop"], "params": { "id": "theme.scan", "cssom": "scan" } },
+        { "id": "act-accent", "type": "act", "dependsOn": ["snap-theme"], "params": { "name": "accent" } },
+        { "id": "wait-accent", "type": "sleep", "dependsOn": ["act-accent"], "params": { "ms": 1200 } },
+        { "id": "snap-accent", "type": "snap", "dependsOn": ["wait-accent"], "params": { "id": "accent.scan", "cssom": "scan" } },
+        { "id": "act-featureCard", "type": "act", "dependsOn": ["snap-accent"], "params": { "name": "featureCard" } },
+        { "id": "wait-card", "type": "sleep", "dependsOn": ["act-featureCard"], "params": { "ms": 1200 } },
+        { "id": "snap-card", "type": "snap", "dependsOn": ["wait-card"], "params": { "id": "featureCard.scan", "cssom": "scan" } },
+        { "id": "act-reorder", "type": "act", "dependsOn": ["snap-card"], "params": { "name": "reorderAdopted" } },
+        { "id": "wait-reorder", "type": "sleep", "dependsOn": ["act-reorder"], "params": { "ms": 1200 } },
+        { "id": "snap-reorder", "type": "snap", "dependsOn": ["wait-reorder"], "params": { "id": "reorderAdopted.scan", "cssom": "scan" } },
+        { "id": "resync", "type": "requestResync", "dependsOn": ["snap-reorder"], "params": { "reason": "cssom-heavy" } },
+        { "id": "wait-resync", "type": "sleep", "dependsOn": ["resync"], "params": { "ms": 1500 } },
+        { "id": "snap-resync", "type": "snap", "dependsOn": ["wait-resync"], "params": { "id": "resync.scan", "cssom": "scan" } },
+        { "id": "fold", "type": "fold", "awaits": ["snap-resync"], "params": { "ruleset": "cssom-heavy" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

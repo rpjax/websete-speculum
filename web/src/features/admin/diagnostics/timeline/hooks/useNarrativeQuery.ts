@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { diagnosticsApi, type DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
+import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
+import {
+  fetchTimeline,
+  journalPageToNarrativeEvents,
+} from '@/lib/timelineApi'
 import {
   applyReadingFilters,
   buildNarrative,
   resolvePeriodBounds,
 } from '../model/buildNarrative'
+import { DEFAULT_JOURNAL_SOURCE_FILTERS } from '../model/journalSources'
 import type {
   Narrative,
   NarrativeGranularity,
@@ -25,139 +30,160 @@ export interface NarrativeQueryState {
   filters: ReadingFilters
 }
 
+const PAGE_LIMIT = 500
+/** Safety cap so a huge window cannot loop forever. */
+const MAX_PAGES = 40
+
 function mergeById(existing: DiagnosticsEventRecord[], incoming: DiagnosticsEventRecord[]): DiagnosticsEventRecord[] {
   const map = new Map<string, DiagnosticsEventRecord>()
   for (const e of existing) map.set(e.id, e)
   for (const e of incoming) map.set(e.id, e)
-  return [...map.values()].sort((a, b) => a.utc.localeCompare(b.utc))
+  return [...map.values()].sort((a, b) => {
+    const sa = a.seq
+    const sb = b.seq
+    if (typeof sa === 'number' && typeof sb === 'number' && sa !== sb) return sa - sb
+    return a.utc.localeCompare(b.utc) || a.id.localeCompare(b.id)
+  })
+}
+
+function sessionIdFromScope(scope: NarrativeScope): string | undefined {
+  return scope.kind === 'session' ? scope.connectionId : undefined
 }
 
 export function useNarrativeQuery(initial?: Partial<NarrativeQueryState>) {
   const [scope, setScope] = useState<NarrativeScope>(initial?.scope ?? { kind: 'platform' })
   const [period, setPeriod] = useState<NarrativePeriod>(
-    initial?.period ?? { preset: '1h', fromMs: null, toMs: null },
+    initial?.period ?? { preset: '6h', fromMs: null, toMs: null },
   )
   const [granularity, setGranularity] = useState<NarrativeGranularity>(initial?.granularity ?? 'chapters+spans')
   const [layers, setLayers] = useState<NarrativeLayers>(initial?.layers ?? { ...LAYERS_DEFAULT })
   const [filters, setFilters] = useState<ReadingFilters>(
-    initial?.filters ?? { domains: [], severities: [], search: '' },
+    // Real Journal sources — hide noisy samples by default.
+    initial?.filters ?? {
+      domains: [...DEFAULT_JOURNAL_SOURCE_FILTERS],
+      severities: [],
+      search: '',
+    },
   )
   const [rawEvents, setRawEvents] = useState<DiagnosticsEventRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [loadingEarlier, setLoadingEarlier] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [hasEarlier, setHasEarlier] = useState(true)
-  const earliestLoadedMs = useRef<number | null>(null)
-  const untilSupported = useRef(true)
-
-  const loadWindow = useCallback(async (fromMs: number, toMs: number, mode: 'replace' | 'prepend' | 'append') => {
-    const since = new Date(fromMs).toISOString()
-    const until = new Date(toMs).toISOString()
-    const connectionId = scope.kind === 'session' ? scope.connectionId : undefined
-
-    let events: DiagnosticsEventRecord[]
-    try {
-      if (connectionId) {
-        events = await diagnosticsApi.getSessionEvents(connectionId, since, undefined, until)
-      } else {
-        events = await diagnosticsApi.listEvents({ since, until, connectionId })
-      }
-      untilSupported.current = true
-    } catch {
-      // Fallback when until= is not yet on the server
-      untilSupported.current = false
-      if (connectionId) {
-        events = await diagnosticsApi.getSessionEvents(connectionId, since)
-      } else {
-        events = await diagnosticsApi.listEvents({ since, connectionId })
-      }
-      events = events.filter((e) => {
-        const t = Date.parse(e.utc)
-        return t >= fromMs && t <= toMs
-      })
-    }
-
-    if (mode === 'replace') {
-      setRawEvents(events)
-    } else if (mode === 'prepend') {
-      setRawEvents((prev) => mergeById(events, prev))
-    } else {
-      setRawEvents((prev) => mergeById(prev, events))
-    }
-
-    const minMs = events.reduce((m, e) => Math.min(m, Date.parse(e.utc)), Number.POSITIVE_INFINITY)
-    if (Number.isFinite(minMs)) {
-      earliestLoadedMs.current = earliestLoadedMs.current == null
-        ? minMs
-        : Math.min(earliestLoadedMs.current, minMs)
-    }
-    return events
-  }, [scope])
+  const [windowTruncated, setWindowTruncated] = useState(false)
+  const [latestSequence, setLatestSequence] = useState<number | null>(null)
+  const cancelGen = useRef(0)
 
   const reload = useCallback(async () => {
+    const gen = ++cancelGen.current
     setLoading(true)
     setError(null)
-    earliestLoadedMs.current = null
+    setLatestSequence(null)
     try {
       const { fromMs, toMs } = resolvePeriodBounds(period)
-      await loadWindow(fromMs, toMs, 'replace')
-      setHasEarlier(period.preset !== 'all')
+      const sessionId = sessionIdFromScope(scope)
+      const since = new Date(fromMs).toISOString()
+      const until = new Date(toMs).toISOString()
+
+      let merged: DiagnosticsEventRecord[] = []
+      let beforeSequence: number | undefined
+      let truncated = false
+      let latest: number | null = null
+
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const result = await fetchTimeline({
+          since,
+          until,
+          sessionId,
+          limit: PAGE_LIMIT,
+          beforeSequence,
+        })
+        if (gen !== cancelGen.current) return
+
+        const events = journalPageToNarrativeEvents(result.items)
+        merged = mergeById(merged, events)
+        if (result.latestSequence != null) {
+          latest = latest == null ? result.latestSequence : Math.max(latest, result.latestSequence)
+        }
+        truncated = truncated || result.truncated
+
+        if (result.nextBeforeSequence == null || events.length === 0) {
+          truncated = false
+          break
+        }
+        if (!result.truncated && events.length < PAGE_LIMIT) {
+          truncated = false
+          break
+        }
+        beforeSequence = result.nextBeforeSequence
+      }
+
+      if (gen !== cancelGen.current) return
+      setRawEvents(merged)
+      setLatestSequence(latest)
+      setWindowTruncated(truncated)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load narrative events')
+      if (gen !== cancelGen.current) return
+      setError(e instanceof Error ? e.message : 'Failed to load journal facts')
       setRawEvents([])
     } finally {
-      setLoading(false)
+      if (gen === cancelGen.current) setLoading(false)
     }
-  }, [loadWindow, period])
+  }, [scope, period])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  const loadEarlier = useCallback(async () => {
-    if (!hasEarlier || loadingEarlier) return
-    setLoadingEarlier(true)
-    try {
-      const anchor = earliestLoadedMs.current ?? resolvePeriodBounds(period).fromMs
-      const sliceMs = 60 * 60_000
-      const toMs = anchor - 1
-      const fromMs = toMs - sliceMs
-      const events = await loadWindow(fromMs, toMs, 'prepend')
-      if (events.length === 0) setHasEarlier(false)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load earlier events')
-    } finally {
-      setLoadingEarlier(false)
-    }
-  }, [hasEarlier, loadingEarlier, loadWindow, period])
-
   const appendEvents = useCallback((incoming: DiagnosticsEventRecord[]) => {
     if (incoming.length === 0) return
     setRawEvents((prev) => mergeById(prev, incoming))
+    let maxSeq: number | null = null
+    for (const e of incoming) {
+      if (typeof e.seq === 'number') maxSeq = maxSeq == null ? e.seq : Math.max(maxSeq, e.seq)
+    }
+    if (maxSeq != null) {
+      setLatestSequence((prev) => (prev == null ? maxSeq : Math.max(prev, maxSeq)))
+    }
   }, [])
 
-  const narrative: Narrative = useMemo(
-    () =>
-      buildNarrative({
-        events: rawEvents,
-        scope,
-        period,
-        filters,
-        untilAppliedClientSide: !untilSupported.current,
-      }),
-    [rawEvents, scope, period, filters],
-  )
+  const narrative: Narrative = useMemo(() => {
+    const built = buildNarrative({
+      events: rawEvents,
+      scope,
+      period,
+      filters,
+      untilAppliedClientSide: false,
+    })
+    return {
+      ...built,
+      completeness: {
+        filteredUntilClient: false,
+        note: windowTruncated
+          ? 'Time window hit the page safety cap — narrow the range if facts look incomplete.'
+          : null,
+      },
+    }
+  }, [rawEvents, scope, period, filters, windowTruncated])
 
   const visibleLanes = useMemo(() => {
     if (layers.systemLane) return narrative.lanes
     return narrative.lanes.filter((l) => l.kind !== 'system')
   }, [narrative.lanes, layers.systemLane])
 
+  const setScopeAndLoad = useCallback((next: NarrativeScope) => {
+    setLoading(true)
+    setScope(next)
+  }, [])
+
+  const setPeriodAndLoad = useCallback((next: NarrativePeriod) => {
+    setLoading(true)
+    setPeriod(next)
+  }, [])
+
   return {
     scope,
-    setScope,
+    setScope: setScopeAndLoad,
     period,
-    setPeriod,
+    setPeriod: setPeriodAndLoad,
     granularity,
     setGranularity,
     layers,
@@ -167,13 +193,12 @@ export function useNarrativeQuery(initial?: Partial<NarrativeQueryState>) {
     narrative: { ...narrative, lanes: visibleLanes },
     rawEvents,
     loading,
-    loadingEarlier,
     error,
     reload,
-    loadEarlier,
-    hasEarlier,
     appendEvents,
     applyReadingFilters,
+    latestSequence,
+    windowTruncated,
   }
 }
 

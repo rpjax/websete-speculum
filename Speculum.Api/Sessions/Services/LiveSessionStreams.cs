@@ -1,0 +1,100 @@
+using System.Threading.Channels;
+using Aidan.Core.Patterns;
+using Speculum.Api.Sessions.Mirror.PageProjection;
+using Speculum.Api.Sessions.Models;
+using Speculum.Api.Sessions.Services.Contracts;
+
+namespace Speculum.Api.Sessions.Services;
+
+internal abstract class MuxBoundStream : IDisposable
+{
+    private const string ClosedMessage = "Stream is closed";
+    private readonly ISessionStreamMultiplexer _mux;
+    private int _closed;
+
+    public Guid Id { get; }
+
+    public Guid ConsumerId { get; }
+
+    private protected MuxBoundStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+    {
+        Id = id;
+        ConsumerId = consumerId;
+        _mux = mux;
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _closed, 1) != 0)
+        {
+            return;
+        }
+
+        _mux.UnregisterOutputStream(Id);
+    }
+
+    private protected bool IsClosed => Volatile.Read(ref _closed) != 0;
+
+    private protected IResult<ChannelReader<T>> GetChannel<T>(
+        Func<Guid, IResult<ChannelReader<T>>> get)
+    {
+        if (IsClosed)
+        {
+            return Result<ChannelReader<T>>.Failure(ClosedMessage);
+        }
+
+        return get(Id);
+    }
+
+    private protected ISessionStreamMultiplexer Mux => _mux;
+}
+
+internal sealed class FrameStream : MuxBoundStream, IFrameStream
+{
+    public FrameStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
+    {
+    }
+
+    public IResult<ChannelReader<Frame>> GetFramesChannel()
+        => GetChannel(Mux.GetFramesChannel);
+}
+
+internal sealed class PageProjectionFramesStream : MuxBoundStream, IPageProjectionFramesStream
+{
+    public PageProjectionFramesStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
+    {
+    }
+
+    public IResult<ChannelReader<PageProjectionFrame>> GetPageProjectionFramesChannel()
+        => GetChannel(Mux.GetPageProjectionFramesChannel);
+
+    public long GetFrameEpoch()
+    {
+        var epoch = Mux.GetFrameEpoch(Id);
+        return epoch.IsSuccess ? epoch.Value : -1;
+    }
+}
+
+internal sealed class ConsoleOutputStream : MuxBoundStream, IConsoleOutputStream
+{
+    public ConsoleOutputStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
+    {
+    }
+
+    public IResult<ChannelReader<ConsoleOutput>> GetConsoleOutputChannel()
+        => GetChannel(Mux.GetConsoleOutputChannel);
+}
+
+internal sealed class NotificationStream : MuxBoundStream, INotificationStream
+{
+    public NotificationStream(Guid id, Guid consumerId, ISessionStreamMultiplexer mux)
+        : base(id, consumerId, mux)
+    {
+    }
+
+    public IResult<ChannelReader<SessionNotification>> GetNotificationChannel()
+        => GetChannel(Mux.GetNotificationChannel);
+}

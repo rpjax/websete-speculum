@@ -45,9 +45,26 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   'Diagnostics.StorageOverflow': 'The diagnostics event buffer is full — oldest events are being dropped to make room.',
   'Persistence.StateExportCompleted': 'Browser state (cookies, localStorage, IndexedDB) was persisted to the session store.',
   'Persistence.SessionQueried': 'A persisted session record was queried from the store.',
-  'Telemetry.SampleCollected': 'A composite telemetry sample was collected — machine, API process, motor, sidecar, persistence, and pipeline sections captured on one time axis.',
-  'Telemetry.SessionSampleCollected': 'A per-session telemetry slice was captured and scoped to a live session, so it plots inside that session\'s story lane.',
+  'Telemetry.Sampling.SampleCollected': 'A composite telemetry sample was collected — host, API process, sessions, sidecar, profiles, journal, and docker sections captured on one time axis.',
+  'Telemetry.Sampling.SessionSampleCollected': 'A per-session telemetry slice was captured and scoped to a live session, so it plots inside that session\'s story lane.',
   'Diagnostics.SpanAbandoned': 'An open span was closed synthetically — it timed out, was torn down on disconnect/drain, or was recovered as orphaned after a restart.',
+  'Sessions.SessionStarting': 'A remote browser session is starting — allocating resources and launching the browser.',
+  'Sessions.SessionStarted': 'Session is live and streaming. Initial navigation may still be in flight.',
+  'Sessions.SessionStartRefused': 'Start was refused before provisioning began (drain, capacity, config, cancel, or replace failure).',
+  'Sessions.SessionTimedOut': 'Natural lifecycle close: detached session hit DetachedSessionTimeout with no client pipes. Collection ended — not an operator fault.',
+  'Sessions.SessionStopping': 'Session is shutting down and releasing resources.',
+  'Sessions.SessionStopped': 'Session stopped cleanly.',
+  'Sessions.SessionAborted': 'Provisioning failed after SessionStarting and before Live — resources were torn down.',
+  'Sessions.SessionStatePersisted': 'Session state was written for later restore.',
+  'Sessions.BrowserLaunched': 'Sidecar browser process launched for this session.',
+  'Sessions.BrowserClosed': 'Sidecar browser process closed.',
+  'Sessions.ConnectionStarted': 'Api↔sidecar browser connection was established for this session (not the SignalR hub).',
+  'Sessions.ConnectionClosed': 'Api↔sidecar browser connection was closed (not the SignalR hub).',
+  'Sessions.ConnectionStartFailed': 'Api↔sidecar browser connection could not be started.',
+  'Sessions.CloseConnectionFailed': 'Closing the Api↔sidecar browser connection failed during teardown.',
+  'Sessions.ProfileStateRestored': 'Persisted profile state was restored into the browser.',
+  'Sessions.InitialNavigationCompleted': 'Initial navigation finished after session start.',
+  'Sessions.LaunchBrowserFailed': 'Sidecar failed to launch the browser process for this session.',
 }
 
 export const ERROR_EXPLANATIONS: Record<string, { summary: string; detail: string; action?: string }> = {
@@ -116,7 +133,7 @@ export const PHASE_DESCRIPTIONS: Record<string, string> = {
 }
 
 export function describeEvent(name: string): string {
-  return EVENT_DESCRIPTIONS[name] ?? `Diagnostic event: ${name}`
+  return EVENT_DESCRIPTIONS[name] ?? `Catalog event: ${name}`
 }
 
 export function describeErrorCode(code: string): { summary: string; detail: string; action?: string } {
@@ -129,7 +146,12 @@ export function describeErrorCode(code: string): { summary: string; detail: stri
 export function narrateStory(story: CorrelationStory): string {
   const events = story.events
   const payloads = events.map((e) => e.payload as Record<string, unknown> | null).filter(Boolean)
-  const failed = events.find((e) => e.severity === 'Error' || e.name.includes('Rejected') || e.name.includes('Failed') || e.name.includes('TimedOut'))
+  const timedOut = events.find((e) => /SessionTimedOut$/i.test(e.name))
+  const failed = events.find(
+    (e) =>
+      !/SessionTimedOut$/i.test(e.name) &&
+      (e.severity === 'Error' || e.name.includes('Rejected') || e.name.includes('Failed')),
+  )
 
   switch (story.type) {
     case 'session-lifecycle': {
@@ -141,6 +163,11 @@ export function narrateStory(story: CorrelationStory): string {
         const errorCode = fp?.errorCode ? String(fp.errorCode) : 'an unknown error'
         const explained = describeErrorCode(errorCode)
         return `A remote browser session attempted to start but failed: ${explained.summary}. ${explained.detail}`
+      }
+      if (timedOut) {
+        const fp = timedOut.payload as Record<string, unknown> | null
+        const reason = fp?.reason ? String(fp.reason) : 'TimedOut'
+        return `Session lifecycle completed via detached timeout (${reason}) — normal collection when no client pipes remain before DetachedSessionTimeout.`
       }
       if (restored) {
         return `A returning user reconnected and their previous session was restored${cookies ? ` with ${cookies} cookies` : ''}. The browser is ready for use.`
@@ -231,8 +258,8 @@ export function humanizeDomain(domain: string): string {
     SidecarBrowser: 'Browser process, probes, and screencast',
     BrowserQuery: 'Cookies, DOM, localStorage, JS evaluation',
     PersistedSessions: 'State export, restore, and stored sessions',
-    Telemetry: 'Composite machine, API process, motor, sidecar, persistence, and pipeline sample',
-    DiagnosticsSelf: 'Pipeline config, elevation, and cleanup',
+    Telemetry: 'Composite machine, API process, sessions, sidecar, profiles, Journal, and Docker sample',
+    DiagnosticsSelf: 'Operator runtime safeguards, elevation, and cleanup',
   }
   return DOMAIN_HUMAN[domain] ?? domain
 }

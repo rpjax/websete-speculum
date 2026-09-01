@@ -1,65 +1,51 @@
 # Speculum Web
 
-React **single-page application** for the Speculum motor, first-run setup, and administration. Built with Vite, TypeScript, Tailwind CSS v4, and **shadcn-style** Radix UI primitives. Communicates with `Speculum.Api` on the same host (REST + SignalR with MessagePack).
+React **single-page application** for Speculum: Session Lab / Live (Motor surfaces), first-run **Setup**, and the **Admin** operator control plane. Built with Vite, TypeScript, Tailwind CSS v4, and **shadcn-style** Radix UI primitives. Talks to `Speculum.Api` (REST + SignalR MessagePack).
 
 **Standards (mandatory for UI work):** [../docs/frontend-standards.md](../docs/frontend-standards.md) · [../docs/frontend-patterns.md](../docs/frontend-patterns.md) · Cursor rule [../.cursor/rules/speculum-frontend-standards.mdc](../.cursor/rules/speculum-frontend-standards.mdc)
 
----
-
-## Table of contents
-
-- [Standards](#standards)
-- [Routes](#routes)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Environment variables](#environment-variables)
-- [Development](#development)
-- [Project structure](#project-structure)
-- [Motor client](#motor-client)
-- [Admin panel](#admin-panel)
-- [Production build](#production-build)
-- [Docker](#docker)
-
----
-
-## Standards
-
-| Document | Role |
-|----------|------|
-| [../docs/frontend-standards.md](../docs/frontend-standards.md) | Frontend UX constitution (shadcn-only, revealing UI, complex viz, anti-god-page) |
-| [../docs/frontend-patterns.md](../docs/frontend-patterns.md) | Approved recipes and decision trees |
-| [../docs/engineering-standards.md](../docs/engineering-standards.md) | Repo-wide engineering / tests / CI |
-| [../docs/naming.md](../docs/naming.md) | Speculum / Motor / W7S vocabulary |
-
-**UI kit lock:** extend `src/components/ui/` (shadcn). Do not introduce a second component library.
+**Admin build-contract (DNA):** [../../frontend/wireframe/](../../frontend/wireframe/) — implement Admin/Setup from wireframe markdown + Refactor APIs. Do not invent routes, copy, or flows. The legacy API-key Admin UI was removed.
 
 ---
 
 ## Routes
 
+Control plane is under **`/w7s/*`**. Any other path is **Live** (path → StartSession).
+
 | Path | Feature | Auth |
 |------|---------|------|
-| `/` | Virtual browser motor (canvas + SignalR) | — |
-| `/setup` | Guided first-run wizard | — |
-| `/admin/login` | Admin login | — |
-| `/admin` | Dashboard overview (health + needs attention) | Bearer |
-| `/admin/diagnostics` | Diagnostics overview | Bearer |
-| `/admin/diagnostics/timeline` | Narrative timeline (motor story) | Bearer |
-| `/admin/diagnostics/analysis` | Analysis & report (independent mandate) | Bearer |
-| `/admin/diagnostics/investigate` | Browser probes | Bearer |
-| `/admin/diagnostics/governance` | Diagnostics config / governance | Bearer |
-| `/admin/diagnostics/telemetry` | Telemetry monitor | Bearer |
-| `/admin/sessions` | Persisted sessions list | Bearer |
-| `/admin/sessions/:sessionId` | Session detail (tabs) | Bearer |
-| `/admin/hosting` | Hosting profiles | Bearer |
-| `/admin/forwarding` | Forwarding section | Bearer |
-| `/admin/capacity` | Max sessions + policy + JsBridge | Bearer |
-| `/admin/scripts` | Uploaded scripts | Bearer |
-| `/admin/script-injection` | Structured injection entries | Bearer |
-| `/admin/api-key` | Rotate admin key | Bearer |
-| `/admin/openapi` | OpenAPI (demoted / technical) | Bearer |
+| `*` (not `/w7s…`) | Immersive Live — browser path is the virtual start URL | — |
+| `/w7s/lab` | Session lab (debug / wire) | — |
+| `/w7s/setup` | Readiness gate | setup / public status |
+| `/w7s/setup/configure` | Guided first-config wizard | bearer to apply |
+| `/w7s/admin/login` | Username/password sign-in | public |
+| `/w7s/admin/session-expired` | Soft landing after refresh fail | public |
+| `/w7s/admin` | Operator home (ready + NBA + shortcuts) | Bearer |
+| `/w7s/admin/change-password` | Change password | Bearer |
+| `/w7s/admin/sessions` | Live sessions list | Bearer |
+| `/w7s/admin/sessions/:sessionId` | Live session detail | Bearer |
+| `/w7s/admin/profiles` | Persisted profiles list | Bearer |
+| `/w7s/admin/profiles/:profileId` | Profile detail | Bearer |
+| `/w7s/admin/profiles/:profileId/delete` | Delete confirm | Bearer |
+| `/w7s/admin/scripts` | Scripts (library \| injections) | Bearer |
+| `/w7s/admin/scripts/upload` | Upload stored `.js` (max 512 KB) | Bearer |
+| `/w7s/admin/scripts/injections/new` | Injection create flow | Bearer |
+| `/w7s/admin/scripts/injections/:index/edit` | Injection edit flow | Bearer |
+| `/w7s/admin/scripts/injections/:index/remove` | Remove + apply | Bearer |
+| `/w7s/admin/configurations` | Engine sections hub | Bearer |
+| `/w7s/admin/configurations/:section` | Section editor / apply | Bearer |
+| `/w7s/admin/host-resources` | Host capacity status + preview/apply | Bearer |
+| `/w7s/admin/diagnostics` | Diagnostics job hub | Bearer |
+| `/w7s/admin/diagnostics/health` | Observe health | Bearer |
+| `/w7s/admin/diagnostics/timeline` | Investigate timeline | Bearer |
+| `/w7s/admin/diagnostics/investigate` | Investigate probes | Bearer |
+| `/w7s/admin/diagnostics/governance` | Govern | Bearer |
 
-Legacy redirects: `/admin/max-sessions`, `/admin/js-bridge`, `/admin/session-policy` → `/admin/capacity`; `/admin/diagnostics/activity` → `/admin/diagnostics/timeline`.
+HTTP: `/w7s/api/*`, `/w7s/vhub`, `/w7s/health/*`, `/w7s/vtransport`, `/w7s/assets/*`.
+
+Bookmark redirect: `/w7s/admin/script-injection` → `/w7s/admin/scripts?tab=injections`.
+
+Hard cut (no redirects): former `/admin`, `/lab`, `/live`, `/setup`, `/api`, `/vhub`, `/health`.
 
 ---
 
@@ -70,12 +56,13 @@ web (nginx in prod)
   ├─ static assets (Vite build)
   └─ SPA fallback → index.html
 
-Browser ──► same host (relative `/api`, `/vhub`)
-  ├─ fetch /ready, /api/admin/*
-  └─ SignalR /vhub (MessagePack, credentials)
+Browser ──► same host (relative `/w7s/api`, `/w7s/vhub`)
+  ├─ Admin: Bearer access + refresh (sessionStorage)
+  ├─ Lab/Live: SignalR /w7s/vhub + WebTransport /w7s/vtransport
+  └─ Public: /w7s/api/public/client-config
 ```
 
-Same-origin by default (`API_URL = ''`). Traefik routes API paths on the motor host. Optional `VITE_API_URL` only for cross-origin Vite dev.
+Same-origin by default (`API_URL = ''`). Optional `VITE_API_URL` for cross-origin Vite dev.
 
 ---
 
@@ -88,46 +75,22 @@ Same-origin by default (`API_URL = ''`). Traefik routes API paths on the motor h
 
 ## Environment variables
 
-Copy `.env.example` to `.env`:
-
-```bash
-cp .env.example .env
-```
-
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | Optional — omit for same-origin (dockup/prod). Set for cross-origin local dev only. |
-| `VITE_MOCK` | Set to `1` to activate **mock mode** — the SPA runs with simulated API data, no backend needed. Admin and Setup work fully; Motor shows a placeholder. |
+| `VITE_API_URL` | Optional — omit for same-origin. |
+| `VITE_MOCK` | `1` = mock fixtures (Lab/Admin may still need live API for new Admin auth). |
+| `VITE_SPECULUM_HUB_ORIGIN` | Optional SignalR hub origin. |
+| `VITE_SPECULUM_TRANSPORT_ORIGIN` | WebTransport origin (HTTP/3). |
+| `VITE_SPECULUM_API_PROXY` | Dev proxy target for `/vhub` + `/health`. |
 
 ---
 
 ## Development
 
 ```bash
-npm ci
+npm install
 npm run dev
 ```
-
-Default dev server: `http://localhost:5173`.
-
-### Mock mode (standalone frontend)
-
-Run the SPA **without a backend** — perfect for UI-only development:
-
-```bash
-VITE_MOCK=1 npm run dev      # Linux / macOS
-$env:VITE_MOCK='1'; npm run dev   # PowerShell
-```
-
-What works in mock mode:
-
-- **Admin** — all pages, config sections, sessions, scripts, diagnostics. Data is in-memory fixtures with synthetic latency.
-- **Setup** — wizard and status with simulated profiles.
-- **Motor** — shows a placeholder; live browsing requires SignalR + sidecar.
-
-Auth is bypassed (`isAuthenticated()` → `true`), so `/admin/login` auto-redirects.
-
-Fixtures live in `src/lib/mock/fixtures/`. To adjust mock data, edit fixtures and refresh.
 
 ```bash
 npm test
@@ -140,49 +103,29 @@ npm run build
 ## Project structure
 
 ```
-web/src/
+src/
 ├── features/
-│   ├── motor/
-│   │   ├── live/           MotorEngine facade, SignalR, screencast, input, vcon
-│   │   └── mapping/        syncClientLocation
-│   ├── admin/              Admin pages, diagnostics sub-routes
-│   └── setup/              Setup wizard
-├── components/
-│   ├── ui/                 shadcn primitives
-│   └── admin/              facilitators (Save strip, EmptyState, Timeline, …)
+│   ├── sessions/           Lab + Live motor surfaces
+│   ├── admin/              DNA Admin by domain (shell, auth, home, sessions, …)
+│   └── setup/              Readiness + guided first config
+├── components/ui/          shadcn primitives only
 ├── lib/
-│   ├── mock/              Mock mode fixtures + API implementations
-│   ├── hooks/             Custom React hooks
-│   └── …                  api, auth, diagnosticsApi, env, clientConfig
+│   ├── adminAuth.ts        Tokens in memory + sessionStorage
+│   ├── adminFetch.ts       Bearer + single-flight refresh
+│   └── …
 ├── App.tsx
 └── main.tsx
 ```
 
 ---
 
-## Motor client
-
-| Module | Responsibility |
-|--------|----------------|
-| `live/useMotorHub.ts` | React adapter for MotorEngine |
-| `live/MotorEngine.ts` | Session orchestration facade |
-| `live/MotorConnection.ts` | SignalR `/vhub`, streams, StartSession |
-| `live/MotorScreencast.ts` | JPEG worker + canvas + FPS |
-| `live/MotorInput.ts` | Pointer/keyboard + NavigateAsync |
-| `live/MotorVcon.ts` | Console opcodes + `window.vcon` |
-| `live/frame-decode.worker.ts` | Off-main-thread JPEG decode |
-| `mapping/syncClientLocation.ts` | pushState / mirroring redirect |
-
-Protocol details: [../docs/motor-reference.md](../docs/motor-reference.md).
-
----
-
 ## Admin panel
 
-- API key on `/admin/login` → `sessionStorage`
-- Config section paths use PascalCase via `ConfigSections`
-- Diagnostics SPA also uses `GET /api/admin/diagnostics/v1/overview` and `POST …/recover`
-- UX follows frontend standards (revealing UI, enrichment, complex viz)
+- **Contract:** [../../frontend/wireframe/](../../frontend/wireframe/) (`ia-map`, domain DNA, components DNA).
+- **Auth:** `POST /api/auth/login` → access + refresh tokens; `adminFetch` refreshes once on 401; failure → `/admin/session-expired`.
+- **Default install:** username `admin` / password `admin` until changed (`/admin/change-password`).
+- Domain modules mirror wireframe folders. Helpers live under `features/admin/components/` (not a second UI kit).
+- Config JSON: camelCase + camelCase string enums.
 
 ---
 

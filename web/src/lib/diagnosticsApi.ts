@@ -167,7 +167,7 @@ export interface DiagnosticsEventRecord {
   redaction: string
 }
 
-/* ── Telemetry composite sample (payload of Telemetry.SampleCollected) ── */
+/* ── Telemetry composite sample (payload of Telemetry.Sampling.SampleCollected) ── */
 
 /** Machine/VPS resources. Opt-in fields are null/absent when their include* toggle is off. */
 export interface HostTelemetry {
@@ -207,71 +207,133 @@ export interface ApiProcessTelemetry {
   threadPoolQueued?: number | null
 }
 
-export interface MotorSessionTelemetry {
-  connectionId: string
-  phase: string
-  fps: number
-  uptimeMs: number
-  inputQueue: number
-  sidecarConnected: boolean
+export interface SessionTelemetryItem {
+  sessionId: string
+  profileId: string
   jsBridgeEnabled: boolean
-  lastFault?: string | null
+  connectionOpen: boolean
+  uptimeMs: number
+  fps?: number | null
   urlHost?: string | null
 }
 
-export interface MotorTelemetry {
+export interface SessionsTelemetry {
   total: number
   live: number
-  starting: number
-  stopping: number
-  byPhase: Record<string, number>
-  avgFps: number
-  minFps: number
-  maxFps: number
-  inputQueueTotal: number
-  frameChannelDepthTotal: number
-  statusChannelDepthTotal: number
+  avgFps?: number | null
+  minFps?: number | null
+  maxFps?: number | null
   capacityMax: number
   capacityUsedPct: number
   liveSessionIds?: string[] | null
-  sessions?: MotorSessionTelemetry[] | null
+  sessions?: SessionTelemetryItem[] | null
 }
 
 export interface SidecarTelemetry {
-  connected: number
-  faulted: number
-  faultedSessionIds?: string[] | null
+  process?: {
+    cpuUsage: number
+    memoryRss: number
+    memoryHeapUsed: number
+    memoryHeapTotal: number
+    pid: number
+    uptimeSec: number
+  } | null
+  eventLoop?: {
+    delayMsP50: number
+    delayMsP99: number
+    utilization: number
+  } | null
+  chrome?: {
+    browserCount: number
+    pageCount: number
+    totalJsHeapUsed?: number | null
+  } | null
+  queues?: {
+    videoDepth: number
+    audioDepth: number
+    consoleDepth: number
+    inputDepth?: number | null
+    inputChainDepth?: number | null
+    droppedTotal?: number | null
+  } | null
+  sessions?: { registered: number; open: number; faulted: number; faultedSessionIds?: string[] | null } | null
+  allocations?: {
+    summary?: {
+      allocatedSessions: number
+      openSessions: number
+      faultedSessions: number
+      displayCount: number
+      allocatedDisplayPixels: number
+      osInputSessions: number
+      patchrightInputSessions: number
+      touchPrimarySessions: number
+      userDataDirsPresent: number
+    } | null
+    sessions?: Array<{
+      sessionId: string
+      open: boolean
+      faulted: boolean
+      displayAllocated: boolean
+      displayWidth: number
+      displayHeight: number
+      logicalWidth: number
+      logicalHeight: number
+      chromeWidth: number
+      chromeHeight: number
+      inputBackend: string
+      touchPrimary: boolean
+      userDataDirPresent: boolean
+    }> | null
+  } | null
 }
 
-export interface PersistenceTelemetry {
-  storedSessions: number
-  totalCookies: number
-  totalHistory: number
-  expiringSoon: number
-  storeBytes?: number | null
+export interface ProfilesTelemetry {
+  total: number
+  storageBytes?: number | null
 }
 
-export interface PipelineTelemetry {
-  bytesUsed: number
-  storageMaxBytes: number
-  usedPct: number
-  eventsStored: number
-  eventsDropped: number
-  overflowCount: number
-  probeInFlight: number
+export interface JournalTelemetry {
+  queueDepth: number
+  droppedTotal: number
   degraded: boolean
-  elevateActive: boolean
-  recentDrops?: number | null
-  recentSlowWrites?: number | null
+  persistFailures?: number | null
+  guaranteedAdmissionFailures?: number | null
+  queuePressureActive?: boolean | null
+  persistDegraded?: boolean | null
+  drainRunning?: boolean | null
+  admissionOpen?: boolean | null
+}
+
+export interface DockerTelemetry {
+  runtime?: {
+    serverVersion?: string | null
+    operatingSystem?: string | null
+    architecture?: string | null
+    containers: number
+    containersRunning: number
+    containersStopped: number
+  } | null
+  containers?: Array<{
+    id: string
+    name: string
+    image: string
+    state: string
+    cpuUsage?: number | null
+    memoryUsage?: number | null
+    memoryLimit?: number | null
+    networkRxBytes?: number | null
+    networkTxBytes?: number | null
+  }> | null
 }
 
 export interface TelemetrySample {
   host?: HostTelemetry | null
   apiProcess?: ApiProcessTelemetry | null
-  motor?: MotorTelemetry | null
+  sessions?: SessionsTelemetry | null
   sidecar?: SidecarTelemetry | null
-  persistence?: PersistenceTelemetry | null
-  pipeline?: PipelineTelemetry | null
+  profiles?: ProfilesTelemetry | null
+  journal?: JournalTelemetry | null
+  docker?: DockerTelemetry | null
 }
 
 export interface TelemetryHistoryParams {
@@ -341,6 +403,8 @@ export interface DiagnosticsDomainToggles {
 export interface DiagnosticsTelemetryOptions {
   enabled: boolean
   intervalSeconds: number
+  /** Opt-in Telemetry event facts (Telemetry.Sessions.*). Omitted/off by default. */
+  events: Record<string, boolean>
   host: {
     enabled: boolean
     procPath: string
@@ -355,13 +419,25 @@ export interface DiagnosticsTelemetryOptions {
     enabled: boolean
     sampleIntervalMs: number
     includePrivateMemory: boolean
-    includeGc: boolean
+    includeGarbageCollection: boolean
     includeThreadPool: boolean
   }
-  motor: { enabled: boolean; includeSessionIds: boolean; includePerSession: boolean; includeUrlHost: boolean }
-  sidecar: { enabled: boolean; includeFaultedIds: boolean }
-  persistence: { enabled: boolean; includeBytes: boolean }
-  pipeline: { enabled: boolean; includeBreakerPressure: boolean }
+  sessions: { enabled: boolean; includeSessionIds: boolean; includePerSession: boolean; includeUrlHost: boolean }
+  sidecar: {
+    enabled: boolean
+    includeProcess: boolean
+    includeEventLoop: boolean
+    includeChrome: boolean
+    includeQueues: boolean
+    includeSessionsSummary: boolean
+    includeFaultedIds: boolean
+    includeAllocationsSummary: boolean
+    includeAllocationSessions: boolean
+    timeoutMs: number
+  }
+  profiles: { enabled: boolean; includeStorageBytes: boolean }
+  journal: { enabled: boolean; includePressure: boolean }
+  docker: { enabled: boolean; endpoint: string; includeRuntime: boolean; includeContainers: boolean; timeoutMs: number }
 }
 
 export interface DiagnosticsOptions {

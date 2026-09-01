@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>assets-matrix</title>
+  <link rel="stylesheet" href="/fixtures/assets-matrix/site.css" />
+  <style>
+    .inline-bg { background-image: url(/fixtures/assets-matrix/bg-root.png); }
+    .import-probe { color: #111; }
+  </style>
+</head>
+<body>
+  <h1 id="title">assets-matrix</h1>
+  <img id="rel" src="/fixtures/assets-matrix/pixel.png" width="8" height="8" alt="rel" />
+  <img
+    id="srcset"
+    src="/fixtures/assets-matrix/pixel.png"
+    srcset="/fixtures/assets-matrix/pixel.png 1x, /fixtures/assets-matrix/pixel-2x.png 2x"
+    width="8"
+    height="8"
+    alt="srcset"
+  />
+  <img id="data" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="1" height="1" alt="data" />
+  <div id="poster-wrap">
+    <video id="vid" poster="/fixtures/assets-matrix/poster.jpg" width="64" height="36" muted playsinline>
+      <source src="/fixtures/assets-matrix/clip.mp4" type="video/mp4" />
+    </video>
+  </div>
+  <div class="inline-bg import-probe" id="styled">styled</div>
+  <script>
+    setTimeout(() => {
+      const el = document.createElement('img');
+      el.id = 'late';
+      el.width = 4;
+      el.height = 4;
+      el.src = location.origin + '/fixtures/assets-matrix/late.png';
+      document.body.appendChild(el);
+    }, 200);
+  </script>
+</body>
+</html>
+

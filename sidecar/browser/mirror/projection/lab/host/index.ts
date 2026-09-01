@@ -1,0 +1,45 @@
+/**
+ * Dev-only projection lab — HTTP + WS, no gRPC / .NET.
+ */
+
+import { createLabServer, type LabServerOptions } from './server';
+import { installLabProcessCrashHooks } from './chassis';
+import { LAB_HOST, LAB_PORT } from '../labDefaults';
+
+async function main(): Promise<void> {
+  installLabProcessCrashHooks();
+  const opts: LabServerOptions = {
+    host: process.env.SPECULUM_LAB_HOST ?? LAB_HOST,
+    port: LAB_PORT,
+    headless: process.env.SPECULUM_LAB_HEADED !== '1',
+  };
+
+  const lab = await createLabServer(opts);
+  const base = `http://${opts.host}:${opts.port}`;
+
+  console.log(`[projection-lab] listening ${base}`);
+  console.log(`[projection-lab] open ${base}/  (client shell)`);
+  console.log(`[projection-lab] fixtures ${base}/fixtures/demo.html`);
+  console.log(`[projection-lab] cross-origin ${lab.crossOriginOrigin} (class 9 CSSOM matrix)`);
+  console.log(`[projection-lab] headed=${!opts.headless} (SPECULUM_LAB_HEADED=1 for visible Chrome)`);
+
+  const shutdown = async () => {
+    console.log('[projection-lab] shutting down…');
+    await lab.close();
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
+
+  process.on('beforeExit', (code) => {
+    const exitCode = code ?? process.exitCode ?? 0;
+    if (exitCode !== 0) {
+      console.error(`[projection-lab] process beforeExit exitCode=${exitCode} (no explicit shutdown — see crash.json if any)`);
+    }
+  });
+}
+
+main().catch((err) => {
+  console.error('[projection-lab] fatal', err);
+  process.exit(1);
+});

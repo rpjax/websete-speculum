@@ -1,0 +1,122 @@
+/**
+ * DOM-plane contribution to a resync frame (§5.8 two-pass describe).
+ * Does not close CHECK, does not touch CSSOM — {@link ../resync.ts} orchestrates the system frame.
+ */
+
+import { NodeKind, OpCode } from '../../core/opcodes';
+import { DOCUMENT_ID, INSERT_AT_END, type FrameOp } from '../../core/frame';
+import { NONE_DOM_NODE_KEY, type DomNodeKey } from '../../core/domNodeKey';
+import type { DomNodeTable } from './domNodeTable';
+import { describeNodeNew, nodeKindOf } from './domNodeDescribe';
+import type { FormPropIndex } from './formPropIndex';
+import { admissibleShadowRoot } from './shadowAdmit';
+import type { ChildScopeIndex } from './childScopes';
+
+/** Clear identity (no generation bump) and allocate every connected describable node. */
+export function rebuildDomIdentity(domNodes: DomNodeTable, root: Node = document): void {
+  domNodes.resetIdentity();
+  domNodes.bind(root, DOCUMENT_ID);
+  allocateConnectedSubtree(root, domNodes);
+}
+
+/**
+ * Pass 1 `NODE_NEW` + pass 2 `INSERT` from live `childNodes` (and `shadowRoot.childNodes`).
+ * Never `INSERT`s the `SHADOW_ROOT` under the host. Releases disconnected map rows.
+ * Caller resets/applies the replicated table and appends CHECK.
+ */
+export type DescribeDomResyncOptions = {
+  childScopes?: ChildScopeIndex;
+  /** Same deferral as incremental `prepareChild` — mint not ready yet. */
+  notePendingNestedHost?: (el: Element) => void;
+};
+
+export type DescribeDomResyncResult = {
+  ops: FrameOp[];
+  /** A nested host had no real `contextId` yet — the caller must not emit this frame (§0 #4). */
+  mintPending: boolean;
+};
+
+export function describeDomResync(
+  domNodes: DomNodeTable,
+  formIndex: FormPropIndex,
+  opts?: DescribeDomResyncOptions,
+): DescribeDomResyncResult {
+  const childScopes = opts?.childScopes;
+  const notePendingNestedHost = opts?.notePendingNestedHost;
+  const ops: FrameOp[] = [];
+  let mintPending = false;
+  formIndex.rebuild(domNodes);
+
+  for (const [id, node] of domNodes.liveEntries()) {
+    if (id === DOCUMENT_ID) continue;
+    if (!node.isConnected) {
+      domNodes.release(node);
+      continue;
+    }
+    const kind = nodeKindOf(node);
+    if (kind === null) continue;
+    if (kind === NodeKind.ShadowRoot) {
+      const hostId = domNodes.keyOf((node as ShadowRoot).host);
+      if (hostId === NONE_DOM_NODE_KEY) continue;
+      ops.push(describeNodeNew(id, kind, node, hostId));
+      continue;
+    }
+    let nested: { childScopeId: number } | null = null;
+    if (kind === NodeKind.Element && childScopes) {
+      const admitted = childScopes.admit(id, node);
+      if (admitted.kind === 'pending') {
+        formIndex.remove(node);
+        domNodes.release(node);
+        notePendingNestedHost?.(node as Element);
+        mintPending = true;
+        continue;
+      }
+      if (admitted.kind === 'host') nested = { childScopeId: admitted.contextId };
+    }
+    ops.push(describeNodeNew(id, kind, node, undefined, nested));
+  }
+
+  for (const [id, node] of domNodes.liveEntries()) {
+    if (node instanceof ShadowRoot) {
+      pushChildInsert(ops, id, node.childNodes, domNodes);
+      continue;
+    }
+    const children = node.childNodes;
+    if (children.length === 0) continue;
+    pushChildInsert(ops, id, children, domNodes);
+  }
+
+  return { ops, mintPending };
+}
+
+function pushChildInsert(
+  ops: FrameOp[],
+  parent: DomNodeKey,
+  children: NodeListOf<ChildNode>,
+  domNodes: DomNodeTable,
+): void {
+  const ids: DomNodeKey[] = [];
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]!;
+    const childId = domNodes.keyOf(child);
+    if (childId === NONE_DOM_NODE_KEY) continue;
+    ids.push(childId);
+  }
+  if (ids.length > 0) ops.push({ op: OpCode.Insert, parent, before: INSERT_AT_END, ids });
+}
+
+function allocateConnectedSubtree(root: Node, domNodes: DomNodeTable): void {
+  const children = root.childNodes;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]!;
+    if (nodeKindOf(child) !== null) domNodes.allocate(child);
+    allocateConnectedSubtree(child, domNodes);
+  }
+  if (root instanceof Element) {
+    const sr = admissibleShadowRoot(root);
+    if (sr !== null) {
+      domNodes.allocate(sr);
+      allocateConnectedSubtree(sr, domNodes);
+    }
+  }
+}

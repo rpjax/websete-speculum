@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cross-origin iframe input (scaled host)</title>
+    <style>
+      body { margin: 304px 0 0 24px; font-family: Georgia, serif; background: #f7f4ee; }
+      #state { margin: 0 0 8px; font: 14px/1.4 sans-serif; color: #432; }
+      #host-wrap {
+        transform: scale(0.8);
+        transform-origin: top left;
+        width: 400px;
+        height: 180px;
+      }
+      iframe { width: 320px; height: 140px; border: 2px solid #432; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <h1>Cross-origin iframe input (scale 0.8)</h1>
+    <p id="state">state: boot</p>
+    <div id="host-wrap">
+      <iframe id="xo-child" src="http://127.0.0.1:4078/fixtures/input-xo/inner.html" title="xo-nested-child-scaled"></iframe>
+    </div>
+    <script>
+      const frame = document.getElementById('xo-child');
+      const setState = (text) => {
+        const el = document.getElementById('state');
+        if (el) el.textContent = text;
+      };
+      frame?.addEventListener('load', () => setState('state: iframe-ready'));
+    </script>
+  </body>
+</html>

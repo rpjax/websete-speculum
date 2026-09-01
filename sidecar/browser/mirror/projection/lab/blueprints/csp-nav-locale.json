@@ -1,0 +1,64 @@
+{
+  "id": "csp-nav-locale",
+  "description": "Single-tab + CSP — locale popup (_blank) folds to primary; connect-src widened; data plane scroll",
+  "sessionPolicy": "cold",
+  "fold": "csp-nav-locale",
+  "humanNotes": [
+    "Session law: one tab — target=_blank becomes same-tab redirect.",
+    "Fixture sends header + meta CSP (Binance-class connect-src).",
+    "Verdicts: singleTab.landed, csp.connectSrc, plane.scroll, plane.scrollApplied."
+  ],
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        { "id": "boot", "type": "boot", "params": { "url": "fixtures/csp-nav-locale-en.html" } },
+        { "id": "wait-settle", "type": "sleep", "dependsOn": ["boot"], "params": { "ms": 2800 } },
+        {
+          "id": "click-blank",
+          "type": "pushInput",
+          "dependsOn": ["wait-settle"],
+          "params": {
+            "sequence": [{ "type": "resolveAndClick", "selector": "#go-br-blank" }]
+          }
+        },
+        { "id": "wait-nav", "type": "sleep", "dependsOn": ["click-blank"], "params": { "ms": 1500 } },
+        {
+          "id": "assert-br-title",
+          "type": "evaluate",
+          "dependsOn": ["wait-nav"],
+          "params": {
+            "expression": "(() => { const t = document.getElementById('title')?.textContent ?? ''; if (t !== 'BR') throw new Error('title=' + t); return 'ok'; })()"
+          }
+        },
+        {
+          "id": "assert-csp-widened",
+          "type": "evaluate",
+          "dependsOn": ["assert-br-title"],
+          "params": {
+            "expression": "(() => { const c = document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]')?.content ?? ''; if (!/\\bconnect-src\\b[^;]*\\*/.test(c) && !/\\bconnect-src\\b[^;]*\\bws:/.test(c)) throw new Error('connect-src not widened: ' + c); return 'ok'; })()"
+          }
+        },
+        {
+          "id": "scroll-plane",
+          "type": "pushInput",
+          "dependsOn": ["assert-csp-widened"],
+          "params": {
+            "sequence": [{ "type": "resolveAndScrollElement", "selector": "#scroll-box", "scrollTop": 80 }]
+          }
+        },
+        { "id": "wait-scroll", "type": "sleep", "dependsOn": ["scroll-plane"], "params": { "ms": 500 } },
+        {
+          "id": "assert-scroll",
+          "type": "evaluate",
+          "dependsOn": ["wait-scroll"],
+          "params": {
+            "expression": "(() => { const t = document.getElementById('scroll-box')?.scrollTop ?? 0; if (t < 50) throw new Error('scrollTop=' + t); return 'ok'; })()"
+          }
+        },
+        { "id": "fold", "type": "fold", "dependsOn": ["assert-scroll"], "params": { "ruleset": "csp-nav-locale" } },
+        { "id": "writeDossier", "type": "writeDossier", "dependsOn": ["fold"] }
+      ]
+    }
+  ]
+}

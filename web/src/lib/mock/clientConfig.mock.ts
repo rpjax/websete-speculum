@@ -2,14 +2,46 @@ import type { ClientConfig } from '@/lib/clientConfig'
 import { delay } from './delay'
 
 const mockConfig: ClientConfig = {
+  schemaVersion: 1,
+  operational: true,
+  missing: [],
   nsoParamName: '_w7s_nso',
-  forwardingHost: 'www.example.com',
-  mirroringEnabled: true,
-  currentDomain: 'browse.example.com',
-  profiles: [
-    { domain: 'browse.example.com', mirroringEnabled: true },
-    { domain: 'demo.example.com', mirroringEnabled: false },
-  ],
+  navigation: { defaultTargetHost: 'www.example.com' },
+  sessions: {
+    detachedSessionTimeoutSeconds: 3,
+    dataStreamTransport: 'webTransport',
+    mirrorMode: 'pageProjection',
+    viewportPolicy: {
+      minWidth: 320,
+      minHeight: 240,
+      maxWidth: 4096,
+      maxHeight: 2160,
+      defaultWidth: 1280,
+      defaultHeight: 720,
+    },
+    screencastMaxEncodeScale: 2,
+    pageProjectionSwapTimeoutMs: 1500,
+    pageProjectionClientStateMs: 1000,
+    pageProjectionApplyBudgetMs: 4,
+  },
+  resourceManagement: { maxConcurrentSessions: 8 },
+  telemetry: {
+    clientObservation: {
+      isEnabled: false,
+      sessionWire: true,
+      videoStreamingInput: false,
+      pageProjectionFrame: false,
+      pageProjectionIntent: false,
+    },
+  },
+  hosting: {
+    required: false,
+    domains: [
+      { domain: 'browse.example.com', subdomainMirroringEnabled: true },
+      { domain: 'demo.example.com', subdomainMirroringEnabled: false },
+    ],
+    currentDomain: 'browse.example.com',
+  },
 }
 
 export function invalidateClientConfigCache(): void {

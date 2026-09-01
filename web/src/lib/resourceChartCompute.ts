@@ -16,13 +16,13 @@ export interface ResourceSample {
   /** API-process thread count mirror of `values['apiProcess.threads']` only. */
   threads: number | null
   /**
-   * Flattened metric map keyed by catalog metric key (e.g. 'host.cpu', 'motor.live',
+   * Flattened metric map keyed by catalog metric key (e.g. 'host.cpu', 'sessions.live',
    * 'derived.cpuPerSession'). A metric whose section was not collected is absent/null.
    */
   values?: Record<string, number | null>
 }
 
-export type MetricSectionKey = 'host' | 'apiProcess' | 'motor' | 'sidecar' | 'persistence' | 'pipeline' | 'derived'
+export type MetricSectionKey = 'host' | 'apiProcess' | 'sessions' | 'sidecar' | 'profiles' | 'journal' | 'docker' | 'derived'
 
 export interface MetricDef {
   key: string
@@ -53,7 +53,7 @@ export interface PointInsight {
   cpuDelta: number | null
   memoryDelta: number | null
   threadsDelta: number | null
-  /** Live motor sessions at this point (null when the motor section is absent). */
+  /** Live sessions at this point (null when the sessions section is absent). */
   liveSessions: number | null
   liveDelta: number | null
   /** CPU cost attributable to each live session (%/session), null when idle. */
@@ -205,7 +205,7 @@ export function scaleSeries(
 }
 
 function liveOf(s: ResourceSample): number | null {
-  const v = s.values?.['motor.live']
+  const v = s.values?.['sessions.live']
   return typeof v === 'number' ? v : null
 }
 
@@ -234,7 +234,7 @@ export function analyzePoint(samples: ResourceSample[], index: number): PointIns
     if (Math.abs(memoryDelta) >= 15 && Math.abs(cpuDelta) < 2) divergences.push('Memory moved independently of CPU')
   }
 
-  // Session-aware (nonlinear scaling) divergences — optional overlay context when motor is enabled.
+  // Session-aware (nonlinear scaling) divergences — optional overlay context when sessions are enabled.
   if (cpuDelta != null && liveDelta != null) {
     if (cpuDelta >= 4 && Math.abs(liveDelta) <= 1)
       divergences.push('CPU rose while live sessions stayed flat')
@@ -328,7 +328,7 @@ export const METRICS: MetricDef[] = [
 
 /* ── Section-grouped metric catalog ────────────────────────────────────────
  * Every metric an operator can overlay in the explorer. Machine (`host.*`) is the
- * primary resource plane; `motor.live` and other sections are optional correlation
+ * primary resource plane; `sessions.live` and other sections are optional correlation
  * overlays. GC counters are intentionally excluded — they are not part of what we monitor.
  */
 export interface MetricSection {
@@ -340,10 +340,11 @@ export interface MetricSection {
 export const METRIC_SECTIONS: MetricSection[] = [
   { key: 'host', label: 'Machine', description: 'Machine CPU, memory, storage, and optional OS resources' },
   { key: 'apiProcess', label: 'API process', description: 'Speculum.Api process and CLR resources' },
-  { key: 'motor', label: 'Motor', description: 'Live browsing sessions & throughput' },
-  { key: 'sidecar', label: 'Sidecar', description: 'Remote browser connectivity' },
-  { key: 'persistence', label: 'Persistence', description: 'Saved browser-state footprint' },
-  { key: 'pipeline', label: 'Pipeline', description: 'Diagnostics storage back-pressure' },
+  { key: 'sessions', label: 'Sessions', description: 'Live browsing sessions and throughput' },
+  { key: 'sidecar', label: 'Sidecar', description: 'Browser host process and session resources' },
+  { key: 'profiles', label: 'Profiles', description: 'Profile records and database footprint' },
+  { key: 'journal', label: 'Journal', description: 'Journal admission and drain pressure' },
+  { key: 'docker', label: 'Docker', description: 'Docker runtime and container resources' },
   { key: 'derived', label: 'Derived', description: 'Per-session efficiency (resource ÷ sessions)' },
 ]
 
@@ -411,38 +412,34 @@ export const TELEMETRY_METRICS: MetricDef[] = [
   m('apiProcess.gcGen2', 'GC gen 2', '', C.slate, 'apiProcess', 'CLR generation 2 collection count.', 'max'),
   m('apiProcess.threadPoolBusy', 'Thread pool busy', '', C.orange, 'apiProcess', 'Worker threads currently executing.'),
   m('apiProcess.threadPoolQueued', 'Thread pool queue', '', C.rose, 'apiProcess', 'Work items waiting for an API process worker thread.'),
-  // Motor
-  m('motor.live', 'Active sessions', '', C.amber, 'motor', 'Live browsing sessions — the load driver.', 'max'),
-  m('motor.total', 'Total sessions', '', C.indigo, 'motor', 'Live + starting + stopping sessions.', 'max'),
-  m('motor.starting', 'Starting', '', C.cyan, 'motor', 'Sessions still spinning up.', 'max'),
-  m('motor.avgFps', 'Avg FPS', '', C.lime, 'motor', 'Mean frame rate across live sessions.'),
-  m('motor.minFps', 'Min FPS', '', C.slate, 'motor', 'Slowest live session frame rate.'),
-  m('motor.maxFps', 'Max FPS', '', C.lime, 'motor', 'Fastest live session frame rate.'),
-  m('motor.stopping', 'Stopping', '', C.slate, 'motor', 'Sessions draining / shutting down.', 'max'),
-  m('motor.inputQueue', 'Input queue', '', C.rose, 'motor', 'Pending input events across sessions.', 'max'),
-  m('motor.capacityPct', 'Capacity used', '%', C.orange, 'motor', 'Live sessions ÷ max capacity.', 'max'),
-  m('motor.frameDepth', 'Frame depth', '', C.pink, 'motor', 'Aggregate frame channel backlog.', 'max'),
-  m('motor.statusDepth', 'Status depth', '', C.indigo, 'motor', 'Aggregate status channel backlog.', 'max'),
+  // Sessions
+  m('sessions.live', 'Active sessions', '', C.amber, 'sessions', 'Open live browsing sessions.', 'max'),
+  m('sessions.total', 'Total sessions', '', C.indigo, 'sessions', 'Registered live sessions.', 'max'),
+  m('sessions.avgFps', 'Avg FPS', '', C.lime, 'sessions', 'Mean frame rate when per-session sampling is enabled.'),
+  m('sessions.minFps', 'Min FPS', '', C.slate, 'sessions', 'Slowest sampled live session frame rate.'),
+  m('sessions.maxFps', 'Max FPS', '', C.lime, 'sessions', 'Fastest sampled live session frame rate.'),
+  m('sessions.capacityPct', 'Capacity used', '%', C.orange, 'sessions', 'Open sessions divided by configured capacity.', 'max'),
   // Sidecar
-  m('sidecar.connected', 'Sidecar connected', '', C.teal, 'sidecar', 'Remote browsers with a healthy channel.', 'max'),
-  m('sidecar.faulted', 'Sidecar faulted', '', C.rose, 'sidecar', 'Remote browsers in a faulted state.', 'max'),
-  // Persistence
-  m('persistence.stored', 'Stored sessions', '', C.indigo, 'persistence', 'Persisted browser-state records.', 'max'),
-  m('persistence.cookies', 'Cookies', '', C.violet, 'persistence', 'Total cookies across stored sessions.'),
-  m('persistence.history', 'History entries', '', C.cyan, 'persistence', 'Total history records across stored sessions.'),
-  m('persistence.expiringSoon', 'Expiring soon', '', C.amber, 'persistence', 'Persisted sessions expiring within ~1 hour.', 'max'),
-  m('persistence.storeBytes', 'Store size', ' MB', C.cyan, 'persistence', 'On-disk browser-state footprint.'),
-  // Pipeline
-  m('pipeline.bytes', 'Pipeline bytes', ' MB', C.blue, 'pipeline', 'Diagnostics events on disk.'),
-  m('pipeline.usedPct', 'Pipeline used', '%', C.amber, 'pipeline', 'Diagnostics storage vs. budget.'),
-  m('pipeline.eventsStored', 'Events stored', '', C.green, 'pipeline', 'Total diagnostics events retained.', 'max'),
-  m('pipeline.eventsDropped', 'Events dropped', '', C.rose, 'pipeline', 'Events shed under back-pressure.', 'max'),
-  m('pipeline.overflow', 'Overflow count', '', C.rose, 'pipeline', 'Storage overflow events.', 'max'),
-  m('pipeline.probeInFlight', 'Probes in flight', '', C.orange, 'pipeline', 'Concurrent browser-query probes.', 'max'),
-  m('pipeline.recentDrops', 'Recent drops', '', C.rose, 'pipeline', 'Events dropped in the current breaker window.', 'max'),
-  m('pipeline.recentSlowWrites', 'Slow writes', '', C.amber, 'pipeline', 'Slow sink writes in the breaker window.', 'max'),
-  m('pipeline.degraded', 'Degraded', '', C.rose, 'pipeline', 'Diagnostics circuit breaker tripped (0/1).', 'max'),
-  m('pipeline.elevateActive', 'Elevate active', '', C.amber, 'pipeline', 'Temporary Browser Query elevation (0/1).', 'max'),
+  m('sidecar.open', 'Open browsers', '', C.teal, 'sidecar', 'Sidecar browser sessions reporting open.', 'max'),
+  m('sidecar.faulted', 'Faulted browsers', '', C.rose, 'sidecar', 'Sidecar browser sessions in a faulted state.', 'max'),
+  m('sidecar.memoryRss', 'Process RSS', ' MB', C.violet, 'sidecar', 'Sidecar process resident memory.'),
+  m('sidecar.eventLoopP99', 'Event-loop p99', ' ms', C.orange, 'sidecar', 'Sidecar event-loop delay at p99.'),
+  m('sidecar.videoDepth', 'Video queue', '', C.pink, 'sidecar', 'Pending sidecar video frames waiting on the bridge.', 'max'),
+  m('sidecar.audioDepth', 'Audio queue', '', C.cyan, 'sidecar', 'Pending sidecar audio chunks waiting on the bridge.', 'max'),
+  m('sidecar.consoleDepth', 'Console queue', '', C.indigo, 'sidecar', 'Pending sidecar console entries waiting on the bridge.', 'max'),
+  m('sidecar.inputDepth', 'Input queue', '', C.rose, 'sidecar', 'Input operations currently admitted and still in flight inside the sidecar.', 'max'),
+  m('sidecar.droppedTotal', 'Dropped bridge items', '', C.rose, 'sidecar', 'Bridge items dropped by sidecar bounded queues.', 'max'),
+  // Profiles
+  m('profiles.total', 'Profiles', '', C.indigo, 'profiles', 'Stored profile records.', 'max'),
+  m('profiles.storageBytes', 'Database size', ' MB', C.cyan, 'profiles', 'Unified SQLite database footprint.'),
+  // Journal
+  m('journal.queueDepth', 'Queue depth', '', C.orange, 'journal', 'Facts waiting for Journal drain.', 'max'),
+  m('journal.droppedTotal', 'Dropped facts', '', C.rose, 'journal', 'Cumulative facts dropped by admission or policy.', 'max'),
+  m('journal.persistFailures', 'Persist failures', '', C.rose, 'journal', 'Cumulative Journal persistence failures.', 'max'),
+  m('journal.degraded', 'Degraded', '', C.rose, 'journal', 'Journal health is degraded (0/1).', 'max'),
+  // Docker
+  m('docker.containers', 'Containers', '', C.indigo, 'docker', 'Containers known to Docker.', 'max'),
+  m('docker.running', 'Running containers', '', C.green, 'docker', 'Containers currently running.', 'max'),
   // Derived
   m('derived.cpuPerSession', 'CPU / session', '%', C.rose, 'derived', 'CPU% divided by live sessions — efficiency.'),
   m('derived.memPerSession', 'Mem / session', ' MB', C.pink, 'derived', 'Memory (MB) per live session — efficiency.'),
@@ -479,23 +476,24 @@ const toMb = (bytes: number | null) => (bytes != null ? Math.round(bytes / (1024
 const toGb = (bytes: number | null) => (bytes != null ? Math.round((bytes / 1024 ** 3) * 10) / 10 : null)
 
 /**
- * Flattens `Telemetry.SampleCollected` events into rich {@link ResourceSample}s: every section
- * (machine/API process/motor/sidecar/persistence/pipeline) is projected into the `values` map keyed by catalog
+ * Flattens `Telemetry.Sampling.SampleCollected` events into rich {@link ResourceSample}s: every section
+ * (machine/API process/sessions/sidecar/profiles/journal/docker) is projected into the `values` map keyed by catalog
  * metric key, plus derived per-session efficiency metrics. A sample is retained when **any** section is
  * present so independently toggled sections still share a time axis.
  */
 export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): ResourceSample[] {
   return events
-    .filter((e) => e.name === 'Telemetry.SampleCollected')
+    .filter((e) => e.name === 'Telemetry.Sampling.SampleCollected')
     .map((evt): ResourceSample | null => {
       const payload = evt.payload as Record<string, unknown> | null
       const host = (payload?.host ?? null) as Record<string, unknown> | null
       const apiProcess = (payload?.apiProcess ?? null) as Record<string, unknown> | null
-      const motor = (payload?.motor ?? null) as Record<string, unknown> | null
+      const sessions = (payload?.sessions ?? null) as Record<string, unknown> | null
       const sidecar = (payload?.sidecar ?? null) as Record<string, unknown> | null
-      const persistence = (payload?.persistence ?? null) as Record<string, unknown> | null
-      const pipeline = (payload?.pipeline ?? null) as Record<string, unknown> | null
-      if (!host && !apiProcess && !motor && !sidecar && !persistence && !pipeline) return null
+      const profiles = (payload?.profiles ?? null) as Record<string, unknown> | null
+      const journal = (payload?.journal ?? null) as Record<string, unknown> | null
+      const docker = (payload?.docker ?? null) as Record<string, unknown> | null
+      if (!host && !apiProcess && !sessions && !sidecar && !profiles && !journal && !docker) return null
 
       // Convenience mirrors stay section-pure: cpu/memoryMb = host only; threads = apiProcess only.
       const hostCpu = num(host, 'cpuUsage')
@@ -506,7 +504,7 @@ export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): Re
       const memMb = hostMemMb
       const memTotal = num(host, 'memoryTotal')
       const threads = num(apiProcess, 'threadCount')
-      const live = num(motor, 'live')
+      const live = num(sessions, 'live')
       const memPct =
         memTotal != null && memTotal > 0 && num(host, 'memoryUsed') != null
           ? Math.round((num(host, 'memoryUsed')! / memTotal) * 1000) / 10
@@ -538,34 +536,29 @@ export function telemetryToResourceSamples(events: DiagnosticsEventRecord[]): Re
         'apiProcess.gcGen2': num(apiProcess, 'gcGen2'),
         'apiProcess.threadPoolBusy': num(apiProcess, 'threadPoolBusy'),
         'apiProcess.threadPoolQueued': num(apiProcess, 'threadPoolQueued'),
-        'motor.live': live,
-        'motor.total': num(motor, 'total'),
-        'motor.starting': num(motor, 'starting'),
-        'motor.stopping': num(motor, 'stopping'),
-        'motor.avgFps': num(motor, 'avgFps'),
-        'motor.minFps': num(motor, 'minFps'),
-        'motor.maxFps': num(motor, 'maxFps'),
-        'motor.inputQueue': num(motor, 'inputQueueTotal'),
-        'motor.capacityPct': num(motor, 'capacityUsedPct'),
-        'motor.frameDepth': num(motor, 'frameChannelDepthTotal'),
-        'motor.statusDepth': num(motor, 'statusChannelDepthTotal'),
-        'sidecar.connected': num(sidecar, 'connected'),
-        'sidecar.faulted': num(sidecar, 'faulted'),
-        'persistence.stored': num(persistence, 'storedSessions'),
-        'persistence.cookies': num(persistence, 'totalCookies'),
-        'persistence.history': num(persistence, 'totalHistory'),
-        'persistence.expiringSoon': num(persistence, 'expiringSoon'),
-        'persistence.storeBytes': toMb(num(persistence, 'storeBytes')),
-        'pipeline.bytes': toMb(num(pipeline, 'bytesUsed')),
-        'pipeline.usedPct': num(pipeline, 'usedPct'),
-        'pipeline.eventsStored': num(pipeline, 'eventsStored'),
-        'pipeline.eventsDropped': num(pipeline, 'eventsDropped'),
-        'pipeline.overflow': num(pipeline, 'overflowCount'),
-        'pipeline.probeInFlight': num(pipeline, 'probeInFlight'),
-        'pipeline.recentDrops': num(pipeline, 'recentDrops'),
-        'pipeline.recentSlowWrites': num(pipeline, 'recentSlowWrites'),
-        'pipeline.degraded': bool01(pipeline, 'degraded'),
-        'pipeline.elevateActive': bool01(pipeline, 'elevateActive'),
+        'sessions.live': live,
+        'sessions.total': num(sessions, 'total'),
+        'sessions.avgFps': num(sessions, 'avgFps'),
+        'sessions.minFps': num(sessions, 'minFps'),
+        'sessions.maxFps': num(sessions, 'maxFps'),
+        'sessions.capacityPct': num(sessions, 'capacityUsedPct'),
+        'sidecar.open': num(sidecar?.sessions as Record<string, unknown> | null, 'open'),
+        'sidecar.faulted': num(sidecar?.sessions as Record<string, unknown> | null, 'faulted'),
+        'sidecar.memoryRss': toMb(num(sidecar?.process as Record<string, unknown> | null, 'memoryRss')),
+        'sidecar.eventLoopP99': num(sidecar?.eventLoop as Record<string, unknown> | null, 'delayMsP99'),
+        'sidecar.videoDepth': num(sidecar?.queues as Record<string, unknown> | null, 'videoDepth'),
+        'sidecar.audioDepth': num(sidecar?.queues as Record<string, unknown> | null, 'audioDepth'),
+        'sidecar.consoleDepth': num(sidecar?.queues as Record<string, unknown> | null, 'consoleDepth'),
+        'sidecar.inputDepth': num(sidecar?.queues as Record<string, unknown> | null, 'inputDepth'),
+        'sidecar.droppedTotal': num(sidecar?.queues as Record<string, unknown> | null, 'droppedTotal'),
+        'profiles.total': num(profiles, 'total'),
+        'profiles.storageBytes': toMb(num(profiles, 'storageBytes')),
+        'journal.queueDepth': num(journal, 'queueDepth'),
+        'journal.droppedTotal': num(journal, 'droppedTotal'),
+        'journal.persistFailures': num(journal, 'persistFailures'),
+        'journal.degraded': bool01(journal, 'degraded'),
+        'docker.containers': num(docker?.runtime as Record<string, unknown> | null, 'containers'),
+        'docker.running': num(docker?.runtime as Record<string, unknown> | null, 'containersRunning'),
         // Per-session efficiency is machine load ÷ live sessions (not API-process CPU).
         'derived.cpuPerSession': live != null && live > 0 && cpu != null
           ? Math.round((cpu / live) * 100) / 100
@@ -695,9 +688,9 @@ export function detectAnomalies(
   return out
 }
 
-/* ── State windows (degraded / elevate bands) ─────────────────────────────── */
+/* ── State windows (degraded bands) ───────────────────────────────────────── */
 
-export type StateWindowKind = 'degraded' | 'elevate'
+export type StateWindowKind = 'degraded'
 
 export interface StateWindow {
   kind: StateWindowKind
@@ -707,11 +700,10 @@ export interface StateWindow {
   endUtc: string
 }
 
-/** Merges consecutive samples where pipeline.degraded / elevateActive is 1 into contiguous windows. */
+/** Merges consecutive samples where Journal health is degraded into contiguous windows. */
 export function extractStateWindows(samples: ResourceSample[]): StateWindow[] {
   const out: StateWindow[] = []
   let degStart = -1
-  let elevStart = -1
 
   const close = (kind: StateWindowKind, start: number, end: number) => {
     if (start < 0 || end < start) return
@@ -725,14 +717,9 @@ export function extractStateWindows(samples: ResourceSample[]): StateWindow[] {
   }
 
   for (let i = 0; i <= samples.length; i++) {
-    const deg = i < samples.length ? samples[i].values?.['pipeline.degraded'] === 1 : false
-    const elev = i < samples.length ? samples[i].values?.['pipeline.elevateActive'] === 1 : false
-
+    const deg = i < samples.length ? samples[i].values?.['journal.degraded'] === 1 : false
     if (deg && degStart < 0) degStart = i
     if (!deg && degStart >= 0) { close('degraded', degStart, i - 1); degStart = -1 }
-
-    if (elev && elevStart < 0) elevStart = i
-    if (!elev && elevStart >= 0) { close('elevate', elevStart, i - 1); elevStart = -1 }
   }
   return out
 }

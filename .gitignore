@@ -12,13 +12,25 @@
 # Sidecar build output (built in Docker only)
 sidecar/dist/
 
+# PageProjection extension build + per-session C2 endpoint (never commit)
+sidecar/extensions/speculum-pp/main/virtual.js
+sidecar/extensions/speculum-pp/c2-endpoint.json
+
+# Ad-hoc local unit capture
+_test-results-unit.txt
+
+# PageProjection lab benchmark run exports (report.json + .cpuprofile per run)
+sidecar/lab-runs/
+
+# PageProjection ad-hoc CLI profiling scripts' raw .cpuprofile dumps (scripts/profile-*.js)
+sidecar/scripts/*.cpuprofile
+
 # TLS material
 **/Certificates/**/*.pem
 
 # dockup deploy artifacts
 deploy/speculum.dockup.json
 deploy/out/
-Refactor/deploy/out/
 
 # Local API SQLite (dotnet run)
 Speculum.Api/data/
@@ -42,6 +54,10 @@ mono_crash.*
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
+# Product source under web/.../sessions/debug (not MSBuild [Dd]ebug/)
+!web/src/features/sessions/debug/
+!web/src/features/sessions/debug/**
+
 [Rr]elease/
 [Rr]eleases/
 x64/
@@ -51,6 +67,9 @@ x86/
 [Aa][Rr][Mm]64/
 bld/
 [Bb]in/
+# Oracle runners live under page-projection-oracles/bin (not .NET build output).
+!page-projection-oracles/bin/
+!page-projection-oracles/bin/**
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
@@ -226,6 +245,11 @@ PublishScripts/
 **/[Pp]ackages/*
 # except build/, which is used as an MSBuild target.
 !**/[Pp]ackages/build/
+# Speculum monorepo source packages (not NuGet) — live at /packages/
+!/packages/
+!/packages/**
+/packages/**/dist/
+/packages/**/node_modules/
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/[Pp]ackages/repositories.config
 # NuGet v3's project.json files produces more ignorable files
@@ -502,3 +526,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local SQLite from telemetry/lab runs
+# Local SQLite leftovers from ad-hoc telemetry runs
+deploy/tmp-telemetry-run/*.db
+Speculum.Api/data/

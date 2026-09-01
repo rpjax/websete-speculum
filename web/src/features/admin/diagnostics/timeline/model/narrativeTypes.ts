@@ -7,7 +7,17 @@ export type NarrativeScope =
   | { kind: 'platform' }
   | { kind: 'session'; connectionId: string }
 
-export type NarrativePeriodPreset = '15m' | '1h' | '6h' | '24h' | 'all' | 'custom'
+export type NarrativePeriodPreset =
+  | '5m'
+  | '15m'
+  | '30m'
+  | '1h'
+  | '2h'
+  | '6h'
+  | '24h'
+  | '7d'
+  | 'all'
+  | 'custom'
 
 export interface NarrativePeriod {
   preset: NarrativePeriodPreset
@@ -30,7 +40,7 @@ export const DEFAULT_LAYERS: NarrativeLayers = {
   beatRibbon: true,
   governanceBands: false,
   signalOverlay: false,
-  liveTail: false,
+  liveTail: true,
 }
 
 export interface NarrativeSpan {
@@ -100,6 +110,7 @@ export interface Narrative {
 }
 
 export interface ReadingFilters {
+  /** Journal source family ids (see journalSources.ts), not legacy Motor domains. */
   domains: string[]
   severities: string[]
   search: string

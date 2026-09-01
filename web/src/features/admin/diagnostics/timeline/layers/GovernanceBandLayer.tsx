@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
 import type { ScaleTime } from 'd3-scale'
 import type { DiagnosticsEventRecord } from '@/lib/diagnosticsApi'
-import { msToX } from '../canvas/TimeRail'
+import { LANE_LABEL_W, msToX } from '../canvas/TimeRail'
 
 interface GovernanceBandLayerProps {
   events: DiagnosticsEventRecord[]
   scale: ScaleTime<number, number>
+  /** Rail width (excludes lane gutter). */
   width: number
   startMs: number
   endMs: number
@@ -47,8 +48,10 @@ export function GovernanceBandLayer({ events, scale, width, endMs }: GovernanceB
   if (bands.length === 0) return null
 
   return (
-    <div className="relative h-6 border-b border-border/20" style={{ marginLeft: 160, width: width - 160 }}>
-      {bands.map((b, i) => {
+    <div
+      className="relative h-6 border-b border-border/20"
+      style={{ marginLeft: LANE_LABEL_W, width }}
+    >      {bands.map((b, i) => {
         const left = msToX(scale, b.startMs)
         const right = msToX(scale, b.endMs)
         return (

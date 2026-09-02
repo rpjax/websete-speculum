@@ -1,6 +1,7 @@
 # PageProjection — open items (bugs, gaps, rulings)
 
 **Status:** living tracker. Single place for a weaker agent to see what is **not** done.  
+**Execution-ordered backlog (pending work):** [PENDING.md](../PENDING.md).  
 **Do not** treat a missing row here as permission to invent a workaround. If you find a new defect, **append**.  
 **Protocol OPEN-* source of truth** remains the table in [frame-protocol.md](frame-protocol.md) §10; this file copies it plus product/cutover items.
 
@@ -87,6 +88,12 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 202
 | Id | Symptom | Notes |
 |----|---------|-------|
 | **PP-HARDNAV-PLANE-ACK** | After in-page hard nav (link / `location.replace` / 202→200), Node adopts new `generation` but Virtual stays on `producer_booting` / no hello-ack through the extension Port; units log the race and still assert gen bump + cold carrier. | Cutover delivered C2 + MAIN content script; socket still opens per document. Closing this = finish SW-owned loopback across nav ([runtime-redesign.md](runtime-redesign.md) §5). Softened: `runMetaOnlyHugeCspPlaneUnitTests` / `runDataPlaneNavChurnUnitTests`. |
+
+### BUG — swipe vertical over horizontal scroller does not page-scroll (OPEN 2026-09-02)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-SCROLL-AXIS** | Swipe vertical starting on a horizontal carousel (Eneba `NAV.zyqj8m`) is captured by the horizontal scroller instead of scrolling the page — original site page-scrolls. | **Established:** NAV replicated with identical scroll CSS (`overflowX/Y` auto/auto, `touchAction` auto, `overscrollBehavior` auto, sw×cw 2030×390); `sh == ch` both sides (no vertical overflow on the nav). No scroll-config divergence. Touch events **reach** the projected document and are **not** cancelled (`touchstart` `defaultPrevented=false`, `preventedMoves=0` across 10 moves) — `pointerdown` `preventDefault` hypothesis **refuted**. Same gesture: **`pointercancel` fires and no `scroll` event**. Unexplained anomaly. **Instrument blockers** (fix before any new measurement round): harness maps projected doc coords → lab page without compensating iframe offset (projected 195,171 → pageY −114); opening `?touchCapture=off` aborts with `frame detached` in `waitNav`. **Separate (own item later):** projected page ~880px shorter than original (`MAIN` −589, `FOOTER` −291, nav −18 of 8420). **Status:** open; **does not block 0.3.0** (pilot enters `/br/`). Branch/notes: `diag/scroll-axis-temp`. |
 
 ### BUG — inject dual-boot / isolate lateBoot (**CLOSED 2026-08-28**)
 

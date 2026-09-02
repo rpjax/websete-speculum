@@ -8,6 +8,7 @@ A, B and D. This is settled — do not re-derive it, do not introduce another ve
 [spec/motor-0.3.0.md](spec/motor-0.3.0.md) (tag gates) ·
 [spec/motor-migration.md](spec/motor-migration.md) (migration §D, `file:line` evidence) ·
 [spec/acceptance.md](spec/acceptance.md) (1:1 accept) · [spec/open.md](spec/open.md) ·
+[PENDING.md](PENDING.md) (execution-ordered backlog) ·
 [spec/browser-session.md](spec/browser-session.md).
 
 **Last verified:** 2026-08-31.
@@ -367,6 +368,7 @@ Tracked here so nobody pulls one in mid-phase. None of these gate this release.
 | Tag gates | [spec/motor-0.3.0.md](spec/motor-0.3.0.md) |
 | Migration (normative) | [spec/motor-migration.md](spec/motor-migration.md) |
 | Named open items | [spec/open.md](spec/open.md) |
+| Pending (execution order) | [PENDING.md](PENDING.md) |
 | Session sealed contract | [spec/browser-session.md](spec/browser-session.md) |
 | Acceptance | [spec/acceptance.md](spec/acceptance.md) |
 | Roadmap M1 | [spec/roadmap.md](spec/roadmap.md) |

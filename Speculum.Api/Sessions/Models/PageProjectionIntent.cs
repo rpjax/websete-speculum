@@ -6,7 +6,7 @@ namespace Speculum.Api.Sessions.Models;
 /// Element-targeted / motion PageProjection intent (data-plane MessagePack).
 /// </summary>
 [MessagePackObject]
-public sealed class PageProjectionIntent
+public sealed record PageProjectionIntent
 {
     [Key("generation")]
     public long Generation { get; init; }
@@ -54,4 +54,16 @@ public sealed class PageProjectionIntent
     /// <summary>Scroll census JSON (PP down/up only).</summary>
     [Key("census")]
     public string? Census { get; init; }
+
+    /// <summary>
+    /// Admission-time wire hygiene on the received intent — never drops fields.
+    /// New model properties propagate unless explicitly normalized here.
+    /// </summary>
+    public PageProjectionIntent WithAdmissionNormalization()
+        => this with
+        {
+            Type = Type.Trim(),
+            ContextId = ContextId > 0 ? ContextId : 1,
+            Payload = string.IsNullOrWhiteSpace(Payload) ? "{}" : Payload,
+        };
 }

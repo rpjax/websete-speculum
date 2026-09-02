@@ -233,6 +233,15 @@ public sealed class SessionBindingRegistryTests
             string? traceId = null,
             long? clientTimestampMs = null) { }
 
+        public void TracePageProjectionIntentAdmissionFailed(
+            string kind,
+            long? generation,
+            string? anchor,
+            string errorCode,
+            string message,
+            string? traceId = null,
+            long? clientTimestampMs = null) { }
+
         public void TracePageProjectionFrameWireDelivered(
             PageProjectionFrame diff,
             long durationMs = 0,

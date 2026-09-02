@@ -135,17 +135,7 @@ internal sealed partial class LiveSession
             return Result.Failure("Live session is released");
         }
 
-        return SessionInputPipe.Write(pipe.Writer, new PageProjectionIntent
-        {
-            Generation = input.Generation,
-            Type = input.Type.Trim(),
-            Anchor = input.Anchor,
-            TargetId = input.TargetId,
-            ContextId = input.ContextId > 0 ? input.ContextId : 1,
-            TimestampClient = input.TimestampClient,
-            TraceId = input.TraceId,
-            Payload = string.IsNullOrWhiteSpace(input.Payload) ? "{}" : input.Payload,
-        }, lifetimeToken);
+        return SessionInputPipe.Write(pipe.Writer, input.WithAdmissionNormalization(), lifetimeToken);
     }
 
     public IResult<Task> ConsumePageProjectionIntentAsync(

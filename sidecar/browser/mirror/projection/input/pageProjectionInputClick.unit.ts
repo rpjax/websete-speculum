@@ -63,6 +63,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
         frameRateHz: 30,
         projectionTelemetry: { ...LAB_TELEMETRY_DEFAULTS },
         cpuProfiling: false,
+        inputPathTelemetry: true,
       }),
     );
     await session.navigate(url);

@@ -49,6 +49,7 @@ import { runFrameCdpSessionUnitTests } from './browser/mirror/projection/inject/
 import { runInjectScriptBodiesUnitTests } from './browser/mirror/projection/inject/injectScriptBodies.unit';
 import { runExtensionC2HostUnitTests } from './browser/mirror/projection/session/extensionC2Host.unit';
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
+import { runInputPathTelemetryEmitUnitTests } from './browser/mirror/projection/session/inputPathTelemetryEmit.unit';
 import { runNodeDataPlaneUnitTests } from './browser/mirror/projection/session/nodeDataPlane.unit';
 import { runExtensionPlaneEnvelopeUnitTests } from './browser/mirror/projection/session/extensionPlaneEnvelope.unit';
 import { runExtensionPlaneBridgeEdgeUnitTests } from './browser/mirror/projection/session/extensionPlaneBridge.unit';
@@ -4472,6 +4473,7 @@ async function main(): Promise<void> {
   await runSharedAssetK2UnitTests();
   await runPermissionGateUnitTests();
   await runEventApplierUnitTests();
+  await runInputPathTelemetryEmitUnitTests();
   await runSparseCdpInputAdapterUnitTests();
   await runProjectedInputCaptureUnitTests();
   await runLabPublicOriginUnitTests();

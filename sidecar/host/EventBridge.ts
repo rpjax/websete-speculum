@@ -79,6 +79,12 @@ export class EventBridge implements BrowserSessionEvents {
     unixMs: number;
     reason?: string;
     generation?: number;
+    errorCode?: string;
+    validationPhase?: string;
+    viewportW?: number;
+    viewportH?: number;
+    activeViewportW?: number;
+    activeViewportH?: number;
   }>(32);
   /** Opt-in PageProjection lifecycle (GenerationBumped | QueueDropped | session_pool_*) — DropOldest. */
   readonly pageProjectionLifecycle = new DropOldestQueue<{
@@ -113,8 +119,18 @@ export class EventBridge implements BrowserSessionEvents {
     { kind: PermissionKind; resolve: (d: BrowserPermissionDecision) => void; epoch: number }
   >();
   private permissionSink: ((req: PermissionRequestMsg) => void) | null = null;
+  private _inputPathTelemetry = false;
 
   constructor(readonly sessionId: string) {}
+
+  /** Launch-injected — immutable for the session lifetime. */
+  configureInputPathTelemetry(enabled: boolean): void {
+    this._inputPathTelemetry = enabled;
+  }
+
+  get isInputPathTelemetryEnabled(): boolean {
+    return this._inputPathTelemetry;
+  }
 
   /**
    * Apply Sessions.frameQueueCapacity at Launch (queue must be empty —
@@ -451,17 +467,30 @@ export class EventBridge implements BrowserSessionEvents {
 
   /** Fire-and-forget Dom Projection path hop — never blocks PushDomInput. */
   onPageProjectionIntentPath(event: {
-    phase: 'sidecar_admitted' | 'cdp_dropped';
+    phase: 'sidecar_admitted' | 'cdp_dropped' | 'cdp_applied' | 'cdp_rejected';
     kind: string;
     reason?: string;
     generation?: number;
+    errorCode?: string;
+    validationPhase?: string;
+    viewportW?: number;
+    viewportH?: number;
+    activeViewportW?: number;
+    activeViewportH?: number;
   }): void {
+    if (!this._inputPathTelemetry) return;
     this.pageProjectionInputPath.tryWrite({
       phase: event.phase,
       kind: event.kind,
       unixMs: Date.now(),
       reason: event.reason,
       generation: event.generation,
+      errorCode: event.errorCode,
+      validationPhase: event.validationPhase,
+      viewportW: event.viewportW,
+      viewportH: event.viewportH,
+      activeViewportW: event.activeViewportW,
+      activeViewportH: event.activeViewportH,
     });
   }
 

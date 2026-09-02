@@ -62,6 +62,7 @@ export function createBrowserSessionHandlers(
           });
         }
         bridge.configureDomCapacity(options.frameQueueCapacity);
+        bridge.configureInputPathTelemetry(options.inputPathTelemetry === true);
         const ready = await session.launch(options);
         callback(null, ready);
       } catch (err) {
@@ -445,6 +446,12 @@ export function createBrowserSessionHandlers(
         unixMs: e.unixMs,
         reason: e.reason,
         generation: e.generation,
+        errorCode: e.errorCode,
+        validationPhase: e.validationPhase,
+        intentViewportW: e.viewportW,
+        intentViewportH: e.viewportH,
+        activeViewportW: e.activeViewportW,
+        activeViewportH: e.activeViewportH,
       }));
     },
 
@@ -502,63 +509,83 @@ export function createBrowserSessionHandlers(
       pumpClientStream(call, callback, async (msg) => {
         const sid = requireSessionId(msg);
         const { session, bridge } = registry.get(sid);
-        const pushDom = (session as { pushDomInput?: (i: unknown) => Promise<{ status: string; reason?: string }> }).pushDomInput;
-        if (!pushDom) {
-          throw Object.assign(new Error('PageProjection input not supported'), {
-            code: 'FAILED_PRECONDITION',
-          });
-        }
         const kind = String(msg.type ?? '');
         const generation = Number(msg.generation ?? 0) || undefined;
-        const rawTargetId = msg.targetId ?? msg.target_id;
-        const targetId = rawTargetId != null ? Number(rawTargetId) : null;
-        const outcome = await pushDom({
-          type: kind,
-          targetId: targetId != null && Number.isFinite(targetId) ? targetId : null,
-          contextId: (() => {
-            const raw = msg.contextId ?? msg.context_id;
-            const n = raw != null ? Number(raw) : 1;
-            return Number.isFinite(n) && n > 0 ? n : 1;
-          })(),
-          generation,
-          timestampClient:
-            msg.timestampClient != null || msg.timestamp_client != null
-              ? Number(msg.timestampClient ?? msg.timestamp_client)
-              : null,
-          payloadJson: msg.payloadJson ?? msg.payload_json ?? '{}',
-          schemaVersion: msg.schemaVersion ?? msg.schema_version ?? undefined,
-          viewportW: msg.viewportW ?? msg.viewport_w ?? undefined,
-          viewportH: msg.viewportH ?? msg.viewport_h ?? undefined,
-          census: msg.census != null ? String(msg.census) : undefined,
-          x: msg.x,
-          y: msg.y,
-          localX: msg.localX ?? msg.local_x,
-          localY: msg.localY ?? msg.local_y,
-          key: msg.key,
-          code: msg.code,
-          scrollX: msg.scrollX ?? msg.scroll_x,
-          scrollY: msg.scrollY ?? msg.scroll_y,
-          button: msg.button,
-          nodeId: msg.nodeId ?? msg.node_id,
-        });
-        const typeLower = kind.trim().toLowerCase();
-        const isHfMove = typeLower === 'mousemove' || typeLower === 'pointermove';
-        if (outcome.status === 'dropped') {
-          bridge.onPageProjectionIntentPath({
-            phase: 'cdp_dropped',
-            kind,
-            reason: outcome.reason,
+        try {
+          const ppSession = session as {
+            pushDomInput?: (i: unknown) => Promise<{ status: string; reason?: string }>;
+          };
+          if (!ppSession.pushDomInput) {
+            throw Object.assign(new Error('PageProjection input not supported'), {
+              code: 'FAILED_PRECONDITION',
+            });
+          }
+          const outcome = await ppSession.pushDomInput({
+            type: kind,
+            targetId: (() => {
+              const rawTargetId = msg.targetId ?? msg.target_id;
+              const targetId = rawTargetId != null ? Number(rawTargetId) : null;
+              return targetId != null && Number.isFinite(targetId) ? targetId : null;
+            })(),
+            contextId: (() => {
+              const raw = msg.contextId ?? msg.context_id;
+              const n = raw != null ? Number(raw) : 1;
+              return Number.isFinite(n) && n > 0 ? n : 1;
+            })(),
             generation,
+            timestampClient:
+              msg.timestampClient != null || msg.timestamp_client != null
+                ? Number(msg.timestampClient ?? msg.timestamp_client)
+                : null,
+            payloadJson: msg.payloadJson ?? msg.payload_json ?? '{}',
+            schemaVersion: msg.schemaVersion ?? msg.schema_version ?? undefined,
+            viewportW: msg.viewportW ?? msg.viewport_w ?? undefined,
+            viewportH: msg.viewportH ?? msg.viewport_h ?? undefined,
+            census: msg.census != null ? String(msg.census) : undefined,
+            x: msg.x,
+            y: msg.y,
+            localX: msg.localX ?? msg.local_x,
+            localY: msg.localY ?? msg.local_y,
+            key: msg.key,
+            code: msg.code,
+            scrollX: msg.scrollX ?? msg.scroll_x,
+            scrollY: msg.scrollY ?? msg.scroll_y,
+            button: msg.button,
+            nodeId: msg.nodeId ?? msg.node_id,
           });
-          return;
-        }
-        // Skip admit-path fanout for move samples (high frequency) — mirror VideoStreamingInput.
-        if (!isHfMove) {
-          bridge.onPageProjectionIntentPath({
-            phase: 'sidecar_admitted',
-            kind,
-            generation,
-          });
+          const typeLower = kind.trim().toLowerCase();
+          const isHfMove = typeLower === 'mousemove' || typeLower === 'pointermove';
+          if (outcome.status === 'dropped') {
+            bridge.onPageProjectionIntentPath({
+              phase: 'cdp_dropped',
+              kind,
+              reason: outcome.reason,
+              generation,
+            });
+            return;
+          }
+          // Skip admit-path fanout for move samples (high frequency) — mirror VideoStreamingInput.
+          if (!isHfMove) {
+            bridge.onPageProjectionIntentPath({
+              phase: 'sidecar_admitted',
+              kind,
+              generation,
+            });
+          }
+        } catch (err) {
+          if (bridge.isInputPathTelemetryEnabled) {
+            const message = err instanceof Error ? err.message : String(err);
+            const code = (err as { errorCode?: string }).errorCode ?? 'push_dom_input_failed';
+            const validationPhase = (err as { phase?: string }).phase ?? 'grpc_handler';
+            bridge.onPageProjectionIntentPath({
+              phase: 'cdp_rejected',
+              kind: kind || 'unknown',
+              errorCode: code,
+              validationPhase,
+              reason: message,
+              generation,
+            });
+          }
         }
       });
     },

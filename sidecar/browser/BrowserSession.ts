@@ -114,6 +114,23 @@ export interface BrowserSessionEvents {
    */
   onPageProjectionTelemetry?(message: import('@speculum/page-projection/core/telemetry').ProjectionTelemetryMessage): void;
 
+  /**
+   * PageProjection input path hop (opt-in at Launch via inputPathTelemetry).
+   * sidecar_admitted = enqueued, not CDP-applied.
+   */
+  onPageProjectionIntentPath?(event: {
+    phase: 'sidecar_admitted' | 'cdp_dropped' | 'cdp_applied' | 'cdp_rejected';
+    kind: string;
+    reason?: string;
+    generation?: number;
+    errorCode?: string;
+    validationPhase?: string;
+    viewportW?: number;
+    viewportH?: number;
+    activeViewportW?: number;
+    activeViewportH?: number;
+  }): void;
+
   // page console (side effects of page scripts / evaluate; not the eval return value)
   onConsole(level: number, text: string): void;
 
@@ -248,6 +265,11 @@ export interface BrowserLaunchOptions {
   >;
   /** When false, {@link BrowserSession.startCpuProfile} must not enable CDP Profiler. */
   cpuProfiling?: boolean;
+  /**
+   * When true, sidecar emits PageProjection input path hops (Launch-injected).
+   * Zero cost when false — one boolean read per hop.
+   */
+  inputPathTelemetry?: boolean;
   /**
    * PageProjection Virtual→sidecar data plane.
    * Carrier = loopback WebSocket opened by Speculum Plane extension (not page-origin).

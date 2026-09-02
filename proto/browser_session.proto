@@ -162,6 +162,8 @@ message LaunchPageProjectionRequest {
   NavigationPolicy navigation_policy = 36;
   int64 asset_cache_l2_max_bytes = 37;
   bool asset_cache_l2_enabled = 38;
+  // When true, PageProjection input path hops (sidecar_admitted / cdp_applied / cdp_rejected) are emitted.
+  bool input_path_telemetry = 39;
 }
 
 message ReadyInfo {
@@ -348,13 +350,21 @@ message VideoStreamingInputPathEvent {
 }
 
 // Opt-in PageProjection input path hop (API journals
-// Telemetry.Sessions.PageProjection.Input.SidecarAdmitted / CdpDropped when enabled).
+// Telemetry.Sessions.PageProjection.Input.* path facts when enabled).
 message PageProjectionInputPathEvent {
-  string phase = 1; // sidecar_admitted | cdp_dropped
+  // sidecar_admitted = enqueued on sidecar (not CDP-applied yet) | cdp_dropped |
+  // cdp_applied | cdp_rejected
+  string phase = 1;
   string kind = 2;
   int64 unix_ms = 3;
-  optional string reason = 4; // cdp_dropped only
+  optional string reason = 4; // cdp_dropped reason or cdp_rejected message
   optional int64 generation = 5;
+  optional string error_code = 6; // cdp_rejected
+  optional string validation_phase = 7; // cdp_rejected: validate | virtual_resolve | virtual_apply | …
+  optional int32 intent_viewport_w = 8; // cdp_rejected stale_viewport
+  optional int32 intent_viewport_h = 9;
+  optional int32 active_viewport_w = 10;
+  optional int32 active_viewport_h = 11;
 }
 
 // Opt-in PageProjection lifecycle (API journals

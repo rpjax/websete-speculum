@@ -24,9 +24,14 @@ public sealed class SessionConfig
 
     public IReadOnlyList<string>? AllowedNavigationDomains { get; set; }
 
-    /// <summary>
-    /// When true, sidecar may run CDP Profiler (startCpuProfile / stopCpuProfile).
-    /// Lab/assert / capacity; default false.
-    /// </summary>
-    public bool CpuProfiling { get; set; }
+  /// <summary>
+  /// When true, sidecar may run CDP Profiler (startCpuProfile / stopCpuProfile).
+  /// Lab/assert / capacity; default false.
+  /// </summary>
+  public bool CpuProfiling { get; set; }
+
+  /// <summary>
+  /// When true, sidecar emits PageProjection input path hops (Launch-injected). Default false.
+  /// </summary>
+  public bool InputPathTelemetry { get; set; }
 }

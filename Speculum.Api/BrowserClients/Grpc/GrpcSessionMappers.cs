@@ -208,6 +208,7 @@ internal static class GrpcSessionMappers
         }
 
         request.CpuProfiling = configuration.CpuProfiling;
+        request.InputPathTelemetry = configuration.InputPathTelemetry;
     }
 
     public static double ClampScreencastMaxEncodeScale(double value)

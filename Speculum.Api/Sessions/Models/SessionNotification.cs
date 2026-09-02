@@ -24,7 +24,7 @@ public enum SessionNotificationKind
     PageProjectionIntentApplied = 10,
     /// <summary>
     /// PageProjectionIntent path hop
-    /// (phase = data_plane_received | grpc_pushed | sidecar_admitted | cdp_dropped).
+    /// (phase = data_plane_received | grpc_pushed | sidecar_admitted | cdp_dropped | cdp_applied | cdp_rejected).
     /// </summary>
     PageProjectionIntentPathTrace = 11,
     /// <summary>PageProjectionFrame frame received from WatchPageProjectionFrames (opt-in journal).</summary>

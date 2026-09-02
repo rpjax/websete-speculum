@@ -27,7 +27,8 @@ export type EventApplierOptions = {
   applyScrollSet?: ApplyScrollSetFn;
   applyHistoryNav?: ApplyHistoryNavFn;
   activeViewport: () => { w: number; h: number };
-  onReject?: (errorCode: string, phase: string) => void;
+  onReject?: (errorCode: string, phase: string, kind: string, viewportW?: number, viewportH?: number) => void;
+  onApplied?: (kind: string) => void;
 };
 
 export class EventApplier {
@@ -68,13 +69,14 @@ export class EventApplier {
         // Sparse catalog rejects continuous move at the peripheral; still validate stamp.
         if (!this.validateMove(intent)) return;
         this.opts.pointer.moveTo(intent.x, intent.y);
+        this.opts.onApplied?.(intent.type);
         return;
       case 'down':
       case 'up': {
         if (!this.validateClick(intent)) return;
 
         if (intent.nodeId == null) {
-          this.reject('missing_node_id', 'validate');
+          this.reject(intent.type, 'missing_node_id', 'validate');
           return;
         }
         const delivery = this.opts.clickDelivery;
@@ -86,6 +88,7 @@ export class EventApplier {
         );
         if (!resolved.ok || resolved.x == null || resolved.y == null) {
           this.reject(
+            intent.type,
             resolved.reason ? `resolve_click_failed:${resolved.reason}` : 'resolve_click_failed',
             'virtual_resolve',
           );
@@ -93,22 +96,24 @@ export class EventApplier {
         }
         this.opts.pointer.moveTo(resolved.x, resolved.y);
         this.opts.pointer.button(intent.button ?? 'left', intent.type === 'down');
+        this.opts.onApplied?.(intent.type);
         return;
       }
       case 'keyDown':
       case 'keyUp': {
         const key = resolveKeyboardDispatchKey(intent.key, intent.code);
         if (!key) {
-          this.reject('missing_key', 'validate');
+          this.reject(intent.type, 'missing_key', 'validate');
           return;
         }
         this.opts.keyboard.key(key, intent.type === 'keyDown', intent.modifiers);
+        this.opts.onApplied?.(intent.type);
         return;
       }
       case 'scrollSet': {
         const apply = this.opts.applyScrollSet;
         if (!apply) {
-          this.reject('scroll_set_unavailable', 'virtual_apply');
+          this.reject(intent.type, 'scroll_set_unavailable', 'virtual_apply');
           return;
         }
         const r = await apply({
@@ -119,10 +124,13 @@ export class EventApplier {
         });
         if (!r.ok) {
           this.reject(
+            intent.type,
             r.error ? `apply_scroll_failed:${r.error}` : 'apply_scroll_failed',
             'virtual_apply',
           );
+          return;
         }
+        this.opts.onApplied?.(intent.type);
         return;
       }
       case 'setFiles':
@@ -131,34 +139,37 @@ export class EventApplier {
       case 'historyNav': {
         const nav = this.opts.applyHistoryNav;
         if (!nav) {
-          this.reject('history_nav_unavailable', 'virtual_apply');
+          this.reject(intent.type, 'history_nav_unavailable', 'virtual_apply');
           return;
         }
         const r = await nav(intent.direction);
         if (!r.ok) {
           this.reject(
+            intent.type,
             r.error ? `apply_history_nav_failed:${r.error}` : 'apply_history_nav_failed',
             'virtual_apply',
           );
+          return;
         }
+        this.opts.onApplied?.(intent.type);
         return;
       }
     }
   }
 
-  private validateViewportStamp(intent: { viewportW: number; viewportH: number }): boolean {
+  private validateViewportStamp(intent: { viewportW: number; viewportH: number; type: string }): boolean {
     const active = this.opts.activeViewport();
     if (intent.viewportW !== active.w || intent.viewportH !== active.h) {
-      this.reject('stale_viewport', 'validate');
+      this.reject(intent.type, 'stale_viewport', 'validate', intent.viewportW, intent.viewportH);
       return false;
     }
     return true;
   }
 
-  private validateMove(intent: { viewportW: number; viewportH: number; x: number; y: number }): boolean {
+  private validateMove(intent: { viewportW: number; viewportH: number; x: number; y: number; type: string }): boolean {
     if (!this.validateViewportStamp(intent)) return false;
     if (intent.x < 0 || intent.y < 0 || intent.x >= intent.viewportW || intent.y >= intent.viewportH) {
-      this.reject('invalid_coords', 'validate');
+      this.reject(intent.type, 'invalid_coords', 'validate');
       return false;
     }
     return true;
@@ -169,6 +180,7 @@ export class EventApplier {
     viewportH: number;
     localX?: number;
     localY?: number;
+    type: string;
   }): boolean {
     if (!this.validateViewportStamp(intent)) return false;
     const hasLocal =
@@ -186,14 +198,20 @@ export class EventApplier {
       || intent.localX! > 1 + 1e-6
       || intent.localY! > 1 + 1e-6
     ) {
-      this.reject('invalid_local', 'validate');
+      this.reject(intent.type, 'invalid_local', 'validate');
       return false;
     }
     return true;
   }
 
-  private reject(errorCode: string, phase: string): void {
-    this.opts.onReject?.(errorCode, phase);
+  private reject(
+    kind: string,
+    errorCode: string,
+    phase: string,
+    viewportW?: number,
+    viewportH?: number,
+  ): void {
+    this.opts.onReject?.(errorCode, phase, kind, viewportW, viewportH);
   }
 }
 

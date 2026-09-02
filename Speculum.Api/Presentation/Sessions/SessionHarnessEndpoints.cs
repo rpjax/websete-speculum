@@ -584,6 +584,66 @@ public static class SessionHarnessEndpoints
             });
         }).WithTags("Sessions");
 
+        endpoints.MapPost("/api/sessions/{sessionId:guid}/page-projection-intent", async (
+            Guid sessionId,
+            SessionHarnessPageProjectionIntentRequest body,
+            ILiveSessionService liveSessions,
+            ISessionBindingRegistry bindings) =>
+        {
+            ArgumentNullException.ThrowIfNull(body);
+            if (string.IsNullOrWhiteSpace(body.Token))
+                return Results.Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(body.Type))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["Type"] = ["Type is required."],
+                });
+            }
+
+            if (!bindings.TryGetLive(sessionId, body.Token.Trim(), out _)
+                || !liveSessions.TryGet(sessionId, out var live))
+            {
+                return Results.NotFound(new { errorCode = "session_gone" });
+            }
+
+            if (live.MirrorMode != Speculum.Api.Configurations.Models.Sessions.MirrorMode.PageProjection)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "mirror_mode_mismatch",
+                    message = "PageProjection intent admit requires MirrorMode.PageProjection.",
+                });
+            }
+
+            var admit = live.AdmitPageProjectionInput(new PageProjectionIntent
+            {
+                Generation = body.Generation,
+                Type = body.Type.Trim(),
+                Anchor = body.Anchor,
+                TargetId = body.TargetId,
+                ContextId = body.ContextId,
+                TimestampClient = body.TimestampClient,
+                TraceId = body.TraceId,
+                Payload = body.Payload ?? "{}",
+                SchemaVersion = body.SchemaVersion,
+                ViewportW = body.ViewportW,
+                ViewportH = body.ViewportH,
+                Census = body.Census,
+            });
+            if (admit.IsFailure)
+            {
+                return Results.BadRequest(new
+                {
+                    errorCode = "page_projection_intent_admit_failed",
+                    message = string.Join("; ", admit.Errors.Select(e => e.Message)),
+                });
+            }
+
+            return Results.Ok(new { ok = true });
+        }).WithTags("Sessions");
+
         return endpoints;
     }
 }
@@ -631,6 +691,35 @@ public sealed class SessionHarnessPageProjectionResolveClickRequest
     public required string Token { get; init; }
 
     public required string Selector { get; init; }
+}
+
+public sealed class SessionHarnessPageProjectionIntentRequest
+{
+    public required string Token { get; init; }
+
+    public required string Type { get; init; }
+
+    public long Generation { get; init; }
+
+    public string? Anchor { get; init; }
+
+    public uint? TargetId { get; init; }
+
+    public uint ContextId { get; init; } = 1;
+
+    public double? TimestampClient { get; init; }
+
+    public string? TraceId { get; init; }
+
+    public string? Payload { get; init; }
+
+    public int SchemaVersion { get; init; }
+
+    public int? ViewportW { get; init; }
+
+    public int? ViewportH { get; init; }
+
+    public string? Census { get; init; }
 }
 
 public sealed class SessionHarnessProbeRequest

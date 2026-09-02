@@ -260,7 +260,7 @@ public sealed class SessionsActClient : IAsyncDisposable
                 token = _token,
                 ops,
                 evaluateExpression,
-                domSelector,
+                elementSelector = domSelector,
             },
             ct);
         var json = await response.Content.ReadAsStringAsync(ct);
@@ -402,6 +402,74 @@ public sealed class SessionsActClient : IAsyncDisposable
             throw new InvalidOperationException(
                 $"resolve-click failed ({(int)response.StatusCode}): {json}");
         }
+    }
+
+    /// <summary>
+    /// Admit a PageProjectionIntent via harness (same Admit as product data-plane).
+    /// Does not exercise client→wire MessagePack.
+    /// </summary>
+    public async Task SendPageProjectionIntentAsync(
+        PageProjectionIntentWire intent,
+        CancellationToken ct = default)
+    {
+        EnsureSession();
+        using var response = await _http.PostAsJsonAsync(
+            $"{_host.ApiBase}/api/sessions/{_sessionId}/page-projection-intent",
+            new
+            {
+                token = _token,
+                type = intent.Type,
+                generation = intent.Generation,
+                anchor = intent.Anchor,
+                targetId = intent.TargetId,
+                contextId = intent.ContextId,
+                timestampClient = intent.TimestampClient,
+                traceId = intent.TraceId,
+                payload = intent.Payload,
+                schemaVersion = intent.SchemaVersion,
+                viewportW = intent.ViewportW,
+                viewportH = intent.ViewportH,
+                census = intent.Census,
+            },
+            ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"page-projection-intent failed ({(int)response.StatusCode}): {json}");
+        }
+    }
+
+    public async Task<uint> KeyOfSelectorAsync(string selector, CancellationToken ct = default)
+    {
+        var data = await ProbeAsync(["keyOfSelector"], domSelector: selector, ct: ct);
+        if (!data.TryGetProperty("keyOfSelector", out var keyed)
+            || keyed.ValueKind != JsonValueKind.Object
+            || !keyed.TryGetProperty("nodeId", out var nodeIdEl)
+            || nodeIdEl.ValueKind != JsonValueKind.Number)
+        {
+            throw new InvalidOperationException($"keyOfSelector miss: {data}");
+        }
+
+        var nodeId = nodeIdEl.GetUInt32();
+        if (nodeId == 0)
+        {
+            throw new InvalidOperationException($"keyOfSelector nodeId=0: {data}");
+        }
+
+        return nodeId;
+    }
+
+    public async Task<JsonElement> DumpInputClickDiagnosticAsync(CancellationToken ct = default)
+    {
+        var data = await ProbeAsync(["inputClickDiagnostic"], ct: ct);
+        if (!data.TryGetProperty("inputClickDiagnostic", out var diag)
+            || diag.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException($"inputClickDiagnostic missing: {data}");
+        }
+
+        return diag.Clone();
     }
 
     /// <summary>POST sealed resync — frame arrives on the Diff stream (not in the HTTP body).</summary>
@@ -744,6 +812,20 @@ public sealed class SessionsActClient : IAsyncDisposable
         int LocalStorageCount,
         int IdbRecordCount,
         int HistoryCount);
+
+    public sealed record PageProjectionIntentWire(
+        string Type,
+        int SchemaVersion,
+        int? ViewportW,
+        int? ViewportH,
+        string? Census,
+        uint? TargetId = null,
+        uint ContextId = 1,
+        string Payload = "{}",
+        long Generation = 0,
+        string? Anchor = null,
+        double? TimestampClient = null,
+        string? TraceId = null);
 
     [MessagePackObject]
     public sealed class JournalFactWire

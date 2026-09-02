@@ -34,6 +34,10 @@ import {
   type LastInputIntentRecord,
 } from './inputClickDiagnostic';
 import {
+  emitInputPathApplied,
+  emitInputPathReject,
+} from './inputPathTelemetryEmit';
+import {
   materializeSpeculumPpForSession,
   removeSpeculumPpSessionDir,
   speculumPpExtensionPath,
@@ -182,6 +186,7 @@ export class PageProjectionBrowserSession {
   /** Serializes loopback re-establish across rapid `document.install` events (loopback.md §8.2). */
   private documentInstallEstablishChain: Promise<void> = Promise.resolve();
   private readonly inputRejectMetrics = new InputRejectMetrics();
+  private inputPathTelemetry = false;
   private lastInputIntent: LastInputIntentRecord | null = null;
   private lastClickResolve: LastClickResolveRecord | null = null;
   private readonly pageState = new PageState();
@@ -308,6 +313,7 @@ export class PageProjectionBrowserSession {
     this.viewportPolicy = options.viewportPolicy;
     this.device = resolveDeviceProfile(options.device);
     this.cpuAllowed = options.cpuProfiling === true;
+    this.inputPathTelemetry = options.inputPathTelemetry === true;
     if (options.mirrorMode !== 'pageProjection') {
       throw new Error('PageProjectionBrowserSession requires mirrorMode pageProjection');
     }
@@ -403,9 +409,27 @@ export class PageProjectionBrowserSession {
           };
         }
       },
-      onReject: (errorCode, phase) => {
+      onReject: (errorCode, phase, kind, viewportW, viewportH) => {
         this.inputRejectMetrics.noteReject(errorCode, phase);
-        this.events.onConsole?.(3, `input_reject ${errorCode} ${phase}`);
+        emitInputPathReject(
+          this.inputPathTelemetry,
+          this.events.onPageProjectionIntentPath,
+          this.events.onConsole,
+          errorCode,
+          phase,
+          kind,
+          errorCode === 'stale_viewport'
+            ? {
+                viewportW: viewportW ?? this.lastInputIntent?.viewportW ?? 0,
+                viewportH: viewportH ?? this.lastInputIntent?.viewportH ?? 0,
+                activeViewportW: this.width,
+                activeViewportH: this.height,
+              }
+            : undefined,
+        );
+      },
+      onApplied: (kind) => {
+        emitInputPathApplied(this.inputPathTelemetry, this.events.onPageProjectionIntentPath, kind);
       },
     });
 
@@ -798,6 +822,18 @@ export class PageProjectionBrowserSession {
             data,
           };
         }
+      } else if (op === 'keyOfSelector') {
+        const selector = request.domSelector?.trim();
+        if (!selector) {
+          return {
+            ok: false,
+            errorCode: 'probe_invalid',
+            message: 'keyOfSelector requires domSelector',
+          };
+        }
+        data.keyOfSelector = await this.loopbackKeyOfSelector(selector, 1);
+      } else if (op === 'inputClickDiagnostic') {
+        data.inputClickDiagnostic = await this.dumpInputClickDiagnostic(null);
       } else if (op === 'startCpuProfile') {
         const start = await this.startCpuProfile();
         data.startCpuProfile = start;
@@ -912,18 +948,22 @@ export class PageProjectionBrowserSession {
     if (!intent) {
       return { status: 'dropped', reason: 'unsupported_intent' };
     }
-    if (intent.type === 'down' || intent.type === 'up') {
-      this.lastInputIntent = {
-        type: intent.type,
-        contextId: intent.contextId,
-        nodeId: intent.nodeId ?? null,
-        localX: intent.localX,
-        localY: intent.localY,
-        x: intent.x,
-        y: intent.y,
-        atMs: Date.now(),
-      };
-    }
+    // Stamp from wire ingress (not UnifiedIntent) — schemaVersion/census are dropped
+    // in ingressToUnifiedIntent; lastIntent must still prove Admit forwarded them.
+    this.lastInputIntent = {
+      type: intent.type,
+      contextId: 'contextId' in intent ? intent.contextId : undefined,
+      nodeId: 'nodeId' in intent ? (intent.nodeId ?? null) : null,
+      localX: 'localX' in intent ? intent.localX : undefined,
+      localY: 'localY' in intent ? intent.localY : undefined,
+      x: 'x' in intent ? intent.x : undefined,
+      y: 'y' in intent ? intent.y : undefined,
+      schemaVersion: Number(input.schemaVersion ?? 0),
+      viewportW: Number(input.viewportW ?? 0),
+      viewportH: Number(input.viewportH ?? 0),
+      census: input.census != null && String(input.census).length > 0 ? String(input.census) : null,
+      atMs: Date.now(),
+    };
     this.eventApplier.enqueue(intent);
     return { status: 'dispatched' };
   }

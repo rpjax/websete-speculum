@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Touch scroll axis fixture</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        font: 16px/1.45 system-ui, sans-serif;
+        color: #141413;
+        background: #f4f1ea;
+        /* ≥ 3× typical mobile viewport height */
+        min-height: 300vh;
+      }
+      #plaintext {
+        margin: 1rem;
+        padding: 1rem;
+        max-width: 36rem;
+        background: #fff;
+        border: 1px solid #d2d1c8;
+      }
+      /* Same CSS signature measured on NAV.zyqj8m: overflowX/Y auto, touch-action auto,
+         scrollWidth > clientWidth, scrollHeight == clientHeight */
+      #hscroller {
+        margin: 1.25rem 1rem;
+        height: 120px;
+        width: calc(100% - 2rem);
+        max-width: 390px;
+        overflow-x: auto;
+        overflow-y: auto;
+        touch-action: auto;
+        overscroll-behavior: auto;
+        border: 2px solid #1a5cff;
+        background: #0f121a;
+        color: #f6f3ec;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+      }
+      #hscroller .track {
+        display: inline-flex;
+        height: 100%;
+        /* force scrollWidth >> clientWidth; height locked to scroller → sh == ch */
+        align-items: stretch;
+      }
+      #hscroller .tile {
+        flex: 0 0 160px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 1px solid rgb(255 255 255 / 20%);
+        font: 600 0.85rem/1 ui-monospace, Consolas, monospace;
+      }
+      #hscroller .tile:nth-child(odd) { background: #1a5cff; }
+      #hscroller .tile:nth-child(even) { background: #0f7b3a; }
+      .pad {
+        margin: 1rem;
+        padding: 2rem 1rem;
+        min-height: 80vh;
+        background: repeating-linear-gradient(
+          180deg,
+          #e8e7e2 0 48px,
+          #dddcd6 48px 96px
+        );
+      }
+    </style>
+  </head>
+  <body>
+    <p id="plaintext">
+      Plain text block for vertical page swipe (G2). The page below continues for several
+      viewports so document overflow is real. The horizontal scroller is the capture target for G1/G3.
+    </p>
+    <div id="hscroller" data-role="h-scroller">
+      <div class="track" aria-hidden="true">
+        <div class="tile">H0</div>
+        <div class="tile">H1</div>
+        <div class="tile">H2</div>
+        <div class="tile">H3</div>
+        <div class="tile">H4</div>
+        <div class="tile">H5</div>
+        <div class="tile">H6</div>
+        <div class="tile">H7</div>
+        <div class="tile">H8</div>
+        <div class="tile">H9</div>
+        <div class="tile">H10</div>
+        <div class="tile">H11</div>
+        <div class="tile">H12</div>
+        <div class="tile">H13</div>
+      </div>
+    </div>
+    <div class="pad">Vertical filler — keep scrolling the document.</div>
+    <div class="pad">More vertical filler.</div>
+    <div class="pad">End of tall page.</div>
+  </body>
+</html>

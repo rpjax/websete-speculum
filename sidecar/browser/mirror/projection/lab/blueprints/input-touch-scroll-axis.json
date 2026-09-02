@@ -1,0 +1,44 @@
+{
+  "id": "input-touch-scroll-axis",
+  "description": "PP-SCROLL-AXIS — A/B/C × G1/G2/G3 touch matrix; computed verdict (no human log reading)",
+  "sessionPolicy": "cold",
+  "fold": "touch-scroll-axis",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        {
+          "id": "boot",
+          "type": "boot",
+          "params": { "url": "fixtures/touch-scroll-axis.html" }
+        },
+        {
+          "id": "wait",
+          "type": "sleep",
+          "dependsOn": ["boot"],
+          "params": { "ms": 4000 }
+        },
+        {
+          "id": "probe",
+          "type": "probe.touchScrollAxis",
+          "dependsOn": ["wait"],
+          "params": {
+            "scrollerSelector": "#hscroller",
+            "plaintextSelector": "#plaintext"
+          }
+        },
+        {
+          "id": "fold",
+          "type": "fold",
+          "dependsOn": ["probe"],
+          "params": { "ruleset": "touch-scroll-axis" }
+        },
+        {
+          "id": "writeDossier",
+          "type": "writeDossier",
+          "dependsOn": ["fold"]
+        }
+      ]
+    }
+  ]
+}

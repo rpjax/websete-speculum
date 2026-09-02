@@ -1,4 +1,10 @@
 [
+  {
+    "id": "touch-scroll-axis",
+    "path": "touch-scroll-axis.html",
+    "tags": ["dom", "input", "touch", "scroll-axis"],
+    "notes": "Tall page + #hscroller (overflow-x/y auto, sh==ch) + #plaintext — PP-SCROLL-AXIS matrix"
+  },
   { "id": "demo", "path": "demo.html", "tags": ["dom", "smoke"], "notes": "Default demo fixture" },
   { "id": "anim-js-60", "path": "anim-js.html?fps=60", "tags": ["dom", "attr", "motion"], "notes": "Honk ballet 60fps via style.transform" },
   { "id": "anim-js-30", "path": "anim-js.html?fps=30", "tags": ["dom", "attr", "motion"], "notes": "Honk ballet 30fps" },

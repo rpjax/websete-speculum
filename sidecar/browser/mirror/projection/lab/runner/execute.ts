@@ -24,12 +24,14 @@ import { foldTurnstile } from '../blueprints/fold/turnstile';
 import { foldCssomMatrixNested } from '../blueprints/fold/cssomMatrixNested';
 import { foldDocumentChurn } from '../blueprints/fold/documentChurn';
 import { foldInputIframeXoShadow } from '../blueprints/fold/inputIframeXoShadow';
+import { foldTouchScrollAxisBlueprint } from '../blueprints/fold/touchScrollAxis';
 import { runNestedHostReadyProbe } from '../probes/nestedHostReady';
 import { runTurnstileDiagnostic } from '../probes/turnstileDiagnostic';
 import { runNestedApplyFailureDiagnostic } from '../probes/nestedApplyFailureDiagnostic';
 import { runCssomMatrixDiagnostic } from '../probes/cssomMatrixDiagnostic';
 import { runPaintDiffProbe } from '../probes/paintDiffProbe';
 import { runLaunchTelemetryProbe } from '../probes/launchTelemetryProbe';
+import { runTouchScrollAxisProbe } from '../probes/touchScrollAxis';
 import {
   CSSOM_SHEET_DUMP_EXPR,
   parseCssomSheetDump,
@@ -888,6 +890,54 @@ export async function executeBlueprint(
           diagnostic.established ? 'established' : diagnostic.bootOutcome?.reason ?? 'not established',
         );
       }
+      case 'probe.touchScrollAxis': {
+        const cdp = hooks.projectedCdpUrl;
+        if (!cdp || !String(cdp).trim()) {
+          const voidDiag = {
+            capturedAt: new Date().toISOString(),
+            fixtureUrl: '',
+            scrollerSelector: '#hscroller',
+            plaintextSelector: '#plaintext',
+            surfaceHost: null,
+            controlViewport: null,
+            cells: [],
+            verdict: 'VOID' as const,
+            voidReasons: ['no_projected_cdp_url'],
+            hypothesis: ['VOID: no_projected_cdp_url'],
+          };
+          (chassis.journal as { touchScrollAxis?: unknown }).touchScrollAxis = voidDiag;
+          if (chassis.dossierHandle) {
+            await writeJson(
+              chassis.dossierHandle,
+              'probes/touch-scroll-axis.json',
+              voidDiag,
+              'probes.touchScrollAxis',
+            );
+          }
+          chassis.journal.acts.push({ name: 'probe.touchScrollAxis', ok: true });
+          return finish(true, 'VOID: no_projected_cdp_url');
+        }
+        const fixtureParam =
+          typeof params.url === 'string' && params.url.trim()
+            ? hooks.resolveUrl(params.url.trim())
+            : undefined;
+        const diagnostic = await runTouchScrollAxisProbe({
+          chassis,
+          dossier: chassis.dossierHandle,
+          projectedCdpUrl: cdp,
+          labOrigin: hooks.labOrigin,
+          fixtureUrl: fixtureParam,
+          scrollerSelector:
+            typeof params.scrollerSelector === 'string' ? params.scrollerSelector : '#hscroller',
+          plaintextSelector:
+            typeof params.plaintextSelector === 'string' ? params.plaintextSelector : '#plaintext',
+        });
+        chassis.journal.acts.push({
+          name: 'probe.touchScrollAxis',
+          ok: true,
+        });
+        return finish(true, diagnostic.hypothesis[0] ?? diagnostic.verdict);
+      }
       case 'collect.enable':
         return finish(true, 'collectors always on chassis');
       case 'injectFrame': {
@@ -1089,6 +1139,8 @@ export async function executeBlueprint(
           verdicts = foldDocumentChurn(chassis);
         } else if (ruleset === 'input-iframe-xo-shadow' || ruleset === 'fold/inputIframeXoShadow') {
           verdicts = foldInputIframeXoShadow(chassis);
+        } else if (ruleset === 'touch-scroll-axis' || ruleset === 'fold/touchScrollAxis') {
+          verdicts = foldTouchScrollAxisBlueprint(chassis);
         } else return finish(false, `unknown fold ruleset ${ruleset}`);
         return finish(true, `verdicts=${verdicts.length}`);
       }

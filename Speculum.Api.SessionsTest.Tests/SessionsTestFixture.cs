@@ -24,6 +24,32 @@ public sealed class SessionsTestFixture
             },
             ct);
         response.EnsureSuccessStatusCode();
+
+        // Persist InputPathTelemetry — compose env is first-boot only; SQLite volume may
+        // keep a prior false and silence cdp_applied / cdp_rejected hops.
+        await EnsureSessionsInputPathTelemetryAsync(enabled: true, ct);
+    }
+
+    /// <summary>
+    /// GET Sessions → patch <c>inputPathTelemetry</c> → PUT full body.
+    /// </summary>
+    public async Task EnsureSessionsInputPathTelemetryAsync(
+        bool enabled,
+        CancellationToken ct = default)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        using var get = await http.GetAsync($"{Host.ApiBase}/api/configurations/Sessions", ct);
+        get.EnsureSuccessStatusCode();
+        var json = await get.Content.ReadAsStringAsync(ct);
+        var node = JsonNode.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json)
+            ?? new JsonObject();
+        node["inputPathTelemetry"] = enabled;
+
+        using var put = await http.PutAsync(
+            $"{Host.ApiBase}/api/configurations/Sessions",
+            new StringContent(node.ToJsonString(), System.Text.Encoding.UTF8, "application/json"),
+            ct);
+        put.EnsureSuccessStatusCode();
     }
 
     /// <summary>
@@ -122,6 +148,8 @@ public sealed class SessionsTestFixture
         ["Telemetry.Sessions.Resize.Rejected"] = true,
         ["Telemetry.Sessions.PageProjection.Frame.ResyncRequested"] = true,
         ["Telemetry.Sessions.PageProjection.Frame.FrameReceived"] = true,
+        ["Telemetry.Sessions.PageProjection.Input.Applied"] = true,
+        ["Telemetry.Sessions.PageProjection.Input.Rejected"] = true,
     };
 }
 

@@ -16,9 +16,11 @@ curl -sf -X PUT "${API_BASE}/api/configurations/Telemetry" \
       "Telemetry.Sessions.Resize.Applied": true,
       "Telemetry.Sessions.Resize.Rejected": true,
       "Telemetry.Sessions.PageProjection.Frame.ResyncRequested": true,
-      "Telemetry.Sessions.PageProjection.Frame.FrameReceived": true
+      "Telemetry.Sessions.PageProjection.Frame.FrameReceived": true,
+      "Telemetry.Sessions.PageProjection.Input.Applied": true,
+      "Telemetry.Sessions.PageProjection.Input.Rejected": true
     }
   }' | tee /tmp/sessions-test-seed.json
 
 echo
-echo "Seed complete (VideoStreaming input/resize + PageProjection frame events explicitly enabled)."
+echo "Seed complete (VideoStreaming input/resize + PageProjection frame/input events explicitly enabled)."

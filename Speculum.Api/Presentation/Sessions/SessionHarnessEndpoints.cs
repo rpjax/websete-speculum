@@ -617,21 +617,7 @@ public static class SessionHarnessEndpoints
                 });
             }
 
-            var admit = live.AdmitPageProjectionInput(new PageProjectionIntent
-            {
-                Generation = body.Generation,
-                Type = body.Type.Trim(),
-                Anchor = body.Anchor,
-                TargetId = body.TargetId,
-                ContextId = body.ContextId,
-                TimestampClient = body.TimestampClient,
-                TraceId = body.TraceId,
-                Payload = body.Payload ?? "{}",
-                SchemaVersion = body.SchemaVersion,
-                ViewportW = body.ViewportW,
-                ViewportH = body.ViewportH,
-                Census = body.Census,
-            });
+            var admit = live.AdmitPageProjectionInput(body.ToPageProjectionIntent());
             if (admit.IsFailure)
             {
                 return Results.BadRequest(new
@@ -720,6 +706,29 @@ public sealed class SessionHarnessPageProjectionIntentRequest
     public int? ViewportH { get; init; }
 
     public string? Census { get; init; }
+
+    /// <summary>
+    /// Single mapping site for harness → <see cref="PageProjectionIntent"/>.
+    /// Completeness vs the model is asserted by
+    /// <c>SessionHarnessPageProjectionIntentMappingTests</c> — add any new intent
+    /// property here and on this request type together.
+    /// </summary>
+    public PageProjectionIntent ToPageProjectionIntent()
+        => new()
+        {
+            Generation = Generation,
+            Type = Type.Trim(),
+            Anchor = Anchor,
+            TargetId = TargetId,
+            ContextId = ContextId,
+            TimestampClient = TimestampClient,
+            TraceId = TraceId,
+            Payload = Payload ?? "{}",
+            SchemaVersion = SchemaVersion,
+            ViewportW = ViewportW,
+            ViewportH = ViewportH,
+            Census = Census,
+        };
 }
 
 public sealed class SessionHarnessProbeRequest

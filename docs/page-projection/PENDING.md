@@ -52,6 +52,18 @@
 
 ---
 
+## P2.2 — `Sessions__*` env não sobrescreve SQLite persistido
+
+| | |
+|--|--|
+| **O que é** | Variáveis `Sessions__*` no compose/dockup aplicam só no first-boot. Se a chave já existe no SQLite de configurações, o valor persistido ganha — o env **não** sobrescreve. Vale para qualquer chave de Sessions (não só `InputPathTelemetry`). Sintoma típico: dockup/compose muda o env e `GET /api/configurations/Sessions` continua no valor velho. |
+| **Evidência** | **VERIFICADO** — comentário e contorno em `Speculum.Api.SessionsTest.Tests/SessionsTestFixture.cs` 28–30 (`EnsureBaselineAsync` → `EnsureSessionsInputPathTelemetryAsync`): *"compose env is first-boot only; SQLite volume may keep a prior false"*. O PUT do fixture é **contorno consciente** de teste, não o conserto de produto. |
+| **Por que nesta posição** | Bug de configuração de produto (já mordeu dockup); não é escopo do carimbo P1/P2. Registrado aqui para não perder. |
+| **Feito quando** | Regra de load documentada e implementada: env de deploy sobrescreve (ou merge explícito) o persistido para Sessions — ou decisão documentada de first-boot-only com procedimento de migração. Contorno de teste removido ou reduzido ao que o produto garantir. |
+| **Marcação** | Existência do buraco + contorno no fixture: **VERIFICADO**. Conserto: **não feito** (proibido neste ciclo). |
+
+---
+
 ## P3 — Dívidas do hot path de input (pequenas, conhecidas)
 
 ### 3.1 `intentToWire` manda `generation: 0` hardcoded

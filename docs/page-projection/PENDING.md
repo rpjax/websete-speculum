@@ -52,15 +52,14 @@
 
 ---
 
-## P2.2 — `Sessions__*` env não sobrescreve SQLite persistido
+## P2.2 — Configuração de `Sessions`: banco manda, env é semente
 
 | | |
 |--|--|
-| **O que é** | Variáveis `Sessions__*` no compose/dockup aplicam só no first-boot. Se a chave já existe no SQLite de configurações, o valor persistido ganha — o env **não** sobrescreve. Vale para qualquer chave de Sessions (não só `InputPathTelemetry`). Sintoma típico: dockup/compose muda o env e `GET /api/configurations/Sessions` continua no valor velho. |
-| **Evidência** | **VERIFICADO** — comentário e contorno em `Speculum.Api.SessionsTest.Tests/SessionsTestFixture.cs` 28–30 (`EnsureBaselineAsync` → `EnsureSessionsInputPathTelemetryAsync`): *"compose env is first-boot only; SQLite volume may keep a prior false"*. O PUT do fixture é **contorno consciente** de teste, não o conserto de produto. |
-| **Por que nesta posição** | Bug de configuração de produto (já mordeu dockup); não é escopo do carimbo P1/P2. Registrado aqui para não perder. |
-| **Feito quando** | Regra de load documentada e implementada: env de deploy sobrescreve (ou merge explícito) o persistido para Sessions — ou decisão documentada de first-boot-only com procedimento de migração. Contorno de teste removido ou reduzido ao que o produto garantir. |
-| **Marcação** | Existência do buraco + contorno no fixture: **VERIFICADO**. Conserto: **não feito** (proibido neste ciclo). |
+| **O que é** | **Comportamento esperado, não bug.** A autoridade das configurações de `Sessions` é o banco. Variáveis `Sessions__*` no compose/dockup são **semente de first-boot**: se a chave já existe no banco, o valor persistido prevalece e o env é ignorado. Decisão de produto fechada — não reabrir. |
+| **Consequência prática** | Em ambiente já existente, mudar o dockup/compose não altera nada: `GET /api/configurations/Sessions` segue com o valor do banco. Para mudar, use a API/tela de configuração (`PUT /api/configurations/Sessions`). |
+| **Referência** | `Speculum.Api.SessionsTest.Tests/SessionsTestFixture.cs` → `EnsureSessionsInputPathTelemetryAsync`: o fixture faz GET → patch → PUT. Isso é o **uso correto da API**, não contorno. |
+| **Ação** | Nenhuma. Item existe só para quem esbarrar no sintoma não abrir investigação. |
 
 ---
 
@@ -70,19 +69,19 @@
 
 | | |
 |--|--|
-| **O que é** | Cliente Live serializa intent com `generation: 0` fixo. |
-| **Evidência** | **VERIFICADO** `web/src/features/sessions/live/SessionMirrorSurface.tsx` 74–99 (`generation: 0`). Impacto em telemetria (não distinguir atual vs obsoleto): **NÃO VERIFICADO** como falha observada em produção; apenas o hardcode. |
+| **O que é** | Cliente Live serializa intent com `generation` da superfície projetada. |
+| **Evidência** | **VERIFICADO** `web/src/features/sessions/live/SessionMirrorSurface.tsx` — `intentToWire(intent, client.getGeneration())` / nested `info.getGeneration()`. |
 | **Por que nesta posição** | Não mata input; telemetria / ordenação. |
-| **Feito quando** | `generation` no wire reflete a generation da superfície projetada (ou decisão documentada de não enviar). |
+| **Feito quando** | `generation` no wire reflete a generation da superfície projetada. **FEITO**. |
 
-### 3.2 `sidecar_admitted` / `dispatched` = enfileirado, não aplicado
+### 3.2 `sidecar_enqueued` / `enqueued` = enfileirado, não aplicado
 
 | | |
 |--|--|
-| **O que é** | `pushInput` retorna `{ status: 'dispatched' }` imediatamente após `eventApplier.enqueue`, antes da validação/aplicação CDP. |
-| **Evidência** | **VERIFICADO** `PageProjectionBrowserSession.ts` 955–956. Fase `sidecar_admitted` no bridge: **VERIFICADO** como símbolo em `sidecar/host/EventBridge.ts` ~470. Decisão rename vs manter contrato: **estado desconhecido — confirmar**. |
-| **Por que nesta posição** | Contrato / semântica; já documentável. |
-| **Feito quando** | Decisão registrada (renomear ou manter) e código/docs alinhados. |
+| **O que é** | `pushInput` retorna `{ status: 'enqueued' }` imediatamente após `eventApplier.enqueue`, antes da validação/aplicação CDP. Fase de path e journal: `sidecar_enqueued` / `…Input.SidecarEnqueued` (PP + Video). |
+| **Evidência** | **VERIFICADO** rename em sidecar contracts, proto, Api journal, SPA catalog. Sem shim do nome antigo; volumes de config destruídos e ressemeados. |
+| **Por que nesta posição** | Contrato / semântica. |
+| **Feito quando** | Decisão = rename honesto; código/docs alinhados. **FEITO**. |
 
 ---
 

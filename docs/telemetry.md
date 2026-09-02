@@ -94,9 +94,9 @@ applies — hot-path facts stay quiet until `Telemetry.Events` enables them.
 
 | Plane | Path hops (opt-in) | Outcomes |
 |-------|--------------------|----------|
-| VideoStreamingInput | `DataPlaneReceived`, `ControlReceived`, `SidecarPushWritten`, `SidecarAdmitted` | `Applied`, `Rejected` |
+| VideoStreamingInput | `DataPlaneReceived`, `ControlReceived`, `SidecarPushWritten`, `SidecarEnqueued` | `Applied`, `Rejected` |
 | PageProjection Diff | `Diff.FrameReceived`, `Diff.QueueDropped`, `Diff.OutputStreamOpened`, `Diff.OutputStreamClosed`, `Diff.FanOutEnqueued`, `Diff.StreamDequeued`, `Diff.WireDelivered`, `Diff.GenerationBumped`, `Diff.ResyncRequested`, `Diff.ResyncServed` | recovery via OOB resync (Activity `client_desync` / `client_resync_*`) |
-| PageProjection Input | `Input.DataPlaneReceived`, `Input.AdmissionDropped`, `Input.SidecarPushWritten`, `Input.SidecarAdmitted`, `Input.CdpDropped` | `Input.Applied` (gRPC push), `Input.Rejected` |
+| PageProjection Input | `Input.DataPlaneReceived`, `Input.AdmissionDropped`, `Input.SidecarPushWritten`, `Input.SidecarEnqueued`, `Input.CdpDropped` | `Input.Applied` (gRPC push), `Input.Rejected` |
 
 `Diff.GenerationBumped` (via `WatchPageProjectionLifecycle`) records when sidecar generation
 identity changes: `main_frame_navigated` (contract path) or `page_emit_sync` (Node caught up
@@ -129,8 +129,8 @@ is blocked.
 
 Sidecar path watches: `WatchVideoStreamingInputPath` / `WatchPageProjectionInputPath` (EventBridge
 `videoStreamingInputPath` / `pageProjectionInputPath`). Product RPCs `PushInput` / `PushDomInput` are
-unchanged. `Applied` means the API wrote the gRPC push — CDP success is `SidecarAdmitted`; CDP
-drops are `CdpDropped` with a `reason`.
+unchanged. `Applied` (with phase `cdp_applied`) is CDP apply success; `SidecarEnqueued`
+means the sidecar only queued the intent (not yet applied). CDP drops are `CdpDropped` with a `reason`.
 
 ### Front observation (Lab + Live)
 
@@ -160,7 +160,7 @@ switches in Admin (catalog), not free-form type strings.
 Path / Diff / front planes are **debug-only**. When a fact or ClientObservation plane is **off**,
 emitters early-return (`IsTypeEnabled` / `observationAllowsPlane`) — near-zero cost on the hot
 path. When **on**, capture is **full** for data-plane / Applied / Diff / front hops (every HF move,
-every Diff patch, every Applied): the operator accepts cost. **`SidecarAdmitted` is the exception** —
+every Diff patch, every Applied): the operator accepts cost. **`SidecarEnqueued` is the exception** —
 VideoStreamingInput and PageProjection both skip high-frequency move samples on the admit hop
 (`mousemove` / touch-move / `pointermove`), matching the sidecar path fan-out. Prefer Export JSONL
 often; front ring keeps the newest 2000 entries (DropOldest).
@@ -168,7 +168,7 @@ often; front ring keeps the newest 2000 entries (DropOldest).
 Wire: every product send stamps MessagePack `traceId` (opaque client id) and, for video,
 `clientTimestampMs`. Journal path/outcome facts include `TraceId` / `ClientTimestampMs` when
 present (schemaVersion **2**). PageProjection Diff `FrameReceived` includes sidecar `Timestamp`
-and optional Cssom install counts. PageProjection Intent path includes `SidecarAdmitted` /
+and optional Cssom install counts. PageProjection Intent path includes `SidecarEnqueued` /
 `CdpDropped` via `WatchPageProjectionInputPath` (mirror of VideoStreamingInput).
 
 ## Sections (sampling)

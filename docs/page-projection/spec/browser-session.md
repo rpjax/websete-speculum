@@ -532,7 +532,7 @@ interface IPageProjectionBrowserSession extends IBrowserSession {
   getTelemetrySnapshot(contextId?: number): Promise<PageProjectionTelemetrySnapshot>;
 
   pushInput(input: DomInputIngress): Promise<
-    { status: 'dispatched' } | { status: 'dropped'; reason: string }
+    { status: 'enqueued' } | { status: 'dropped'; reason: string }
   >;
 
   getAsset(key: string, opts?: DomAssetRequestOpts): Promise<DomAssetResult | null>;

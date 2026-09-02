@@ -25,8 +25,8 @@ public sealed class SessionsTestFixture
             ct);
         response.EnsureSuccessStatusCode();
 
-        // Persist InputPathTelemetry — compose env is first-boot only; SQLite volume may
-        // keep a prior false and silence cdp_applied / cdp_rejected hops.
+        // Configuration authority is the database; compose env only seeds first boot.
+        // Set InputPathTelemetry through the configuration API, as any caller would.
         await EnsureSessionsInputPathTelemetryAsync(enabled: true, ct);
     }
 
@@ -144,12 +144,14 @@ public sealed class SessionsTestFixture
     {
         ["Telemetry.Sessions.VideoStreamingInput.Applied"] = true,
         ["Telemetry.Sessions.VideoStreamingInput.Rejected"] = true,
+        ["Telemetry.Sessions.VideoStreamingInput.SidecarEnqueued"] = true,
         ["Telemetry.Sessions.Resize.Applied"] = true,
         ["Telemetry.Sessions.Resize.Rejected"] = true,
         ["Telemetry.Sessions.PageProjection.Frame.ResyncRequested"] = true,
         ["Telemetry.Sessions.PageProjection.Frame.FrameReceived"] = true,
         ["Telemetry.Sessions.PageProjection.Input.Applied"] = true,
         ["Telemetry.Sessions.PageProjection.Input.Rejected"] = true,
+        ["Telemetry.Sessions.PageProjection.Input.SidecarEnqueued"] = true,
     };
 }
 

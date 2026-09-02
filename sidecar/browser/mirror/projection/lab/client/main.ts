@@ -26,6 +26,9 @@ import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '@speculum/page-proj
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import { NGROK_SKIP_HEADERS } from '../labPublicOrigin';
 import labBuildStamp from '../static/labBuildStamp.json';
+import { createRunsPanel } from './runsPanel';
+import { initLabShell, type LabShell } from './labShell';
+import { installScrollDiagHostApis } from './scrollDiagHost';
 
 function labFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
@@ -201,6 +204,7 @@ function setChip(id: string, text: string, kind?: 'ok' | 'warn' | 'danger' | 'li
 }
 
 export function bootLabClient(): void {
+  installScrollDiagHostApis();
   const buildLabel = `build #${labBuildStamp.seq}`;
   setChip('chipBuild', buildLabel, 'live');
   $('chipBuild').title = `${buildLabel}${labBuildStamp.builtAt ? ` · ${labBuildStamp.builtAt}` : ''}`;
@@ -218,6 +222,12 @@ export function bootLabClient(): void {
     resolve: (result: ViewportResizeResult) => void;
   } | null = null;
   let bootDeviceProfile: ViewportDeviceProfile = detectViewportDeviceProfile();
+
+  const runsPanel = createRunsPanel({
+    fetch: labFetch,
+    onActivity: logActivity,
+  });
+  runsPanel.mount();
 
   /** Lab-only diag hooks — early so a later boot throw cannot hide them. */
   (
@@ -544,11 +554,34 @@ export function bootLabClient(): void {
     if (detail) detail.textContent = '—';
   }
 
-  function measureHeader(): void {
-    const h = $('labHeader').getBoundingClientRect().height;
-    document.documentElement.style.setProperty('--hdr-h', `${Math.ceil(h)}px`);
+  function truncateHudUrl(raw: string, max = 52): string {
+    if (!raw) return '—';
+    try {
+      const u = new URL(raw);
+      const compact = `${u.host}${u.pathname}${u.search}`;
+      return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+    } catch {
+      return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw;
+    }
   }
 
+  function updateHudSummary(): void {
+    const el = document.getElementById('hudSummary');
+    if (!el) return;
+    if (mode === 'browse') {
+      const fix = fixtureSelect.selectedOptions[0]?.textContent?.trim() || 'fixture';
+      const url = urlInput.value.trim();
+      el.textContent = url ? `${fix} · ${truncateHudUrl(url)}` : fix;
+      el.title = url || fix;
+    } else {
+      const bp = selectedBlueprint();
+      const url = bp?.defaultUrl ?? '';
+      el.textContent = bp ? `${bp.id} · ${truncateHudUrl(url)}` : 'Pick blueprint';
+      el.title = url || bp?.description || '';
+    }
+  }
+
+  let labShell: LabShell | null = null;
   let labFullscreen = false;
 
   function syncFullscreenUi(): void {
@@ -557,7 +590,6 @@ export function bootLabClient(): void {
     exitBtn.setAttribute('aria-hidden', labFullscreen ? 'false' : 'true');
     const enterBtn = $('enterFullscreen') as HTMLButtonElement;
     enterBtn.setAttribute('aria-pressed', labFullscreen ? 'true' : 'false');
-    if (!labFullscreen) measureHeader();
   }
 
   async function enterLabFullscreen(): Promise<void> {
@@ -666,7 +698,7 @@ export function bootLabClient(): void {
       : 'Start Virtual first';
 
     refreshStatus();
-    measureHeader();
+    updateHudSummary();
   }
 
   function selectedBlueprint(): BlueprintSummary | undefined {
@@ -694,6 +726,10 @@ export function bootLabClient(): void {
     });
     $('browseControls').hidden = next !== 'browse';
     $('runControls').hidden = next !== 'run';
+    const browseSec = document.getElementById('browseControlsSecondary');
+    const runSec = document.getElementById('runControlsSecondary');
+    if (browseSec) browseSec.hidden = next !== 'browse';
+    if (runSec) runSec.hidden = next !== 'run';
     fixtureField.hidden = next !== 'browse';
     blueprintField.hidden = next !== 'run';
     blueprintDesc.hidden = next !== 'run';
@@ -710,6 +746,7 @@ export function bootLabClient(): void {
       syncRunTarget();
     }
     syncButtons();
+    updateHudSummary();
   }
 
   function showTab(name: string): void {
@@ -719,11 +756,13 @@ export function bootLabClient(): void {
     $('panelConsole').hidden = name !== 'Console';
     $('panelConfig').hidden = name !== 'Config';
     $('panelProgress').hidden = name !== 'Progress';
+    $('panelRuns').hidden = name !== 'Runs';
     document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
       const on = btn.dataset.tab === name;
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
+    labShell?.expandForTab(name);
   }
 
   function renderDebugProbe(payload: Record<string, unknown>): void {
@@ -1245,6 +1284,9 @@ export function bootLabClient(): void {
         }
         if (!runInFlight && phase !== 'complete' && phase !== 'fault') phase = 'connected';
         logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ''}`);
+        if (msg.dossierDir) {
+          void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(String(msg.dossierDir)));
+        }
         syncButtons();
         return;
       }
@@ -1293,6 +1335,7 @@ export function bootLabClient(): void {
         logActivity(`fault ${detail}`);
         if (typeof msg.dossierDir === 'string' && msg.dossierDir) {
           logActivity(`fault dossier ${msg.dossierDir}`);
+          void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(msg.dossierDir as string));
         }
         showCrashOverlay(detail);
         if (msg.errorCode || msg.message) {
@@ -1363,6 +1406,10 @@ export function bootLabClient(): void {
           s.fail > 0 ? 'danger' : 'ok',
         );
         syncButtons();
+        void runsPanel.refresh().then(() => {
+          if (msg.dossierDir) void runsPanel.selectByDossierDir(String(msg.dossierDir));
+        });
+        showTab('Runs');
         return;
       }
       if (msg.type === 'error') {
@@ -1400,9 +1447,14 @@ export function bootLabClient(): void {
   fixtureSelect.addEventListener('change', () => {
     if (mode !== 'browse') return;
     urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+    updateHudSummary();
   });
   blueprintSelect.addEventListener('change', () => {
-    if (mode === 'run') syncRunTarget();
+    syncRunTarget();
+    updateHudSummary();
+  });
+  urlInput.addEventListener('input', () => {
+    if (mode === 'browse') updateHudSummary();
   });
   document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => showMode((btn.dataset.mode as 'browse' | 'run') ?? 'browse'));
@@ -1530,9 +1582,11 @@ export function bootLabClient(): void {
       );
     })();
   });
-  window.addEventListener('resize', measureHeader);
   $('enterFullscreen').addEventListener('click', () => {
     void enterLabFullscreen();
+  });
+  document.getElementById('diagCopy')?.addEventListener('click', () => {
+    (window as unknown as { diagDump?: () => unknown }).diagDump?.();
   });
   $('exitFullscreen').addEventListener('click', () => {
     void exitLabFullscreen();
@@ -1547,9 +1601,34 @@ export function bootLabClient(): void {
     if (ev.key === 'Escape' && labFullscreen) void exitLabFullscreen();
   });
 
+  const mainEl = document.getElementById('labMain');
+  const sheetEl = document.getElementById('investigationSheet');
+  const grabberEl = document.getElementById('sheetGrabber');
+  const hudEl = document.getElementById('surfaceHud');
+  const hudToggleEl = document.getElementById('hudToggle');
+  const hudBodyEl = document.getElementById('hudBody');
+  const hudMoreEl = document.getElementById('hudMore');
+  if (mainEl && sheetEl && grabberEl && hudEl && hudToggleEl && hudBodyEl) {
+    labShell = initLabShell({
+      main: mainEl,
+      sheet: sheetEl,
+      grabber: grabberEl,
+      hud: hudEl,
+      hudToggle: hudToggleEl,
+      hudBody: hudBodyEl,
+      hudMore: hudMoreEl ?? undefined,
+      onSnapChange: () => {
+        if (viewportSync) {
+          const measured = measureHostElement(surfaceHost);
+          viewportSync.schedule(measured.width, measured.height);
+        }
+      },
+    });
+  }
+
   void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
     showMode('browse');
-    measureHeader();
+    updateHudSummary();
   });
   showTab('Stream');
   refreshStatus();

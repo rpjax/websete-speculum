@@ -25,16 +25,134 @@
         font: 13.5px/1.45 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
         background: var(--bg);
         color: var(--ink);
-        min-height: 100vh;
-        display: grid;
-        grid-template-rows: auto 1fr;
+        height: 100dvh;
+        overflow: hidden;
       }
-      header {
-        display: grid;
-        gap: 0.65rem;
-        padding: 0.75rem 1rem 0.85rem;
+      main#labMain {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        min-height: 0;
+        overflow: hidden;
+        --sheet-h: clamp(56px, 42vh, 480px);
+      }
+      .surface-stage {
+        flex: 1 1 auto;
+        min-height: 96px;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        overflow: hidden;
+      }
+      .surface-hud {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 12;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .surface-hud > * { pointer-events: auto; }
+      .surface-hud-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem 0.45rem;
+        padding: 0.4rem 0.55rem;
+        background: rgba(251, 251, 248, 0.94);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(210, 209, 200, 0.85);
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+      }
+      .surface-hud-bar .mode-seg button {
+        padding: 0.28rem 0.55rem;
+        font-size: 11.5px;
+      }
+      #hudToggle {
+        width: 1.75rem;
+        height: 1.75rem;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        border-radius: 6px;
+      }
+      .hud-title {
+        font-size: 11px;
+        font-weight: 650;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      #hudSummary {
+        flex: 1 1 8rem;
+        min-width: 0;
+        font-size: 11.5px;
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #statusStrip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        max-width: 100%;
+      }
+      #statusStrip .chip {
+        font-size: 10px;
+        padding: 0.12rem 0.38rem;
+        max-width: 9rem;
+      }
+      .hud-bar-actions {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        align-items: center;
+        margin-left: auto;
+      }
+      .hud-bar-actions button {
+        padding: 0.32rem 0.55rem;
+        font-size: 11.5px;
+      }
+      #hudMore {
+        min-width: 2rem;
+        padding: 0.32rem 0.45rem;
+      }
+      .surface-hud-body {
+        display: none;
+        background: rgba(251, 251, 248, 0.97);
+        backdrop-filter: blur(10px);
         border-bottom: 1px solid var(--line);
-        background: var(--panel);
+        padding: 0.45rem 0.55rem 0.55rem;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+        max-height: min(52vh, 420px);
+        overflow: auto;
+      }
+      .surface-hud[data-more="true"] .surface-hud-body {
+        display: block;
+      }
+      .surface-hud[data-collapsed="true"] .surface-hud-body {
+        display: none !important;
+      }
+      .surface-hud[data-collapsed="true"] .surface-hud-bar > *:not(#hudToggle) {
+        display: none;
+      }
+      .surface-hud[data-collapsed="true"] .surface-hud-bar {
+        padding: 0.3rem;
+        background: transparent;
+        border-bottom: 0;
+        box-shadow: none;
+      }
+      .surface-hud[data-collapsed="true"] #hudToggle {
+        background: rgba(251, 251, 248, 0.92);
+        border: 1px solid var(--line);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
       }
       .hdr-top {
         display: flex;
@@ -76,13 +194,18 @@
         color: var(--muted);
         max-width: 28rem;
       }
+      @media (max-width: 960px) {
+        .mode-blurb { display: none; }
+      }
+
+      main {
+        /* height via #labMain above */
+      }
       #statusStrip {
-        margin-left: auto;
         display: flex;
         flex-wrap: wrap;
-        gap: 0.35rem;
-        justify-content: flex-end;
-        max-width: min(640px, 100%);
+        gap: 0.25rem;
+        max-width: 100%;
       }
       .chip {
         font-size: 11.5px;
@@ -125,7 +248,10 @@
       .field.url { flex: 1 1 240px; }
       header select,
       header input[type="url"],
-      header input[type="number"] {
+      header input[type="number"],
+      .surface-hud select,
+      .surface-hud input[type="url"],
+      .surface-hud input[type="number"] {
         padding: 0.4rem 0.55rem;
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -133,7 +259,8 @@
         font: inherit;
         width: 100%;
       }
-      header input[type="url"][readonly] {
+      header input[type="url"][readonly],
+      .surface-hud input[type="url"][readonly] {
         background: #f0f0ea;
         color: var(--muted);
         cursor: default;
@@ -165,7 +292,7 @@
         color: var(--ink);
       }
 
-      header button, aside button {
+      header button, aside button, .surface-hud button {
         padding: 0.4rem 0.75rem;
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -180,16 +307,19 @@
         opacity: 0.4;
         cursor: not-allowed;
       }
-      header button.primary {
+      header button.primary,
+      .surface-hud button.primary {
         background: var(--accent);
         border-color: var(--accent);
         color: #fff;
         font-weight: 600;
       }
-      header button.primary:hover:not(:disabled) {
+      header button.primary:hover:not(:disabled),
+      .surface-hud button.primary:hover:not(:disabled) {
         filter: brightness(0.95);
       }
-      header button.ghost-danger:hover:not(:disabled) {
+      header button.ghost-danger:hover:not(:disabled),
+      .surface-hud button.ghost-danger:hover:not(:disabled) {
         border-color: var(--danger);
         color: var(--danger);
       }
@@ -200,33 +330,73 @@
         margin: 0 0.1rem;
       }
 
-      main {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-        min-height: 0;
-        overflow: hidden;
-      }
-      /* Keep aside as a vertical rail; only stack on very narrow viewports. */
-      @media (max-width: 720px) {
-        main {
-          grid-template-columns: 1fr;
-          grid-template-rows: minmax(42vh, 1fr) minmax(240px, 48vh);
-        }
-        aside {
-          max-height: none;
-          border-left: 0;
-          border-top: 1px solid var(--line);
-        }
-        .surface-wrap { min-height: 0; }
-        .fullscreen-toggle-label { display: none; }
-        .fullscreen-toggle { padding: 0.4rem; }
-      }
       .surface-wrap {
         position: relative;
         background: var(--surface);
+        flex: 1 1 auto;
+        min-height: 100px;
+        min-width: 0;
+        overflow: hidden;
+      }
+      .investigation-sheet {
+        flex: 0 0 var(--sheet-h);
+        height: var(--sheet-h);
+        width: 100%;
+        display: flex;
+        flex-direction: column;
         min-height: 0;
         min-width: 0;
-        overflow: auto;
+        background: var(--panel);
+        border-top: 1px solid var(--line);
+        box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.07);
+        z-index: 8;
+      }
+      .sheet-grabber {
+        flex: 0 0 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: grab;
+        touch-action: none;
+        background: #f4f4ef;
+        border-bottom: 1px solid var(--line);
+      }
+      .sheet-grabber::before {
+        content: "";
+        width: 2.4rem;
+        height: 4px;
+        border-radius: 999px;
+        background: #c8c6bc;
+      }
+      .sheet-grabber:hover::before,
+      .sheet-grabber.is-dragging::before {
+        background: var(--accent);
+      }
+      .sheet-head {
+        flex-shrink: 0;
+        border-bottom: 1px solid var(--line);
+        background: #f4f4ef;
+      }
+      .sheet-head .tabs {
+        border-bottom: 0;
+      }
+      .sheet-body {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .sheet-body > .panel {
+        position: absolute;
+        inset: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      .sheet-body > .panel[hidden] {
+        display: none !important;
+      }
+      .investigation-sheet[data-snap="collapsed"] .sheet-body {
+        display: none;
       }
       .surface-empty {
         position: absolute;
@@ -359,26 +529,16 @@
         border-color: rgba(255, 255, 255, 0.35);
       }
 
-      body.lab-fullscreen {
-        min-height: 100dvh;
-        height: 100dvh;
-        overflow: hidden;
-        grid-template-rows: 1fr;
-      }
-      body.lab-fullscreen #labHeader,
-      body.lab-fullscreen aside {
+      body.lab-fullscreen #surfaceHud,
+      body.lab-fullscreen .investigation-sheet {
         display: none;
       }
-      body.lab-fullscreen main {
-        grid-template-columns: 1fr;
-        grid-template-rows: 1fr;
-        min-height: 0;
+      body.lab-fullscreen main#labMain {
         height: 100dvh;
-        max-height: 100dvh;
       }
-      body.lab-fullscreen .surface-wrap {
+      body.lab-fullscreen .surface-stage {
+        flex: 1;
         min-height: 0;
-        height: 100%;
       }
       body.lab-fullscreen .fullscreen-exit {
         display: inline-flex;
@@ -392,29 +552,31 @@
         min-height: 0;
         min-width: 0;
         height: 100%;
-        max-height: calc(100vh - var(--hdr-h, 9rem));
         overflow: hidden;
       }
       .tabs {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        display: flex;
+        flex-wrap: nowrap;
         gap: 0;
         border-bottom: 1px solid var(--line);
         flex-shrink: 0;
         background: #f4f4ef;
+        overflow-x: auto;
+        scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
       }
       .tabs button {
+        flex: 0 0 auto;
+        min-width: 3.25rem;
         border: 0;
         border-radius: 0;
         border-bottom: 2px solid transparent;
         background: transparent;
-        padding: 0.65rem 0.35rem;
+        padding: 0.55rem 0.5rem;
         color: var(--muted);
-        font-size: 12px;
+        font-size: 11.5px;
         letter-spacing: -0.01em;
         white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
       .tabs button:hover:not(.active) {
         color: var(--ink);
@@ -430,8 +592,16 @@
         flex: 1;
         overflow-x: hidden;
         overflow-y: auto;
-        padding: 0.9rem 0.9rem 1.15rem;
+        padding: 0.75rem 0.8rem 0.95rem;
         min-height: 0;
+      }
+      .panel-title {
+        font-size: 11px;
+        font-weight: 650;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 0.55rem;
       }
       .metric-grid {
         display: grid;
@@ -644,76 +814,647 @@
         word-break: break-all;
         margin-top: 0.5rem;
       }
+
+      /* —— Runs panel —— */
+      #panelRuns {
+        padding: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      #runsPanelRoot {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        position: relative;
+      }
+      #runsPanelRoot.runs-panel--loading::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: rgba(251, 251, 248, 0.55);
+        pointer-events: none;
+      }
+      .runs-toolbar {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        padding: 0.45rem 0.55rem;
+        border-bottom: 1px solid var(--line);
+        background: #f7f7f3;
+        flex-shrink: 0;
+      }
+      .runs-toolbar__row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 0.45rem;
+        align-items: center;
+      }
+      .runs-toolbar__row--secondary {
+        justify-content: space-between;
+      }
+      .runs-stats {
+        margin-left: auto;
+        font-size: 10.5px;
+        color: var(--muted);
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        white-space: nowrap;
+      }
+      .runs-bulk-actions {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        align-items: center;
+      }
+      .runs-select-all {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 11px;
+        color: var(--muted);
+        cursor: pointer;
+        user-select: none;
+      }
+      .runs-btn-danger {
+        border-color: #f0c4c0 !important;
+        color: var(--danger) !important;
+      }
+      .runs-btn-danger:hover:not(:disabled) {
+        background: #fdf4f3 !important;
+      }
+      .runs-btn-danger:disabled {
+        opacity: 0.45;
+      }
+      .runs-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+      }
+      .runs-filters button {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--muted);
+        font-size: 10.5px;
+        padding: 0.18rem 0.5rem;
+      }
+      .runs-toolbar button {
+        font-size: 11.5px;
+        padding: 0.28rem 0.55rem;
+      }
+      #runsSearch {
+        width: 100%;
+        min-width: 0;
+        font-size: 12px;
+        padding: 0.3rem 0.45rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+      }
+      .runs-filters button.active {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: var(--accent-soft);
+        font-weight: 650;
+      }
+      .runs-layout {
+        display: grid;
+        grid-template-columns: minmax(12rem, 280px) minmax(0, 1fr);
+        min-height: 0;
+        flex: 1;
+        height: 100%;
+      }
+      .runs-detail-col {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        min-width: 0;
+        border-left: 1px solid var(--line);
+        background: var(--panel);
+      }
+      #runsDetailHeader {
+        flex-shrink: 0;
+        border-bottom: 1px solid var(--line);
+        background: #fafaf7;
+      }
+      #runsDetailBody {
+        flex: 1;
+        overflow: auto;
+        padding: 0.65rem 0.7rem 0.85rem;
+        min-height: 0;
+      }
+      #runsList {
+        overflow: auto;
+        padding: 0.4rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        background: #f5f5f0;
+        min-height: 0;
+      }
+      .runs-list-empty {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 0.75rem 0.35rem;
+        text-align: center;
+      }
+      .runs-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.35rem;
+        width: 100%;
+        text-align: left;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+      }
+      .runs-card__check {
+        flex-shrink: 0;
+        margin: 0.55rem 0 0 0.45rem;
+        accent-color: var(--accent);
+      }
+      .runs-card__body {
+        flex: 1;
+        min-width: 0;
+        display: block;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        padding: 0.38rem 0.45rem 0.45rem 0;
+        cursor: pointer;
+        font: inherit;
+        text-align: left;
+        color: inherit;
+      }
+      .runs-card--checked { background: #f8faff; border-color: #c9d6ff; }
+      .runs-card:hover { border-color: #b8c8ff; background: #fbfcff; }
+      .runs-card--checked:hover { background: #f3f6ff; }
+      .runs-card--selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-soft); }
+      .runs-card--pass { border-left: 3px solid var(--ok); }
+      .runs-card--fail { border-left: 3px solid var(--danger); }
+      .runs-card--neutral { border-left: 3px solid var(--line); }
+      .runs-card__head {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+        align-items: flex-start;
+        min-width: 0;
+      }
+      .runs-card__title {
+        font-weight: 650;
+        font-size: 11.5px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+      }
+      .runs-card__when {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 9.5px;
+        color: var(--muted);
+      }
+      .runs-card__url {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 0.1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+      .runs-card__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-top: 0.3rem;
+      }
+      .runs-chip {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 10px;
+        padding: 0.12rem 0.38rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--muted);
+      }
+      .runs-chip--mode { text-transform: uppercase; letter-spacing: 0.03em; }
+      .runs-chip--pass { border-color: #b7e0c5; color: var(--ok); background: #f0faf3; }
+      .runs-chip--fail { border-color: #f0c4c0; color: var(--danger); background: #fdf4f3; }
+      .runs-chip--skip { color: var(--muted); }
+      .runs-chip--accent { border-color: #b8c8ff; color: var(--accent); background: var(--accent-soft); }
+      .runs-chip--status { text-transform: lowercase; }
+      .runs-chip--muted { border-color: transparent; background: transparent; padding-left: 0; }
+      #runsDetail {
+        overflow: auto;
+        padding: 0.65rem 0.7rem 1rem;
+        min-height: 0;
+      }
+      #runsEmpty {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 1.25rem 0.5rem;
+        text-align: center;
+      }
+      .runs-detail-nav {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 0.25rem;
+        padding: 0.4rem 0.5rem;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+      .runs-detail-nav__btn {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        font-size: 10.5px;
+        padding: 0.22rem 0.55rem;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+      .runs-detail-nav__btn.active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 650;
+      }
+      .runs-detail-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        align-items: center;
+      }
+      .runs-detail-top {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        padding: 0.45rem 0.55rem 0.35rem;
+        border-bottom: 1px solid var(--line);
+      }
+      .runs-detail-url {
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .runs-detail-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+      }
+      .runs-detail-actions__btn {
+        font-size: 11px;
+        padding: 0.22rem 0.5rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+        font: inherit;
+      }
+      .runs-detail-actions__btn:hover {
+        border-color: #aea99c;
+      }
+      .runs-detail-actions__btn--danger {
+        border-color: #f0c4c0;
+        color: var(--danger);
+      }
+      .runs-detail-actions__btn--danger:hover {
+        background: #fdf4f3;
+      }
+      .runs-copy-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.35rem;
+      }
+      .runs-copy-bar__label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-weight: 650;
+      }
+      .runs-copy-bar__btn {
+        font-size: 11px;
+        padding: 0.2rem 0.45rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .runs-section { display: flex; flex-direction: column; gap: 0.55rem; }
+      .runs-hint { color: var(--muted); font-size: 12px; margin: 0; }
+      .runs-hero {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.65rem 0.75rem;
+        background: linear-gradient(135deg, #fafaf7 0%, #f5f8ff 100%);
+      }
+      .runs-hero__badge {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        padding: 0.15rem 0.45rem;
+        border-radius: 4px;
+        margin-bottom: 0.35rem;
+      }
+      .runs-hero__badge--pass { background: #e6f6ec; color: var(--ok); }
+      .runs-hero__badge--fail { background: #fdecea; color: var(--danger); }
+      .runs-hero__badge--neutral { background: #f0f0eb; color: var(--muted); }
+      .runs-hero__title { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
+      .runs-hero__sub {
+        font-size: 11.5px;
+        color: var(--muted);
+        word-break: break-all;
+        margin-top: 0.15rem;
+      }
+      .runs-metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+        gap: 0.35rem;
+      }
+      .runs-metric {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.35rem 0.45rem;
+        background: #fafaf7;
+        min-width: 0;
+      }
+      .runs-metric--fail { border-color: #f0c4c0; background: #fdf8f7; }
+      .runs-metric--pass { border-color: #b7e0c5; background: #f5fbf7; }
+      .runs-metric__label {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .runs-metric__value {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 11.5px;
+        margin-top: 0.08rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .runs-callout {
+        border-radius: 8px;
+        padding: 0.5rem 0.6rem;
+        border: 1px solid var(--line);
+        font-size: 12px;
+      }
+      .runs-callout--fail { border-color: #f0c4c0; background: #fdf4f3; }
+      .runs-callout__meta { font-size: 10.5px; color: var(--muted); margin-top: 0.2rem; }
+      .runs-path-row {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        font-size: 11px;
+      }
+      .runs-path-row__label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .runs-path-row__path {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 10px;
+        word-break: break-all;
+        background: #f6f7f9;
+        padding: 0.35rem 0.45rem;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+      }
+      .runs-timeline-chart {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 2.5rem;
+        padding: 0.25rem 0;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 0.35rem;
+      }
+      .runs-timeline-bar {
+        height: 100%;
+        min-width: 3px;
+        border-radius: 2px 2px 0 0;
+        background: #b8c8ff;
+      }
+      .runs-timeline-bar--succeeded { background: #7bc99a; }
+      .runs-timeline-bar--failed { background: #e88a82; }
+      .runs-timeline-bar--skipped { background: #c8c8c0; opacity: 0.7; }
+      .runs-timeline-chart-label { font-size: 10.5px; color: var(--muted); }
+      .runs-timeline-list { display: flex; flex-direction: column; gap: 0.3rem; }
+      .runs-tl-row {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.4rem 0.5rem;
+        background: #fafaf7;
+        font-size: 11.5px;
+      }
+      .runs-tl-row--succeeded { border-left: 3px solid var(--ok); }
+      .runs-tl-row--failed { border-left: 3px solid var(--danger); background: #fdf8f7; }
+      .runs-tl-row__head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 0.45rem;
+        align-items: baseline;
+      }
+      .runs-tl-row__status {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .runs-tl-row__id { font-weight: 650; }
+      .runs-tl-row__queue { color: var(--muted); font-size: 10.5px; }
+      .runs-tl-row__dur {
+        margin-left: auto;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 10.5px;
+      }
+      .runs-tl-row__sub { font-size: 10px; color: var(--muted); margin-top: 0.15rem; }
+      .runs-tl-row__detail { font-size: 10.5px; color: var(--muted); margin-top: 0.2rem; word-break: break-word; }
+      .runs-verdict-group__title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin: 0 0 0.35rem;
+      }
+      .runs-verdict-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.4rem 0.5rem;
+        margin-bottom: 0.3rem;
+        background: #fff;
+      }
+      .runs-verdict-card--pass { border-left: 3px solid var(--ok); }
+      .runs-verdict-card--fail { border-left: 3px solid var(--danger); }
+      .runs-verdict-card__id {
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        font-weight: 650;
+      }
+      .runs-verdict-card__reason { font-size: 11.5px; margin-top: 0.15rem; color: var(--ink); }
+      .runs-acts-table { font-size: 11px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+      .runs-acts-table__head,
+      .runs-acts-table__row {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) 3.5rem minmax(0, 1fr);
+        gap: 0.35rem;
+        padding: 0.35rem 0.5rem;
+        align-items: start;
+      }
+      .runs-acts-table__head {
+        background: #f4f4ef;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-weight: 650;
+      }
+      .runs-acts-table__row { border-top: 1px solid var(--line); background: #fff; }
+      .runs-acts-table__row--fail { background: #fdf8f7; }
+      .runs-acts-table__name { word-break: break-all; font-size: 10.5px; }
+      .runs-acts-table__ok { font-weight: 650; text-transform: uppercase; font-size: 10px; }
+      .runs-acts-table__row--ok .runs-acts-table__ok { color: var(--ok); }
+      .runs-acts-table__row--fail .runs-acts-table__ok { color: var(--danger); }
+      .runs-acts-table__err { color: var(--muted); font-size: 10px; word-break: break-word; }
+      .runs-artifact-group__title {
+        font-size: 11px;
+        margin: 0 0 0.3rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .runs-artifact-list { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.55rem; }
+      .runs-artifact-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        align-items: baseline;
+        font-size: 11px;
+        padding: 0.25rem 0;
+        border-bottom: 1px dashed var(--line);
+      }
+      .runs-artifact-row__link {
+        color: var(--accent);
+        text-decoration: none;
+        word-break: break-all;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 10.5px;
+      }
+      .runs-artifact-row__link:hover { text-decoration: underline; }
+      .runs-artifact-row__bytes { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+      .runs-probe-block {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.35rem 0.5rem;
+        background: #fafaf7;
+        margin-bottom: 0.35rem;
+      }
+      .runs-probe-block summary {
+        cursor: pointer;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .runs-pre {
+        margin: 0.35rem 0 0;
+        padding: 0.45rem 0.5rem;
+        font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        font-size: 10.5px;
+        line-height: 1.35;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #f6f7f9;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+      }
+      .runs-pre--scroll { max-height: 16rem; overflow: auto; }
+      .runs-pre--detail { max-height: min(52vh, 520px); overflow: auto; font-size: 10px; }
     </style>
   </head>
   <body>
-    <header id="labHeader">
-      <div class="hdr-top">
-        <h1>Projection lab</h1>
-        <div class="mode-seg" role="tablist" aria-label="Lab mode">
-          <button type="button" data-mode="browse" class="active" role="tab" aria-selected="true">Browse</button>
-          <button type="button" data-mode="run" role="tab" aria-selected="false">Run</button>
+    <main id="labMain">
+      <div class="surface-stage">
+        <div class="surface-hud" id="surfaceHud" data-collapsed="false" data-more="false">
+          <div class="surface-hud-bar">
+            <button type="button" id="hudToggle" aria-label="Collapse lab controls" aria-expanded="true">▾</button>
+            <span class="hud-title">Lab</span>
+            <div class="mode-seg" role="tablist" aria-label="Lab mode">
+              <button type="button" data-mode="browse" class="active" role="tab" aria-selected="true">Browse</button>
+              <button type="button" data-mode="run" role="tab" aria-selected="false">Run</button>
+            </div>
+            <span id="hudSummary" title="">Pick fixture or URL</span>
+            <div id="statusStrip" aria-live="polite">
+              <span class="chip" id="chipBuild" title="Lab client build">build —</span>
+              <span class="chip" id="chipWs" title="WebSocket">ws idle</span>
+              <span class="chip" id="chipPhase" title="Phase">idle</span>
+              <span class="chip" id="chipSession" title="Session" hidden>—</span>
+            </div>
+            <div class="hud-bar-actions">
+              <button type="button" id="connect" class="primary">Connect</button>
+              <button type="button" id="disconnect" disabled>Disconnect</button>
+              <span id="browseControls">
+                <button type="button" id="browseStart" disabled>Start Virtual</button>
+              </span>
+              <span id="runControls" hidden>
+                <button type="button" id="runStart" class="primary" disabled>Start run</button>
+              </span>
+              <button type="button" id="hudMore" aria-label="More controls" title="Fixture, URL, actions">⋯</button>
+              <button type="button" id="diagCopy" title="Copy TEMP-DIAG scroll log to clipboard">Copiar diagnóstico</button>
+              <button type="button" id="enterFullscreen" class="fullscreen-toggle" title="Fullscreen surface — hide lab chrome for mobile testing" aria-label="Enter fullscreen">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                </svg>
+                <span class="fullscreen-toggle-label">Fullscreen</span>
+              </button>
+            </div>
+          </div>
+          <div class="surface-hud-body" id="hudBody">
+            <p class="mode-blurb" id="modeBlurb">Free navigation — pick a fixture or edit the URL, then Start Virtual.</p>
+            <div class="target-row">
+              <label class="field select" id="fixtureField">
+                <span>Fixture</span>
+                <select id="fixture" aria-label="Fixture"></select>
+              </label>
+              <label class="field select" id="blueprintField" hidden>
+                <span>Blueprint</span>
+                <select id="blueprint" aria-label="Blueprint"></select>
+              </label>
+              <label class="field url">
+                <span id="urlLabel">URL</span>
+                <input id="url" type="url" spellcheck="false" aria-label="URL" />
+              </label>
+              <p class="bp-desc" id="blueprintDesc" hidden></p>
+            </div>
+            <div class="action-row">
+              <span id="browseControlsSecondary">
+                <button type="button" id="browseNavigate" disabled title="Navigate live Virtual to the URL field">Navigate</button>
+                <button type="button" id="browseSnap" disabled title="Capture Virtual+Projected state snap">Snapshot</button>
+                <button type="button" id="browseWidgetParity" disabled title="Turnstile widget parity (a readoption vs b dead nested) — run when Projected diverged">Widget parity</button>
+                <button type="button" id="browseValidate" disabled title="Fold isomorphism over collected browse snaps">Validate snaps</button>
+                <button type="button" id="browseStop" disabled>Stop Virtual</button>
+              </span>
+              <span id="runControlsSecondary" hidden>
+                <span class="soak-box" id="soakOverrides" hidden>
+                  <label class="field">
+                    <span>Duration ms</span>
+                    <input id="runDurationMs" type="number" value="15000" min="100" step="100" />
+                  </label>
+                  <label class="chk"><input id="runCpu" type="checkbox" /> CPU profile</label>
+                  <label class="chk"><input id="runIso" type="checkbox" checked /> ISO probe</label>
+                </span>
+              </span>
+              <button type="button" id="clearSurface" class="ghost-danger" disabled title="Clear projected surface only (Virtual keeps running)">Clear surface</button>
+            </div>
+          </div>
         </div>
-        <p class="mode-blurb" id="modeBlurb">Free navigation — pick a fixture or edit the URL, then Start Virtual.</p>
-        <div id="statusStrip" aria-live="polite">
-          <span class="chip" id="chipBuild" title="Lab client build">build —</span>
-          <span class="chip" id="chipWs" title="WebSocket">ws idle</span>
-          <span class="chip" id="chipPhase" title="Phase">idle</span>
-          <span class="chip" id="chipSession" title="Session" hidden>—</span>
-        </div>
-      </div>
-
-      <div class="target-row">
-        <label class="field select" id="fixtureField">
-          <span>Fixture</span>
-          <select id="fixture" aria-label="Fixture"></select>
-        </label>
-        <label class="field select" id="blueprintField" hidden>
-          <span>Blueprint</span>
-          <select id="blueprint" aria-label="Blueprint"></select>
-        </label>
-        <label class="field url">
-          <span id="urlLabel">URL</span>
-          <input id="url" type="url" spellcheck="false" aria-label="URL" />
-        </label>
-        <p class="bp-desc" id="blueprintDesc" hidden></p>
-      </div>
-
-      <div class="action-row">
-        <button type="button" id="connect" class="primary">Connect</button>
-        <button type="button" id="disconnect" disabled>Disconnect</button>
-        <span class="hdr-sep"></span>
-        <span id="browseControls">
-          <button type="button" id="browseStart" disabled>Start Virtual</button>
-          <button type="button" id="browseNavigate" disabled title="Navigate live Virtual to the URL field">Navigate</button>
-          <button type="button" id="browseSnap" disabled title="Capture Virtual+Projected state snap">Snapshot</button>
-          <button type="button" id="browseWidgetParity" disabled title="Turnstile widget parity (a readoption vs b dead nested) — run when Projected diverged">Widget parity</button>
-          <button type="button" id="browseValidate" disabled title="Fold isomorphism over collected browse snaps">Validate snaps</button>
-          <button type="button" id="browseStop" disabled>Stop Virtual</button>
-        </span>
-        <span id="runControls" hidden>
-          <span class="soak-box" id="soakOverrides" hidden>
-            <label class="field">
-              <span>Duration ms</span>
-              <input id="runDurationMs" type="number" value="15000" min="100" step="100" />
-            </label>
-            <label class="chk"><input id="runCpu" type="checkbox" /> CPU profile</label>
-            <label class="chk"><input id="runIso" type="checkbox" checked /> ISO probe</label>
-          </span>
-          <button type="button" id="runStart" class="primary" disabled>Start run</button>
-        </span>
-        <button type="button" id="clearSurface" class="ghost-danger" disabled title="Clear projected surface only (Virtual keeps running)">Clear surface</button>
-        <button type="button" id="enterFullscreen" class="fullscreen-toggle" title="Fullscreen surface — hide lab chrome for mobile testing" aria-label="Enter fullscreen">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-          </svg>
-          <span class="fullscreen-toggle-label">Fullscreen</span>
-        </button>
-      </div>
-    </header>
-
-    <main>
-      <div class="surface-wrap is-empty" id="surfaceWrap">
+        <div class="surface-wrap is-empty" id="surfaceWrap">
         <div class="surface-empty">
           <div>
             <strong>Projected surface empty</strong>
@@ -739,15 +1480,20 @@
           </div>
         </div>
       </div>
-      <aside>
-        <div class="tabs" role="tablist" aria-label="Investigation">
-          <button type="button" data-tab="Stream" class="active" role="tab" aria-selected="true">Stream</button>
-          <button type="button" data-tab="Debug" role="tab" aria-selected="false">Debug</button>
-          <button type="button" data-tab="Activity" role="tab" aria-selected="false">Activity</button>
-          <button type="button" data-tab="Console" role="tab" aria-selected="false">Console</button>
-          <button type="button" data-tab="Config" role="tab" aria-selected="false">Config</button>
-          <button type="button" data-tab="Progress" role="tab" aria-selected="false">Progress</button>
+      <section class="investigation-sheet" id="investigationSheet" data-snap="peek">
+        <div class="sheet-grabber" id="sheetGrabber" role="separator" aria-label="Drag investigation panel" aria-orientation="horizontal"></div>
+        <div class="sheet-head">
+          <div class="tabs" role="tablist" aria-label="Investigation">
+            <button type="button" data-tab="Stream" class="active" role="tab" aria-selected="true">Stream</button>
+            <button type="button" data-tab="Runs" role="tab" aria-selected="false">Runs</button>
+            <button type="button" data-tab="Progress" role="tab" aria-selected="false">Progress</button>
+            <button type="button" data-tab="Debug" role="tab" aria-selected="false">Debug</button>
+            <button type="button" data-tab="Activity" role="tab" aria-selected="false">Activity</button>
+            <button type="button" data-tab="Console" role="tab" aria-selected="false">Console</button>
+            <button type="button" data-tab="Config" role="tab" aria-selected="false">Config</button>
+          </div>
         </div>
+        <div class="sheet-body">
         <div id="panelStream" class="panel" role="tabpanel">
           <h2 class="panel-title">Stream</h2>
           <div class="metric-grid">
@@ -833,7 +1579,39 @@
           <div id="runTimeline"></div>
           <div id="runDossier"></div>
         </div>
-      </aside>
+        <div id="panelRuns" class="panel" hidden role="tabpanel">
+          <div id="runsPanelRoot">
+            <div class="runs-toolbar">
+              <div class="runs-toolbar__row">
+                <button type="button" id="runsRefresh">Refresh</button>
+                <input id="runsSearch" type="search" placeholder="Search blueprint, url, id…" autocomplete="off" />
+                <span id="runsStats" class="runs-stats">—</span>
+              </div>
+              <div class="runs-toolbar__row runs-toolbar__row--secondary">
+                <div class="runs-filters" id="runsFilters">
+                  <button type="button" data-runs-filter="all" class="active">All</button>
+                  <button type="button" data-runs-filter="pass">Pass</button>
+                  <button type="button" data-runs-filter="fail">Fail</button>
+                  <button type="button" data-runs-filter="browse">Browse</button>
+                  <button type="button" data-runs-filter="run">Run</button>
+                </div>
+                <div class="runs-bulk-actions">
+                  <label class="runs-select-all"><input type="checkbox" id="runsSelectAll" /> All visible</label>
+                  <button type="button" id="runsDeleteSelected" class="runs-btn-danger" disabled>Delete selected</button>
+                </div>
+              </div>
+            </div>
+            <div class="runs-layout">
+              <div id="runsList" aria-label="Lab run history"></div>
+              <div class="runs-detail-col">
+                <div id="runsDetailHeader"></div>
+                <div id="runsDetailBody" aria-label="Selected run detail"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </section>
     </main>
     <script src="/lab/client.js"></script>
   </body>

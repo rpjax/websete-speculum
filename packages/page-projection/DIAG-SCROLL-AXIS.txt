@@ -1,2 +1,2 @@
-TEMP-DIAG scroll: no console do iframe projetado, filtre `[TEMP-DIAG` — gestos manuais; `window.__SCROLL_DIAG_LOG` espelha o buffer.
-A/B: Build A (default) = preventDefault touch ON; Build B = abra o lab com `?touchCapture=off` (sem rebuild).
+TEMP-DIAG: no top frame digite diagDump() ou diagClear(); ou clique "Copiar diagnóstico" na barra HUD (ao lado do ⋯ / Fullscreen).
+A/B: Build A default; Build B = ?touchCapture=off

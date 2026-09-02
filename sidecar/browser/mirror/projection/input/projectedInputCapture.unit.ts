@@ -75,6 +75,8 @@ export async function runProjectedInputCaptureUnitTests(): Promise<void> {
   await testSparseMissSkipsWhenTargetUnregistered();
   await testEditableKeyPreventDefault();
   await testHistoryShortcutEmitsNavIntent();
+  await testScrollRangeZeroDoesNotEmit();
+  await testScrollEmitsFracWhenRangePositive();
   console.log('[unit] projectedInputCapture sparse ok');
 }
 
@@ -265,6 +267,76 @@ async function testHistoryShortcutEmitsNavIntent(): Promise<void> {
     assert.strictEqual(sent[0]!.type, 'historyNav');
     if (sent[0]!.type === 'historyNav') {
       assert.strictEqual(sent[0]!.direction, 'back');
+    }
+  } finally {
+    detach();
+  }
+}
+
+/** Range zero (no overflow) → no scrollSet intent. */
+async function testScrollRangeZeroDoesNotEmit(): Promise<void> {
+  const { win, doc, surface } = mockSurface();
+  const se = {
+    scrollTop: 0,
+    scrollLeft: 0,
+    scrollHeight: 600,
+    clientHeight: 600,
+    scrollWidth: 800,
+    clientWidth: 800,
+  };
+  (doc as { scrollingElement: unknown }).scrollingElement = se;
+  Object.assign(win, { scrollY: 0, scrollX: 0 });
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('scroll', { target: doc });
+    await new Promise((r) => setTimeout(r, 120));
+    assert.strictEqual(sent.length, 0, 'range zero must not emit scrollSet');
+  } finally {
+    detach();
+  }
+}
+
+/** Positive range → scrollFracY = scrollTop / range. */
+async function testScrollEmitsFracWhenRangePositive(): Promise<void> {
+  const { win, doc, surface } = mockSurface();
+  const se = {
+    scrollTop: 3757,
+    scrollLeft: 0,
+    scrollHeight: 600 + 6696,
+    clientHeight: 600,
+    scrollWidth: 800,
+    clientWidth: 800,
+  };
+  (doc as { scrollingElement: unknown }).scrollingElement = se;
+  Object.assign(win, { scrollY: 3757, scrollX: 0 });
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('scroll', { target: doc });
+    await new Promise((r) => setTimeout(r, 120));
+    assert.strictEqual(sent.length, 1);
+    assert.strictEqual(sent[0]!.type, 'scrollSet');
+    if (sent[0]!.type === 'scrollSet') {
+      assert.strictEqual(sent[0]!.scrollFracY, 3757 / 6696);
+      assert.strictEqual(sent[0]!.scrollFracX, 0);
+      assert.strictEqual(sent[0]!.nodeId, null);
     }
   } finally {
     detach();

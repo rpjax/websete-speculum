@@ -260,7 +260,7 @@ async function testInvokeOnlyWhenEstablished(): Promise<void> {
       }
     });
 
-    const ok = await plane.invoke('applyScrollSet', { scrollX: 0, scrollY: 1 });
+    const ok = await plane.invoke('applyScrollSet', { scrollFracX: 0, scrollFracY: 0 });
     assert.strictEqual(ok.ok, true);
     client.close();
   });

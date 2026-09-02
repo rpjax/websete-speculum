@@ -296,8 +296,12 @@ export function attachProjectedInputCapture(
     const el = event.target;
     if (el === doc || el === win || (isElement(el) && el === doc.scrollingElement)) {
       if (!win) return;
-      const top = win.scrollY || doc.scrollingElement?.scrollTop || 0;
-      const left = win.scrollX || doc.scrollingElement?.scrollLeft || 0;
+      const se = doc.scrollingElement as HTMLElement | null;
+      const top = win.scrollY || se?.scrollTop || 0;
+      const left = win.scrollX || se?.scrollLeft || 0;
+      const rangeY = se ? se.scrollHeight - se.clientHeight : 0;
+      const rangeX = se ? se.scrollWidth - se.clientWidth : 0;
+      if (rangeY === 0 && rangeX === 0) return;
       if (opts.consumeScrollEcho?.('viewport', { top, left })) {
         opts.onProgrammaticScrollSuppress?.('viewport');
         return;
@@ -309,8 +313,8 @@ export function attachProjectedInputCapture(
         timestampClient: performance.now(),
         contextId: opts.contextId,
         nodeId: null,
-        scrollX: left,
-        scrollY: top,
+        scrollFracX: rangeX === 0 ? 0 : left / rangeX,
+        scrollFracY: rangeY === 0 ? 0 : top / rangeY,
       });
       return;
     }
@@ -322,6 +326,9 @@ export function attachProjectedInputCapture(
     }
     const top = el.scrollTop;
     const left = el.scrollLeft;
+    const rangeY = el.scrollHeight - el.clientHeight;
+    const rangeX = el.scrollWidth - el.clientWidth;
+    if (rangeY === 0 && rangeX === 0) return;
     if (opts.consumeScrollEcho?.(nodeId, { top, left })) {
       opts.onProgrammaticScrollSuppress?.(nodeId);
       return;
@@ -333,8 +340,8 @@ export function attachProjectedInputCapture(
       timestampClient: performance.now(),
       contextId: opts.contextId,
       nodeId,
-      scrollX: left,
-      scrollY: top,
+      scrollFracX: rangeX === 0 ? 0 : left / rangeX,
+      scrollFracY: rangeY === 0 ? 0 : top / rangeY,
     });
   };
 

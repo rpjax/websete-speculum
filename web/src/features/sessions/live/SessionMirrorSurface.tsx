@@ -86,8 +86,8 @@ function intentToWire(intent: UnifiedIntent, generation: number): PageProjection
     payload.code = intent.code
     if (intent.modifiers) payload.modifiers = intent.modifiers
   } else if (intent.type === 'scrollSet') {
-    payload.scrollX = intent.scrollX
-    payload.scrollY = intent.scrollY
+    payload.scrollFracX = intent.scrollFracX
+    payload.scrollFracY = intent.scrollFracY
   } else if (intent.type === 'setFiles') {
     payload.files = intent.files
   }

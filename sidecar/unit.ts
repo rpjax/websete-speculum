@@ -59,6 +59,7 @@ import { runChromeLnaPolicyUnitTests } from './browser/patchright/chromeLnaPolic
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { runViewportChainUnitTests } from './browser/mirror/projection/input/viewportChain.unit';
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
+import { runApplyScrollPositionsUnitTests } from './browser/mirror/projection/input/applyScrollPositions.unit';
 import { runLabPublicOriginUnitTests } from './browser/mirror/projection/lab/labPublicOrigin.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
 import { runChildScopeBusRouteUnitTests } from './browser/mirror/projection/bus/childScopeBusRoute.unit';
@@ -4476,6 +4477,7 @@ async function main(): Promise<void> {
   await runInputPathTelemetryEmitUnitTests();
   await runSparseCdpInputAdapterUnitTests();
   await runProjectedInputCaptureUnitTests();
+  await runApplyScrollPositionsUnitTests();
   await runLabPublicOriginUnitTests();
   await runRelaxCspUnitTests();
   await runInjectScriptBodiesUnitTests();

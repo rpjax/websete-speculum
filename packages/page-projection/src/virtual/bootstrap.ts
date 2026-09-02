@@ -157,8 +157,8 @@ declare global {
         applyScrollSet: (args: {
           contextId: number;
           nodeId: number | null;
-          scrollX: number;
-          scrollY: number;
+          scrollFracX: number;
+          scrollFracY: number;
         }) => Promise<{ ok: boolean; reason?: string }>;
         keyOfSelector: (args: {
           selector: string;
@@ -435,8 +435,8 @@ void (async () => {
           const a = args as {
             contextId: number;
             nodeId: number | null;
-            scrollX: number;
-            scrollY: number;
+            scrollFracX: number;
+            scrollFracY: number;
           };
           return p.applyScrollSet(a);
         }
@@ -1182,7 +1182,11 @@ void (async () => {
     },
     applyScrollSet: async (args) => {
       const r = await bus.requestApplyScroll(args.contextId, [
-        { nodeId: args.nodeId, scrollX: args.scrollX, scrollY: args.scrollY },
+        {
+          nodeId: args.nodeId,
+          scrollFracX: args.scrollFracX,
+          scrollFracY: args.scrollFracY,
+        },
       ]);
       if (!r.ok) return { ok: false, reason: r.reason ?? 'apply_scroll_failed' };
       return { ok: true };

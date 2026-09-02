@@ -11,8 +11,8 @@ import { resolveKeyboardDispatchKey } from './keyboardDispatch';
 export type ApplyScrollSetFn = (args: {
   contextId: number;
   nodeId: number | null;
-  scrollX: number;
-  scrollY: number;
+  scrollFracX: number;
+  scrollFracY: number;
 }) => Promise<{ ok: boolean; error?: string }>;
 
 export type ApplyHistoryNavFn = (
@@ -119,8 +119,8 @@ export class EventApplier {
         const r = await apply({
           contextId: intent.contextId,
           nodeId: intent.nodeId,
-          scrollX: intent.scrollX,
-          scrollY: intent.scrollY,
+          scrollFracX: intent.scrollFracX,
+          scrollFracY: intent.scrollFracY,
         });
         if (!r.ok) {
           this.reject(

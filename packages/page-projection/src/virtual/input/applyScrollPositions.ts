@@ -1,5 +1,5 @@
 /**
- * Virtual absolute scroll SET (§10.1b / D-UI-28 Phase A).
+ * Virtual scroll SET from range fractions (scrollFracX/Y).
  * missingNodeIds alone do not fail the whole apply.
  */
 
@@ -19,6 +19,11 @@ type ScrollEchoGlobals = {
     __speculumDomConsumeScrollEchoIfAt?: (n: unknown) => boolean;
   };
 };
+
+/** Map fraction of range → CSS px. Range zero → 0 (no position to set). */
+export function scrollPxFromFrac(frac: number, range: number): number {
+  return range === 0 ? 0 : frac * range;
+}
 
 function scrollEchoApis(): {
   note?: (n: unknown) => void;
@@ -47,13 +52,17 @@ function applyOne(
   const { note, consume } = scrollEchoApis();
   if (entry.nodeId == null) {
     const se = doc.scrollingElement as HTMLElement | null;
-    const mark = { viewport: { top: entry.scrollY, left: entry.scrollX } };
+    const rangeY = se ? se.scrollHeight - se.clientHeight : 0;
+    const rangeX = se ? se.scrollWidth - se.clientWidth : 0;
+    const top = scrollPxFromFrac(entry.scrollFracY, rangeY);
+    const left = scrollPxFromFrac(entry.scrollFracX, rangeX);
+    const mark = { viewport: { top, left } };
     note?.(mark);
     if (se) {
-      se.scrollTop = entry.scrollY;
-      se.scrollLeft = entry.scrollX;
+      se.scrollTop = top;
+      se.scrollLeft = left;
     } else {
-      doc.defaultView?.scrollTo(entry.scrollX, entry.scrollY);
+      doc.defaultView?.scrollTo(left, top);
     }
     consume?.(mark);
     return;
@@ -63,11 +72,22 @@ function applyOne(
     missing.push(entry.nodeId);
     return;
   }
-  const node = el as unknown as { scrollTop: number; scrollLeft: number };
-  const mark = { element: { nodeId: entry.nodeId, top: entry.scrollY, left: entry.scrollX } };
+  const node = el as unknown as {
+    scrollTop: number;
+    scrollLeft: number;
+    scrollHeight: number;
+    scrollWidth: number;
+    clientHeight: number;
+    clientWidth: number;
+  };
+  const rangeY = node.scrollHeight - node.clientHeight;
+  const rangeX = node.scrollWidth - node.clientWidth;
+  const top = scrollPxFromFrac(entry.scrollFracY, rangeY);
+  const left = scrollPxFromFrac(entry.scrollFracX, rangeX);
+  const mark = { element: { nodeId: entry.nodeId, top, left } };
   note?.(mark);
-  node.scrollTop = entry.scrollY;
-  node.scrollLeft = entry.scrollX;
+  node.scrollTop = top;
+  node.scrollLeft = left;
   consume?.(mark);
 }
 

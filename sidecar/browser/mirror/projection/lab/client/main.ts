@@ -348,9 +348,12 @@ export function bootLabClient(): void {
       } else if (intent.type === 'scrollSet') {
         payload.contextId = intent.contextId;
         payload.nodeId = intent.nodeId;
-        payload.scrollX = intent.scrollX;
-        payload.scrollY = intent.scrollY;
-        payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
+        payload.scrollFracX = intent.scrollFracX;
+        payload.scrollFracY = intent.scrollFracY;
+        payload.payload = JSON.stringify({
+          scrollFracX: intent.scrollFracX,
+          scrollFracY: intent.scrollFracY,
+        });
       } else if (intent.type === 'historyNav') {
         payload.direction = intent.direction;
         payload.payload = JSON.stringify({ direction: intent.direction });

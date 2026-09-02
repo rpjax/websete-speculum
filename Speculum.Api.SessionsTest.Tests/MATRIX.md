@@ -26,7 +26,7 @@ D6 asserts the **absence** of the two `Resize.*` facts, so the seed must enable 
 | ID | Depth | Assert | Method | Mode |
 |----|-------|--------|--------|------|
 | **PP1** | deep | Start → Diff frame body + `contextId` + sequence | `PP1_start_emits_frame_with_body_context_and_sequence` | PageProjection |
-| **PP1b** | deep | Admit scroll page / scroll element / keyDown / nested-context down → `lastIntent` schemaVersion+viewport+census | `PP1b_admit_stamp_survives_scroll_key_and_nested_click` | PageProjection |
+| **PP1b** | deep | Admit scrollFrac page/element + keyDown + nested-context down → `lastIntent` schemaVersion(2)+viewport+census | `PP1b_admit_stamp_survives_scroll_key_and_nested_click` | PageProjection |
 | **PP2** | deep | Intent resolve-click `#btn` → `#out[data-clicks]` 0→1 | `PP2_intent_click_increments_fixture_counter` | PageProjection |
 | **PP2b** | deep | Admit intent (carimbo completo) → `Input.Applied`/`cdp_applied` + `lastIntent` schemaVersion/viewport/census + clicks 0→1 | `PP2b_admit_intent_forwards_stamp_and_applies_click` | PageProjection |
 | **PP2c** | deep | Admit intent viewport divergente → `Input.Rejected`/`stale_viewport`; clicks stay 0 | `PP2c_admit_intent_stale_viewport_rejects_without_click` | PageProjection |

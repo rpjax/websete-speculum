@@ -4832,7 +4832,7 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.UNIFIED_INTENT_SCHEMA_VERSION = void 0;
-      exports.UNIFIED_INTENT_SCHEMA_VERSION = 1;
+      exports.UNIFIED_INTENT_SCHEMA_VERSION = 2;
     }
   });
 
@@ -5145,8 +5145,13 @@
           if (el2 === doc || el2 === win || isElement(el2) && el2 === doc.scrollingElement) {
             if (!win)
               return;
-            const top2 = win.scrollY || doc.scrollingElement?.scrollTop || 0;
-            const left2 = win.scrollX || doc.scrollingElement?.scrollLeft || 0;
+            const se = doc.scrollingElement;
+            const top2 = win.scrollY || se?.scrollTop || 0;
+            const left2 = win.scrollX || se?.scrollLeft || 0;
+            const rangeY2 = se ? se.scrollHeight - se.clientHeight : 0;
+            const rangeX2 = se ? se.scrollWidth - se.clientWidth : 0;
+            if (rangeY2 === 0 && rangeX2 === 0)
+              return;
             if (opts.consumeScrollEcho?.("viewport", { top: top2, left: left2 })) {
               opts.onProgrammaticScrollSuppress?.("viewport");
               return;
@@ -5158,8 +5163,8 @@
               timestampClient: performance.now(),
               contextId: opts.contextId,
               nodeId: null,
-              scrollX: left2,
-              scrollY: top2
+              scrollFracX: rangeX2 === 0 ? 0 : left2 / rangeX2,
+              scrollFracY: rangeY2 === 0 ? 0 : top2 / rangeY2
             });
             return;
           }
@@ -5172,6 +5177,10 @@
           }
           const top = el2.scrollTop;
           const left = el2.scrollLeft;
+          const rangeY = el2.scrollHeight - el2.clientHeight;
+          const rangeX = el2.scrollWidth - el2.clientWidth;
+          if (rangeY === 0 && rangeX === 0)
+            return;
           if (opts.consumeScrollEcho?.(nodeId, { top, left })) {
             opts.onProgrammaticScrollSuppress?.(nodeId);
             return;
@@ -5183,8 +5192,8 @@
             timestampClient: performance.now(),
             contextId: opts.contextId,
             nodeId,
-            scrollX: left,
-            scrollY: top
+            scrollFracX: rangeX === 0 ? 0 : left / rangeX,
+            scrollFracY: rangeY === 0 ? 0 : top / rangeY
           });
         };
         const onInput = (event) => {
@@ -6993,8 +7002,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 55,
-    builtAt: "2026-09-02T15:17:04.568Z"
+    seq: 58,
+    builtAt: "2026-09-02T18:41:54.937Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -8072,9 +8081,12 @@
         } else if (intent.type === "scrollSet") {
           payload.contextId = intent.contextId;
           payload.nodeId = intent.nodeId;
-          payload.scrollX = intent.scrollX;
-          payload.scrollY = intent.scrollY;
-          payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
+          payload.scrollFracX = intent.scrollFracX;
+          payload.scrollFracY = intent.scrollFracY;
+          payload.payload = JSON.stringify({
+            scrollFracX: intent.scrollFracX,
+            scrollFracY: intent.scrollFracY
+          });
         } else if (intent.type === "historyNav") {
           payload.direction = intent.direction;
           payload.payload = JSON.stringify({ direction: intent.direction });

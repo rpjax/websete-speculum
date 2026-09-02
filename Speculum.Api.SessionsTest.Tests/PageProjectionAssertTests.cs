@@ -157,7 +157,7 @@ public sealed class PageProjectionAssertTests : SessionsTestBase
     {
         const int viewportW = 1280;
         const int viewportH = 720;
-        const int schemaVersion = 1;
+        const int schemaVersion = 2;
 
         await using var act = new SessionsActClient(Fx.Host);
         await act.ConnectAsync();
@@ -174,7 +174,7 @@ public sealed class PageProjectionAssertTests : SessionsTestBase
             Census: censusPage,
             TargetId: null,
             ContextId: 1,
-            Payload: """{"scrollX":0,"scrollY":40}""",
+            Payload: """{"scrollFracX":0,"scrollFracY":0.1}""",
             TraceId: "p1-scroll-page"));
         await AssertLastIntentStampAsync(act, schemaVersion, viewportW, viewportH, censusPage);
 
@@ -189,7 +189,7 @@ public sealed class PageProjectionAssertTests : SessionsTestBase
             Census: censusEl,
             TargetId: scrollerId,
             ContextId: 1,
-            Payload: $"{{\"nodeId\":{scrollerId},\"scrollX\":0,\"scrollY\":120}}",
+            Payload: $"{{\"nodeId\":{scrollerId},\"scrollFracX\":0,\"scrollFracY\":0.25}}",
             TraceId: "p1-scroll-el"));
         await AssertLastIntentStampAsync(act, schemaVersion, viewportW, viewportH, censusEl);
 

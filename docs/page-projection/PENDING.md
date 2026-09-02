@@ -87,14 +87,16 @@
 
 ## P4 — Fidelidade de layout
 
-### 4.1 Página projetada ~880px mais curta (Eneba mobile 390×844)
+### 4.1 Divergência visual Projected vs original (a confirmar)
 
 | | |
 |--|--|
-| **O que é** | BODY scrollHeight 8420 → 7540 (−880). Sob `#app`: `MAIN.YGeqb0` 6991 → 6402 (−589), `FOOTER.xCd0YY` 1373 → 1082 (−291). `NAV.zyqj8m` altura 78 → 60 (−18). |
-| **Evidência** | **VERIFICADO** por identidade de nó (diag 2026-09-02, branch `diag/scroll-axis-temp`; dumps em `sidecar/lab-scroll-identity-diag.txt` / `sidecar/lab-scroll-app-kids.txt`). Causa: **desconhecida — não investigada**. |
-| **Por que nesta posição** | Aceite 1:1 / layout; separado de scroll-axis. |
-| **Feito quando** | Subárvore(s) causadoras identificadas e altura Projected ≈ original no mesmo viewport (critério numérico documentado no accept). |
+| **O que é** | A projeção diverge visualmente do original. Relatado pelo dono. |
+| **Evidência** | Existência da divergência: **relatada pelo dono**, a confirmar com medição válida. Números antigos (BODY 8420→7540 −880; MAIN −589; FOOTER −291; NAV.zyqj8m 78→60) e dumps de identidade de nó sob larguras diferentes: **NÃO CONFIÁVEIS** — site responsivo em largura diferente reflui e muda de altura por definição. Isso também explica `elementFromPoint` na “mesma coordenada” pegar nós diferentes na 1ª rodada. |
+| **Primeiro passo quando for atacar** | Remedir com viewport **idêntico** nos dois lados (mesma largura e mesma altura); comparar por **identidade de nó**, não por coordenada. |
+| **Por que nesta posição** | Aceite 1:1 / layout; **separado** de scroll relativo (fração de range) e de scroll-axis. |
+| **Feito quando** | Medição válida no mesmo viewport; causa identificada; Projected ≈ original no critério documentado no accept. |
+| **Marcação** | Divergência: relatada, a confirmar. Números atuais: **NÃO CONFIÁVEIS**. Conserto: **não iniciado**. |
 
 ---
 

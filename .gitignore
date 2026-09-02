@@ -531,3 +531,13 @@ $RECYCLE.BIN/
 # Local SQLite leftovers from ad-hoc telemetry runs
 deploy/tmp-telemetry-run/*.db
 Speculum.Api/data/
+
+# Local / disposable (do not commit)
+out/
+sidecar-outdated/
+sidecar/lab-scroll-*.txt
+sidecar/unit-out.txt
+sidecar/browser/mirror/projection/lab/static/client.buildA-*.js
+sidecar/browser/mirror/projection/lab/static/client.buildB.js
+sidecar/scripts/lab-probe-diagdump.js
+sidecar/scripts/lab-scroll-*.js

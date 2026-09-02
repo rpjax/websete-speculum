@@ -113,40 +113,43 @@ function printArtifact(dossierDir) {
   const diag = JSON.parse(fs.readFileSync(probePath, 'utf8'));
   console.log('\n=== VERDICT ===');
   console.log(diag.verdict);
+  console.log(`matrixMode=${diag.matrixMode ?? 'r1'}`);
   console.log(diag.hypothesis?.join('\n') ?? '');
   if (diag.voidReasons?.length) {
     console.log('voidReasons:', diag.voidReasons.join('; '));
   }
-  console.log('\n=== CELLS (9) ===');
+  console.log('\n=== CELLS ===');
   console.log(
     [
+      'var',
       'surf',
       'gest',
       'pageΔY',
-      'hΔX',
-      'hΔY',
-      'hostΔY',
       'page',
-      'hX',
+      'dp',
+      'canc',
+      'hitTag',
+      'hitHref',
       'mtp',
-      'pcancel',
-      'tcancel',
     ].join('\t'),
   );
   for (const c of diag.cells ?? []) {
     console.log(
       [
+        c.variant ?? '-',
         c.surface,
         c.gesture,
         c.deltaDocScrollY,
-        c.deltaHScrollLeft,
-        c.deltaHScrollTop,
-        c.deltaHostScrollY,
         c.pageRolled ? 'Y' : 'n',
-        c.hScrollerRolledX ? 'Y' : 'n',
+        c.touchstartDefaultPrevented === true
+          ? 'T'
+          : c.touchstartDefaultPrevented === false
+            ? 'F'
+            : '?',
+        c.touchstartCancelable === true ? 'T' : c.touchstartCancelable === false ? 'F' : '?',
+        c.hitTagName ?? '-',
+        c.hitClosestHref ?? '-',
         c.maxTouchPoints,
-        c.pointerCancelCount,
-        c.touchCancelCount,
       ].join('\t'),
     );
   }

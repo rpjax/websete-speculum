@@ -895,6 +895,7 @@ export async function executeBlueprint(
         if (!cdp || !String(cdp).trim()) {
           const voidDiag = {
             capturedAt: new Date().toISOString(),
+            matrixMode: params.matrixMode === 'navigable' ? 'navigable' : 'r1',
             fixtureUrl: '',
             scrollerSelector: '#hscroller',
             plaintextSelector: '#plaintext',
@@ -931,6 +932,7 @@ export async function executeBlueprint(
             typeof params.scrollerSelector === 'string' ? params.scrollerSelector : '#hscroller',
           plaintextSelector:
             typeof params.plaintextSelector === 'string' ? params.plaintextSelector : '#plaintext',
+          matrixMode: params.matrixMode === 'navigable' ? 'navigable' : 'r1',
         });
         chassis.journal.acts.push({
           name: 'probe.touchScrollAxis',

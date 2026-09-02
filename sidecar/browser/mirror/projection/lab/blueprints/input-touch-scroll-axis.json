@@ -1,6 +1,6 @@
 {
   "id": "input-touch-scroll-axis",
-  "description": "PP-SCROLL-AXIS — A/B/C × G1/G2/G3 touch matrix; computed verdict (no human log reading)",
+  "description": "PP-SCROLL-AXIS r2 — V1–V4 × A/B/C × G1 navigable-guard matrix; computed verdict",
   "sessionPolicy": "cold",
   "fold": "touch-scroll-axis",
   "queues": [
@@ -23,6 +23,7 @@
           "type": "probe.touchScrollAxis",
           "dependsOn": ["wait"],
           "params": {
+            "matrixMode": "navigable",
             "scrollerSelector": "#hscroller",
             "plaintextSelector": "#plaintext"
           }

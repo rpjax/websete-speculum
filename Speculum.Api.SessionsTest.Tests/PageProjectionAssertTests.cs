@@ -49,6 +49,201 @@ public sealed class PageProjectionAssertTests : SessionsTestBase
             "document.getElementById('out')?.getAttribute('data-clicks')", "1");
     }
 
+    /// <summary>
+    /// Admit-path carimbo (not resolve-click): fields must survive Api→sidecar and apply.
+    /// </summary>
+    [SessionsTestFact]
+    public async Task PP2b_admit_intent_forwards_stamp_and_applies_click()
+    {
+        const int viewportW = 1280;
+        const int viewportH = 720;
+        const int schemaVersion = 1;
+        const string census = """{"scrollTop":0,"generation":1}""";
+
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        await act.StartFixturePageAsync("/click-target", width: viewportW, height: viewportH);
+
+        await act.WaitEvaluateContainsAsync(
+            "document.getElementById('out')?.getAttribute('data-clicks')", "0");
+        await act.WaitPageProjectionFrameAsync(timeoutMs: 60_000);
+
+        var nodeId = await act.KeyOfSelectorAsync("#btn");
+        var payload = $"{{\"nodeId\":{nodeId},\"localX\":0.5,\"localY\":0.5}}";
+
+        act.ClearJournal();
+        foreach (var type in new[] { "down", "up" })
+        {
+            await act.SendPageProjectionIntentAsync(new SessionsActClient.PageProjectionIntentWire(
+                Type: type,
+                SchemaVersion: schemaVersion,
+                ViewportW: viewportW,
+                ViewportH: viewportH,
+                Census: census,
+                TargetId: nodeId,
+                ContextId: 1,
+                Payload: payload,
+                TraceId: $"pp2b-{type}"));
+        }
+
+        await act.WaitJournalAsync(
+            "Telemetry.Sessions.PageProjection.Input.Applied",
+            TimeSpan.FromSeconds(15),
+            predicate: f =>
+                f.Payload is not null
+                && f.Payload.Contains("cdp_applied", StringComparison.Ordinal));
+
+        var diag = await act.DumpInputClickDiagnosticAsync();
+        Assert.True(
+            diag.TryGetProperty("lastIntent", out var lastIntent)
+            && lastIntent.ValueKind == System.Text.Json.JsonValueKind.Object,
+            $"expected lastIntent object, got {diag}");
+        Assert.Equal(schemaVersion, lastIntent.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(viewportW, lastIntent.GetProperty("viewportW").GetInt32());
+        Assert.Equal(viewportH, lastIntent.GetProperty("viewportH").GetInt32());
+        Assert.Equal(census, lastIntent.GetProperty("census").GetString());
+
+        await act.WaitEvaluateContainsAsync(
+            "document.getElementById('out')?.getAttribute('data-clicks')", "1");
+    }
+
+    [SessionsTestFact]
+    public async Task PP2c_admit_intent_stale_viewport_rejects_without_click()
+    {
+        const int viewportW = 1280;
+        const int viewportH = 720;
+
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+        await act.StartFixturePageAsync("/click-target", width: viewportW, height: viewportH);
+
+        await act.WaitEvaluateContainsAsync(
+            "document.getElementById('out')?.getAttribute('data-clicks')", "0");
+        await act.WaitPageProjectionFrameAsync(timeoutMs: 60_000);
+
+        var nodeId = await act.KeyOfSelectorAsync("#btn");
+        var payload = $"{{\"nodeId\":{nodeId},\"localX\":0.5,\"localY\":0.5}}";
+
+        act.ClearJournal();
+        await act.SendPageProjectionIntentAsync(new SessionsActClient.PageProjectionIntentWire(
+            Type: "down",
+            SchemaVersion: 1,
+            ViewportW: viewportW + 17,
+            ViewportH: viewportH,
+            Census: """{"scrollTop":0}""",
+            TargetId: nodeId,
+            ContextId: 1,
+            Payload: payload,
+            TraceId: "pp2c-stale"));
+
+        await act.WaitJournalAsync(
+            "Telemetry.Sessions.PageProjection.Input.Rejected",
+            TimeSpan.FromSeconds(15),
+            predicate: f =>
+                f.Payload is not null
+                && f.Payload.Contains("stale_viewport", StringComparison.Ordinal));
+
+        var clicks = await act.EvaluateAsync(
+            "document.getElementById('out')?.getAttribute('data-clicks')");
+        Assert.Contains("0", clicks, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// P1 — same Admit carimbo hole across scroll / key / nested-context click.
+    /// Asserts wire fields on sidecar <c>lastIntent</c> (not hop-only).
+    /// </summary>
+    [SessionsTestFact]
+    public async Task PP1b_admit_stamp_survives_scroll_key_and_nested_click()
+    {
+        const int viewportW = 1280;
+        const int viewportH = 720;
+        const int schemaVersion = 1;
+
+        await using var act = new SessionsActClient(Fx.Host);
+        await act.ConnectAsync();
+
+        // --- scroll page (document scrollSet) ---
+        await act.StartFixturePageAsync("/touch-scroll", width: viewportW, height: viewportH);
+        await act.WaitPageProjectionFrameAsync(timeoutMs: 60_000);
+        const string censusPage = """{"kind":"scrollPage","scrollTop":40}""";
+        await act.SendPageProjectionIntentAsync(new SessionsActClient.PageProjectionIntentWire(
+            Type: "scrollSet",
+            SchemaVersion: schemaVersion,
+            ViewportW: viewportW,
+            ViewportH: viewportH,
+            Census: censusPage,
+            TargetId: null,
+            ContextId: 1,
+            Payload: """{"scrollX":0,"scrollY":40}""",
+            TraceId: "p1-scroll-page"));
+        await AssertLastIntentStampAsync(act, schemaVersion, viewportW, viewportH, censusPage);
+
+        // --- scroll element (#scroller) ---
+        var scrollerId = await act.KeyOfSelectorAsync("#scroller");
+        const string censusEl = """{"kind":"scrollElement","scrollTop":120}""";
+        await act.SendPageProjectionIntentAsync(new SessionsActClient.PageProjectionIntentWire(
+            Type: "scrollSet",
+            SchemaVersion: schemaVersion,
+            ViewportW: viewportW,
+            ViewportH: viewportH,
+            Census: censusEl,
+            TargetId: scrollerId,
+            ContextId: 1,
+            Payload: $"{{\"nodeId\":{scrollerId},\"scrollX\":0,\"scrollY\":120}}",
+            TraceId: "p1-scroll-el"));
+        await AssertLastIntentStampAsync(act, schemaVersion, viewportW, viewportH, censusEl);
+
+        // --- typing (keyDown) ---
+        await act.StopSessionAsync();
+        await act.StartFixturePageAsync("/click-target", width: viewportW, height: viewportH);
+        await act.WaitPageProjectionFrameAsync(timeoutMs: 60_000);
+        const string censusKey = """{"kind":"keyDown","field":"inp"}""";
+        await act.SendPageProjectionIntentAsync(new SessionsActClient.PageProjectionIntentWire(
+            Type: "keyDown",
+            SchemaVersion: schemaVersion,
+            ViewportW: viewportW,
+            ViewportH: viewportH,
+            Census: censusKey,
+            ContextId: 1,
+            Payload: """{"key":"a","code":"KeyA"}""",
+            TraceId: "p1-key"));
+        await AssertLastIntentStampAsync(act, schemaVersion, viewportW, viewportH, censusKey);
+
+        // --- nested-context click (contextId=2): stamp must survive even if resolve fails ---
+        var btnId = await act.KeyOfSelectorAsync("#btn");
+        const string censusIframe = """{"kind":"iframeClick","contextId":2}""";
+        var nestedPayload = $"{{\"nodeId\":{btnId},\"localX\":0.5,\"localY\":0.5}}";
+        await act.SendPageProjectionIntentAsync(new SessionsActClient.PageProjectionIntentWire(
+            Type: "down",
+            SchemaVersion: schemaVersion,
+            ViewportW: viewportW,
+            ViewportH: viewportH,
+            Census: censusIframe,
+            TargetId: btnId,
+            ContextId: 2,
+            Payload: nestedPayload,
+            TraceId: "p1-iframe-down"));
+        await AssertLastIntentStampAsync(act, schemaVersion, viewportW, viewportH, censusIframe);
+    }
+
+    private static async Task AssertLastIntentStampAsync(
+        SessionsActClient act,
+        int schemaVersion,
+        int viewportW,
+        int viewportH,
+        string census)
+    {
+        var diag = await act.DumpInputClickDiagnosticAsync();
+        Assert.True(
+            diag.TryGetProperty("lastIntent", out var lastIntent)
+            && lastIntent.ValueKind == System.Text.Json.JsonValueKind.Object,
+            $"expected lastIntent object, got {diag}");
+        Assert.Equal(schemaVersion, lastIntent.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(viewportW, lastIntent.GetProperty("viewportW").GetInt32());
+        Assert.Equal(viewportH, lastIntent.GetProperty("viewportH").GetInt32());
+        Assert.Equal(census, lastIntent.GetProperty("census").GetString());
+    }
+
     [SessionsTestFact]
     public async Task PP3_resync_delivers_resync_frame_and_keeps_virtual_armed()
     {

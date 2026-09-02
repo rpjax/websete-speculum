@@ -71,7 +71,7 @@ function toIngestBytes(body: PageProjectionFrame['body']): Uint8Array | null {
   return null
 }
 
-function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
+function intentToWire(intent: UnifiedIntent, generation: number): PageProjectionIntent {
   const payload: Record<string, unknown> = {}
   if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
     payload.x = intent.x
@@ -96,7 +96,7 @@ function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
     (intent.type === 'down' || intent.type === 'up') && intent.nodeId != null ? intent.nodeId : null
   const pointerContextId = intent.type === 'down' || intent.type === 'up' ? (intent.contextId ?? 1) : 1
   return {
-    generation: 0,
+    generation,
     type: intent.type,
     anchor: null,
     targetId:
@@ -336,7 +336,7 @@ function PageProjectionV2Surface({
     const detachRoot = attachProjectedInputCapture(
       root,
       client.getLiveRegistry(),
-      (intent) => onDomInputRef.current(intentToWire(intent)),
+      (intent) => onDomInputRef.current(intentToWire(intent, client.getGeneration())),
       {
         contextId: CONTEXT_ID_ROOT,
         getGeneration: () => client.getGeneration(),
@@ -360,7 +360,7 @@ function PageProjectionV2Surface({
         attachProjectedInputCapture(
           nestedSurface,
           info.registry,
-          (intent) => onDomInputRef.current(intentToWire(intent)),
+          (intent) => onDomInputRef.current(intentToWire(intent, info.getGeneration())),
           {
             contextId: info.contextId,
             getGeneration: info.getGeneration,

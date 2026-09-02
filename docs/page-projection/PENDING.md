@@ -100,36 +100,42 @@
 
 ---
 
-## P5 — PP-SCROLL-AXIS (parado; instrumento antes)
+## P5 — PP-SCROLL-AXIS — **RESOLVIDO**
 
 Tracker: [spec/open.md](spec/open.md) **PP-SCROLL-AXIS**.
 
-### 5.1 Sintoma e o que já está estabelecido
+| | |
+|--|--|
+| **O que era** | Swipe vertical sobre carrossel horizontal (links) não rolava a página no Projected; no original rolava. |
+| **Causa** | `projectedNativeGuard` chamava `preventDefault()` no `touchstart` (não-passivo) quando o alvo estava em `a[href]`, cancelando o pan nativo do Chrome. |
+| **Conserto** | Cancelamento de ativação de link movido para `touchend`; `touchstart` só métrica (`onTouchStartSeen`). |
+| **Prova** | Lab `FIXED` — artefato `sidecar/lab-runs/2026-09-02T23-11-38-017Z-input-touch-scroll-axis/probes/touch-scroll-axis.json` (matriz V1–V4 × A/B/C × G1+G4). |
+| **Marcação** | **RESOLVIDO** (2026-09-02). |
+
+### 5.1–5.3 (histórico — instrumento pré-fix)
+
+Os itens 5.1–5.3 abaixo documentam a investigação anterior; não reabrir salvo regressão.
+
+#### 5.1 Sintoma (pré-fix)
 
 | | |
 |--|--|
 | **O que é** | Swipe vertical iniciado sobre carrossel horizontal não rola a página (Eneba); no original a página rola. |
-| **Evidência** | **VERIFICADO:** `NAV.zyqj8m` replicado com CSS de scroll idêntico (`overflowX/Y` auto/auto, `touchAction` auto, `overscrollBehavior` auto, sw×cw 2030×390, `sh == ch` ambos). **VERIFICADO:** toque chega e não é cancelado (`touchstart` `defaultPrevented=false`, `preventedMoves=0` em 10 moves) — hipótese `preventDefault` em `pointerdown` **REFUTADA**. **VERIFICADO (mesmo gesto A-carrossel):** `pointercancel` dispara; nenhum evento `scroll` no TEMP-DIAG (`sidecar/lab-scroll-ab-four.txt`). Causa da anomalia: **desconhecida**. |
-| **Por que nesta posição** | Produto de scroll; depende de P5.2 antes de medir de novo. |
-| **Feito quando** | Gesto vertical determinístico sobre o NAV no Projected produz scroll de página (como no original), com dump TEMP-DIAG / journal mostrando scroll no scroller de página — sem `pointercancel` espúrio, ou com causa do cancel documentada e aceita. |
+| **Evidência** | **VERIFICADO** pré-fix; causa fechada no conserto acima (rodada 2 `CONFIRMED_NAVIGABLE_GUARD` → fix `FIXED`). |
 
-### 5.2 Bloqueadores de instrumento (antes de qualquer nova rodada)
+#### 5.2 Bloqueadores de instrumento
 
 | | |
 |--|--|
-| **O que é** | (a) Harness mapeia coords do doc projetado → página do lab sem compensar offset do iframe — ponto projetado (195,171) → pageY −114. (b) Variante `?touchCapture=off` aborta com `frame detached` em `waitNav`. |
-| **Evidência** | **VERIFICADO** dump A-comum + abort B em `sidecar/lab-scroll-ab-four.txt` / script `sidecar/scripts/lab-scroll-axis-ab-gestures.js`. |
-| **Por que nesta posição** | Enquanto (a)(b) existem, medição nova nasce inválida (três rodadas já perdidas). |
-| **Feito quando** | (a) pagePoint = iframeBox + projected − scroll, com assert pageY dentro do rect do iframe; (b) open Build B completa `waitNav` sem `frame detached`. |
+| **O que é** | Harness de coords iframe / Build B `frame detached` — superados pelo probe `touchScrollAxis` (CDP na página do lab + surfaceHost). |
+| **Marcação** | Instrumento de matriz no lab; TEMP-DIAG legado descartável (5.3). |
 
-### 5.3 Limpeza diag
+#### 5.3 Limpeza diag
 
 | | |
 |--|--|
-| **O que é** | Branch `diag/scroll-axis-temp` e TEMP-DIAG são descartáveis. Build B (`?touchCapture=off`) **não é conserto** — o bloco `preventDefault`/`capturePointer` existe para capturar down/up com nodeId no sparse-cdp. |
-| **Evidência** | Branch e gate: **VERIFICADO** no histórico `diag/scroll-axis-temp` / `projectedInputCapture.ts`. |
-| **Por que nesta posição** | Após P5.2 / decisão de fechar ou arquivar o diag. |
-| **Feito quando** | TEMP-DIAG e branch removidos ou arquivados; nota de “Build B ≠ fix” permanece neste PENDING ou em open.md. |
+| **O que é** | Branch `diag/scroll-axis-temp` e TEMP-DIAG são descartáveis. Build B (`?touchCapture=off`) **não é conserto**. |
+| **Feito quando** | Após merge do fix: limpar TEMP-DIAG / branch conforme costume. |
 
 ---
 

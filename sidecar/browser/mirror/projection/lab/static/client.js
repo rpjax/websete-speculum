@@ -2812,8 +2812,10 @@
           if (isProjectedNavigable(event.target))
             suppressProjectedDefault(event);
         };
-        const onTouchStart = (event) => {
+        const onTouchStart = (_event) => {
           opts?.onTouchStartSeen?.();
+        };
+        const onTouchEnd = (event) => {
           if (isProjectedNavigable(event.target))
             suppressProjectedDefault(event);
         };
@@ -2823,6 +2825,7 @@
         doc.addEventListener("submit", onActivate, true);
         doc.addEventListener("pointerdown", onPointerDown, true);
         doc.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+        doc.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
         return () => {
           doc.removeEventListener("click", onActivate, true);
           doc.removeEventListener("auxclick", onActivate, true);
@@ -2830,6 +2833,7 @@
           doc.removeEventListener("submit", onActivate, true);
           doc.removeEventListener("pointerdown", onPointerDown, true);
           doc.removeEventListener("touchstart", onTouchStart, true);
+          doc.removeEventListener("touchend", onTouchEnd, true);
         };
       }
       exports.attachProjectedNativeGuard = attachProjectedNativeGuard;
@@ -7002,8 +7006,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 58,
-    builtAt: "2026-09-02T18:41:54.937Z"
+    seq: 65,
+    builtAt: "2026-09-02T23:11:23.865Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts

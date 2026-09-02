@@ -1,6 +1,6 @@
 {
   "id": "input-touch-scroll-axis",
-  "description": "PP-SCROLL-AXIS r2 — V1–V4 × A/B/C × G1 navigable-guard matrix; computed verdict",
+  "description": "PP-SCROLL-AXIS fix verify — V1–V4 × A/B/C × G1+G4 (pan + link-tap regression)",
   "sessionPolicy": "cold",
   "fold": "touch-scroll-axis",
   "queues": [

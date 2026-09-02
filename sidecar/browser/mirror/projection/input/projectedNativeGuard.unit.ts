@@ -99,5 +99,36 @@ export function runProjectedNativeGuardUnitTests(): void {
   suppressProjectedDefault(cancelable);
   assert.strictEqual(cancelable.defaultPrevented, true);
 
+  const linkTouch = el('a', { href: 'https://example.com' });
+  const touchStart = new Event('touchstart', { cancelable: true, bubbles: true });
+  Object.defineProperty(touchStart, 'target', { value: linkTouch });
+  let touchStartPrevented = false;
+  doc.addEventListener(
+    'touchstart',
+    (event) => {
+      touchStartPrevented = event.defaultPrevented;
+    },
+    false,
+  );
+  doc.dispatch('touchstart', touchStart);
+  assert.strictEqual(
+    touchStartPrevented,
+    false,
+    'touchstart on navigable must not preventDefault (native pan)',
+  );
+
+  const touchEnd = new Event('touchend', { cancelable: true, bubbles: true });
+  Object.defineProperty(touchEnd, 'target', { value: linkTouch });
+  let touchEndPrevented = false;
+  doc.addEventListener(
+    'touchend',
+    (event) => {
+      touchEndPrevented = event.defaultPrevented;
+    },
+    false,
+  );
+  doc.dispatch('touchend', touchEnd);
+  assert.strictEqual(touchEndPrevented, true, 'touchend on navigable must suppress activation');
+
   console.log('[unit] projectedNativeGuard ok');
 }

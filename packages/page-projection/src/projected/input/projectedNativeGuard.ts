@@ -6,6 +6,9 @@
  *
  * Guard is presentation-only: tree/table unchanged. Whole-surface `touch-action`
  * keeps iOS from delaying pointers / double-tap-zoom while native scroll still works.
+ *
+ * Do not preventDefault on touchstart for navigable targets — that cancels Chrome's native
+ * pan/scroll. Suppress link activation on touchend (plus click/pointerdown as before).
  */
 
 export function eventTargetElement(target: EventTarget | null): Element | null {
@@ -60,8 +63,10 @@ export function attachProjectedNativeGuard(doc: Document, opts?: ProjectedNative
     if (typeof pe.button === 'number' && pe.button !== 0) return;
     if (isProjectedNavigable(event.target)) suppressProjectedDefault(event);
   };
-  const onTouchStart = (event: Event) => {
+  const onTouchStart = (_event: Event) => {
     opts?.onTouchStartSeen?.();
+  };
+  const onTouchEnd = (event: Event) => {
     if (isProjectedNavigable(event.target)) suppressProjectedDefault(event);
   };
 
@@ -70,7 +75,9 @@ export function attachProjectedNativeGuard(doc: Document, opts?: ProjectedNative
   doc.addEventListener('dblclick', onActivate, true);
   doc.addEventListener('submit', onActivate, true);
   doc.addEventListener('pointerdown', onPointerDown, true);
+  // touchstart stays non-passive for metrics hook only — never preventDefault here (PP-SCROLL-AXIS).
   doc.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
+  doc.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
 
   return () => {
     doc.removeEventListener('click', onActivate, true);
@@ -79,5 +86,6 @@ export function attachProjectedNativeGuard(doc: Document, opts?: ProjectedNative
     doc.removeEventListener('submit', onActivate, true);
     doc.removeEventListener('pointerdown', onPointerDown, true);
     doc.removeEventListener('touchstart', onTouchStart, true);
+    doc.removeEventListener('touchend', onTouchEnd, true);
   };
 }

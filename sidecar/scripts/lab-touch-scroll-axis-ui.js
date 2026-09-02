@@ -130,6 +130,7 @@ function printArtifact(dossierDir) {
       'canc',
       'hitTag',
       'hitHref',
+      'locΔ',
       'mtp',
     ].join('\t'),
   );
@@ -149,6 +150,7 @@ function printArtifact(dossierDir) {
         c.touchstartCancelable === true ? 'T' : c.touchstartCancelable === false ? 'F' : '?',
         c.hitTagName ?? '-',
         c.hitClosestHref ?? '-',
+        c.locationChanged ? 'Y' : 'n',
         c.maxTouchPoints,
       ].join('\t'),
     );

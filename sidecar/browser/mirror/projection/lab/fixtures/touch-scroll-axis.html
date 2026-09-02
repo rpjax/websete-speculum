@@ -76,6 +76,17 @@
         text-transform: uppercase;
         color: #5c5b55;
       }
+      a.g4-probe {
+        margin-left: 0.75rem;
+        padding: 0.2rem 0.45rem;
+        font: 650 0.75rem/1 ui-monospace, Consolas, monospace;
+        text-transform: none;
+        letter-spacing: 0;
+        color: #8b1a1a;
+        background: #ffe8e0;
+        border: 1px solid #c44;
+        text-decoration: none;
+      }
       .pad {
         margin: 1rem;
         padding: 2rem 1rem;
@@ -94,7 +105,7 @@
       Four horizontal scrollers share the NAV CSS signature; variants differ only in children.
     </p>
 
-    <div class="label">V1 — div tiles (negative control)</div>
+    <div class="label">V1 — div tiles (negative control) <a class="g4-probe" data-variant="V1" href="#g4-escape-v1">g4</a></div>
     <div id="hscroller" class="hscroller" data-variant="V1">
       <div class="track">
         <div class="tile" data-tile="0">V1-0</div>
@@ -112,7 +123,7 @@
       </div>
     </div>
 
-    <div class="label">V2 — a[href] tiles (gesture on link)</div>
+    <div class="label">V2 — a[href] tiles (gesture on link) <a class="g4-probe" data-variant="V2" href="#g4-escape-v2">g4</a></div>
     <div id="hscroller-v2" class="hscroller" data-variant="V2">
       <div class="track">
         <a class="tile" href="#v2-0" data-tile="0">V2-0</a>
@@ -130,7 +141,7 @@
       </div>
     </div>
 
-    <div class="label">V3 — same links, gesture in gap between them</div>
+    <div class="label">V3 — same links, gesture in gap between them <a class="g4-probe" data-variant="V3" href="#g4-escape-v3">g4</a></div>
     <div id="hscroller-v3" class="hscroller" data-variant="V3">
       <div class="track track-gap">
         <a class="tile" href="#v3-0" data-tile="0">V3-0</a>
@@ -146,7 +157,7 @@
       </div>
     </div>
 
-    <div class="label">V4 — img inside a[href] (gesture on image)</div>
+    <div class="label">V4 — img inside a[href] (gesture on image) <a class="g4-probe" data-variant="V4" href="#g4-escape-v4">g4</a></div>
     <div id="hscroller-v4" class="hscroller" data-variant="V4">
       <div class="track">
         <a class="tile" href="#v4-0" data-tile="0"><img alt="v4-0" width="96" height="72" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='72'%3E%3Crect fill='%23ffcc00' width='96' height='72'/%3E%3Ctext x='48' y='40' text-anchor='middle' font-size='14' fill='%23000'%3EV4-0%3C/text%3E%3C/svg%3E" /></a>

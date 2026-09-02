@@ -18,10 +18,13 @@ export type TouchScrollAxisVerdictCode =
   | 'CONFIRMED_TOUCH_CAPTURE'
   | 'CONFIRMED_CLIENT_OTHER'
   | 'CONFIRMED_NAVIGABLE_GUARD'
-  | 'NOT_REPRODUCED';
+  | 'NOT_REPRODUCED'
+  | 'FIXED'
+  | 'REGRESSION_NAV'
+  | 'STILL_BROKEN';
 
 export type TouchScrollAxisSurface = 'A' | 'B' | 'C';
-export type TouchScrollAxisGesture = 'G1' | 'G2' | 'G3';
+export type TouchScrollAxisGesture = 'G1' | 'G2' | 'G3' | 'G4';
 export type TouchScrollAxisVariant = 'V1' | 'V2' | 'V3' | 'V4';
 export type TouchScrollAxisMatrixMode = 'r1' | 'navigable';
 
@@ -66,6 +69,9 @@ export type CellRecord = {
   /** closest('a[href]') href at gesture start via elementFromPoint, or null. */
   hitClosestHref: string | null;
   hitTagName: string | null;
+  locationBefore: string | null;
+  locationAfter: string | null;
+  locationChanged: boolean;
   pointerCancelCount: number;
   touchCancelCount: number;
   scrollEventsByNode: Record<string, number>;
@@ -260,7 +266,7 @@ async function setSkipTouchCapture(page: Page, enabled: boolean): Promise<void> 
   }, enabled);
 }
 
-type HitMode = 'plaintext' | 'tile' | 'link' | 'gap' | 'img';
+type HitMode = 'plaintext' | 'tile' | 'link' | 'gap' | 'img' | 'g4';
 
 async function targetPointTopPage(
   page: Page,
@@ -287,6 +293,15 @@ async function targetPointTopPage(
           if (r.width < 1 || r.height < 1) return null;
           const x = origin.left + r.left + r.width / 2;
           const y = origin.top + r.top + Math.min(24, r.height / 2);
+          return inBox(x, y, origin) ? { x, y } : null;
+        }
+        if (hitMode === 'g4') {
+          const a = doc.querySelector(scrollerOrPlainSelector) as HTMLElement | null;
+          if (!a) return null;
+          const r = a.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) return null;
+          const x = origin.left + r.left + r.width / 2;
+          const y = origin.top + r.top + r.height / 2;
           return inBox(x, y, origin) ? { x, y } : null;
         }
         const scroller = doc.querySelector(scrollerOrPlainSelector) as HTMLElement | null;
@@ -573,6 +588,55 @@ async function dispatchSwipe(
   });
 }
 
+/** Short tap — no move — regression for navigable activation guard. */
+async function dispatchTap(cdp: CDPSession, start: { x: number; y: number }): Promise<void> {
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: start.x, y: start.y, id: 1 }],
+  });
+  await wait(50);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+}
+
+async function readDocLocation(page: Page, mode: 'projected' | 'control'): Promise<string | null> {
+  return page.evaluate((mode) => {
+    if (mode === 'control') return location.href;
+    const host = document.getElementById('surfaceHost');
+    const iframe = host?.querySelector('iframe') as HTMLIFrameElement | null;
+    try {
+      return iframe?.contentWindow?.location.href ?? null;
+    } catch {
+      return null;
+    }
+  }, mode);
+}
+
+/** Clear hash so a prior G4 on C does not poison the next cell. */
+async function clearDocHash(page: Page, mode: 'projected' | 'control'): Promise<void> {
+  await page.evaluate((mode) => {
+    const clear = (win: Window | null | undefined) => {
+      if (!win) return;
+      if (win.location.hash) {
+        win.history.replaceState(null, '', win.location.pathname + win.location.search);
+      }
+    };
+    if (mode === 'control') {
+      clear(window);
+      return;
+    }
+    const host = document.getElementById('surfaceHost');
+    const iframe = host?.querySelector('iframe') as HTMLIFrameElement | null;
+    try {
+      clear(iframe?.contentWindow ?? undefined);
+    } catch {
+      /* */
+    }
+  }, mode);
+}
+
 function computeVerdict(cells: CellRecord[], voidReasons: string[]): TouchScrollAxisVerdictCode {
   if (voidReasons.length > 0) return 'VOID';
 
@@ -606,20 +670,24 @@ function computeVerdict(cells: CellRecord[], voidReasons: string[]): TouchScroll
   return 'VOID';
 }
 
-/** Round 2 — 4 variants × A/B/C × G1 (navigable-guard hypothesis). */
+/**
+ * Navigable matrix after fix: V1–V4 × A/B/C × G1 + G4.
+ * FIXED = pan restored on V2/V4, V1/V3 unchanged, projected G4 does not navigate.
+ */
 function computeVerdictNavigable(
   cells: CellRecord[],
   voidReasons: string[],
 ): TouchScrollAxisVerdictCode {
   if (voidReasons.length > 0) return 'VOID';
 
-  const cell = (v: TouchScrollAxisVariant, s: TouchScrollAxisSurface) =>
+  const g1 = (v: TouchScrollAxisVariant, s: TouchScrollAxisSurface) =>
     cells.find((c) => c.variant === v && c.surface === s && c.gesture === 'G1');
+  const g4 = (v: TouchScrollAxisVariant, s: TouchScrollAxisSurface) =>
+    cells.find((c) => c.variant === v && c.surface === s && c.gesture === 'G4');
 
-  const v1A = cell('V1', 'A');
-  const v1C = cell('V1', 'C');
+  const v1A = g1('V1', 'A');
+  const v1C = g1('V1', 'C');
 
-  // Same instrument bars as r1, mapped onto V1: projected page can roll; raw C can roll.
   if (!v1C?.pageRolled) {
     voidReasons.push('V1.C_page_did_not_roll');
     return 'VOID';
@@ -629,30 +697,43 @@ function computeVerdictNavigable(
     return 'VOID';
   }
 
-  const guardHit = (v: 'V2' | 'V4'): boolean => {
-    const a = cell(v, 'A');
-    const c = cell(v, 'C');
+  const navRegress = (['V1', 'V2', 'V3', 'V4'] as TouchScrollAxisVariant[]).filter((v) => {
+    const a = g4(v, 'A');
+    return a?.locationChanged === true;
+  });
+  if (navRegress.length > 0) {
+    voidReasons.push(`G4_projected_location_changed:${navRegress.join(',')}`);
+    return 'REGRESSION_NAV';
+  }
+
+  const stillBroken = (['V2', 'V4'] as const).some((v) => {
+    const a = g1(v, 'A');
+    const c = g1(v, 'C');
+    return !!c?.pageRolled && !a?.pageRolled;
+  });
+  if (stillBroken) {
+    const v2a = g1('V2', 'A');
+    if (v2a?.touchstartDefaultPrevented === true || g1('V4', 'A')?.touchstartDefaultPrevented === true) {
+      return 'CONFIRMED_NAVIGABLE_GUARD';
+    }
+    return 'STILL_BROKEN';
+  }
+
+  const panFixed = (['V2', 'V4'] as const).every((v) => {
+    const a = g1(v, 'A');
+    const c = g1(v, 'C');
     return (
       !!c?.pageRolled &&
-      !a?.pageRolled &&
-      a?.touchstartDefaultPrevented === true &&
-      !!v1A.pageRolled
+      !!a?.pageRolled &&
+      a.touchstartDefaultPrevented === false
     );
-  };
-
-  if (guardHit('V2') || guardHit('V4')) return 'CONFIRMED_NAVIGABLE_GUARD';
-
-  const stuckNoPrevent = (['V1', 'V2', 'V3', 'V4'] as TouchScrollAxisVariant[]).some((v) => {
-    const a = cell(v, 'A');
-    const c = cell(v, 'C');
-    return !!c?.pageRolled && !a?.pageRolled && a?.touchstartDefaultPrevented === false;
   });
-  if (stuckNoPrevent) return 'CONFIRMED_CLIENT_OTHER';
-
-  const allARoll = (['V1', 'V2', 'V3', 'V4'] as TouchScrollAxisVariant[]).every(
-    (v) => cell(v, 'A')?.pageRolled,
+  const controlsOk = (['V1', 'V3'] as const).every((v) => !!g1(v, 'A')?.pageRolled);
+  const g4Ok = (['V1', 'V2', 'V3', 'V4'] as TouchScrollAxisVariant[]).every(
+    (v) => g4(v, 'A')?.locationChanged === false,
   );
-  if (allARoll) return 'NOT_REPRODUCED';
+
+  if (panFixed && controlsOk && g4Ok) return 'FIXED';
 
   voidReasons.push('unclassified_navigable_matrix');
   return 'VOID';
@@ -664,12 +745,18 @@ export function foldTouchScrollAxis(chassis: LabChassis): LabVerdict[] {
     return [{ id: 'touchScrollAxis', status: 'fail', reason: 'probe_missing' }];
   }
   const code = diag.verdict;
-  if (code === 'VOID') {
+  if (
+    code === 'VOID' ||
+    code === 'REGRESSION_NAV' ||
+    code === 'STILL_BROKEN' ||
+    code === 'CONFIRMED_NAVIGABLE_GUARD' ||
+    code === 'CONFIRMED_CLIENT_OTHER'
+  ) {
     return [
       {
         id: 'touchScrollAxis',
         status: 'fail',
-        reason: `VOID: ${diag.voidReasons.join('; ') || 'instrument_broken'}`,
+        reason: `${code}: ${diag.voidReasons.join('; ') || diag.hypothesis[0] || code}`,
       },
     ];
   }
@@ -793,9 +880,10 @@ export async function runTouchScrollAxisProbe(opts: {
       targetSelector: string;
       hitMode: HitMode;
       axis: 'vertical' | 'horizontal';
+      kind: 'swipe' | 'tap';
     };
 
-    const variantMeta: Record<
+    const variantG1: Record<
       TouchScrollAxisVariant,
       { selector: string; hitMode: HitMode }
     > = {
@@ -808,25 +896,41 @@ export async function runTouchScrollAxisProbe(opts: {
     const plans: CellPlan[] =
       matrixMode === 'navigable'
         ? (['V1', 'V2', 'V3', 'V4'] as TouchScrollAxisVariant[]).flatMap((variant) => {
-            const meta = variantMeta[variant];
-            return (
-              [
-                { surface: 'A' as const, skip: false, page: projected, cdp: projectedCdp, mode: 'projected' as const },
-                { surface: 'B' as const, skip: true, page: projected, cdp: projectedCdp, mode: 'projected' as const },
-                { surface: 'C' as const, skip: false, page: control, cdp: controlCdp, mode: 'control' as const },
-              ] as const
-            ).map((row) => ({
-              surface: row.surface,
-              gesture: 'G1' as const,
-              variant,
-              page: row.page,
-              cdp: row.cdp,
-              mode: row.mode,
-              skipTouchCapture: row.skip,
-              targetSelector: meta.selector,
-              hitMode: meta.hitMode,
-              axis: 'vertical' as const,
-            }));
+            const g1 = variantG1[variant];
+            const g4Selector = `a.g4-probe[data-variant="${variant}"]`;
+            const surfaces = [
+              { surface: 'A' as const, skip: false, page: projected, cdp: projectedCdp, mode: 'projected' as const },
+              { surface: 'B' as const, skip: true, page: projected, cdp: projectedCdp, mode: 'projected' as const },
+              { surface: 'C' as const, skip: false, page: control, cdp: controlCdp, mode: 'control' as const },
+            ] as const;
+            return surfaces.flatMap((row) => [
+              {
+                surface: row.surface,
+                gesture: 'G1' as const,
+                variant,
+                page: row.page,
+                cdp: row.cdp,
+                mode: row.mode,
+                skipTouchCapture: row.skip,
+                targetSelector: g1.selector,
+                hitMode: g1.hitMode,
+                axis: 'vertical' as const,
+                kind: 'swipe' as const,
+              },
+              {
+                surface: row.surface,
+                gesture: 'G4' as const,
+                variant,
+                page: row.page,
+                cdp: row.cdp,
+                mode: row.mode,
+                skipTouchCapture: row.skip,
+                targetSelector: g4Selector,
+                hitMode: 'g4' as const,
+                axis: 'vertical' as const,
+                kind: 'tap' as const,
+              },
+            ]);
           })
         : [
             {
@@ -839,6 +943,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: scrollerSelector,
               hitMode: 'tile' as const,
               axis: 'vertical' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'A' as const,
@@ -850,6 +955,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: plaintextSelector,
               hitMode: 'plaintext' as const,
               axis: 'vertical' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'A' as const,
@@ -861,6 +967,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: scrollerSelector,
               hitMode: 'tile' as const,
               axis: 'horizontal' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'B' as const,
@@ -872,6 +979,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: scrollerSelector,
               hitMode: 'tile' as const,
               axis: 'vertical' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'B' as const,
@@ -883,6 +991,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: plaintextSelector,
               hitMode: 'plaintext' as const,
               axis: 'vertical' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'B' as const,
@@ -894,6 +1003,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: scrollerSelector,
               hitMode: 'tile' as const,
               axis: 'horizontal' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'C' as const,
@@ -905,6 +1015,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: scrollerSelector,
               hitMode: 'tile' as const,
               axis: 'vertical' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'C' as const,
@@ -916,6 +1027,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: plaintextSelector,
               hitMode: 'plaintext' as const,
               axis: 'vertical' as const,
+              kind: 'swipe' as const,
             },
             {
               surface: 'C' as const,
@@ -927,6 +1039,7 @@ export async function runTouchScrollAxisProbe(opts: {
               targetSelector: scrollerSelector,
               hitMode: 'tile' as const,
               axis: 'horizontal' as const,
+              kind: 'swipe' as const,
             },
           ];
 
@@ -934,6 +1047,7 @@ export async function runTouchScrollAxisProbe(opts: {
       if (plan.mode === 'projected') {
         await setSkipTouchCapture(plan.page, plan.skipTouchCapture);
       }
+      await clearDocHash(plan.page, plan.mode);
       await resetScrollers(plan.page, plan.mode, plan.targetSelector);
       await ensureTargetInView(plan.page, plan.mode, plan.targetSelector);
       await wait(100);
@@ -988,6 +1102,9 @@ export async function runTouchScrollAxisProbe(opts: {
           touchstartDefaultPrevented: null,
           hitClosestHref: null,
           hitTagName: null,
+          locationBefore: null,
+          locationAfter: null,
+          locationChanged: false,
           pointerCancelCount: 0,
           touchCancelCount: 0,
           scrollEventsByNode: {},
@@ -997,10 +1114,16 @@ export async function runTouchScrollAxisProbe(opts: {
       }
 
       const hit = await hitAtTopPoint(plan.page, plan.mode, point);
-      await dispatchSwipe(plan.cdp, point, plan.axis);
+      const locationBefore = await readDocLocation(plan.page, plan.mode);
+      if (plan.kind === 'tap') {
+        await dispatchTap(plan.cdp, point);
+      } else {
+        await dispatchSwipe(plan.cdp, point, plan.axis);
+      }
       await wait(SETTLE_MS);
 
       const after = await measureScroll(plan.page, plan.mode, plan.targetSelector);
+      const locationAfter = await readDocLocation(plan.page, plan.mode);
       const bag = await readListeners(plan.page);
       await removeListeners(plan.page);
 
@@ -1029,6 +1152,9 @@ export async function runTouchScrollAxisProbe(opts: {
         touchstartDefaultPrevented: firstStart ? firstStart.defaultPrevented : null,
         hitClosestHref: hit.hitClosestHref,
         hitTagName: hit.hitTagName,
+        locationBefore,
+        locationAfter,
+        locationChanged: locationBefore != null && locationAfter != null && locationBefore !== locationAfter,
         pointerCancelCount: bag.pointerCancelCount,
         touchCancelCount: bag.touchCancelCount,
         scrollEventsByNode: bag.scrollEventsByNode,
@@ -1049,13 +1175,23 @@ export async function runTouchScrollAxisProbe(opts: {
     const hypothesis: string[] = [];
     if (verdict === 'VOID') {
       hypothesis.push(`VOID: ${voidReasons.join('; ') || 'instrument_broken'}`);
+    } else if (verdict === 'FIXED') {
+      hypothesis.push(
+        'V2/V4 G1: A rolls like C with touchstart.defaultPrevented=false; V1/V3 unchanged; G4 projected location stable',
+      );
+    } else if (verdict === 'REGRESSION_NAV') {
+      hypothesis.push(
+        `G4 changed projected location — revert touchend move; ${voidReasons.join('; ')}`,
+      );
+    } else if (verdict === 'STILL_BROKEN') {
+      hypothesis.push('V2/V4 still stuck on A after touchstart fix');
     } else if (verdict === 'CONFIRMED_TOUCH_CAPTURE') {
       hypothesis.push(
         'C.G1 rolls page, A.G1 does not, B.G1 rolls — cause isolated to touch-capture branch',
       );
     } else if (verdict === 'CONFIRMED_NAVIGABLE_GUARD') {
       hypothesis.push(
-        'V2/V4: C rolls, A blocked with touchstart.defaultPrevented=true; V1.A still rolls — navigable guard',
+        'V2/V4: C rolls, A blocked with touchstart.defaultPrevented=true; V1.A still rolls — navigable guard still active on touchstart',
       );
     } else if (verdict === 'CONFIRMED_CLIENT_OTHER') {
       const stuck = cells.find(

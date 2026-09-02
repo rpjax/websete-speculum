@@ -131,6 +131,8 @@ function printArtifact(dossierDir) {
       'hitTag',
       'hitHref',
       'locΔ',
+      'vHash',
+      'vOk',
       'mtp',
     ].join('\t'),
   );
@@ -151,6 +153,8 @@ function printArtifact(dossierDir) {
         c.hitTagName ?? '-',
         c.hitClosestHref ?? '-',
         c.locationChanged ? 'Y' : 'n',
+        c.virtualHashAfter ?? '-',
+        c.virtualHashOk === true ? 'Y' : c.virtualHashOk === false ? 'n' : '-',
         c.maxTouchPoints,
       ].join('\t'),
     );

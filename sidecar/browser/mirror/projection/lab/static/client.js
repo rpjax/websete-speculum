@@ -2824,7 +2824,7 @@
         doc.addEventListener("dblclick", onActivate, true);
         doc.addEventListener("submit", onActivate, true);
         doc.addEventListener("pointerdown", onPointerDown, true);
-        doc.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+        doc.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
         doc.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
         return () => {
           doc.removeEventListener("click", onActivate, true);
@@ -7006,8 +7006,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 65,
-    builtAt: "2026-09-02T23:11:23.865Z"
+    seq: 66,
+    builtAt: "2026-09-02T23:41:02.477Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts

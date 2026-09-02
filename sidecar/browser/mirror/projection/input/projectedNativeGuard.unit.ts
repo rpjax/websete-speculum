@@ -8,6 +8,12 @@ import {
 
 type Handler = (event: Event) => void;
 
+type ListenerReg = {
+  type: string;
+  handler: Handler;
+  opts: boolean | AddEventListenerOptions | undefined;
+};
+
 function el(tag: string, attrs: Record<string, string> = {}): Element {
   const node: Record<string, unknown> = {
     nodeType: 1,
@@ -24,11 +30,17 @@ function el(tag: string, attrs: Record<string, string> = {}): Element {
 
 function fakeDoc() {
   const listeners = new Map<string, Set<Handler>>();
+  const registrations: ListenerReg[] = [];
   const doc = {
     documentElement: { style: {} as CSSStyleDeclaration },
     body: { style: {} as CSSStyleDeclaration },
     defaultView: { innerWidth: 800, innerHeight: 600 },
-    addEventListener(type: string, handler: Handler, _opts?: unknown): void {
+    addEventListener(
+      type: string,
+      handler: Handler,
+      opts?: boolean | AddEventListenerOptions,
+    ): void {
+      registrations.push({ type, handler, opts });
       let set = listeners.get(type);
       if (!set) {
         set = new Set();
@@ -43,7 +55,23 @@ function fakeDoc() {
       for (const h of listeners.get(type) ?? []) h(event);
     },
   };
-  return { doc: doc as unknown as Document & { dispatch(type: string, event: Event): void } };
+  return {
+    doc: doc as unknown as Document & { dispatch(type: string, event: Event): void },
+    registrations,
+  };
+}
+
+function optsRecord(opts: boolean | AddEventListenerOptions | undefined): {
+  capture: boolean;
+  passive: boolean | undefined;
+} {
+  if (opts == null || typeof opts === 'boolean') {
+    return { capture: opts === true, passive: undefined };
+  }
+  return {
+    capture: opts.capture === true,
+    passive: opts.passive,
+  };
 }
 
 export function runProjectedNativeGuardUnitTests(): void {
@@ -52,10 +80,25 @@ export function runProjectedNativeGuardUnitTests(): void {
   const span = el('span');
   assert.strictEqual(eventTargetElement(span), span);
 
-  const { doc } = fakeDoc();
+  const { doc, registrations } = fakeDoc();
   let submitPrevented = false;
   let navClickPrevented = false;
   attachProjectedNativeGuard(doc);
+
+  const touchStartReg = registrations.find((r) => r.type === 'touchstart');
+  const touchEndReg = registrations.find((r) => r.type === 'touchend');
+  assert.ok(touchStartReg, 'touchstart must be registered');
+  assert.ok(touchEndReg, 'touchend must be registered');
+  assert.deepStrictEqual(
+    optsRecord(touchStartReg.opts),
+    { capture: true, passive: true },
+    'touchstart must be { capture: true, passive: true } — non-passive reintroduces scroll latency / pan cancel risk',
+  );
+  assert.deepStrictEqual(
+    optsRecord(touchEndReg.opts),
+    { capture: true, passive: false },
+    'touchend must be { capture: true, passive: false } — cancelamento real de ativação',
+  );
 
   const submitEvent = new Event('submit', { cancelable: true, bubbles: true });
   Object.defineProperty(submitEvent, 'target', { value: el('form') });

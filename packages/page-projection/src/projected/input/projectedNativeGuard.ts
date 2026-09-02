@@ -75,8 +75,8 @@ export function attachProjectedNativeGuard(doc: Document, opts?: ProjectedNative
   doc.addEventListener('dblclick', onActivate, true);
   doc.addEventListener('submit', onActivate, true);
   doc.addEventListener('pointerdown', onPointerDown, true);
-  // touchstart stays non-passive for metrics hook only — never preventDefault here (PP-SCROLL-AXIS).
-  doc.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
+  // Metrics only — must stay passive so Chrome can start scroll without waiting on the handler.
+  doc.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
   doc.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
 
   return () => {

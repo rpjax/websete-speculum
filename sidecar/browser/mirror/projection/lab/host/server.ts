@@ -16,6 +16,14 @@ import {
   type CrossOriginFixtureServer,
 } from '../crossOriginFixtureServer';
 import { labLocalOrigin, resolveLabPublicOrigin } from '../labPublicOrigin';
+import {
+  defaultLabRunsDir,
+  deleteLabRun,
+  deleteLabRuns,
+  listLabRuns,
+  loadLabRunDetail,
+  resolveRunArtifactPath,
+} from '../dossier/runsApi';
 
 export type LabServerOptions = {
   host: string;
@@ -56,6 +64,22 @@ function safeJoin(root: string, urlPath: string): string | null {
   return full;
 }
 
+function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8').trim();
+        resolve(raw.length > 0 ? JSON.parse(raw) : null);
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 export async function createLabServer(opts: LabServerOptions): Promise<LabServer> {
   const { staticDir, fixturesDir, labRoot } = labAssetRoots();
   const sessions = new Map<string, WsLabConnection>();
@@ -94,6 +118,68 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
       if (pathname === '/lab/blueprints' || pathname === '/lab/blueprints/') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ blueprints: listLabBlueprintSummaries() }));
+        return;
+      }
+      if ((pathname === '/lab/runs' || pathname === '/lab/runs/') && req.method === 'GET') {
+        const runs = await listLabRuns(defaultLabRunsDir());
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ runs }));
+        return;
+      }
+      if (pathname === '/lab/runs/delete' && req.method === 'POST') {
+        let body: unknown;
+        try {
+          body = await readJsonBody(req);
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid json' }));
+          return;
+        }
+        const ids = (body as { ids?: unknown } | null)?.ids;
+        if (!Array.isArray(ids) || ids.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'ids required' }));
+          return;
+        }
+        const result = await deleteLabRuns(ids.map(String), defaultLabRunsDir());
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+        return;
+      }
+      const runDetailMatch = pathname.match(/^\/lab\/runs\/([^/]+)$/);
+      if (runDetailMatch && req.method === 'DELETE') {
+        const ok = await deleteLabRun(decodeURIComponent(runDetailMatch[1]!), defaultLabRunsDir());
+        if (!ok) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'run not found' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ deleted: decodeURIComponent(runDetailMatch[1]!) }));
+        return;
+      }
+      if (runDetailMatch && req.method === 'GET') {
+        const detail = await loadLabRunDetail(decodeURIComponent(runDetailMatch[1]!), defaultLabRunsDir());
+        if (!detail) {
+          res.writeHead(404).end('run not found');
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(detail));
+        return;
+      }
+      const runFileMatch = pathname.match(/^\/lab\/runs\/([^/]+)\/files\/(.+)$/);
+      if (runFileMatch) {
+        const file = resolveRunArtifactPath(
+          decodeURIComponent(runFileMatch[1]!),
+          runFileMatch[2]!,
+          defaultLabRunsDir(),
+        );
+        if (!file) {
+          res.writeHead(404).end('not found');
+          return;
+        }
+        sendFile(res, file);
         return;
       }
       if (pathname === '/' || pathname.startsWith('/index.html')) {

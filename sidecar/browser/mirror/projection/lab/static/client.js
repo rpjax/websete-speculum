@@ -1852,13 +1852,13 @@
         const host = head ?? doc.documentElement;
         if (host == null)
           return false;
-        const el = doc.createElement("style");
-        el.setAttribute(exports.PARITY_STYLE_ATTR, "");
-        el.textContent = exports.SCRIPTING_ON_PAINT_PARITY_CSS;
+        const el2 = doc.createElement("style");
+        el2.setAttribute(exports.PARITY_STYLE_ATTR, "");
+        el2.textContent = exports.SCRIPTING_ON_PAINT_PARITY_CSS;
         if (head != null)
-          head.appendChild(el);
+          head.appendChild(el2);
         else
-          host.insertBefore(el, host.firstChild);
+          host.insertBefore(el2, host.firstChild);
         return true;
       }
       function withScriptingOnPaintParity(doc, sheets) {
@@ -2601,8 +2601,8 @@
             const host = this.registry.get(op.host);
             if (!host || host.nodeType !== Node.ELEMENT_NODE)
               return this.fail("address_miss", "nodeNew", op.host);
-            const el = host;
-            if (el.shadowRoot)
+            const el2 = host;
+            if (el2.shadowRoot)
               return this.fail("bad_target", "nodeNew", op.id);
             const init = { mode: op.mode === frame_1.SHADOW_MODE_CLOSED ? "closed" : "open" };
             if ((op.initFlags & frame_1.SHADOW_INIT_DELEGATES_FOCUS) !== 0)
@@ -2613,9 +2613,9 @@
             if ((op.initFlags & frame_1.SHADOW_INIT_SERIALIZABLE) !== 0)
               extra.serializable = true;
             try {
-              node = el.attachShadow(init);
+              node = el2.attachShadow(init);
               if (init.mode === "closed") {
-                (0, closedShadowLookup_1.registerClosedShadowRoot)(el, node);
+                (0, closedShadowLookup_1.registerClosedShadowRoot)(el2, node);
               }
             } catch {
               return this.fail("malformed", "nodeNew", op.id);
@@ -2692,9 +2692,9 @@
           const node = this.registry.get(op.node);
           if (!node || node.nodeType !== Node.ELEMENT_NODE)
             return this.fail("address_miss", "attrDel", op.node);
-          const el = node;
+          const el2 = node;
           for (let i = 0; i < op.names.length; i++)
-            el.removeAttribute(op.names[i]);
+            el2.removeAttribute(op.names[i]);
           return true;
         }
         applyTextSet(op) {
@@ -2712,17 +2712,17 @@
           const node = this.registry.get(op.node);
           if (!node || node.nodeType !== Node.ELEMENT_NODE)
             return this.fail("address_miss", "propSet", op.node);
-          const el = node;
-          if (op.propId === propSet_1.PROP_ID_VALUE && "value" in el) {
-            el.value = String(op.value);
+          const el2 = node;
+          if (op.propId === propSet_1.PROP_ID_VALUE && "value" in el2) {
+            el2.value = String(op.value);
             return true;
           }
-          if (op.propId === propSet_1.PROP_ID_CHECKED && "checked" in el) {
-            el.checked = Boolean(op.value);
+          if (op.propId === propSet_1.PROP_ID_CHECKED && "checked" in el2) {
+            el2.checked = Boolean(op.value);
             return true;
           }
-          if (op.propId === propSet_1.PROP_ID_SELECTED && el instanceof HTMLOptionElement) {
-            el.selected = Boolean(op.value);
+          if (op.propId === propSet_1.PROP_ID_SELECTED && el2 instanceof HTMLOptionElement) {
+            el2.selected = Boolean(op.value);
             return true;
           }
           return true;
@@ -2738,19 +2738,19 @@
           const childScopeId = this.childScopes.get(id);
           if (childScopeId === void 0)
             return;
-          const el = node;
-          if (el.contentWindow)
-            this.options.onNestedHost?.(el, childScopeId);
+          const el2 = node;
+          if (el2.contentWindow)
+            this.options.onNestedHost?.(el2, childScopeId);
         }
       };
       exports.DomFrameApplier = DomFrameApplier;
       function isHtmlScriptElement(node) {
         return node.nodeType === Node.ELEMENT_NODE && node.localName === "script" && node.namespaceURI === "http://www.w3.org/1999/xhtml";
       }
-      function applyAttrs(el, attrs, stampUrl) {
+      function applyAttrs(el2, attrs, stampUrl) {
         return (0, attrApply_1.applyAttrPairs)((name, value) => {
           const stamped = stampUrl ? stampUrl(name, value) : value;
-          el.setAttribute(name, stamped);
+          el2.setAttribute(name, stamped);
         }, attrs);
       }
     }
@@ -2773,12 +2773,12 @@
       }
       exports.eventTargetElement = eventTargetElement;
       function isProjectedNavigable(target) {
-        const el = eventTargetElement(target);
-        if (el == null)
+        const el2 = eventTargetElement(target);
+        if (el2 == null)
           return false;
-        if (typeof el.closest !== "function")
+        if (typeof el2.closest !== "function")
           return false;
-        return el.closest("a[href], area[href]") != null;
+        return el2.closest("a[href], area[href]") != null;
       }
       exports.isProjectedNavigable = isProjectedNavigable;
       function suppressProjectedDefault(event) {
@@ -2788,9 +2788,9 @@
       }
       exports.suppressProjectedDefault = suppressProjectedDefault;
       function layoutViewportSize(win) {
-        const el = win.document?.documentElement;
-        const width = el?.clientWidth || win.innerWidth;
-        const height = el?.clientHeight || win.innerHeight;
+        const el2 = win.document?.documentElement;
+        const width = el2?.clientWidth || win.innerWidth;
+        const height = el2?.clientHeight || win.innerHeight;
         return { width, height };
       }
       exports.layoutViewportSize = layoutViewportSize;
@@ -3668,7 +3668,7 @@
                 this.commitResyncSwap(frame, applyMs);
               }
             },
-            onOverrun: (durationMs, lastSequence) => {
+            onOverrun: (durationMs2, lastSequence) => {
               this.onTelemetry?.({
                 v: telemetry_1.TELEMETRY_WIRE_VERSION,
                 contextId: this.contextId,
@@ -3676,7 +3676,7 @@
                 t: performance.now(),
                 generation: this.generation,
                 sequence: lastSequence,
-                durationMs,
+                durationMs: durationMs2,
                 budgetMs: 4
               });
             }
@@ -4606,7 +4606,7 @@
                 this.commitResyncSwap(frame, applyMs);
               }
             },
-            onOverrun: (durationMs, lastSequence) => {
+            onOverrun: (durationMs2, lastSequence) => {
               this.onTelemetry?.({
                 v: telemetry_1.TELEMETRY_WIRE_VERSION,
                 contextId: frame_1.CONTEXT_ID_ROOT,
@@ -4614,7 +4614,7 @@
                 t: performance.now(),
                 generation: this.generation,
                 sequence: lastSequence,
-                durationMs,
+                durationMs: durationMs2,
                 budgetMs: 4
               });
             }
@@ -5043,17 +5043,17 @@
             opts.metrics?.noteSkip("no_node");
             return;
           }
-          const el = target;
-          if (el.nodeType !== 1) {
+          const el2 = target;
+          if (el2.nodeType !== 1) {
             opts.metrics?.noteSkip("no_node");
             return;
           }
-          const nodeId = registry.idOf(el);
+          const nodeId = registry.idOf(el2);
           if (nodeId == null) {
             opts.metrics?.noteSkip("no_node");
             return;
           }
-          const box = el.getBoundingClientRect();
+          const box = el2.getBoundingClientRect();
           if (box.width <= 0 || box.height <= 0) {
             opts.metrics?.noteSkip("no_coords");
             return;
@@ -5141,8 +5141,8 @@
             opts.metrics?.noteSkip("disarmed");
             return;
           }
-          const el = event.target;
-          if (el === doc || el === win || isElement(el) && el === doc.scrollingElement) {
+          const el2 = event.target;
+          if (el2 === doc || el2 === win || isElement(el2) && el2 === doc.scrollingElement) {
             if (!win)
               return;
             const top2 = win.scrollY || doc.scrollingElement?.scrollTop || 0;
@@ -5163,15 +5163,15 @@
             });
             return;
           }
-          if (!isElement(el))
+          if (!isElement(el2))
             return;
-          const nodeId = registry.idOfNearest(el);
+          const nodeId = registry.idOfNearest(el2);
           if (nodeId == null) {
             opts.metrics?.noteSkip("no_node");
             return;
           }
-          const top = el.scrollTop;
-          const left = el.scrollLeft;
+          const top = el2.scrollTop;
+          const left = el2.scrollLeft;
           if (opts.consumeScrollEcho?.(nodeId, { top, left })) {
             opts.onProgrammaticScrollSuppress?.(nodeId);
             return;
@@ -5245,9 +5245,22 @@
             }
           }
           if (event.pointerType === "touch") {
-            event.preventDefault();
-            event.stopPropagation();
-            capturePointer(event);
+            let skipTouchCapture = false;
+            try {
+              const root = win ?? void 0;
+              if (root?.__SCROLL_DIAG_SKIP_TOUCH_CAPTURE__ === true) {
+                skipTouchCapture = true;
+              } else {
+                const search = (typeof win?.parent !== "undefined" && win.parent !== win ? win.parent.location.search : null) ?? win?.location.search ?? "";
+                skipTouchCapture = new URLSearchParams(search).get("touchCapture") === "off";
+              }
+            } catch {
+            }
+            if (!skipTouchCapture) {
+              event.preventDefault();
+              event.stopPropagation();
+              capturePointer(event);
+            }
           }
           onPointerEdge(event, "down");
         };
@@ -5332,6 +5345,96 @@
         doc.addEventListener("keyup", onKey, true);
         doc.addEventListener("scroll", onScroll, true);
         win?.addEventListener("scroll", onScroll, true);
+        let tempDiagTouch = null;
+        const tempDiagLog = [];
+        const tempDiagTag = (el2) => `${el2.tagName}.${String(el2.className || "").slice(0, 40)}`;
+        const tempDiagLabel = () => win.__SCROLL_DIAG_LABEL ?? null;
+        const tempDiagOnTouchStart = (event) => {
+          const t = event.changedTouches[0];
+          if (!t)
+            return;
+          tempDiagTouch = {
+            id: t.identifier,
+            x0: t.clientX,
+            y0: t.clientY,
+            dx: 0,
+            dy: 0,
+            moves: 0,
+            preventedMoves: 0
+          };
+          const rec = {
+            phase: "touchstart",
+            x: t.clientX,
+            y: t.clientY,
+            defaultPrevented: event.defaultPrevented,
+            label: tempDiagLabel()
+          };
+          tempDiagLog.push(rec);
+          console.log("[TEMP-DIAG touch]", JSON.stringify(rec));
+        };
+        const tempDiagOnTouchMove = (event) => {
+          if (!tempDiagTouch)
+            return;
+          const t = Array.from(event.changedTouches).find((c) => c.identifier === tempDiagTouch.id) ?? event.touches[0];
+          if (!t)
+            return;
+          tempDiagTouch.dx = t.clientX - tempDiagTouch.x0;
+          tempDiagTouch.dy = t.clientY - tempDiagTouch.y0;
+          tempDiagTouch.moves += 1;
+          if (event.defaultPrevented)
+            tempDiagTouch.preventedMoves += 1;
+        };
+        const tempDiagOnTouchEnd = (event) => {
+          if (!tempDiagTouch)
+            return;
+          const rec = {
+            phase: "touchend",
+            ...tempDiagTouch,
+            defaultPrevented: event.defaultPrevented,
+            label: tempDiagLabel()
+          };
+          tempDiagLog.push(rec);
+          console.log("[TEMP-DIAG touch]", JSON.stringify(rec));
+          tempDiagTouch = null;
+        };
+        const tempDiagOnScroll = (event) => {
+          const t = event.target;
+          if (!t || typeof t !== "object" || !("tagName" in t))
+            return;
+          const el2 = t;
+          const rec = {
+            phase: "scroll",
+            target: tempDiagTag(el2),
+            scrollLeft: el2.scrollLeft,
+            scrollTop: el2.scrollTop,
+            label: tempDiagLabel()
+          };
+          tempDiagLog.push(rec);
+          console.log("[TEMP-DIAG scroll]", JSON.stringify(rec));
+        };
+        const tempDiagOnPointerCancel = (event) => {
+          const rec = {
+            phase: "pointercancel",
+            pointerId: event.pointerId,
+            pointerType: event.pointerType,
+            label: tempDiagLabel()
+          };
+          tempDiagLog.push(rec);
+          console.log("[TEMP-DIAG pointercancel]", JSON.stringify(rec));
+        };
+        const tempDiagOpts = { capture: true, passive: true };
+        doc.addEventListener("touchstart", tempDiagOnTouchStart, tempDiagOpts);
+        doc.addEventListener("touchmove", tempDiagOnTouchMove, tempDiagOpts);
+        doc.addEventListener("touchend", tempDiagOnTouchEnd, tempDiagOpts);
+        doc.addEventListener("scroll", tempDiagOnScroll, tempDiagOpts);
+        doc.addEventListener("pointercancel", tempDiagOnPointerCancel, tempDiagOpts);
+        if (win) {
+          win.__SCROLL_DIAG_LOG = tempDiagLog;
+          win.__SCROLL_DIAG_CLEAR = () => {
+            tempDiagLog.length = 0;
+            tempDiagTouch = null;
+          };
+        }
         return () => {
           buffer.dispose();
           detachHistoryTrap();
@@ -5352,6 +5455,11 @@
           doc.removeEventListener("keyup", onKey, true);
           doc.removeEventListener("scroll", onScroll, true);
           win?.removeEventListener("scroll", onScroll, true);
+          doc.removeEventListener("touchstart", tempDiagOnTouchStart, tempDiagOpts);
+          doc.removeEventListener("touchmove", tempDiagOnTouchMove, tempDiagOpts);
+          doc.removeEventListener("touchend", tempDiagOnTouchEnd, tempDiagOpts);
+          doc.removeEventListener("scroll", tempDiagOnScroll, tempDiagOpts);
+          doc.removeEventListener("pointercancel", tempDiagOnPointerCancel, tempDiagOpts);
         };
       }
       exports.attachProjectedInputCapture = attachProjectedInputCapture2;
@@ -5512,8 +5620,8 @@
         const out = [];
         const nodes = doc.querySelectorAll("input, textarea, option");
         for (let i = 0; i < nodes.length; i++) {
-          const el = nodes[i];
-          const snap = snapshotOne(el);
+          const el2 = nodes[i];
+          const snap = snapshotOne(el2);
           if (snap)
             out.push(snap);
         }
@@ -5521,29 +5629,29 @@
         return out;
       }
       exports.snapshotFormControls = snapshotFormControls2;
-      function snapshotOne(el) {
-        const tag = el.tagName;
+      function snapshotOne(el2) {
+        const tag = el2.tagName;
         if (tag === "TEXTAREA") {
-          const key2 = el.id || null;
+          const key2 = el2.id || null;
           if (!key2)
             return null;
-          return { key: key2, value: el.value };
+          return { key: key2, value: el2.value };
         }
         if (tag === "OPTION") {
-          const select = el.closest("select");
+          const select = el2.closest("select");
           const selectId = select?.id || "";
-          const value = el.value;
+          const value = el2.value;
           if (!selectId && !value)
             return null;
-          return { key: `option:${selectId}:${value}`, selected: el.selected };
+          return { key: `option:${selectId}:${value}`, selected: el2.selected };
         }
         if (tag !== "INPUT")
           return null;
-        const input = el;
+        const input = el2;
         const type = (input.type || "text").toLowerCase();
         if (SKIP_INPUT_TYPES.has(type))
           return null;
-        const key = el.id || null;
+        const key = el2.id || null;
         if (!key)
           return null;
         if (type === "checkbox" || type === "radio")
@@ -5603,13 +5711,13 @@
         return { ok: true, width: w, height: h };
       }
       exports.validateResizeViewport = validateResizeViewport;
-      function measureHostElement2(el) {
-        if (!el) {
+      function measureHostElement2(el2) {
+        if (!el2) {
           return { width: 0, height: 0 };
         }
         return {
-          width: Math.round(el.clientWidth),
-          height: Math.round(el.clientHeight)
+          width: Math.round(el2.clientWidth),
+          height: Math.round(el2.clientHeight)
         };
       }
       exports.measureHostElement = measureHostElement2;
@@ -5672,6 +5780,55 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/viewportSyncProbe.js
+  var require_viewportSyncProbe = __commonJS({
+    "../packages/page-projection/dist/projected/viewportSyncProbe.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.viewportSyncProbeStartSampler = exports.viewportSyncProbeEmit = exports.viewportSyncProbeActive = void 0;
+      function viewportSyncProbeActive() {
+        if (typeof window === "undefined") {
+          return false;
+        }
+        if (window.__VIEWPORT_SYNC_PROBE__ === true) {
+          return true;
+        }
+        try {
+          return new URLSearchParams(window.location.search).has("viewportSyncProbe");
+        } catch {
+          return false;
+        }
+      }
+      exports.viewportSyncProbeActive = viewportSyncProbeActive;
+      function viewportSyncProbeEmit(record) {
+        if (!viewportSyncProbeActive()) {
+          return;
+        }
+        const log = window.__viewportSyncProbeLog ?? [];
+        log.push(record);
+        window.__viewportSyncProbeLog = log;
+        console.log("[viewportSyncProbe]", JSON.stringify(record));
+      }
+      exports.viewportSyncProbeEmit = viewportSyncProbeEmit;
+      function viewportSyncProbeStartSampler(measure, remote, intervalMs = 250) {
+        if (!viewportSyncProbeActive()) {
+          return () => {
+          };
+        }
+        const id = setInterval(() => {
+          viewportSyncProbeEmit({
+            kind: "tick",
+            t: performance.now(),
+            measure: measure(),
+            remote: remote()
+          });
+        }, intervalMs);
+        return () => clearInterval(id);
+      }
+      exports.viewportSyncProbeStartSampler = viewportSyncProbeStartSampler;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/viewportSync.js
   var require_viewportSync = __commonJS({
     "../packages/page-projection/dist/projected/viewportSync.js"(exports) {
@@ -5683,6 +5840,7 @@
         return viewportPolicy_1.measureHostElement;
       } });
       var viewportDevice_1 = require_viewportDevice();
+      var viewportSyncProbe_1 = require_viewportSyncProbe();
       var ViewportSync2 = class _ViewportSync {
         measure;
         resize;
@@ -5702,6 +5860,7 @@
         observer = null;
         viewportListenersAttached = false;
         disposed = false;
+        stopProbeSampler = null;
         /** Cap automatic retries after applied:false / throw so permanent faults do not spin. */
         static MAX_REJECT_RETRIES = 5;
         constructor(options) {
@@ -5713,6 +5872,7 @@
           this.onApplied = options.onApplied;
           this.onRejected = options.onRejected;
           this.detectDevice = options.detectDevice ?? viewportDevice_1.detectViewportDeviceProfile;
+          this.stopProbeSampler = (0, viewportSyncProbe_1.viewportSyncProbeStartSampler)(() => this.measure(), () => this.remoteSize);
         }
         /** Last confirmed remote viewport (after applied resize / seed from start). */
         get remoteSize() {
@@ -5759,11 +5919,29 @@
           }
           const validated = (0, viewportPolicy_1.validateResizeViewport)(rawW, rawH, this.viewportPolicy);
           if (!validated.ok) {
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: validated.message,
+              measure: this.measure(),
+              remote: this.remoteSize,
+              rawW,
+              rawH
+            });
             return;
           }
           const { width: w, height: h } = validated;
           const nextProfile = this.detectDevice();
           if ((0, viewportPolicy_1.viewportSizesClose)(w, h, this.remoteW, this.remoteH) && (0, viewportDevice_1.deviceProfilesEqual)(this.deviceProfile, nextProfile)) {
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: "viewportSizesClose",
+              measure: { width: w, height: h },
+              remote: this.remoteSize,
+              rawW,
+              rawH
+            });
             return;
           }
           if (this.resizeTimer) {
@@ -5785,6 +5963,8 @@
         }
         dispose() {
           this.disposed = true;
+          this.stopProbeSampler?.();
+          this.stopProbeSampler = null;
           if (this.resizeTimer) {
             clearTimeout(this.resizeTimer);
             this.resizeTimer = null;
@@ -5839,6 +6019,15 @@
           const latest = this.measure();
           const validated = (0, viewportPolicy_1.validateResizeViewport)(latest.width, latest.height, this.viewportPolicy);
           if (!validated.ok) {
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: validated.message,
+              measure: latest,
+              remote: this.remoteSize,
+              rawW: latest.width,
+              rawH: latest.height
+            });
             return;
           }
           const targetW = validated.width;
@@ -5846,11 +6035,26 @@
           const profile = this.detectDevice();
           if ((0, viewportPolicy_1.viewportSizesClose)(targetW, targetH, this.remoteW, this.remoteH) && (0, viewportDevice_1.deviceProfilesEqual)(this.deviceProfile, profile)) {
             this.consecutiveRejects = 0;
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: "invoke_viewportSizesClose",
+              measure: { width: targetW, height: targetH },
+              remote: this.remoteSize,
+              rawW: latest.width,
+              rawH: latest.height
+            });
             return;
           }
           this.resizeInFlight = true;
           try {
             const result = await this.resize({ width: targetW, height: targetH }, profile);
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "resize",
+              t: performance.now(),
+              target: { width: targetW, height: targetH },
+              result
+            });
             if (this.disposed) {
               return;
             }
@@ -5862,6 +6066,11 @@
               this.onApplied?.({ width: targetW, height: targetH }, profile);
             } else {
               const detail = result.message || result.errorCode || "resize rejected";
+              (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+                kind: "resize_reject",
+                t: performance.now(),
+                detail: String(detail)
+              });
               this.onRejected?.(String(detail));
               this.consecutiveRejects++;
               if (this.consecutiveRejects <= _ViewportSync.MAX_REJECT_RETRIES) {
@@ -5870,6 +6079,11 @@
             }
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "resize_reject",
+              t: performance.now(),
+              detail: message
+            });
             this.onRejected?.(message);
             this.consecutiveRejects++;
             if (this.consecutiveRejects <= _ViewportSync.MAX_REJECT_RETRIES) {
@@ -6053,18 +6267,18 @@
             return { tag: "#doctype", text: dt.name };
           }
           case 1: {
-            const el = node;
+            const el2 = node;
             const attrs = [];
-            const host = el.contentWindow != null;
-            for (let i = 0; i < el.attributes.length; i++) {
-              const a = el.attributes[i];
+            const host = el2.contentWindow != null;
+            for (let i = 0; i < el2.attributes.length; i++) {
+              const a = el2.attributes[i];
               if (host && (a.name === "src" || a.name === "srcdoc"))
                 continue;
               attrs.push([a.name, a.value]);
             }
             attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
-            const result = { tag: el.tagName.toLowerCase() };
-            const ns = (0, elementNs_1.elementNsSnapshotLabel)(el.namespaceURI);
+            const result = { tag: el2.tagName.toLowerCase() };
+            const ns = (0, elementNs_1.elementNsSnapshotLabel)(el2.namespaceURI);
             if (ns !== void 0)
               result.ns = ns;
             if (attrs.length > 0)
@@ -6072,14 +6286,14 @@
             const children = mapChildren(node);
             if (children.length > 0)
               result.children = children;
-            const sr = (0, closedShadowLookup_1.resolveShadowRoot)(el);
+            const sr = (0, closedShadowLookup_1.resolveShadowRoot)(el2);
             if (sr !== null && sr.slotAssignment !== "manual") {
               const shadowKids = mapChildren(sr);
               result.shadow = { tag: "#shadow-root", ...shadowKids.length > 0 ? { children: shadowKids } : {} };
             }
             if (host) {
               try {
-                const iframe = el;
+                const iframe = el2;
                 const win = iframe.contentWindow;
                 if (win)
                   result.frameHref = win.location.href;
@@ -6119,30 +6333,30 @@
   var import_closedShadowLookup = __toESM(require_closedShadowLookup());
 
   // browser/mirror/projection/lab/probes/labPierce.ts
-  function sampleElement(el, name) {
-    if (!el) return { name, ok: false, reason: "missing" };
-    const r = el.getBoundingClientRect();
-    const win = el.ownerDocument.defaultView;
-    const cs = win ? win.getComputedStyle(el) : null;
-    const html = el;
-    const isIframe = el.tagName === "IFRAME";
+  function sampleElement(el2, name) {
+    if (!el2) return { name, ok: false, reason: "missing" };
+    const r = el2.getBoundingClientRect();
+    const win = el2.ownerDocument.defaultView;
+    const cs = win ? win.getComputedStyle(el2) : null;
+    const html = el2;
+    const isIframe = el2.tagName === "IFRAME";
     return {
       name,
       ok: true,
-      tagName: el.tagName.toLowerCase(),
+      tagName: el2.tagName.toLowerCase(),
       rect: { x: r.x, y: r.y, width: r.width, height: r.height },
       offsetWidth: html.offsetWidth,
       offsetHeight: html.offsetHeight,
       display: cs?.display ?? null,
       visibility: cs?.visibility ?? null,
-      hasSrcAttr: isIframe ? el.hasAttribute("src") : null,
-      src: isIframe ? el.getAttribute("src") : null
+      hasSrcAttr: isIframe ? el2.hasAttribute("src") : null,
+      src: isIframe ? el2.getAttribute("src") : null
     };
   }
-  function samplePaint(el) {
-    if (!el) return null;
-    const win = el.ownerDocument.defaultView;
-    const cs = win ? win.getComputedStyle(el) : null;
+  function samplePaint(el2) {
+    if (!el2) return null;
+    const win = el2.ownerDocument.defaultView;
+    const cs = win ? win.getComputedStyle(el2) : null;
     if (!cs) return null;
     return {
       backgroundColor: cs.backgroundColor,
@@ -6166,20 +6380,20 @@
     while (queue.length > 0) {
       const { node: n, shadowHost } = queue.shift();
       if (n.nodeType !== Node.ELEMENT_NODE) continue;
-      const el = n;
-      if (el.tagName === "IFRAME") {
-        const id = el.id || "";
-        const src = el.getAttribute("src") || "";
+      const el2 = n;
+      if (el2.tagName === "IFRAME") {
+        const id = el2.id || "";
+        const src = el2.getAttribute("src") || "";
         if (id.startsWith("cf-chl") || /challenges\.cloudflare\.com|turnstile/i.test(src)) {
-          const hostFromRoot = shadowHost ?? (el.getRootNode() instanceof ShadowRoot ? el.getRootNode().host : null);
-          return { iframe: el, shadowHost: hostFromRoot };
+          const hostFromRoot = shadowHost ?? (el2.getRootNode() instanceof ShadowRoot ? el2.getRootNode().host : null);
+          return { iframe: el2, shadowHost: hostFromRoot };
         }
       }
-      const sr = (0, import_closedShadowLookup.resolveShadowRoot)(el);
+      const sr = (0, import_closedShadowLookup.resolveShadowRoot)(el2);
       if (sr) {
-        for (const c of Array.from(sr.childNodes)) queue.push({ node: c, shadowHost: el });
+        for (const c of Array.from(sr.childNodes)) queue.push({ node: c, shadowHost: el2 });
       }
-      for (const c of Array.from(el.childNodes)) queue.push({ node: c, shadowHost });
+      for (const c of Array.from(el2.childNodes)) queue.push({ node: c, shadowHost });
     }
     return { iframe: null, shadowHost: null };
   }
@@ -6588,9 +6802,9 @@
       for (const [contextId, pending] of c.nestedHostAwaitingLoad) {
         awaitingByIframe.set(pending.iframe, contextId);
       }
-      const isCfIframe = (el) => {
-        const id = el.id || "";
-        const src = el.getAttribute("src") || "";
+      const isCfIframe = (el2) => {
+        const id = el2.id || "";
+        const src = el2.getAttribute("src") || "";
         return id.startsWith("cf-chl") || /challenges\.cloudflare\.com|turnstile/i.test(src);
       };
       const collectCfIframes = (doc) => {
@@ -6601,15 +6815,15 @@
         while (queue.length > 0) {
           const n = queue.shift();
           if (n.nodeType !== Node.ELEMENT_NODE) continue;
-          const el = n;
-          if (el.tagName === "IFRAME" && isCfIframe(el)) {
-            out.push(el);
+          const el2 = n;
+          if (el2.tagName === "IFRAME" && isCfIframe(el2)) {
+            out.push(el2);
           }
-          const sr = (0, import_closedShadowLookup2.resolveShadowRoot)(el);
+          const sr = (0, import_closedShadowLookup2.resolveShadowRoot)(el2);
           if (sr) {
             for (const child of Array.from(sr.childNodes)) queue.push(child);
           }
-          for (const child of Array.from(el.childNodes)) queue.push(child);
+          for (const child of Array.from(el2.childNodes)) queue.push(child);
         }
         return out;
       };
@@ -6779,9 +6993,853 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 32,
-    builtAt: "2026-08-31T12:45:39.918Z"
+    seq: 55,
+    builtAt: "2026-09-02T15:17:04.568Z"
   };
+
+  // browser/mirror/projection/lab/client/runsPanel.ts
+  var DETAIL_SECTIONS = [
+    { id: "overview", label: "Overview" },
+    { id: "timeline", label: "Timeline" },
+    { id: "verdicts", label: "Verdicts" },
+    { id: "acts", label: "Acts" },
+    { id: "artifacts", label: "Artifacts" },
+    { id: "probes", label: "Probes" },
+    { id: "raw", label: "Raw" }
+  ];
+  function fmtTs(iso) {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString(void 0, {
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    } catch {
+      return iso;
+    }
+  }
+  function fmtMs(ms) {
+    if (ms == null || !Number.isFinite(ms)) return "\u2014";
+    if (ms < 1e3) return `${Math.round(ms)} ms`;
+    if (ms < 6e4) return `${(ms / 1e3).toFixed(1)} s`;
+    const m = Math.floor(ms / 6e4);
+    const s = Math.round(ms % 6e4 / 1e3);
+    return `${m}m ${s}s`;
+  }
+  function fmtBytes(n) {
+    if (n == null || !Number.isFinite(n)) return "\u2014";
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  function durationMs(start, end) {
+    const a = Date.parse(start);
+    const b = Date.parse(end);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    return Math.max(0, b - a);
+  }
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  function metric(label, value, tone) {
+    const box = el("div", `runs-metric${tone ? ` runs-metric--${tone}` : ""}`);
+    box.append(el("div", "runs-metric__label", label), el("div", "runs-metric__value", value));
+    return box;
+  }
+  function verdictTone(status) {
+    if (status === "pass") return "pass";
+    if (status === "fail") return "fail";
+    return "skipped";
+  }
+  function runCardTone(run) {
+    if (run.verdicts.fail > 0 || run.status === "faulted") return "fail";
+    if (run.verdicts.pass > 0 && run.verdicts.fail === 0) return "pass";
+    return "neutral";
+  }
+  function truncateText(raw, max = 56) {
+    if (!raw) return "\u2014";
+    return raw.length > max ? `${raw.slice(0, max - 1)}\u2026` : raw;
+  }
+  function truncateUrl(raw, max = 48) {
+    if (!raw) return "\u2014";
+    try {
+      const u = new URL(raw);
+      const compact = `${u.host}${u.pathname}`;
+      return truncateText(compact, max);
+    } catch {
+      return truncateText(raw, max);
+    }
+  }
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function extractRunIdFromDossierPath(path) {
+    const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
+    const parts = norm.split("/");
+    const last = parts[parts.length - 1];
+    return last && last.length > 0 ? last : null;
+  }
+  function createRunsPanel(opts) {
+    const root = document.getElementById("runsPanelRoot");
+    if (!root) throw new Error("runsPanelRoot missing");
+    let runs = [];
+    let selectedId = null;
+    let detail = null;
+    let filter = "all";
+    let search = "";
+    let detailSection = "overview";
+    let loading = false;
+    const selectedIds = /* @__PURE__ */ new Set();
+    const listEl = document.getElementById("runsList");
+    const detailHeaderEl = document.getElementById("runsDetailHeader");
+    const detailBodyEl = document.getElementById("runsDetailBody");
+    const searchInput = document.getElementById("runsSearch");
+    const filterBar = document.getElementById("runsFilters");
+    const statsEl = document.getElementById("runsStats");
+    const selectAllInput = document.getElementById("runsSelectAll");
+    const deleteSelectedBtn = document.getElementById("runsDeleteSelected");
+    function setLoading(on) {
+      loading = on;
+      root.classList.toggle("runs-panel--loading", on);
+    }
+    function filteredRuns() {
+      const q = search.trim().toLowerCase();
+      return runs.filter((r) => {
+        if (filter === "pass" && (r.verdicts.fail > 0 || r.exitCode !== 0)) return false;
+        if (filter === "fail" && r.verdicts.fail === 0 && r.status !== "faulted") return false;
+        if (filter === "browse" && r.mode !== "browse") return false;
+        if (filter === "run" && r.mode !== "run") return false;
+        if (!q) return true;
+        const hay = [
+          r.id,
+          r.blueprintId ?? "",
+          r.url ?? "",
+          r.status,
+          r.mode
+        ].join(" ").toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    function renderStats() {
+      if (!statsEl) return;
+      const visible = filteredRuns();
+      const pass = visible.filter((r) => r.verdicts.fail === 0 && r.exitCode === 0 && r.verdicts.pass > 0).length;
+      const fail = visible.filter((r) => r.verdicts.fail > 0 || r.status === "faulted" || r.exitCode !== 0).length;
+      statsEl.textContent = visible.length === runs.length ? `${runs.length} runs \xB7 ${pass} pass \xB7 ${fail} fail` : `${visible.length}/${runs.length} shown \xB7 ${pass} pass \xB7 ${fail} fail`;
+    }
+    function syncBulkUi() {
+      const visible = filteredRuns();
+      const visibleIds = visible.map((r) => r.id);
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+      const someSelected = visibleIds.some((id) => selectedIds.has(id));
+      if (selectAllInput) {
+        selectAllInput.checked = allSelected;
+        selectAllInput.indeterminate = someSelected && !allSelected;
+      }
+      if (deleteSelectedBtn) {
+        deleteSelectedBtn.disabled = selectedIds.size === 0 || loading;
+        deleteSelectedBtn.textContent = selectedIds.size > 0 ? `Delete (${selectedIds.size})` : "Delete selected";
+      }
+    }
+    async function deleteRuns(ids, label) {
+      if (ids.length === 0) return;
+      const msg = ids.length === 1 ? `Delete dossier "${ids[0]}"? This removes the folder from disk.` : `Delete ${ids.length} dossiers (${label})? This cannot be undone.`;
+      if (!window.confirm(msg)) return;
+      setLoading(true);
+      try {
+        const res = await opts.fetch("/lab/runs/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        const deleted = body.deleted ?? [];
+        for (const id of deleted) selectedIds.delete(id);
+        if (selectedId && deleted.includes(selectedId)) {
+          selectedId = null;
+          detail = null;
+        }
+        opts.onActivity?.(`runs deleted ${deleted.length}${body.failed?.length ? ` (${body.failed.length} failed)` : ""}`);
+        await refresh();
+      } catch (err) {
+        opts.onActivity?.(`runs.delete failed ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+    function renderFilters() {
+      filterBar.querySelectorAll("[data-runs-filter]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.runsFilter === filter);
+      });
+    }
+    function renderList() {
+      listEl.replaceChildren();
+      const visible = filteredRuns();
+      renderStats();
+      syncBulkUi();
+      if (visible.length === 0) {
+        const empty = el("div", "runs-list-empty", runs.length === 0 ? "No dossiers yet \u2014 start a Browse or Run." : "No runs match filter.");
+        listEl.append(empty);
+        return;
+      }
+      for (const run of visible) {
+        const card = el("div", `runs-card runs-card--${runCardTone(run)}${selectedId === run.id ? " runs-card--selected" : ""}`);
+        card.dataset.runId = run.id;
+        const check = el("input");
+        check.type = "checkbox";
+        check.className = "runs-card__check";
+        check.checked = selectedIds.has(run.id);
+        check.title = "Select for bulk delete";
+        check.addEventListener("click", (ev) => ev.stopPropagation());
+        check.addEventListener("change", () => {
+          if (check.checked) selectedIds.add(run.id);
+          else selectedIds.delete(run.id);
+          syncBulkUi();
+          card.classList.toggle("runs-card--checked", check.checked);
+        });
+        const bodyBtn = el("button", "runs-card__body");
+        bodyBtn.type = "button";
+        const head = el("div", "runs-card__head");
+        const title = el("div", "runs-card__title", run.blueprintId ?? (run.mode === "browse" ? "Browse" : run.id.slice(0, 24)));
+        const when = el("div", "runs-card__when", fmtTs(run.createdAt));
+        head.append(title, when);
+        const urlLine = el("div", "runs-card__url", truncateUrl(run.url));
+        urlLine.title = run.url ?? "";
+        const meta = el("div", "runs-card__meta");
+        meta.append(
+          el("span", `runs-chip runs-chip--mode`, run.mode),
+          el("span", `runs-chip runs-chip--${run.status === "faulted" ? "fail" : "status"}`, run.status)
+        );
+        if (run.verdicts.pass + run.verdicts.fail + run.verdicts.skipped > 0) {
+          meta.append(
+            el("span", "runs-chip runs-chip--pass", `\u2713 ${run.verdicts.pass}`),
+            run.verdicts.fail > 0 ? el("span", "runs-chip runs-chip--fail", `\u2717 ${run.verdicts.fail}`) : document.createDocumentFragment(),
+            run.verdicts.skipped > 0 ? el("span", "runs-chip runs-chip--skip", `\u2298 ${run.verdicts.skipped}`) : document.createDocumentFragment()
+          );
+        }
+        if (run.wallMs != null) {
+          meta.append(el("span", "runs-chip runs-chip--muted", fmtMs(run.wallMs)));
+        }
+        bodyBtn.append(head, urlLine, meta);
+        bodyBtn.addEventListener("click", () => {
+          void selectRun(run.id);
+        });
+        card.append(check, bodyBtn);
+        card.classList.toggle("runs-card--checked", check.checked);
+        listEl.append(card);
+      }
+    }
+    function renderDetailNav() {
+      const nav = el("div", "runs-detail-nav");
+      for (const s of DETAIL_SECTIONS) {
+        const btn = el("button", `runs-detail-nav__btn${detailSection === s.id ? " active" : ""}`, s.label);
+        btn.type = "button";
+        btn.dataset.runsSection = s.id;
+        btn.addEventListener("click", () => {
+          detailSection = s.id;
+          renderDetail();
+        });
+        nav.append(btn);
+      }
+      return nav;
+    }
+    function renderOverview(d) {
+      const wrap = el("div", "runs-section");
+      const vSum = d.verdicts.reduce(
+        (acc, v) => {
+          acc[v.status] += 1;
+          return acc;
+        },
+        { pass: 0, fail: 0, skipped: 0 }
+      );
+      const hero = el("div", "runs-hero");
+      const exitTone = vSum.fail > 0 || d.crash ? "fail" : vSum.pass > 0 ? "pass" : "neutral";
+      hero.append(
+        el("div", `runs-hero__badge runs-hero__badge--${exitTone}`, vSum.fail > 0 ? "FAILED" : vSum.pass > 0 ? "PASSED" : "NO VERDICTS"),
+        el("div", "runs-hero__title", String(d.session.blueprintId ?? d.session.mode ?? "Session")),
+        el("div", "runs-hero__sub", String(d.session.url ?? d.meta?.url ?? "\u2014"))
+      );
+      wrap.append(hero);
+      const grid = el("div", "runs-metric-grid");
+      grid.append(
+        metric("Session", String(d.session.sessionId ?? "\u2014").slice(0, 8) + "\u2026"),
+        metric("Mode", String(d.session.mode ?? "\u2014")),
+        metric("Status", String(d.session.status ?? "\u2014"), String(d.session.status) === "faulted" ? "fail" : void 0),
+        metric("Wall", fmtMs(typeof d.meta?.wallMs === "number" ? d.meta.wallMs : null)),
+        metric("Frame Hz", String(d.session.frameRateHz ?? d.meta?.frameRateHz ?? "\u2014")),
+        metric("Headed", d.session.headed === true ? "yes" : "no"),
+        metric("Verdicts", `${vSum.pass} / ${vSum.fail} / ${vSum.skipped}`, vSum.fail > 0 ? "fail" : "pass"),
+        metric("Timeline", String(d.timeline.length)),
+        metric("Acts", String(d.acts.length)),
+        metric("Artifacts", String(d.manifest?.artifacts?.length ?? 0))
+      );
+      wrap.append(grid);
+      if (d.session.fault && typeof d.session.fault === "object") {
+        const fault = d.session.fault;
+        const box = el("div", "runs-callout runs-callout--fail");
+        box.append(
+          el("strong", void 0, "Session fault"),
+          el("div", void 0, fault.message ?? "unknown"),
+          el("div", "runs-callout__meta", fault.at ? fmtTs(fault.at) : "")
+        );
+        wrap.append(box);
+      }
+      if (d.crash) {
+        const box = el("div", "runs-callout runs-callout--fail");
+        const pre = el("pre", "runs-pre");
+        pre.textContent = JSON.stringify(d.crash, null, 2);
+        box.append(el("strong", void 0, "Crash"), pre);
+        wrap.append(box);
+      }
+      const pathRow = el("div", "runs-path-row");
+      pathRow.append(el("span", "runs-path-row__label", "Dossier"), el("code", "runs-path-row__path", d.dir));
+      wrap.append(pathRow);
+      return wrap;
+    }
+    function renderTimeline(d) {
+      const wrap = el("div", "runs-section");
+      if (d.timeline.length === 0) {
+        wrap.append(el("p", "runs-hint", "No timeline entries \u2014 browse sessions or runs without blueprint actions."));
+        return wrap;
+      }
+      const totalMs = d.timeline.reduce((sum, t) => {
+        const ms = durationMs(t.startedAt, t.endedAt);
+        return sum + (ms ?? 0);
+      }, 0);
+      const maxMs = Math.max(
+        1,
+        ...d.timeline.map((t) => durationMs(t.startedAt, t.endedAt) ?? 0)
+      );
+      const chart = el("div", "runs-timeline-chart");
+      chart.setAttribute("aria-label", "Action duration chart");
+      for (const t of d.timeline) {
+        const ms = durationMs(t.startedAt, t.endedAt) ?? 0;
+        const bar = el("div", `runs-timeline-bar runs-timeline-bar--${t.status}`);
+        bar.style.width = `${Math.max(4, ms / maxMs * 100)}%`;
+        bar.title = `${t.actionId} \xB7 ${t.queue} \xB7 ${fmtMs(ms)}`;
+        chart.append(bar);
+      }
+      wrap.append(
+        el("div", "runs-timeline-chart-label", `Action wall total \xB7 ${fmtMs(totalMs)}`),
+        chart
+      );
+      const list = el("div", "runs-timeline-list");
+      for (const t of d.timeline) {
+        const ms = durationMs(t.startedAt, t.endedAt);
+        const row = el("article", `runs-tl-row runs-tl-row--${t.status}`);
+        const head = el("div", "runs-tl-row__head");
+        head.append(
+          el("span", "runs-tl-row__status", t.status),
+          el("span", "runs-tl-row__id", t.actionId),
+          el("span", "runs-tl-row__queue", t.queue),
+          el("span", "runs-tl-row__dur", ms != null ? fmtMs(ms) : "\u2014")
+        );
+        row.append(head);
+        const sub = el("div", "runs-tl-row__sub");
+        sub.textContent = `${fmtTs(t.startedAt)} \u2192 ${fmtTs(t.endedAt)}`;
+        row.append(sub);
+        if (t.detail) {
+          row.append(el("div", "runs-tl-row__detail", t.detail));
+        }
+        list.append(row);
+      }
+      wrap.append(list);
+      return wrap;
+    }
+    function renderVerdicts(d) {
+      const wrap = el("div", "runs-section");
+      if (d.verdicts.length === 0) {
+        wrap.append(el("p", "runs-hint", "No verdicts recorded."));
+        return wrap;
+      }
+      const groups = { pass: [], fail: [], skipped: [] };
+      for (const v of d.verdicts) groups[v.status].push(v);
+      for (const [status, items] of Object.entries(groups)) {
+        if (items.length === 0) continue;
+        const section = el("section", `runs-verdict-group runs-verdict-group--${status}`);
+        section.append(el("h3", "runs-verdict-group__title", `${status} (${items.length})`));
+        for (const v of items) {
+          const card = el("article", `runs-verdict-card runs-verdict-card--${verdictTone(v.status)}`);
+          card.append(el("div", "runs-verdict-card__id", v.id), el("div", "runs-verdict-card__reason", v.reason || "\u2014"));
+          section.append(card);
+        }
+        wrap.append(section);
+      }
+      return wrap;
+    }
+    function renderActs(d) {
+      const wrap = el("div", "runs-section");
+      if (d.acts.length === 0) {
+        wrap.append(el("p", "runs-hint", "No journal acts."));
+        return wrap;
+      }
+      const table = el("div", "runs-acts-table");
+      const head = el("div", "runs-acts-table__head");
+      head.append(el("span", void 0, "Act"), el("span", void 0, "Result"), el("span", void 0, "Error"));
+      table.append(head);
+      for (const a of d.acts) {
+        const row = el("div", `runs-acts-table__row${a.ok ? " runs-acts-table__row--ok" : " runs-acts-table__row--fail"}`);
+        row.append(
+          el("code", "runs-acts-table__name", a.name),
+          el("span", "runs-acts-table__ok", a.ok ? "ok" : "fail"),
+          el("span", "runs-acts-table__err", a.error ?? "\u2014")
+        );
+        table.append(row);
+      }
+      wrap.append(table);
+      return wrap;
+    }
+    function renderArtifacts(d) {
+      const wrap = el("div", "runs-section");
+      const arts = [...d.manifest?.artifacts ?? []].sort((a, b) => a.path.localeCompare(b.path));
+      if (arts.length === 0) {
+        wrap.append(el("p", "runs-hint", "Manifest empty or not finalized."));
+        return wrap;
+      }
+      const byKind = /* @__PURE__ */ new Map();
+      for (const a of arts) {
+        const k = a.kind || "other";
+        if (!byKind.has(k)) byKind.set(k, []);
+        byKind.get(k).push(a);
+      }
+      for (const [kind, items] of [...byKind.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        const group = el("section", "runs-artifact-group");
+        group.append(el("h3", "runs-artifact-group__title", `${kind} (${items.length})`));
+        const list = el("div", "runs-artifact-list");
+        for (const a of items) {
+          const row = el("div", "runs-artifact-row");
+          const link = el("a", "runs-artifact-row__link");
+          link.href = `/lab/runs/${encodeURIComponent(d.id)}/files/${encodeURIComponent(a.path)}`;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = a.path;
+          row.append(link, el("span", "runs-artifact-row__bytes", fmtBytes(a.bytes)));
+          list.append(row);
+        }
+        group.append(list);
+        wrap.append(group);
+      }
+      return wrap;
+    }
+    function renderProbes(d) {
+      const wrap = el("div", "runs-section runs-probes");
+      const blocks = [
+        ["metrics.json", d.probes.metrics],
+        ["input-pipeline.json", d.probes.inputPipeline],
+        ["iso.json", d.probes.iso],
+        ["iso-browse.json", d.probes.isoBrowse],
+        ["telemetry/counts.json", d.telemetryCounts]
+      ];
+      for (const [label, data] of blocks) {
+        const block = el("details", "runs-probe-block");
+        block.open = label === "input-pipeline.json" && data != null;
+        const sum = el("summary", void 0, label);
+        block.append(sum);
+        if (!data) {
+          block.append(el("p", "runs-hint", "Not present in dossier."));
+        } else {
+          const pre = el("pre", "runs-pre runs-pre--scroll");
+          pre.textContent = JSON.stringify(data, null, 2);
+          block.append(pre);
+        }
+        wrap.append(block);
+      }
+      return wrap;
+    }
+    function renderCopyBar(label, text) {
+      const bar = el("div", "runs-copy-bar");
+      bar.append(el("span", "runs-copy-bar__label", label));
+      const btn = el("button", "runs-copy-bar__btn", "Copy");
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        void copyText(text).then((ok) => {
+          opts.onActivity?.(ok ? `copied ${label}` : `copy failed ${label}`);
+          if (ok) {
+            btn.textContent = "Copied";
+            window.setTimeout(() => {
+              btn.textContent = "Copy";
+            }, 1200);
+          }
+        });
+      });
+      bar.append(btn);
+      return bar;
+    }
+    function renderRaw(d) {
+      const wrap = el("div", "runs-section");
+      const raw = JSON.stringify(d, null, 2);
+      wrap.append(renderCopyBar("JSON", raw));
+      const pre = el("pre", "runs-pre runs-pre--detail");
+      pre.textContent = raw;
+      wrap.append(pre);
+      return wrap;
+    }
+    function renderDetailBody(d) {
+      switch (detailSection) {
+        case "overview":
+          return renderOverview(d);
+        case "timeline":
+          return renderTimeline(d);
+        case "verdicts":
+          return renderVerdicts(d);
+        case "acts":
+          return renderActs(d);
+        case "artifacts":
+          return renderArtifacts(d);
+        case "probes":
+          return renderProbes(d);
+        case "raw":
+          return renderRaw(d);
+        default:
+          return renderOverview(d);
+      }
+    }
+    function renderDetailActions(d, summary) {
+      const actions = el("div", "runs-detail-actions");
+      const delBtn = el("button", "runs-detail-actions__btn runs-detail-actions__btn--danger", "Delete");
+      delBtn.type = "button";
+      delBtn.addEventListener("click", () => {
+        void deleteRuns([d.id], d.id);
+      });
+      const copyId = el("button", "runs-detail-actions__btn", "Copy id");
+      copyId.type = "button";
+      copyId.addEventListener("click", () => {
+        void copyText(d.id).then((ok) => opts.onActivity?.(ok ? "copied run id" : "copy failed"));
+      });
+      const copyPath = el("button", "runs-detail-actions__btn", "Copy path");
+      copyPath.type = "button";
+      copyPath.addEventListener("click", () => {
+        void copyText(d.dir).then((ok) => opts.onActivity?.(ok ? "copied dossier path" : "copy failed"));
+      });
+      actions.append(delBtn, copyId, copyPath);
+      if (summary?.url) {
+        const copyUrl = el("button", "runs-detail-actions__btn", "Copy URL");
+        copyUrl.type = "button";
+        copyUrl.addEventListener("click", () => {
+          void copyText(summary.url).then((ok) => opts.onActivity?.(ok ? "copied url" : "copy failed"));
+        });
+        actions.append(copyUrl);
+      }
+      return actions;
+    }
+    function renderDetail() {
+      detailHeaderEl.replaceChildren();
+      detailBodyEl.replaceChildren();
+      if (!detail) {
+        detailBodyEl.append(
+          el("div", "runs-list-empty", "Select a run to inspect timeline, verdicts, and artifacts.")
+        );
+        return;
+      }
+      const summary = runs.find((r) => r.id === detail.id);
+      const top = el("div", "runs-detail-top");
+      if (summary) {
+        const strip = el("div", "runs-detail-strip");
+        const tone = runCardTone(summary);
+        strip.append(
+          el("span", `runs-hero__badge runs-hero__badge--${tone === "fail" ? "fail" : tone === "pass" ? "pass" : "neutral"}`, tone === "fail" ? "FAIL" : tone === "pass" ? "PASS" : "RUN"),
+          el("span", `runs-chip runs-chip--mode`, summary.mode),
+          el("span", "runs-chip runs-chip--muted", fmtTs(summary.createdAt)),
+          summary.blueprintId ? el("span", "runs-chip runs-chip--accent", summary.blueprintId) : document.createDocumentFragment()
+        );
+        top.append(strip);
+        if (summary.url) {
+          const urlRow = el("div", "runs-detail-url", truncateUrl(summary.url, 72));
+          urlRow.title = summary.url;
+          top.append(urlRow);
+        }
+      }
+      top.append(renderDetailActions(detail, summary));
+      detailHeaderEl.append(top, renderDetailNav());
+      detailBodyEl.append(renderDetailBody(detail));
+    }
+    async function selectRun(id) {
+      selectedId = id;
+      renderList();
+      setLoading(true);
+      try {
+        const res = await opts.fetch(`/lab/runs/${encodeURIComponent(id)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        detail = await res.json();
+        detailSection = detail.verdicts.some((v) => v.status === "fail") ? "verdicts" : "overview";
+        renderDetail();
+      } catch (err) {
+        detail = null;
+        renderDetail();
+        opts.onActivity?.(`runs.load failed ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+    async function refresh() {
+      setLoading(true);
+      try {
+        const res = await opts.fetch("/lab/runs");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        runs = body.runs ?? [];
+        renderList();
+        if (selectedId && runs.some((r) => r.id === selectedId)) {
+          await selectRun(selectedId);
+        } else if (selectedId) {
+          selectedId = null;
+          detail = null;
+          renderDetail();
+        }
+        opts.onActivity?.(`runs refreshed (${runs.length})`);
+      } catch (err) {
+        opts.onActivity?.(`runs.refresh failed ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+    async function selectByDossierDir(dossierDir) {
+      const id = extractRunIdFromDossierPath(dossierDir);
+      if (!id) return;
+      if (runs.length === 0) await refresh();
+      await selectRun(id);
+    }
+    function mount() {
+      document.getElementById("runsRefresh")?.addEventListener("click", () => {
+        void refresh();
+      });
+      searchInput?.addEventListener("input", () => {
+        search = searchInput.value;
+        renderList();
+      });
+      filterBar.querySelectorAll("[data-runs-filter]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          filter = btn.dataset.runsFilter ?? "all";
+          renderFilters();
+          renderList();
+        });
+      });
+      selectAllInput?.addEventListener("change", () => {
+        const visible = filteredRuns();
+        if (selectAllInput.checked) {
+          for (const r of visible) selectedIds.add(r.id);
+        } else {
+          for (const r of visible) selectedIds.delete(r.id);
+        }
+        renderList();
+      });
+      deleteSelectedBtn?.addEventListener("click", () => {
+        void deleteRuns([...selectedIds], "selected");
+      });
+      renderFilters();
+      renderDetail();
+      void refresh();
+    }
+    return { refresh, selectByDossierDir, mount };
+  }
+
+  // browser/mirror/projection/lab/client/labShell.ts
+  var SHEET_SNAP_KEY = "speculum.lab.sheetSnap";
+  var SHEET_H_KEY = "speculum.lab.sheetH";
+  function readPersistedSnap() {
+    try {
+      const v = localStorage.getItem(SHEET_SNAP_KEY);
+      if (v === "collapsed" || v === "peek" || v === "expanded") return v;
+    } catch {
+    }
+    return null;
+  }
+  function snapHeight(snap, viewportH) {
+    const minBar = 96;
+    const max = Math.floor(viewportH * 0.92);
+    if (snap === "collapsed") return minBar;
+    if (snap === "peek") return Math.min(max, Math.max(minBar + 80, Math.floor(viewportH * 0.42)));
+    return Math.min(max, Math.max(minBar + 120, Math.floor(viewportH * 0.78)));
+  }
+  function initLabShell(opts) {
+    let snap = readPersistedSnap() ?? "peek";
+    let dragging = false;
+    let dragStartY = 0;
+    let dragStartH = 0;
+    function clampHeight(px) {
+      const vh = window.innerHeight;
+      const min = 96;
+      const max = Math.floor(vh * 0.92);
+      return Math.min(max, Math.max(min, Math.round(px)));
+    }
+    function applyHeight(px) {
+      const h = clampHeight(px);
+      opts.main.style.setProperty("--sheet-h", `${h}px`);
+      opts.sheet.dataset.snap = snap;
+    }
+    function persistSnap() {
+      try {
+        localStorage.setItem(SHEET_SNAP_KEY, snap);
+        const h = opts.sheet.getBoundingClientRect().height;
+        if (Number.isFinite(h)) localStorage.setItem(SHEET_H_KEY, String(Math.round(h)));
+      } catch {
+      }
+    }
+    function nearestSnap(h, vh) {
+      const collapsed = snapHeight("collapsed", vh);
+      const peek = snapHeight("peek", vh);
+      const expanded = snapHeight("expanded", vh);
+      const dist = (target) => Math.abs(h - target);
+      const dC = dist(collapsed);
+      const dP = dist(peek);
+      const dE = dist(expanded);
+      if (dC <= dP && dC <= dE) return "collapsed";
+      if (dP <= dE) return "peek";
+      return "expanded";
+    }
+    function setSnap(next, persist = true) {
+      snap = next;
+      applyHeight(snapHeight(snap, window.innerHeight));
+      opts.onSnapChange?.(snap);
+      if (persist) persistSnap();
+    }
+    function setHudCollapsed(collapsed) {
+      opts.hud.dataset.collapsed = collapsed ? "true" : "false";
+      opts.hudToggle.textContent = collapsed ? "\u25B8" : "\u25BE";
+      opts.hudToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    }
+    opts.hudToggle.addEventListener("click", () => {
+      const collapsed = opts.hud.dataset.collapsed === "true";
+      setHudCollapsed(!collapsed);
+    });
+    opts.hudMore?.addEventListener("click", () => {
+      const open = opts.hud.dataset.more === "true";
+      opts.hud.dataset.more = open ? "false" : "true";
+      opts.hudMore?.setAttribute("aria-expanded", open ? "false" : "true");
+      if (!open) setHudCollapsed(false);
+    });
+    opts.hud.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    const onPointerMove = (ev) => {
+      if (!dragging) return;
+      const dy = dragStartY - ev.clientY;
+      applyHeight(dragStartH + dy);
+    };
+    const onPointerUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      opts.grabber.classList.remove("is-dragging");
+      const h = opts.sheet.getBoundingClientRect().height;
+      snap = nearestSnap(h, window.innerHeight);
+      applyHeight(snapHeight(snap, window.innerHeight));
+      opts.onSnapChange?.(snap);
+      persistSnap();
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+    opts.grabber.addEventListener("pointerdown", (ev) => {
+      dragging = true;
+      dragStartY = ev.clientY;
+      dragStartH = opts.sheet.getBoundingClientRect().height;
+      opts.grabber.classList.add("is-dragging");
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      ev.preventDefault();
+    });
+    let lastGrabTap = 0;
+    opts.grabber.addEventListener("click", () => {
+      const now = Date.now();
+      if (now - lastGrabTap < 320) {
+        setSnap(snap === "collapsed" ? "peek" : snap === "peek" ? "expanded" : "collapsed");
+      }
+      lastGrabTap = now;
+    });
+    window.addEventListener("resize", () => {
+      applyHeight(snapHeight(snap, window.innerHeight));
+    });
+    setHudCollapsed(false);
+    setSnap(snap, false);
+    return {
+      setSnap,
+      getSnap: () => snap,
+      expandForTab: (tab) => {
+        if (tab === "Runs" || tab === "Progress") setSnap("expanded");
+        else if (snap === "collapsed") setSnap("peek");
+      },
+      collapse: () => setSnap("collapsed")
+    };
+  }
+
+  // browser/mirror/projection/lab/client/scrollDiagHost.ts
+  function walkFrames(win, out) {
+    out.push(win);
+    let frames;
+    try {
+      frames = win.document.getElementsByTagName("iframe");
+    } catch {
+      return;
+    }
+    for (let i = 0; i < frames.length; i++) {
+      try {
+        const child = frames[i]?.contentWindow;
+        if (child) walkFrames(child, out);
+      } catch {
+      }
+    }
+  }
+  function collectDiagFrames() {
+    const frames = [];
+    walkFrames(window, frames);
+    const found = [];
+    for (const w of frames) {
+      try {
+        const dw = w;
+        const log = dw.__SCROLL_DIAG_LOG;
+        if (!Array.isArray(log)) continue;
+        found.push({
+          href: (() => {
+            try {
+              return w.location.href;
+            } catch {
+              return "(frame)";
+            }
+          })(),
+          log: [...log],
+          clear: typeof dw.__SCROLL_DIAG_CLEAR === "function" ? () => dw.__SCROLL_DIAG_CLEAR() : void 0
+        });
+      } catch {
+      }
+    }
+    return found;
+  }
+  function installScrollDiagHostApis() {
+    const api = window;
+    api.diagDump = () => {
+      const frames = collectDiagFrames();
+      const payload = frames.length === 0 ? { ok: false, message: "no __SCROLL_DIAG_LOG in any frame yet \u2014 Connect + Start Virtual first", frames: [] } : {
+        ok: true,
+        dumpedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        frameCount: frames.length,
+        frames: frames.map((f) => ({ href: f.href, entries: f.log })),
+        flat: frames.flatMap((f) => f.log)
+      };
+      const text = JSON.stringify(payload, null, 2);
+      console.log("[diagDump]", payload);
+      console.log(text);
+      void navigator.clipboard.writeText(text).then(
+        () => console.log("[diagDump] copied to clipboard"),
+        (err) => console.warn("[diagDump] clipboard failed", err)
+      );
+      return payload;
+    };
+    api.diagClear = () => {
+      const frames = collectDiagFrames();
+      for (const f of frames) f.clear?.();
+      console.log(`[diagClear] cleared ${frames.length} frame log(s)`);
+    };
+  }
 
   // browser/mirror/projection/lab/client/main.ts
   function labFetch(input, init) {
@@ -6808,9 +7866,9 @@
     };
   }
   function $(id) {
-    const el = document.getElementById(id);
-    if (!el) throw new Error(`#${id} missing`);
-    return el;
+    const el2 = document.getElementById(id);
+    if (!el2) throw new Error(`#${id} missing`);
+    return el2;
   }
   function displayUrl(raw) {
     if (/^https?:\/\//i.test(raw)) return raw;
@@ -6844,10 +7902,10 @@
       }
     };
     for (let i = 0; i < styleEls.length; i++) {
-      const el = styleEls[i];
-      const sheet = el.sheet;
+      const el2 = styleEls[i];
+      const sheet = el2.sheet;
       if (sheet) authorTexts.add(sheetText(sheet));
-      else if (el.textContent) authorTexts.add(el.textContent);
+      else if (el2.textContent) authorTexts.add(el2.textContent);
     }
     let doublePaint = false;
     for (let i = 0; i < adopted.length; i++) {
@@ -6892,21 +7950,22 @@
   function readTelemetryFromUi() {
     const cfg = { ...import_telemetry.LAB_TELEMETRY_DEFAULTS };
     for (const key of import_telemetry.TELEMETRY_BOOL_CAPS) {
-      const el = document.getElementById(`tel_${key}`);
-      if (el) cfg[key] = el.checked;
+      const el2 = document.getElementById(`tel_${key}`);
+      if (el2) cfg[key] = el2.checked;
     }
     const agg = document.getElementById("tel_aggregateIntervalMs");
     if (agg) cfg.aggregateIntervalMs = Number(agg.value) || 2e3;
     return cfg;
   }
   function setChip(id, text, kind) {
-    const el = $(id);
-    el.textContent = text;
-    el.className = kind ? `chip ${kind}` : "chip";
-    el.title = text;
-    el.hidden = false;
+    const el2 = $(id);
+    el2.textContent = text;
+    el2.className = kind ? `chip ${kind}` : "chip";
+    el2.title = text;
+    el2.hidden = false;
   }
   function bootLabClient() {
+    installScrollDiagHostApis();
     const buildLabel = `build #${labBuildStamp_default.seq}`;
     setChip("chipBuild", buildLabel, "live");
     $("chipBuild").title = `${buildLabel}${labBuildStamp_default.builtAt ? ` \xB7 ${labBuildStamp_default.builtAt}` : ""}`;
@@ -6920,6 +7979,11 @@
     let viewportSync = null;
     let pendingResize = null;
     let bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
+    const runsPanel = createRunsPanel({
+      fetch: labFetch,
+      onActivity: logActivity
+    });
+    runsPanel.mount();
     window.__labDiagProjectedPeek = () => projection ? projection.peekNestedHosts() : null;
     window.__labDiagForceLoadAfterDrop = (contextId = 99) => projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
     window.__speculumLabDumpInputClick = () => {
@@ -7187,10 +8251,32 @@
       const detail = document.getElementById("surfaceCrashDetail");
       if (detail) detail.textContent = "\u2014";
     }
-    function measureHeader() {
-      const h = $("labHeader").getBoundingClientRect().height;
-      document.documentElement.style.setProperty("--hdr-h", `${Math.ceil(h)}px`);
+    function truncateHudUrl(raw, max = 52) {
+      if (!raw) return "\u2014";
+      try {
+        const u = new URL(raw);
+        const compact = `${u.host}${u.pathname}${u.search}`;
+        return compact.length > max ? `${compact.slice(0, max - 1)}\u2026` : compact;
+      } catch {
+        return raw.length > max ? `${raw.slice(0, max - 1)}\u2026` : raw;
+      }
     }
+    function updateHudSummary() {
+      const el2 = document.getElementById("hudSummary");
+      if (!el2) return;
+      if (mode === "browse") {
+        const fix = fixtureSelect.selectedOptions[0]?.textContent?.trim() || "fixture";
+        const url = urlInput.value.trim();
+        el2.textContent = url ? `${fix} \xB7 ${truncateHudUrl(url)}` : fix;
+        el2.title = url || fix;
+      } else {
+        const bp = selectedBlueprint();
+        const url = bp?.defaultUrl ?? "";
+        el2.textContent = bp ? `${bp.id} \xB7 ${truncateHudUrl(url)}` : "Pick blueprint";
+        el2.title = url || bp?.description || "";
+      }
+    }
+    let labShell = null;
     let labFullscreen = false;
     function syncFullscreenUi() {
       document.body.classList.toggle("lab-fullscreen", labFullscreen);
@@ -7198,7 +8284,6 @@
       exitBtn.setAttribute("aria-hidden", labFullscreen ? "false" : "true");
       const enterBtn = $("enterFullscreen");
       enterBtn.setAttribute("aria-pressed", labFullscreen ? "true" : "false");
-      if (!labFullscreen) measureHeader();
     }
     async function enterLabFullscreen() {
       labFullscreen = true;
@@ -7268,7 +8353,7 @@
       $("runStart").title = !open ? "Connect first" : runInFlight ? "Run in flight" : "Cold-boot blueprint DAG (URL comes from blueprint)";
       $("browseNavigate").title = sessionLive ? "Navigate live Virtual to the URL field" : "Start Virtual first";
       refreshStatus();
-      measureHeader();
+      updateHudSummary();
     }
     function selectedBlueprint() {
       return blueprints.find((b) => b.id === blueprintSelect.value);
@@ -7293,6 +8378,10 @@
       });
       $("browseControls").hidden = next !== "browse";
       $("runControls").hidden = next !== "run";
+      const browseSec = document.getElementById("browseControlsSecondary");
+      const runSec = document.getElementById("runControlsSecondary");
+      if (browseSec) browseSec.hidden = next !== "browse";
+      if (runSec) runSec.hidden = next !== "run";
       fixtureField.hidden = next !== "browse";
       blueprintField.hidden = next !== "run";
       blueprintDesc.hidden = next !== "run";
@@ -7309,6 +8398,7 @@
         syncRunTarget();
       }
       syncButtons();
+      updateHudSummary();
     }
     function showTab(name) {
       $("panelStream").hidden = name !== "Stream";
@@ -7317,11 +8407,13 @@
       $("panelConsole").hidden = name !== "Console";
       $("panelConfig").hidden = name !== "Config";
       $("panelProgress").hidden = name !== "Progress";
+      $("panelRuns").hidden = name !== "Runs";
       document.querySelectorAll("[data-tab]").forEach((btn) => {
         const on = btn.dataset.tab === name;
         btn.classList.toggle("active", on);
         btn.setAttribute("aria-selected", on ? "true" : "false");
       });
+      labShell?.expandForTab(name);
     }
     function renderDebugProbe(payload) {
       const wall = typeof payload.wallMs === "number" ? payload.wallMs : null;
@@ -7780,6 +8872,9 @@
           }
           if (!runInFlight && phase !== "complete" && phase !== "fault") phase = "connected";
           logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ""}`);
+          if (msg.dossierDir) {
+            void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(String(msg.dossierDir)));
+          }
           syncButtons();
           return;
         }
@@ -7821,6 +8916,7 @@
           logActivity(`fault ${detail}`);
           if (typeof msg.dossierDir === "string" && msg.dossierDir) {
             logActivity(`fault dossier ${msg.dossierDir}`);
+            void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(msg.dossierDir));
           }
           showCrashOverlay(detail);
           if (msg.errorCode || msg.message) {
@@ -7889,6 +8985,10 @@
             s.fail > 0 ? "danger" : "ok"
           );
           syncButtons();
+          void runsPanel.refresh().then(() => {
+            if (msg.dossierDir) void runsPanel.selectByDossierDir(String(msg.dossierDir));
+          });
+          showTab("Runs");
           return;
         }
         if (msg.type === "error") {
@@ -7921,9 +9021,14 @@
     fixtureSelect.addEventListener("change", () => {
       if (mode !== "browse") return;
       urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+      updateHudSummary();
     });
     blueprintSelect.addEventListener("change", () => {
-      if (mode === "run") syncRunTarget();
+      syncRunTarget();
+      updateHudSummary();
+    });
+    urlInput.addEventListener("input", () => {
+      if (mode === "browse") updateHudSummary();
     });
     document.querySelectorAll("[data-mode]").forEach((btn) => {
       btn.addEventListener("click", () => showMode(btn.dataset.mode ?? "browse"));
@@ -8048,9 +9153,11 @@
         );
       })();
     });
-    window.addEventListener("resize", measureHeader);
     $("enterFullscreen").addEventListener("click", () => {
       void enterLabFullscreen();
+    });
+    document.getElementById("diagCopy")?.addEventListener("click", () => {
+      window.diagDump?.();
     });
     $("exitFullscreen").addEventListener("click", () => {
       void exitLabFullscreen();
@@ -8064,9 +9171,33 @@
     window.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape" && labFullscreen) void exitLabFullscreen();
     });
+    const mainEl = document.getElementById("labMain");
+    const sheetEl = document.getElementById("investigationSheet");
+    const grabberEl = document.getElementById("sheetGrabber");
+    const hudEl = document.getElementById("surfaceHud");
+    const hudToggleEl = document.getElementById("hudToggle");
+    const hudBodyEl = document.getElementById("hudBody");
+    const hudMoreEl = document.getElementById("hudMore");
+    if (mainEl && sheetEl && grabberEl && hudEl && hudToggleEl && hudBodyEl) {
+      labShell = initLabShell({
+        main: mainEl,
+        sheet: sheetEl,
+        grabber: grabberEl,
+        hud: hudEl,
+        hudToggle: hudToggleEl,
+        hudBody: hudBodyEl,
+        hudMore: hudMoreEl ?? void 0,
+        onSnapChange: () => {
+          if (viewportSync) {
+            const measured = (0, import_projected2.measureHostElement)(surfaceHost);
+            viewportSync.schedule(measured.width, measured.height);
+          }
+        }
+      });
+    }
     void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
       showMode("browse");
-      measureHeader();
+      updateHudSummary();
     });
     showTab("Stream");
     refreshStatus();

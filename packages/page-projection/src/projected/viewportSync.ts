@@ -16,6 +16,10 @@ import {
   deviceProfilesEqual,
   type ViewportDeviceProfile,
 } from './viewportDevice';
+import {
+  viewportSyncProbeEmit,
+  viewportSyncProbeStartSampler,
+} from './viewportSyncProbe';
 
 export type ViewportResizeResult = {
   applied: boolean;
@@ -62,6 +66,7 @@ export class ViewportSync {
   private observer: ResizeObserver | null = null;
   private viewportListenersAttached = false;
   private disposed = false;
+  private stopProbeSampler: (() => void) | null = null;
 
   /** Cap automatic retries after applied:false / throw so permanent faults do not spin. */
   static readonly MAX_REJECT_RETRIES = 5;
@@ -75,6 +80,10 @@ export class ViewportSync {
     this.onApplied = options.onApplied;
     this.onRejected = options.onRejected;
     this.detectDevice = options.detectDevice ?? detectViewportDeviceProfile;
+    this.stopProbeSampler = viewportSyncProbeStartSampler(
+      () => this.measure(),
+      () => this.remoteSize,
+    );
   }
 
   /** Last confirmed remote viewport (after applied resize / seed from start). */
@@ -130,6 +139,15 @@ export class ViewportSync {
 
     const validated = validateResizeViewport(rawW, rawH, this.viewportPolicy);
     if (!validated.ok) {
+      viewportSyncProbeEmit({
+        kind: 'schedule_skip',
+        t: performance.now(),
+        reason: validated.message,
+        measure: this.measure(),
+        remote: this.remoteSize,
+        rawW,
+        rawH,
+      });
       return;
     }
     const { width: w, height: h } = validated;
@@ -138,6 +156,15 @@ export class ViewportSync {
       viewportSizesClose(w, h, this.remoteW, this.remoteH)
       && deviceProfilesEqual(this.deviceProfile, nextProfile)
     ) {
+      viewportSyncProbeEmit({
+        kind: 'schedule_skip',
+        t: performance.now(),
+        reason: 'viewportSizesClose',
+        measure: { width: w, height: h },
+        remote: this.remoteSize,
+        rawW,
+        rawH,
+      });
       return;
     }
 
@@ -162,6 +189,8 @@ export class ViewportSync {
 
   dispose(): void {
     this.disposed = true;
+    this.stopProbeSampler?.();
+    this.stopProbeSampler = null;
     if (this.resizeTimer) {
       clearTimeout(this.resizeTimer);
       this.resizeTimer = null;
@@ -222,6 +251,15 @@ export class ViewportSync {
     const latest = this.measure();
     const validated = validateResizeViewport(latest.width, latest.height, this.viewportPolicy);
     if (!validated.ok) {
+      viewportSyncProbeEmit({
+        kind: 'schedule_skip',
+        t: performance.now(),
+        reason: validated.message,
+        measure: latest,
+        remote: this.remoteSize,
+        rawW: latest.width,
+        rawH: latest.height,
+      });
       return;
     }
     const targetW = validated.width;
@@ -232,12 +270,27 @@ export class ViewportSync {
       && deviceProfilesEqual(this.deviceProfile, profile)
     ) {
       this.consecutiveRejects = 0;
+      viewportSyncProbeEmit({
+        kind: 'schedule_skip',
+        t: performance.now(),
+        reason: 'invoke_viewportSizesClose',
+        measure: { width: targetW, height: targetH },
+        remote: this.remoteSize,
+        rawW: latest.width,
+        rawH: latest.height,
+      });
       return;
     }
 
     this.resizeInFlight = true;
     try {
       const result = await this.resize({ width: targetW, height: targetH }, profile);
+      viewportSyncProbeEmit({
+        kind: 'resize',
+        t: performance.now(),
+        target: { width: targetW, height: targetH },
+        result,
+      });
       if (this.disposed) {
         return;
       }
@@ -249,6 +302,11 @@ export class ViewportSync {
         this.onApplied?.({ width: targetW, height: targetH }, profile);
       } else {
         const detail = result.message || result.errorCode || 'resize rejected';
+        viewportSyncProbeEmit({
+          kind: 'resize_reject',
+          t: performance.now(),
+          detail: String(detail),
+        });
         this.onRejected?.(String(detail));
         this.consecutiveRejects++;
         if (this.consecutiveRejects <= ViewportSync.MAX_REJECT_RETRIES) {
@@ -257,6 +315,11 @@ export class ViewportSync {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      viewportSyncProbeEmit({
+        kind: 'resize_reject',
+        t: performance.now(),
+        detail: message,
+      });
       this.onRejected?.(message);
       this.consecutiveRejects++;
       if (this.consecutiveRejects <= ViewportSync.MAX_REJECT_RETRIES) {

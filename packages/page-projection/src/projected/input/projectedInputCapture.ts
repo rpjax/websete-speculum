@@ -398,9 +398,29 @@ export function attachProjectedInputCapture(
       }
     }
     if (event.pointerType === 'touch') {
-      event.preventDefault();
-      event.stopPropagation();
-      capturePointer(event);
+      // TEMP-DIAG Build B: ?touchCapture=off (lab URL) skips these three — default = Build A (#53).
+      // Not a fix: sparse-cdp still needs down/up capture; this is A/B measurement only.
+      let skipTouchCapture = false;
+      try {
+        const root =
+          (win as Window & { __SCROLL_DIAG_SKIP_TOUCH_CAPTURE__?: boolean }) ?? undefined;
+        if (root?.__SCROLL_DIAG_SKIP_TOUCH_CAPTURE__ === true) {
+          skipTouchCapture = true;
+        } else {
+          const search =
+            (typeof win?.parent !== 'undefined' && win.parent !== win
+              ? win.parent.location.search
+              : null) ?? win?.location.search ?? '';
+          skipTouchCapture = new URLSearchParams(search).get('touchCapture') === 'off';
+        }
+      } catch {
+        /* parent cross-origin */
+      }
+      if (!skipTouchCapture) {
+        event.preventDefault();
+        event.stopPropagation();
+        capturePointer(event);
+      }
     }
     onPointerEdge(event, 'down');
   };

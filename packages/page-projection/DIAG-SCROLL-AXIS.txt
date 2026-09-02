@@ -1,0 +1,1 @@
+TEMP-DIAG scroll: no console do iframe projetado, filtre `[TEMP-DIAG` — gestos manuais; `window.__SCROLL_DIAG_LOG` espelha o buffer.

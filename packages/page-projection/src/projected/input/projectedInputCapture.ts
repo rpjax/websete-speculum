@@ -488,6 +488,111 @@ export function attachProjectedInputCapture(
   doc.addEventListener('scroll', onScroll, true);
   win?.addEventListener('scroll', onScroll, true);
 
+  // TEMP-DIAG — scroll axis (manual device gestures). Read: projected iframe console → filter [TEMP-DIAG]
+  type TempDiagTouch = {
+    id: number;
+    x0: number;
+    y0: number;
+    dx: number;
+    dy: number;
+    moves: number;
+    preventedMoves: number;
+  };
+  let tempDiagTouch: TempDiagTouch | null = null;
+  const tempDiagLog: unknown[] = [];
+  const tempDiagTag = (el: Element) => `${el.tagName}.${String(el.className || '').slice(0, 40)}`;
+  const tempDiagLabel = () =>
+    (win as Window & { __SCROLL_DIAG_LABEL?: string }).__SCROLL_DIAG_LABEL ?? null;
+
+  const tempDiagOnTouchStart = (event: TouchEvent) => {
+    const t = event.changedTouches[0];
+    if (!t) return;
+    tempDiagTouch = {
+      id: t.identifier,
+      x0: t.clientX,
+      y0: t.clientY,
+      dx: 0,
+      dy: 0,
+      moves: 0,
+      preventedMoves: 0,
+    };
+    const rec = {
+      phase: 'touchstart',
+      x: t.clientX,
+      y: t.clientY,
+      defaultPrevented: event.defaultPrevented,
+      label: tempDiagLabel(),
+    };
+    tempDiagLog.push(rec);
+    console.log('[TEMP-DIAG touch]', JSON.stringify(rec));
+  };
+
+  const tempDiagOnTouchMove = (event: TouchEvent) => {
+    if (!tempDiagTouch) return;
+    const t =
+      Array.from(event.changedTouches).find((c) => c.identifier === tempDiagTouch!.id) ??
+      event.touches[0];
+    if (!t) return;
+    tempDiagTouch.dx = t.clientX - tempDiagTouch.x0;
+    tempDiagTouch.dy = t.clientY - tempDiagTouch.y0;
+    tempDiagTouch.moves += 1;
+    if (event.defaultPrevented) tempDiagTouch.preventedMoves += 1;
+  };
+
+  const tempDiagOnTouchEnd = (event: TouchEvent) => {
+    if (!tempDiagTouch) return;
+    const rec = {
+      phase: 'touchend',
+      ...tempDiagTouch,
+      defaultPrevented: event.defaultPrevented,
+      label: tempDiagLabel(),
+    };
+    tempDiagLog.push(rec);
+    console.log('[TEMP-DIAG touch]', JSON.stringify(rec));
+    tempDiagTouch = null;
+  };
+
+  const tempDiagOnScroll = (event: Event) => {
+    const t = event.target;
+    if (!t || typeof t !== 'object' || !('tagName' in t)) return;
+    const el = t as HTMLElement;
+    const rec = {
+      phase: 'scroll',
+      target: tempDiagTag(el),
+      scrollLeft: el.scrollLeft,
+      scrollTop: el.scrollTop,
+      label: tempDiagLabel(),
+    };
+    tempDiagLog.push(rec);
+    console.log('[TEMP-DIAG scroll]', JSON.stringify(rec));
+  };
+
+  const tempDiagOnPointerCancel = (event: PointerEvent) => {
+    const rec = {
+      phase: 'pointercancel',
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      label: tempDiagLabel(),
+    };
+    tempDiagLog.push(rec);
+    console.log('[TEMP-DIAG pointercancel]', JSON.stringify(rec));
+  };
+
+  const tempDiagOpts = { capture: true, passive: true as const };
+  doc.addEventListener('touchstart', tempDiagOnTouchStart, tempDiagOpts);
+  doc.addEventListener('touchmove', tempDiagOnTouchMove, tempDiagOpts);
+  doc.addEventListener('touchend', tempDiagOnTouchEnd, tempDiagOpts);
+  doc.addEventListener('scroll', tempDiagOnScroll, tempDiagOpts);
+  doc.addEventListener('pointercancel', tempDiagOnPointerCancel, tempDiagOpts);
+  if (win) {
+    (win as Window & { __SCROLL_DIAG_LOG?: unknown[]; __SCROLL_DIAG_CLEAR?: () => void }).__SCROLL_DIAG_LOG =
+      tempDiagLog;
+    (win as Window & { __SCROLL_DIAG_CLEAR?: () => void }).__SCROLL_DIAG_CLEAR = () => {
+      tempDiagLog.length = 0;
+      tempDiagTouch = null;
+    };
+  }
+
   return () => {
     buffer.dispose();
     detachHistoryTrap();
@@ -508,6 +613,12 @@ export function attachProjectedInputCapture(
     doc.removeEventListener('keyup', onKey as EventListener, true);
     doc.removeEventListener('scroll', onScroll, true);
     win?.removeEventListener('scroll', onScroll, true);
+    // TEMP-DIAG teardown
+    doc.removeEventListener('touchstart', tempDiagOnTouchStart, tempDiagOpts);
+    doc.removeEventListener('touchmove', tempDiagOnTouchMove, tempDiagOpts);
+    doc.removeEventListener('touchend', tempDiagOnTouchEnd, tempDiagOpts);
+    doc.removeEventListener('scroll', tempDiagOnScroll, tempDiagOpts);
+    doc.removeEventListener('pointercancel', tempDiagOnPointerCancel, tempDiagOpts);
   };
 }
 

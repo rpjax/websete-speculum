@@ -20,7 +20,7 @@ using DomInputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjec
 using DomInputCdpDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.CdpDropped;
 using DomInputDataPlaneReceived = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.DataPlaneReceived;
 using DomInputRejected = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.Rejected;
-using DomInputSidecarAdmitted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarAdmitted;
+using DomInputSidecarEnqueued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarEnqueued;
 using DomInputSidecarPushWritten = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarPushWritten;
 using ResizeApplied = Speculum.Api.Telemetry.Events.Models.Sessions.Resize.Applied;
 using ResizeRejected = Speculum.Api.Telemetry.Events.Models.Sessions.Resize.Rejected;
@@ -28,7 +28,7 @@ using VsiApplied = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingI
 using VsiControlReceived = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.ControlReceived;
 using VsiDataPlaneReceived = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.DataPlaneReceived;
 using VsiRejected = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.Rejected;
-using VsiSidecarAdmitted = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.SidecarAdmitted;
+using VsiSidecarEnqueued = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.SidecarEnqueued;
 using VsiSidecarPushWritten = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.SidecarPushWritten;
 
 namespace Speculum.Api.Sessions.Tests;
@@ -83,9 +83,9 @@ public sealed class SessionJournalPublishPolicyTests
         Assert.Equal(PublishPolicy.BestEffort, grpcPushed.PublishPolicy);
         Assert.Equal(2, grpcPushed.SchemaVersion);
         Assert.False(catalog.IsTypeEnabled("Telemetry.Sessions.VideoStreamingInput.SidecarPushWritten"));
-        Assert.True(catalog.TryGet<VsiSidecarAdmitted>(out var sidecarAdmitted));
-        Assert.Equal(PublishPolicy.BestEffort, sidecarAdmitted.PublishPolicy);
-        Assert.False(catalog.IsTypeEnabled("Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted"));
+        Assert.True(catalog.TryGet<VsiSidecarEnqueued>(out var sidecarEnqueued));
+        Assert.Equal(PublishPolicy.BestEffort, sidecarEnqueued.PublishPolicy);
+        Assert.False(catalog.IsTypeEnabled("Telemetry.Sessions.VideoStreamingInput.SidecarEnqueued"));
 
         Assert.True(catalog.TryGet<PageProjectionFrameReceived>(out var domDiff));
         Assert.Equal(PublishPolicy.BestEffort, domDiff.PublishPolicy);
@@ -135,9 +135,9 @@ public sealed class SessionJournalPublishPolicyTests
         Assert.True(catalog.TryGet<DomInputAdmissionDropped>(out var domAdmissionDropped));
         Assert.Equal(PublishPolicy.BestEffort, domAdmissionDropped.PublishPolicy);
         Assert.False(catalog.IsTypeEnabled("Telemetry.Sessions.PageProjection.Input.AdmissionDropped"));
-        Assert.True(catalog.TryGet<DomInputSidecarAdmitted>(out var domSidecarAdmitted));
-        Assert.Equal(PublishPolicy.BestEffort, domSidecarAdmitted.PublishPolicy);
-        Assert.False(catalog.IsTypeEnabled("Telemetry.Sessions.PageProjection.Input.SidecarAdmitted"));
+        Assert.True(catalog.TryGet<DomInputSidecarEnqueued>(out var domSidecarEnqueued));
+        Assert.Equal(PublishPolicy.BestEffort, domSidecarEnqueued.PublishPolicy);
+        Assert.False(catalog.IsTypeEnabled("Telemetry.Sessions.PageProjection.Input.SidecarEnqueued"));
         Assert.True(catalog.TryGet<DomInputCdpDropped>(out var domCdpDropped));
         Assert.Equal(PublishPolicy.BestEffort, domCdpDropped.PublishPolicy);
         Assert.False(catalog.IsTypeEnabled("Telemetry.Sessions.PageProjection.Input.CdpDropped"));

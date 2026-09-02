@@ -14,7 +14,7 @@ public enum SessionNotificationKind
     VideoStreamingInputRejected = 5,
     /// <summary>VideoStreamingInput pushed to sidecar successfully (opt-in journal).</summary>
     VideoStreamingInputApplied = 6,
-    /// <summary>VideoStreamingInput path hop (phase = data_plane_received | grpc_pushed | sidecar_admitted).</summary>
+    /// <summary>VideoStreamingInput path hop (phase = data_plane_received | grpc_pushed | sidecar_enqueued).</summary>
     VideoStreamingInputPathTrace = 7,
     /// <summary>Opt-in allocation lifecycle from sidecar WatchAllocationLifecycle.</summary>
     AllocationLifecycle = 8,
@@ -24,7 +24,7 @@ public enum SessionNotificationKind
     PageProjectionIntentApplied = 10,
     /// <summary>
     /// PageProjectionIntent path hop
-    /// (phase = data_plane_received | grpc_pushed | sidecar_admitted | cdp_dropped | cdp_applied | cdp_rejected).
+    /// (phase = data_plane_received | grpc_pushed | sidecar_enqueued | cdp_dropped | cdp_applied | cdp_rejected).
     /// </summary>
     PageProjectionIntentPathTrace = 11,
     /// <summary>PageProjectionFrame frame received from WatchPageProjectionFrames (opt-in journal).</summary>

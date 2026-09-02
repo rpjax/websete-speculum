@@ -351,7 +351,7 @@ export async function executeBlueprint(
         const session = chassis.browser;
         const pushFn = (session as unknown as { pushInput?: (i: unknown) => Promise<{ status: string; reason?: string }> }).pushInput?.bind(session);
         if (!session || !pushFn) return finish(false, 'pushInput missing');
-        const push = pushFn as (i: unknown) => Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
+        const push = pushFn as (i: unknown) => Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }>;
         const sequence = params.sequence;
         if (Array.isArray(sequence)) {
           for (const step of sequence) {
@@ -482,7 +482,7 @@ export async function executeBlueprint(
           return finish(true);
         }
         const out = await push(params);
-        return finish(out.status === 'dispatched', out.status === 'dropped' ? out.reason : undefined);
+        return finish(out.status === 'enqueued', out.status === 'dropped' ? out.reason : undefined);
       }
       case 'snap': {
         const session = chassis.browser;

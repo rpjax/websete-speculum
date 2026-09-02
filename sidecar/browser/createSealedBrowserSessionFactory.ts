@@ -158,13 +158,13 @@ class ModeSelectingSession implements BrowserSession {
     scrollX?: number;
     scrollY?: number;
     button?: string | number;
-  }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  }): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     const s = this.requireInner() as BrowserSession & {
       pushInput?(i: unknown): Promise<unknown>;
     };
     const out = await s.pushInput?.(input);
     if (out && typeof out === 'object' && out !== null && 'status' in out) {
-      return out as { status: 'dispatched' } | { status: 'dropped'; reason: string };
+      return out as { status: 'enqueued' } | { status: 'dropped'; reason: string };
     }
     throw Object.assign(new Error('PageProjection input not supported'), {
       code: 'FAILED_PRECONDITION',

@@ -3,7 +3,7 @@
  */
 
 export type PageProjectionIntentPathPhase =
-  | 'sidecar_admitted'
+  | 'sidecar_enqueued'
   | 'cdp_dropped'
   | 'cdp_applied'
   | 'cdp_rejected';

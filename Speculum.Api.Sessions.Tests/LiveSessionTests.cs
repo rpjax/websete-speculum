@@ -1254,7 +1254,7 @@ public sealed class LiveSessionTests
             long? clientTimestampMs = null)
             => LastPushKind = kind;
 
-        public void SidecarAdmitted(string kind, string? traceId = null, long? clientTimestampMs = null) { }
+        public void SidecarEnqueued(string kind, string? traceId = null, long? clientTimestampMs = null) { }
     }
 
     private sealed class ThrowingAttachedClient : IAttachedSessionClient

@@ -248,7 +248,7 @@ export interface IPageProjectionBrowserSession extends IBrowserSession {
   getStatus(): Promise<PageProjectionStatus>;
   getTelemetrySnapshot(contextId?: number): Promise<PageProjectionTelemetrySnapshot>;
   pushInput(input: DomInputIngress): Promise<
-    { status: 'dispatched' } | { status: 'dropped'; reason: string }
+    { status: 'enqueued' } | { status: 'dropped'; reason: string }
   >;
   getAsset(key: string, opts?: unknown): Promise<unknown | null>;
   putUpload(id: string, body: Uint8Array, contentType: string, name: string): Promise<void>;

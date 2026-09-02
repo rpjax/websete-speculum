@@ -4,13 +4,13 @@ using Speculum.Api.Journal.Models;
 namespace Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input;
 
 [JournalFact(
-    "Telemetry.Sessions.PageProjection.Input.SidecarAdmitted",
+    "Telemetry.Sessions.PageProjection.Input.SidecarEnqueued",
     schemaVersion: 2,
-    Name = "Dom Projection input · sidecar admitted",
-    Description = "Sidecar PushDomInput handler completed CDP dispatch successfully.",
+    Name = "Dom Projection input · sidecar enqueued",
+    Description = "Sidecar accepted the intent onto the EventApplier queue (not yet CDP-applied).",
     Owner = "telemetry",
     PublishPolicy = PublishPolicy.BestEffort)]
-public sealed class SidecarAdmitted
+public sealed class SidecarEnqueued
 {
     [JournalIndex("profile")]
     public required Guid ProfileId { get; init; }

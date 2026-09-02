@@ -116,10 +116,10 @@ export interface BrowserSessionEvents {
 
   /**
    * PageProjection input path hop (opt-in at Launch via inputPathTelemetry).
-   * sidecar_admitted = enqueued, not CDP-applied.
+   * sidecar_enqueued = enqueued, not CDP-applied.
    */
   onPageProjectionIntentPath?(event: {
-    phase: 'sidecar_admitted' | 'cdp_dropped' | 'cdp_applied' | 'cdp_rejected';
+    phase: 'sidecar_enqueued' | 'cdp_dropped' | 'cdp_applied' | 'cdp_rejected';
     kind: string;
     reason?: string;
     generation?: number;

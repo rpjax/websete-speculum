@@ -567,7 +567,7 @@ export function createBrowserSessionHandlers(
           // Skip admit-path fanout for move samples (high frequency) — mirror VideoStreamingInput.
           if (!isHfMove) {
             bridge.onPageProjectionIntentPath({
-              phase: 'sidecar_admitted',
+              phase: 'sidecar_enqueued',
               kind,
               generation,
             });

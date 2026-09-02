@@ -1270,8 +1270,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
             async (ev, token) =>
             {
                 TryPublishVideoStreamingInputPathTrace(
-                    TelemetryJournalFacts.VideoStreamingInputSidecarAdmitted,
-                    "sidecar_admitted",
+                    TelemetryJournalFacts.VideoStreamingInputSidecarEnqueued,
+                    "sidecar_enqueued",
                     ev.Kind);
                 await Task.CompletedTask.ConfigureAwait(false);
             },
@@ -1320,8 +1320,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
                 else
                 {
                     TryPublishPageProjectionIntentPathTrace(
-                        TelemetryJournalFacts.PageProjectionIntentSidecarAdmitted,
-                        "sidecar_admitted",
+                        TelemetryJournalFacts.PageProjectionIntentSidecarEnqueued,
+                        "sidecar_enqueued",
                         ev.Kind,
                         ev.HasGeneration ? ev.Generation : null,
                         null);

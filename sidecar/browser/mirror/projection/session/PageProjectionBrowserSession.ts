@@ -814,7 +814,7 @@ export class PageProjectionBrowserSession {
         }
         const click = await this.resolveAndClickDomInputByNodeId(selector, 1);
         data.resolveAndClick = click;
-        if (click.status !== 'dispatched') {
+        if (click.status !== 'enqueued') {
           return {
             ok: false,
             errorCode: 'resolve_and_click_failed',
@@ -928,7 +928,7 @@ export class PageProjectionBrowserSession {
   }
 
   async pushInput(input: DomInputIngress): Promise<
-    { status: 'dispatched' } | { status: 'dropped'; reason: string }
+    { status: 'enqueued' } | { status: 'dropped'; reason: string }
   > {
     if (!this.open || !this.page) {
       throw Object.assign(new Error('PageProjectionBrowserSession: session not live'), {
@@ -965,7 +965,7 @@ export class PageProjectionBrowserSession {
       atMs: Date.now(),
     };
     this.eventApplier.enqueue(intent);
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   getInputPipelineMetrics(): null {
@@ -984,7 +984,7 @@ export class PageProjectionBrowserSession {
   async resolveAndClickDomInputByNodeId(
     selector: string,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     if (!this.eventApplier) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
@@ -1017,14 +1017,14 @@ export class PageProjectionBrowserSession {
     this.eventApplier.enqueue({ ...base, type: 'down' });
     this.eventApplier.enqueue({ ...base, type: 'up' });
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   /** @deprecated Alias — blueprints historically called resolveAndClickDomInput; now id-addressed. */
   async resolveAndClickDomInput(
     selector: string,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     return this.resolveAndClickDomInputByNodeId(selector, contextId);
   }
 
@@ -1032,9 +1032,9 @@ export class PageProjectionBrowserSession {
     selector: string,
     value: string,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     const click = await this.resolveAndClickDomInputByNodeId(selector, contextId);
-    if (click.status !== 'dispatched' || !this.eventApplier) return click;
+    if (click.status !== 'enqueued' || !this.eventApplier) return click;
     await new Promise((r) => setTimeout(r, 80));
     for (const ch of value) {
       this.eventApplier.enqueue({
@@ -1051,14 +1051,14 @@ export class PageProjectionBrowserSession {
       });
     }
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   async resolveAndScrollElementDomInput(
     selector: string,
     scrollTop: number,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     if (!this.eventApplier) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
@@ -1078,14 +1078,14 @@ export class PageProjectionBrowserSession {
       scrollY: scrollTop,
     });
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   async resolveAndScrollViewportDomInput(
     scrollY: number,
     scrollX: number = 0,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     if (!this.eventApplier) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
@@ -1098,7 +1098,7 @@ export class PageProjectionBrowserSession {
       scrollY,
     });
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   /** Lab — Virtual child-scope host bindings (nodeId ↔ contextId). */

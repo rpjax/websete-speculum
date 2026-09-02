@@ -84,11 +84,11 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
         targetId: number | null;
         contextId: number;
         payloadJson: string;
-      }): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
+      }): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }>;
       resolveAndClickDomInputByNodeId(
         selector: string,
         contextId?: number,
-      ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
+      ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }>;
     };
 
     // Generation is journal-only — must not drop.
@@ -107,7 +107,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
         button: 0,
       }),
     });
-    assert.strictEqual(mismatchedGen.status, 'dispatched', 'generation is journal-only');
+    assert.strictEqual(mismatchedGen.status, 'enqueued', 'generation is journal-only');
 
     // Missing nodeId → reject async.
     consoleLines.length = 0;
@@ -125,7 +125,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
         button: 0,
       }),
     });
-    assert.strictEqual(noId.status, 'dispatched');
+    assert.strictEqual(noId.status, 'enqueued');
     const noIdDeadline = Date.now() + 2_000;
     while (!consoleLines.some((l) => l.includes('missing_node_id')) && Date.now() < noIdDeadline) {
       await wait(20);
@@ -151,7 +151,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
         button: 0,
       }),
     });
-    assert.strictEqual(badLocal.status, 'dispatched');
+    assert.strictEqual(badLocal.status, 'enqueued');
     const badLocalDeadline = Date.now() + 2_000;
     while (!consoleLines.some((l) => l.includes('invalid_local')) && Date.now() < badLocalDeadline) {
       await wait(20);
@@ -163,7 +163,7 @@ export async function runPageProjectionInputClickUnitTests(): Promise<void> {
 
     // Lab helper: keyOfSelector + resolveNodeHit (omit/center local) → CDP → DOM effect.
     const clicked = await pushDom.resolveAndClickDomInputByNodeId('#click-me', 1);
-    assert.strictEqual(clicked.status, 'dispatched', 'resolveAndClickDomInputByNodeId');
+    assert.strictEqual(clicked.status, 'enqueued', 'resolveAndClickDomInputByNodeId');
 
     await wait(300);
 

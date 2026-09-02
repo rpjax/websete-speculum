@@ -78,8 +78,8 @@ internal sealed partial class LiveSession
                                 notification.TraceId,
                                 notification.ClientTimestampMs);
                             break;
-                        case "sidecar_admitted":
-                            _telemetry.VideoStreamingInput.SidecarAdmitted(
+                        case "sidecar_enqueued":
+                            _telemetry.VideoStreamingInput.SidecarEnqueued(
                                 pathKind,
                                 notification.TraceId,
                                 notification.ClientTimestampMs);
@@ -137,8 +137,8 @@ internal sealed partial class LiveSession
                                 notification.TraceId,
                                 notification.ClientTimestampMs);
                             break;
-                        case "sidecar_admitted":
-                            _telemetry.PageProjection.Input.SidecarAdmitted(
+                        case "sidecar_enqueued":
+                            _telemetry.PageProjection.Input.SidecarEnqueued(
                                 domKind,
                                 notification.DomGeneration,
                                 notification.DomAnchor,

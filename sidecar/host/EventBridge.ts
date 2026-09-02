@@ -66,7 +66,7 @@ export class EventBridge implements BrowserSessionEvents {
   readonly navigationBlocked = new DropOldestQueue<string>(8);
   readonly editableFocus = new DropOldestQueue<BrowserEditingState | null>(1);
   readonly crash = new DropOldestQueue<BrowserFault>(4);
-  /** Opt-in path hops for Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted (DropOldest). */
+  /** Opt-in path hops for Telemetry.Sessions.VideoStreamingInput.SidecarEnqueued (DropOldest). */
   readonly videoStreamingInputPath = new DropOldestQueue<{
     phase: string;
     kind: string;
@@ -467,7 +467,7 @@ export class EventBridge implements BrowserSessionEvents {
 
   /** Fire-and-forget Dom Projection path hop — never blocks PushDomInput. */
   onPageProjectionIntentPath(event: {
-    phase: 'sidecar_admitted' | 'cdp_dropped' | 'cdp_applied' | 'cdp_rejected';
+    phase: 'sidecar_enqueued' | 'cdp_dropped' | 'cdp_applied' | 'cdp_rejected';
     kind: string;
     reason?: string;
     generation?: number;

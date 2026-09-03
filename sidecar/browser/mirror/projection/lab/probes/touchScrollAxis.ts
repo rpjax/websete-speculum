@@ -1,7 +1,8 @@
 /**
  * PP-SCROLL-AXIS — one automated round, computed verdict.
  * Surfaces A (projected) / B (projected + skip touch-capture) / C (raw fixture).
- * Gestures G1 (vertical on #hscroller) / G2 (vertical on #plaintext) / G3 (horizontal on #hscroller).
+ * Gestures G1 (vertical on #hscroller) / G2 (vertical on #plaintext) / G3 (horizontal on #hscroller)
+ * / G6 (V2/V4 vertical swipe on link — must pan without down/up or Virtual nav).
  *
  * Does not modify product capture; only reads/sets the existing
  * `__SCROLL_DIAG_SKIP_TOUCH_CAPTURE__` window flag on surface B.
@@ -25,7 +26,7 @@ export type TouchScrollAxisVerdictCode =
   | 'STILL_BROKEN';
 
 export type TouchScrollAxisSurface = 'A' | 'B' | 'C';
-export type TouchScrollAxisGesture = 'G1' | 'G2' | 'G3' | 'G4' | 'G5';
+export type TouchScrollAxisGesture = 'G1' | 'G2' | 'G3' | 'G4' | 'G5' | 'G6';
 export type TouchScrollAxisVariant = 'V1' | 'V2' | 'V3' | 'V4';
 export type TouchScrollAxisMatrixMode = 'r1' | 'navigable';
 
@@ -79,6 +80,9 @@ export type CellRecord = {
   /** G5 only: Virtual hash equals expected link target (#v2-0 / #v4-0). */
   virtualHashOk: boolean | null;
   expectedVirtualHash: string | null;
+  /** down/up intents emitted during this cell (journal delta). */
+  intentDownDelta: number;
+  intentUpDelta: number;
   pointerCancelCount: number;
   touchCancelCount: number;
   scrollEventsByNode: Record<string, number>;
@@ -106,6 +110,19 @@ const SETTLE_MS = 400;
 
 function wait(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function countDownUpIntents(
+  intents: ReadonlyArray<{ intent: Record<string, unknown> }>,
+): { down: number; up: number } {
+  let down = 0;
+  let up = 0;
+  for (const entry of intents) {
+    const type = entry.intent.type;
+    if (type === 'down') down += 1;
+    else if (type === 'up') up += 1;
+  }
+  return { down, up };
 }
 
 async function expandProjectedSurface(page: Page): Promise<void> {
@@ -712,8 +729,8 @@ function computeVerdict(cells: CellRecord[], voidReasons: string[]): TouchScroll
 }
 
 /**
- * Navigable matrix after fix: V1–V4 × A/B/C × G1/G4 + G5 (V2/V4 Projected).
- * FIXED = pan restored, G4 projected stable, G5 Virtual hash follows link tap.
+ * Navigable matrix after fix: V1–V4 × A/B/C × G1/G4 + G5 (V2/V4 tap) + G6 (V2/V4 swipe-on-link).
+ * FIXED = pan restored, G4 projected stable, G5 Virtual hash follows link tap, G6 swipe does not click.
  */
 function computeVerdictNavigable(
   cells: CellRecord[],
@@ -727,6 +744,8 @@ function computeVerdictNavigable(
     cells.find((c) => c.variant === v && c.surface === s && c.gesture === 'G4');
   const g5 = (v: 'V2' | 'V4', s: TouchScrollAxisSurface) =>
     cells.find((c) => c.variant === v && c.surface === s && c.gesture === 'G5');
+  const g6 = (v: 'V2' | 'V4', s: TouchScrollAxisSurface) =>
+    cells.find((c) => c.variant === v && c.surface === s && c.gesture === 'G6');
 
   const v1A = g1('V1', 'A');
   const v1C = g1('V1', 'C');
@@ -762,6 +781,27 @@ function computeVerdictNavigable(
     return 'REGRESSION_CLICK';
   }
 
+  const g6SwipeClick = (['V2', 'V4'] as const).filter((v) => {
+    const c = g6(v, 'A');
+    if (!c) return true;
+    return (
+      c.intentDownDelta !== 0
+      || c.intentUpDelta !== 0
+      || c.virtualHashAfter === c.expectedVirtualHash
+    );
+  });
+  if (g6SwipeClick.length > 0) {
+    voidReasons.push(
+      `G6_swipe_emitted_click_or_nav:${g6SwipeClick
+        .map((v) => {
+          const c = g6(v, 'A');
+          return `${v} dnΔ=${c?.intentDownDelta ?? '?'} upΔ=${c?.intentUpDelta ?? '?'} vHash=${c?.virtualHashAfter ?? 'null'}`;
+        })
+        .join(';')}`,
+    );
+    return 'REGRESSION_CLICK';
+  }
+
   const stillBroken = (['V2', 'V4'] as const).some((v) => {
     const a = g1(v, 'A');
     const c = g1(v, 'C');
@@ -789,8 +829,17 @@ function computeVerdictNavigable(
     (v) => g4(v, 'A')?.locationChanged === false,
   );
   const g5Ok = (['V2', 'V4'] as const).every((v) => g5(v, 'A')?.virtualHashOk === true);
+  const g6Ok = (['V2', 'V4'] as const).every((v) => {
+    const c = g6(v, 'A');
+    return (
+      c?.pageRolled === true
+      && c.intentDownDelta === 0
+      && c.intentUpDelta === 0
+      && c.virtualHashOk === true
+    );
+  });
 
-  if (panFixed && controlsOk && g4Ok && g5Ok) return 'FIXED';
+  if (panFixed && controlsOk && g4Ok && g5Ok && g6Ok) return 'FIXED';
 
   voidReasons.push('unclassified_navigable_matrix');
   return 'VOID';
@@ -939,7 +988,7 @@ export async function runTouchScrollAxisProbe(opts: {
       hitMode: HitMode;
       axis: 'vertical' | 'horizontal';
       kind: 'swipe' | 'tap';
-      /** G5: expected Virtual location.hash after Projected tap. */
+      /** G5/G6: expected Virtual location.hash (G5 must match; G6 must not). */
       expectedVirtualHash?: string | null;
     };
 
@@ -1016,6 +1065,21 @@ export async function runTouchScrollAxisProbe(opts: {
                   hitMode: g5.hitMode,
                   axis: 'vertical' as const,
                   kind: 'tap' as const,
+                  expectedVirtualHash: row.mode === 'projected' ? g5.hash : null,
+                });
+                // G6: vertical swipe on link (same hit as G1) — must pan, must not click/navigate.
+                base.push({
+                  surface: row.surface,
+                  gesture: 'G6' as const,
+                  variant,
+                  page: row.page,
+                  cdp: row.cdp,
+                  mode: row.mode,
+                  skipTouchCapture: row.skip,
+                  targetSelector: g1.selector,
+                  hitMode: g1.hitMode,
+                  axis: 'vertical' as const,
+                  kind: 'swipe' as const,
                   expectedVirtualHash: row.mode === 'projected' ? g5.hash : null,
                 });
               }
@@ -1138,12 +1202,14 @@ export async function runTouchScrollAxisProbe(opts: {
         await setSkipTouchCapture(plan.page, plan.skipTouchCapture);
       }
       await clearDocHash(plan.page, plan.mode);
-      if (plan.gesture === 'G5' && plan.expectedVirtualHash) {
+      if ((plan.gesture === 'G5' || plan.gesture === 'G6') && plan.expectedVirtualHash) {
         await clearVirtualHash(virtualSession);
       }
       await resetScrollers(plan.page, plan.mode, plan.targetSelector);
       await ensureTargetInView(plan.page, plan.mode, plan.targetSelector);
       await wait(100);
+
+      const intentBefore = countDownUpIntents(opts.chassis.journal.intents);
 
       const maxTouchPoints = await readMaxTouchPoints(plan.page, plan.mode);
       if (maxTouchPoints === 0) {
@@ -1202,6 +1268,8 @@ export async function runTouchScrollAxisProbe(opts: {
           virtualHashAfter: null,
           virtualHashOk: plan.expectedVirtualHash ? false : null,
           expectedVirtualHash: plan.expectedVirtualHash ?? null,
+          intentDownDelta: 0,
+          intentUpDelta: 0,
           pointerCancelCount: 0,
           touchCancelCount: 0,
           scrollEventsByNode: {},
@@ -1213,7 +1281,7 @@ export async function runTouchScrollAxisProbe(opts: {
       const hit = await hitAtTopPoint(plan.page, plan.mode, point);
       const locationBefore = await readDocLocation(plan.page, plan.mode);
       const virtualHashBefore =
-        plan.gesture === 'G5' && plan.expectedVirtualHash
+        (plan.gesture === 'G5' || plan.gesture === 'G6') && plan.expectedVirtualHash
           ? await readVirtualHash(virtualSession)
           : null;
       if (plan.kind === 'tap') {
@@ -1234,9 +1302,15 @@ export async function runTouchScrollAxisProbe(opts: {
           3000,
         );
         virtualHashOk = virtualHashAfter === plan.expectedVirtualHash;
+      } else if (plan.gesture === 'G6' && plan.expectedVirtualHash) {
+        virtualHashAfter = await readVirtualHash(virtualSession);
+        virtualHashOk =
+          virtualHashAfter !== plan.expectedVirtualHash
+          && (virtualHashAfter === '' || virtualHashAfter === virtualHashBefore);
       }
       const bag = await readListeners(plan.page);
       await removeListeners(plan.page);
+      const intentAfter = countDownUpIntents(opts.chassis.journal.intents);
 
       const firstStart = bag.touchStarts[0];
       const deltaDocScrollY = after.docScrollY - before.docScrollY;
@@ -1270,6 +1344,8 @@ export async function runTouchScrollAxisProbe(opts: {
         virtualHashAfter,
         virtualHashOk,
         expectedVirtualHash: plan.expectedVirtualHash ?? null,
+        intentDownDelta: intentAfter.down - intentBefore.down,
+        intentUpDelta: intentAfter.up - intentBefore.up,
         pointerCancelCount: bag.pointerCancelCount,
         touchCancelCount: bag.touchCancelCount,
         scrollEventsByNode: bag.scrollEventsByNode,
@@ -1292,7 +1368,7 @@ export async function runTouchScrollAxisProbe(opts: {
       hypothesis.push(`VOID: ${voidReasons.join('; ') || 'instrument_broken'}`);
     } else if (verdict === 'FIXED') {
       hypothesis.push(
-        'V2/V4 G1 pan ok (dp=false); G4 projected location stable; G5 Virtual hash follows link tap',
+        'V2/V4 G1 pan ok (dp=false); G4 projected location stable; G5 Virtual hash follows link tap; G6 swipe pans without down/up or nav',
       );
     } else if (verdict === 'REGRESSION_NAV') {
       hypothesis.push(
@@ -1300,7 +1376,7 @@ export async function runTouchScrollAxisProbe(opts: {
       );
     } else if (verdict === 'REGRESSION_CLICK') {
       hypothesis.push(
-        `G5 Virtual hash miss after Projected tap — touch→intent→Virtual broken; ${voidReasons.join('; ')}`,
+        `G5/G6 click regression — tap hash miss or swipe emitted down/up / Virtual nav; ${voidReasons.join('; ')}`,
       );
     } else if (verdict === 'STILL_BROKEN') {
       hypothesis.push('V2/V4 still stuck on A after touchstart fix');

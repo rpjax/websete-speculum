@@ -4933,6 +4933,7 @@
       }
       var EDGE_SWIPE_PX = 24;
       var EDGE_SWIPE_MIN_DX = 72;
+      var TOUCH_TAP_SLOP_PX = 8;
       function historyNavFromKeyboard(event) {
         if (isEditableTarget(event.target))
           return null;
@@ -4952,6 +4953,10 @@
         const buffer = new ClientBuffer_1.ClientBuffer();
         let edgeSwipe = null;
         const pendingPointers = /* @__PURE__ */ new Set();
+        let deferredTouch = null;
+        const discardDeferredTouch = () => {
+          deferredTouch = null;
+        };
         const fireHistoryNav = (direction) => {
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -5037,30 +5042,30 @@
           const sy = y * (vh / visH);
           return { x: Math.min(Math.max(sx, 0), vw - 1e-6), y: Math.min(Math.max(sy, 0), vh - 1e-6) };
         };
-        const runPointerEdge = (event, type) => {
+        const resolvePointerGeometry = (event) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
-            return;
+            return null;
           }
           const target = event.target;
           if (!target || typeof target !== "object" || !("nodeType" in target)) {
             opts.metrics?.noteSkip("no_node");
-            return;
+            return null;
           }
           const el2 = target;
           if (el2.nodeType !== 1) {
             opts.metrics?.noteSkip("no_node");
-            return;
+            return null;
           }
           const nodeId = registry.idOf(el2);
           if (nodeId == null) {
             opts.metrics?.noteSkip("no_node");
-            return;
+            return null;
           }
           const box = el2.getBoundingClientRect();
           if (box.width <= 0 || box.height <= 0) {
             opts.metrics?.noteSkip("no_coords");
-            return;
+            return null;
           }
           const rawLocalX = (event.clientX - box.left) / box.width;
           const rawLocalY = (event.clientY - box.top) / box.height;
@@ -5069,26 +5074,50 @@
           const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
           if (!coords) {
             opts.metrics?.noteSkip("no_coords");
-            return;
+            return null;
           }
+          return {
+            nodeId,
+            localX,
+            localY,
+            x: coords.x,
+            y: coords.y,
+            button: buttonFromEvent(event.button)
+          };
+        };
+        const emitPointerEdge = (type, geometry, pointerId) => {
           const stamp = viewportStamp();
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type,
             timestampClient: performance.now(),
             ...stamp,
-            x: coords.x,
-            y: coords.y,
-            localX,
-            localY,
-            button: buttonFromEvent(event.button),
+            x: geometry.x,
+            y: geometry.y,
+            localX: geometry.localX,
+            localY: geometry.localY,
+            button: geometry.button,
             contextId: opts.contextId,
-            nodeId
+            nodeId: geometry.nodeId
           });
           if (type === "down")
-            pendingPointers.add(event.pointerId);
+            pendingPointers.add(pointerId);
           else
-            pendingPointers.delete(event.pointerId);
+            pendingPointers.delete(pointerId);
+        };
+        const runPointerEdge = (event, type) => {
+          const geometry = resolvePointerGeometry(event);
+          if (!geometry)
+            return;
+          emitPointerEdge(type, geometry, event.pointerId);
+        };
+        const emitDeferredTouchTap = () => {
+          if (!deferredTouch)
+            return;
+          const { geometry, pointerId } = deferredTouch;
+          emitPointerEdge("down", geometry, pointerId);
+          emitPointerEdge("up", geometry, pointerId);
+          deferredTouch = null;
         };
         const onPointerEdge = (event, type) => {
           runPointerEdge(event, type);
@@ -5160,6 +5189,8 @@
               opts.onProgrammaticScrollSuppress?.("viewport");
               return;
             }
+            if (deferredTouch)
+              discardDeferredTouch();
             opts.metrics?.noteScrollCoalesce();
             enqueue({
               schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -5189,6 +5220,8 @@
             opts.onProgrammaticScrollSuppress?.(nodeId);
             return;
           }
+          if (deferredTouch)
+            discardDeferredTouch();
           opts.metrics?.noteScrollCoalesce();
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -5274,10 +5307,27 @@
               event.stopPropagation();
               capturePointer(event);
             }
+            const geometry = resolvePointerGeometry(event);
+            if (!geometry)
+              return;
+            deferredTouch = {
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startY: event.clientY,
+              geometry
+            };
+            return;
           }
           onPointerEdge(event, "down");
         };
         const onPointerMove = (event) => {
+          if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
+            const dx = event.clientX - deferredTouch.startX;
+            const dy = event.clientY - deferredTouch.startY;
+            if (Math.hypot(dx, dy) > TOUCH_TAP_SLOP_PX) {
+              discardDeferredTouch();
+            }
+          }
           if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId)
             return;
           event.preventDefault();
@@ -5320,6 +5370,16 @@
             event.preventDefault();
             event.stopPropagation();
             releasePointer(event);
+            if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
+              const dx = event.clientX - deferredTouch.startX;
+              const dy = event.clientY - deferredTouch.startY;
+              if (Math.hypot(dx, dy) <= TOUCH_TAP_SLOP_PX) {
+                emitDeferredTouchTap();
+              } else {
+                discardDeferredTouch();
+              }
+            }
+            return;
           }
           onPointerEdge(event, "up");
         };
@@ -5330,12 +5390,20 @@
             event.preventDefault();
             event.stopPropagation();
             releasePointer(event);
+            if (deferredTouch?.pointerId === event.pointerId) {
+              discardDeferredTouch();
+            }
+            return;
           }
           finishPendingPointer(event);
         };
         const onLostPointerCapture = (event) => {
           if (edgeSwipe?.pointerId === event.pointerId) {
             edgeSwipe = null;
+            return;
+          }
+          if (deferredTouch?.pointerId === event.pointerId) {
+            discardDeferredTouch();
             return;
           }
           finishPendingPointer(event);
@@ -5458,6 +5526,7 @@
           doc.removeEventListener("lostpointercapture", onLostPointerCapture, pointerOpts);
           detachNativeGuard();
           pendingPointers.clear();
+          deferredTouch = null;
           doc.removeEventListener("click", onClick, true);
           doc.removeEventListener("submit", onSubmit, true);
           doc.removeEventListener("contextmenu", onContextMenu, true);
@@ -7006,8 +7075,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 66,
-    builtAt: "2026-09-02T23:41:02.477Z"
+    seq: 69,
+    builtAt: "2026-09-03T00:25:21.055Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts

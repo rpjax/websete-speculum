@@ -133,6 +133,8 @@ function printArtifact(dossierDir) {
       'locΔ',
       'vHash',
       'vOk',
+      'dnΔ',
+      'upΔ',
       'mtp',
     ].join('\t'),
   );
@@ -155,6 +157,8 @@ function printArtifact(dossierDir) {
         c.locationChanged ? 'Y' : 'n',
         c.virtualHashAfter ?? '-',
         c.virtualHashOk === true ? 'Y' : c.virtualHashOk === false ? 'n' : '-',
+        c.intentDownDelta ?? 0,
+        c.intentUpDelta ?? 0,
         c.maxTouchPoints,
       ].join('\t'),
     );

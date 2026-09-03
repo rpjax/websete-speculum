@@ -1,6 +1,6 @@
 {
   "id": "input-touch-scroll-axis",
-  "description": "PP-SCROLL-AXIS fix verify — V1–V4 × A/B/C × G1/G4 + G5 (V2/V4 Projected→Virtual hash)",
+  "description": "PP-SCROLL-AXIS fix verify — V1–V4 × A/B/C × G1/G4 + G5 tap + G6 swipe-on-link (V2/V4 Projected→Virtual)",
   "sessionPolicy": "cold",
   "fold": "touch-scroll-axis",
   "queues": [

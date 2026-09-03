@@ -53,6 +53,23 @@ function buttonFromEvent(button: number): 'left' | 'middle' | 'right' {
 
 const EDGE_SWIPE_PX = 24;
 const EDGE_SWIPE_MIN_DX = 72;
+const TOUCH_TAP_SLOP_PX = 8;
+
+type PointerGeometry = {
+  nodeId: number;
+  localX: number;
+  localY: number;
+  x: number;
+  y: number;
+  button: 'left' | 'middle' | 'right';
+};
+
+type DeferredTouch = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  geometry: PointerGeometry;
+};
 
 function historyNavFromKeyboard(event: KeyboardEvent): 'back' | 'forward' | null {
   if (isEditableTarget(event.target)) return null;
@@ -85,6 +102,12 @@ export function attachProjectedInputCapture(
   let edgeSwipe: EdgeSwipeTrack | null = null;
   /** Pointers that emitted `down` — iOS Safari often sends `pointercancel` instead of `up`. */
   const pendingPointers = new Set<number>();
+  /** Touch tap deferred until pointerup within slop (mouse emits immediately). */
+  let deferredTouch: DeferredTouch | null = null;
+
+  const discardDeferredTouch = () => {
+    deferredTouch = null;
+  };
 
   const fireHistoryNav = (direction: 'back' | 'forward') => {
     enqueue({
@@ -172,31 +195,31 @@ export function attachProjectedInputCapture(
     return { x: Math.min(Math.max(sx, 0), vw - 1e-6), y: Math.min(Math.max(sy, 0), vh - 1e-6) };
   };
 
-  const runPointerEdge = (event: PointerEvent, type: 'down' | 'up') => {
+  const resolvePointerGeometry = (event: PointerEvent): PointerGeometry | null => {
     if (!opts.isArmed()) {
       opts.metrics?.noteSkip('disarmed');
-      return;
+      return null;
     }
     const target = event.target;
     if (!target || typeof target !== 'object' || !('nodeType' in target)) {
       opts.metrics?.noteSkip('no_node');
-      return;
+      return null;
     }
     const el = target as Element;
     if (el.nodeType !== 1) {
       opts.metrics?.noteSkip('no_node');
-      return;
+      return null;
     }
     const nodeId = registry.idOf(el);
     if (nodeId == null) {
       opts.metrics?.noteSkip('no_node');
-      return;
+      return null;
     }
     // Local % in the event window's box — before frame-hop to root (same space as clientX/Y).
     const box = el.getBoundingClientRect();
     if (box.width <= 0 || box.height <= 0) {
       opts.metrics?.noteSkip('no_coords');
-      return;
+      return null;
     }
     const rawLocalX = (event.clientX - box.left) / box.width;
     const rawLocalY = (event.clientY - box.top) / box.height;
@@ -205,24 +228,49 @@ export function attachProjectedInputCapture(
     const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
     if (!coords) {
       opts.metrics?.noteSkip('no_coords');
-      return;
+      return null;
     }
+    return {
+      nodeId,
+      localX,
+      localY,
+      x: coords.x,
+      y: coords.y,
+      button: buttonFromEvent(event.button),
+    };
+  };
+
+  const emitPointerEdge = (type: 'down' | 'up', geometry: PointerGeometry, pointerId: number) => {
     const stamp = viewportStamp();
     enqueue({
       schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
       type,
       timestampClient: performance.now(),
       ...stamp,
-      x: coords.x,
-      y: coords.y,
-      localX,
-      localY,
-      button: buttonFromEvent(event.button),
+      x: geometry.x,
+      y: geometry.y,
+      localX: geometry.localX,
+      localY: geometry.localY,
+      button: geometry.button,
       contextId: opts.contextId,
-      nodeId,
+      nodeId: geometry.nodeId,
     });
-    if (type === 'down') pendingPointers.add(event.pointerId);
-    else pendingPointers.delete(event.pointerId);
+    if (type === 'down') pendingPointers.add(pointerId);
+    else pendingPointers.delete(pointerId);
+  };
+
+  const runPointerEdge = (event: PointerEvent, type: 'down' | 'up') => {
+    const geometry = resolvePointerGeometry(event);
+    if (!geometry) return;
+    emitPointerEdge(type, geometry, event.pointerId);
+  };
+
+  const emitDeferredTouchTap = () => {
+    if (!deferredTouch) return;
+    const { geometry, pointerId } = deferredTouch;
+    emitPointerEdge('down', geometry, pointerId);
+    emitPointerEdge('up', geometry, pointerId);
+    deferredTouch = null;
   };
 
   const onPointerEdge = (event: PointerEvent, type: 'down' | 'up') => {
@@ -306,6 +354,7 @@ export function attachProjectedInputCapture(
         opts.onProgrammaticScrollSuppress?.('viewport');
         return;
       }
+      if (deferredTouch) discardDeferredTouch();
       opts.metrics?.noteScrollCoalesce();
       enqueue({
         schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
@@ -333,6 +382,7 @@ export function attachProjectedInputCapture(
       opts.onProgrammaticScrollSuppress?.(nodeId);
       return;
     }
+    if (deferredTouch) discardDeferredTouch();
     opts.metrics?.noteScrollCoalesce();
     enqueue({
       schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
@@ -428,11 +478,27 @@ export function attachProjectedInputCapture(
         event.stopPropagation();
         capturePointer(event);
       }
+      const geometry = resolvePointerGeometry(event);
+      if (!geometry) return;
+      deferredTouch = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        geometry,
+      };
+      return;
     }
     onPointerEdge(event, 'down');
   };
 
   const onPointerMove = (event: PointerEvent) => {
+    if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
+      const dx = event.clientX - deferredTouch.startX;
+      const dy = event.clientY - deferredTouch.startY;
+      if (Math.hypot(dx, dy) > TOUCH_TAP_SLOP_PX) {
+        discardDeferredTouch();
+      }
+    }
     if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
@@ -474,6 +540,16 @@ export function attachProjectedInputCapture(
       event.preventDefault();
       event.stopPropagation();
       releasePointer(event);
+      if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
+        const dx = event.clientX - deferredTouch.startX;
+        const dy = event.clientY - deferredTouch.startY;
+        if (Math.hypot(dx, dy) <= TOUCH_TAP_SLOP_PX) {
+          emitDeferredTouchTap();
+        } else {
+          discardDeferredTouch();
+        }
+      }
+      return;
     }
     onPointerEdge(event, 'up');
   };
@@ -484,6 +560,10 @@ export function attachProjectedInputCapture(
       event.preventDefault();
       event.stopPropagation();
       releasePointer(event);
+      if (deferredTouch?.pointerId === event.pointerId) {
+        discardDeferredTouch();
+      }
+      return;
     }
     finishPendingPointer(event);
   };
@@ -491,6 +571,10 @@ export function attachProjectedInputCapture(
   const onLostPointerCapture = (event: PointerEvent) => {
     if (edgeSwipe?.pointerId === event.pointerId) {
       edgeSwipe = null;
+      return;
+    }
+    if (deferredTouch?.pointerId === event.pointerId) {
+      discardDeferredTouch();
       return;
     }
     finishPendingPointer(event);
@@ -630,6 +714,7 @@ export function attachProjectedInputCapture(
     doc.removeEventListener('lostpointercapture', onLostPointerCapture as EventListener, pointerOpts);
     detachNativeGuard();
     pendingPointers.clear();
+    deferredTouch = null;
     doc.removeEventListener('click', onClick as EventListener, true);
     doc.removeEventListener('submit', onSubmit, true);
     doc.removeEventListener('contextmenu', onContextMenu as EventListener, true);

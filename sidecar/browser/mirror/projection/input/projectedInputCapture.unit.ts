@@ -72,6 +72,10 @@ export async function runProjectedInputCaptureUnitTests(): Promise<void> {
   await testSparseNeverEmitsMove();
   await testSparseResolvesNodeIdFromEventTarget();
   await testSparsePointerCancelEmitsUpAfterDown();
+  await testTouchDefersUntilPointerUp();
+  await testTouchSlopDiscardsWithoutEmit();
+  await testTouchCancelDiscardsWithoutEmit();
+  await testTouchScrollSetDiscardsDeferred();
   await testSparseMissSkipsWhenTargetUnregistered();
   await testEditableKeyPreventDefault();
   await testHistoryShortcutEmitsNavIntent();
@@ -139,7 +143,7 @@ async function testSparseResolvesNodeIdFromEventTarget(): Promise<void> {
   }
 }
 
-/** iOS Safari: pointercancel must lift a prior down (same as canvas path). */
+/** iOS Safari: pointercancel must lift a prior down (same as canvas path) — mouse only. */
 async function testSparsePointerCancelEmitsUpAfterDown(): Promise<void> {
   const target = {
     nodeType: 1,
@@ -165,6 +169,207 @@ async function testSparsePointerCancelEmitsUpAfterDown(): Promise<void> {
     assert.strictEqual(sent.length, 2);
     assert.strictEqual(sent[0]!.type, 'down');
     assert.strictEqual(sent[1]!.type, 'up');
+  } finally {
+    detach();
+  }
+}
+
+function touchTarget() {
+  return {
+    nodeType: 1,
+    closest: () => null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
+    setPointerCapture: () => undefined,
+    releasePointerCapture: () => undefined,
+  };
+}
+
+function touchEvent(extra: Record<string, unknown>) {
+  return {
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+    button: 0,
+    ...extra,
+  };
+}
+
+/** Touch defers down/up until pointerup within slop; geometry frozen from pointerdown. */
+async function testTouchDefersUntilPointerUp(): Promise<void> {
+  const target = touchTarget();
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 3,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 0, 'touch down must defer emit');
+    doc.dispatch('pointerup', touchEvent({
+      pointerId: 3,
+      pointerType: 'touch',
+      clientX: 52,
+      clientY: 27,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 2);
+    assert.strictEqual(sent[0]!.type, 'down');
+    assert.strictEqual(sent[1]!.type, 'up');
+    if (sent[0]!.type === 'down' && sent[1]!.type === 'up') {
+      assert.strictEqual(sent[0]!.x, 50);
+      assert.strictEqual(sent[0]!.y, 25);
+      assert.strictEqual(sent[1]!.x, 50);
+      assert.strictEqual(sent[1]!.y, 25);
+      assert.strictEqual(sent[0]!.nodeId, 42);
+      assert.strictEqual(sent[1]!.nodeId, 42);
+    }
+  } finally {
+    detach();
+  }
+}
+
+/** Touch beyond slop discards deferred tap — no down/up emitted. */
+async function testTouchSlopDiscardsWithoutEmit(): Promise<void> {
+  const target = touchTarget();
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 4,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('pointermove', touchEvent({
+      pointerId: 4,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 40,
+      target,
+    }));
+    doc.dispatch('pointerup', touchEvent({
+      pointerId: 4,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 40,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 0, 'touch beyond slop must emit nothing');
+  } finally {
+    detach();
+  }
+}
+
+/** Touch pointercancel discards deferred — no finishPendingPointer orphan up. */
+async function testTouchCancelDiscardsWithoutEmit(): Promise<void> {
+  const target = touchTarget();
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 5,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('pointercancel', touchEvent({
+      pointerId: 5,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 0, 'touch cancel must discard deferred');
+  } finally {
+    detach();
+  }
+}
+
+/** scrollSet about to enqueue discards deferred touch — pointerup emits nothing. */
+async function testTouchScrollSetDiscardsDeferred(): Promise<void> {
+  const target = touchTarget();
+  const { win, doc, surface } = mockSurface();
+  const se = {
+    scrollTop: 100,
+    scrollLeft: 0,
+    scrollHeight: 600 + 500,
+    clientHeight: 600,
+    scrollWidth: 800,
+    clientWidth: 800,
+  };
+  (doc as { scrollingElement: unknown }).scrollingElement = se;
+  Object.assign(win, { scrollY: 100, scrollX: 0 });
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 6,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('scroll', { target: doc });
+    doc.dispatch('pointerup', touchEvent({
+      pointerId: 6,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 120));
+    const downs = sent.filter((i) => i.type === 'down');
+    const ups = sent.filter((i) => i.type === 'up');
+    assert.strictEqual(downs.length, 0, 'scroll must discard deferred down');
+    assert.strictEqual(ups.length, 0, 'scroll must discard deferred up');
+    assert.ok(sent.some((i) => i.type === 'scrollSet'), 'scrollSet must still emit');
   } finally {
     detach();
   }

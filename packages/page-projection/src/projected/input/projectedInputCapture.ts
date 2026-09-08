@@ -1,6 +1,9 @@
 /**
  * Projected surface input capture — UnifiedIntent (§10.6), sparse-cdp only.
- * Pointer down/up: event.target → registry.idOf (fail-closed on miss); no pointermove; local-first scrollSet.
+ * Mouse: pointerdown/up → down/up intents. Touch tap: native click → down+up — the
+ * platform recognizer handles slop, scroll-cancel, and momentum-arrest suppression.
+ * Safe because K5/CSP (script-src 'none') prevents page JS from synthesizing click().
+ * local-first scrollSet.
  */
 
 import type { PageProjectionRegistry } from '../registry';
@@ -8,7 +11,11 @@ import type { UnifiedIntent } from '../../core/input/unifiedIntentTypes';
 import { UNIFIED_INTENT_SCHEMA_VERSION } from '../../core/input/unifiedIntentTypes';
 import type { ProjectedInputCaptureMetrics } from './inputCaptureMetrics';
 import { ClientBuffer } from './ClientBuffer';
-import { attachProjectedNativeGuard, layoutViewportSize } from './projectedNativeGuard';
+import {
+  attachProjectedNativeGuard,
+  isProjectedNavigable,
+  layoutViewportSize,
+} from './projectedNativeGuard';
 
 export type ProjectedInputCaptureOptions = {
   contextId: number;
@@ -53,7 +60,10 @@ function buttonFromEvent(button: number): 'left' | 'middle' | 'right' {
 
 const EDGE_SWIPE_PX = 24;
 const EDGE_SWIPE_MIN_DX = 72;
-const TOUCH_TAP_SLOP_PX = 8;
+/** Synthetic pointerId for touch click → down+up (touch no longer uses pointer capture). */
+const TOUCH_CLICK_POINTER_ID = 1;
+/** Navigable touchend fallback — guard suppresses click synthesis on `<a href>`. */
+const NAVIGABLE_TAP_SLOP_PX = 8;
 
 type PointerGeometry = {
   nodeId: number;
@@ -62,13 +72,6 @@ type PointerGeometry = {
   x: number;
   y: number;
   button: 'left' | 'middle' | 'right';
-};
-
-type DeferredTouch = {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  geometry: PointerGeometry;
 };
 
 function historyNavFromKeyboard(event: KeyboardEvent): 'back' | 'forward' | null {
@@ -102,11 +105,24 @@ export function attachProjectedInputCapture(
   let edgeSwipe: EdgeSwipeTrack | null = null;
   /** Pointers that emitted `down` — iOS Safari often sends `pointercancel` instead of `up`. */
   const pendingPointers = new Set<number>();
-  /** Touch tap deferred until pointerup within slop (mouse emits immediately). */
-  let deferredTouch: DeferredTouch | null = null;
+  /** Last pointerdown type — click follows mouse pointerup; ignore duplicate click for mouse. */
+  let lastPointerType: string | null = null;
+  /** Active touch gesture — navigable fallback tracks scroll + slop. */
+  let touchGesture: {
+    scrolled: boolean;
+    startX: number;
+    startY: number;
+    maxDist: number;
+  } | null = null;
 
-  const discardDeferredTouch = () => {
-    deferredTouch = null;
+  // TEMP-DIAG (descartavel, PP-SCROLL-AXIS iOS) — per-gesture counters read by the
+  // touchend record below. Real handlers only increment; no behaviour depends on it.
+  const tempDiagState = {
+    pointerMoves: 0,
+    tapEmitted: false,
+    cancelled: false,
+    lastScrollAt: 0,
+    scrollOrigins: new Map<string, { left: number; top: number }>(),
   };
 
   const fireHistoryNav = (direction: 'back' | 'forward') => {
@@ -195,7 +211,7 @@ export function attachProjectedInputCapture(
     return { x: Math.min(Math.max(sx, 0), vw - 1e-6), y: Math.min(Math.max(sy, 0), vh - 1e-6) };
   };
 
-  const resolvePointerGeometry = (event: PointerEvent): PointerGeometry | null => {
+  const resolvePointerGeometry = (event: PointerEvent | MouseEvent): PointerGeometry | null => {
     if (!opts.isArmed()) {
       opts.metrics?.noteSkip('disarmed');
       return null;
@@ -265,21 +281,94 @@ export function attachProjectedInputCapture(
     emitPointerEdge(type, geometry, event.pointerId);
   };
 
-  const emitDeferredTouchTap = () => {
-    if (!deferredTouch) return;
-    const { geometry, pointerId } = deferredTouch;
-    emitPointerEdge('down', geometry, pointerId);
-    emitPointerEdge('up', geometry, pointerId);
-    deferredTouch = null;
-  };
-
   const onPointerEdge = (event: PointerEvent, type: 'down' | 'up') => {
     runPointerEdge(event, type);
   };
 
+  const emitTouchTap = (target: EventTarget | null, clientX: number, clientY: number) => {
+    const geometry = resolvePointerGeometry({
+      target,
+      clientX,
+      clientY,
+      button: 0,
+    } as MouseEvent);
+    if (!geometry) return false;
+    tempDiagState.tapEmitted = true; // TEMP-DIAG
+    emitPointerEdge('down', geometry, TOUCH_CLICK_POINTER_ID);
+    emitPointerEdge('up', geometry, TOUCH_CLICK_POINTER_ID);
+    return true;
+  };
+
   const onClick = (event: MouseEvent) => {
+    // Enter/Space on focused control — keyDown/keyUp already forwarded; Virtual activates.
+    if (event.detail === 0) return;
+    // Mouse pointerdown/up already emitted down+up; click is a duplicate.
+    if (lastPointerType !== 'touch') return;
+    touchGesture = null;
+
+    if (!emitTouchTap(event.target, event.clientX, event.clientY)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
+  };
+
+  /**
+   * Navigable `<a href>`: nativeGuard preventDefault on touchend blocks click synthesis.
+   * Emit down/up here (before the guard) when the gesture matches a platform tap.
+   */
+  const beginTouchGesture = (clientX: number, clientY: number) => {
+    lastPointerType = 'touch';
+    touchGesture = {
+      scrolled: false,
+      startX: clientX,
+      startY: clientY,
+      maxDist: 0,
+    };
+  };
+
+  const trackTouchMove = (clientX: number, clientY: number) => {
+    if (!touchGesture) return;
+    const dist = Math.hypot(clientX - touchGesture.startX, clientY - touchGesture.startY);
+    touchGesture.maxDist = Math.max(touchGesture.maxDist, dist);
+  };
+
+  const touchTargetAt = (
+    clientX: number,
+    clientY: number,
+    fallback: EventTarget | null,
+  ): EventTarget | null => {
+    if (typeof doc.elementFromPoint === 'function') {
+      return doc.elementFromPoint(clientX, clientY) ?? fallback;
+    }
+    return fallback;
+  };
+
+  const onTouchStartTrack = (event: TouchEvent) => {
+    const touch = event.changedTouches[0] ?? event.touches[0];
+    if (!touch) return;
+    beginTouchGesture(touch.clientX, touch.clientY);
+  };
+
+  const onTouchMoveTrack = (event: TouchEvent) => {
+    const touch = event.touches[0] ?? event.changedTouches[0];
+    if (!touch) return;
+    trackTouchMove(touch.clientX, touch.clientY);
+  };
+
+  const onNavigableTouchEnd = (event: TouchEvent) => {
+    const gesture = touchGesture;
+    touchGesture = null;
+    if (lastPointerType !== 'touch' || !gesture) return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    const target = touchTargetAt(touch.clientX, touch.clientY, event.target);
+    if (!isProjectedNavigable(target)) return;
+    if (gesture.scrolled) return;
+    if (gesture.maxDist > NAVIGABLE_TAP_SLOP_PX) return;
+    emitTouchTap(target, touch.clientX, touch.clientY);
   };
 
   const onSubmit = (event: Event) => {
@@ -337,6 +426,7 @@ export function attachProjectedInputCapture(
   };
 
   const onScroll = (event: Event) => {
+    if (touchGesture) touchGesture.scrolled = true;
     if (!opts.isArmed()) {
       opts.metrics?.noteSkip('disarmed');
       return;
@@ -354,7 +444,6 @@ export function attachProjectedInputCapture(
         opts.onProgrammaticScrollSuppress?.('viewport');
         return;
       }
-      if (deferredTouch) discardDeferredTouch();
       opts.metrics?.noteScrollCoalesce();
       enqueue({
         schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
@@ -382,7 +471,6 @@ export function attachProjectedInputCapture(
       opts.onProgrammaticScrollSuppress?.(nodeId);
       return;
     }
-    if (deferredTouch) discardDeferredTouch();
     opts.metrics?.noteScrollCoalesce();
     enqueue({
       schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
@@ -406,26 +494,6 @@ export function attachProjectedInputCapture(
   };
 
   const pointerOpts: AddEventListenerOptions = { capture: true, passive: false };
-
-  const capturePointer = (event: PointerEvent) => {
-    const target = event.target;
-    if (!target || typeof target !== 'object' || !('setPointerCapture' in target)) return;
-    try {
-      (target as Element).setPointerCapture(event.pointerId);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const releasePointer = (event: PointerEvent) => {
-    const target = event.target;
-    if (!target || typeof target !== 'object' || !('releasePointerCapture' in target)) return;
-    try {
-      (target as Element).releasePointerCapture(event.pointerId);
-    } catch {
-      /* ignore */
-    }
-  };
 
   const onPointerDown = (event: PointerEvent) => {
     if (event.pointerType === 'touch' && win) {
@@ -453,51 +521,19 @@ export function attachProjectedInputCapture(
         event.stopPropagation();
         return;
       }
-    }
-    if (event.pointerType === 'touch') {
-      // TEMP-DIAG Build B: ?touchCapture=off (lab URL) skips these three — default = Build A (#53).
-      // Not a fix: sparse-cdp still needs down/up capture; this is A/B measurement only.
-      let skipTouchCapture = false;
-      try {
-        const root =
-          (win as Window & { __SCROLL_DIAG_SKIP_TOUCH_CAPTURE__?: boolean }) ?? undefined;
-        if (root?.__SCROLL_DIAG_SKIP_TOUCH_CAPTURE__ === true) {
-          skipTouchCapture = true;
-        } else {
-          const search =
-            (typeof win?.parent !== 'undefined' && win.parent !== win
-              ? win.parent.location.search
-              : null) ?? win?.location.search ?? '';
-          skipTouchCapture = new URLSearchParams(search).get('touchCapture') === 'off';
-        }
-      } catch {
-        /* parent cross-origin */
-      }
-      if (!skipTouchCapture) {
-        event.preventDefault();
-        event.stopPropagation();
-        capturePointer(event);
-      }
-      const geometry = resolvePointerGeometry(event);
-      if (!geometry) return;
-      deferredTouch = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        geometry,
-      };
+      lastPointerType = 'touch';
+      beginTouchGesture(event.clientX, event.clientY);
       return;
     }
+    lastPointerType = event.pointerType;
+    touchGesture = null;
     onPointerEdge(event, 'down');
   };
 
   const onPointerMove = (event: PointerEvent) => {
-    if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
-      const dx = event.clientX - deferredTouch.startX;
-      const dy = event.clientY - deferredTouch.startY;
-      if (Math.hypot(dx, dy) > TOUCH_TAP_SLOP_PX) {
-        discardDeferredTouch();
-      }
+    if (event.pointerType === 'touch') {
+      tempDiagState.pointerMoves += 1; // TEMP-DIAG
+      trackTouchMove(event.clientX, event.clientY);
     }
     if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId) return;
     event.preventDefault();
@@ -536,45 +572,19 @@ export function attachProjectedInputCapture(
       }
       return;
     }
-    if (event.pointerType === 'touch') {
-      event.preventDefault();
-      event.stopPropagation();
-      releasePointer(event);
-      if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
-        const dx = event.clientX - deferredTouch.startX;
-        const dy = event.clientY - deferredTouch.startY;
-        if (Math.hypot(dx, dy) <= TOUCH_TAP_SLOP_PX) {
-          emitDeferredTouchTap();
-        } else {
-          discardDeferredTouch();
-        }
-      }
-      return;
-    }
+    if (event.pointerType === 'touch') return;
     onPointerEdge(event, 'up');
   };
 
   const onPointerCancel = (event: PointerEvent) => {
     if (clearEdgeSwipe(event)) return;
-    if (event.pointerType === 'touch') {
-      event.preventDefault();
-      event.stopPropagation();
-      releasePointer(event);
-      if (deferredTouch?.pointerId === event.pointerId) {
-        discardDeferredTouch();
-      }
-      return;
-    }
+    if (event.pointerType === 'touch') return;
     finishPendingPointer(event);
   };
 
   const onLostPointerCapture = (event: PointerEvent) => {
     if (edgeSwipe?.pointerId === event.pointerId) {
       edgeSwipe = null;
-      return;
-    }
-    if (deferredTouch?.pointerId === event.pointerId) {
-      discardDeferredTouch();
       return;
     }
     finishPendingPointer(event);
@@ -585,6 +595,11 @@ export function attachProjectedInputCapture(
   doc.addEventListener('pointerup', onPointerUp as EventListener, pointerOpts);
   doc.addEventListener('pointercancel', onPointerCancel as EventListener, pointerOpts);
   doc.addEventListener('lostpointercapture', onLostPointerCapture as EventListener, pointerOpts);
+  const navigableTouchEndOpts: AddEventListenerOptions = { capture: true, passive: false };
+  const touchTrackOpts: AddEventListenerOptions = { capture: true, passive: true };
+  doc.addEventListener('touchstart', onTouchStartTrack as EventListener, touchTrackOpts);
+  doc.addEventListener('touchmove', onTouchMoveTrack as EventListener, touchTrackOpts);
+  doc.addEventListener('touchend', onNavigableTouchEnd as EventListener, navigableTouchEndOpts);
   const detachNativeGuard = attachProjectedNativeGuard(doc, {
     onTouchStartSeen: () => opts.metrics?.noteTouchStartSeen(),
   });
@@ -606,12 +621,73 @@ export function attachProjectedInputCapture(
     y0: number;
     dx: number;
     dy: number;
+    /** Max path displacement (what a path-based slop test would see). */
+    maxDist: number;
     moves: number;
     preventedMoves: number;
+    /** ms between the previous scroll event and this touchstart (momentum-arrest tap). */
+    msSincePrevScroll: number | null;
+    /** Per-element scroll consumed during this gesture — the axis-lock answer. */
+    scrolled: Record<string, { dLeft: number; dTop: number }>;
+    /** Hit element -> <html>, with touch-action/overflow/scroll range per level. */
+    chain: Record<string, unknown>[];
+    viewport: Record<string, unknown> | null;
+    t0: number;
   };
   let tempDiagTouch: TempDiagTouch | null = null;
   const tempDiagLog: unknown[] = [];
-  const tempDiagTag = (el: Element) => `${el.tagName}.${String(el.className || '').slice(0, 40)}`;
+  const tempDiagTag = (el: Element) => {
+    const id = el.id ? `#${el.id}` : '';
+    const cls = String(el.className || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).join('.');
+    return `${el.tagName}${id}${cls ? `.${cls}` : ''}`.slice(0, 60);
+  };
+
+  /**
+   * Ancestor chain from the gesture's hit element to <html>, with everything that
+   * decides which box the engine latches a pan to. Read once at touchstart.
+   */
+  const tempDiagChain = (x: number, y: number) => {
+    const rows: Record<string, unknown>[] = [];
+    let el = doc.elementFromPoint(x, y) as Element | null;
+    let depth = 0;
+    while (el && depth < 24) {
+      const he = el as HTMLElement;
+      const cs = win?.getComputedStyle(he);
+      rows.push({
+        depth,
+        tag: tempDiagTag(el),
+        touchAction: cs?.touchAction ?? null,
+        overflowX: cs?.overflowX ?? null,
+        overflowY: cs?.overflowY ?? null,
+        overscrollX: cs?.overscrollBehaviorX ?? null,
+        overscrollY: cs?.overscrollBehaviorY ?? null,
+        rangeX: he.scrollWidth - he.clientWidth,
+        rangeY: he.scrollHeight - he.clientHeight,
+      });
+      el = el.parentElement;
+      depth += 1;
+    }
+    return rows;
+  };
+
+  /** Layout vs visual viewport — a mismatch here skews every mapped coordinate. */
+  const tempDiagViewport = () => {
+    if (!win) return null;
+    const de = doc.documentElement;
+    const vv = (win as Window & { visualViewport?: VisualViewport }).visualViewport;
+    return {
+      clientW: de?.clientWidth ?? 0,
+      clientH: de?.clientHeight ?? 0,
+      innerW: win.innerWidth,
+      innerH: win.innerHeight,
+      visualW: vv?.width ?? null,
+      visualH: vv?.height ?? null,
+      visualScale: vv?.scale ?? null,
+      dpr: win.devicePixelRatio,
+      surfaceW: opts.getViewportSize().width,
+      surfaceH: opts.getViewportSize().height,
+    };
+  };
   const tempDiagLabel = () =>
     (win as Window & { __SCROLL_DIAG_LABEL?: string }).__SCROLL_DIAG_LABEL ?? null;
 
@@ -624,18 +700,22 @@ export function attachProjectedInputCapture(
       y0: t.clientY,
       dx: 0,
       dy: 0,
+      maxDist: 0,
       moves: 0,
       preventedMoves: 0,
+      msSincePrevScroll:
+        tempDiagState.lastScrollAt === 0
+          ? null
+          : Math.round(performance.now() - tempDiagState.lastScrollAt),
+      scrolled: {},
+      chain: tempDiagChain(t.clientX, t.clientY),
+      viewport: tempDiagViewport(),
+      t0: performance.now(),
     };
-    const rec = {
-      phase: 'touchstart',
-      x: t.clientX,
-      y: t.clientY,
-      defaultPrevented: event.defaultPrevented,
-      label: tempDiagLabel(),
-    };
-    tempDiagLog.push(rec);
-    console.log('[TEMP-DIAG touch]', JSON.stringify(rec));
+    tempDiagState.pointerMoves = 0;
+    tempDiagState.tapEmitted = false;
+    tempDiagState.cancelled = false;
+    tempDiagState.scrollOrigins.clear();
   };
 
   const tempDiagOnTouchMove = (event: TouchEvent) => {
@@ -646,53 +726,79 @@ export function attachProjectedInputCapture(
     if (!t) return;
     tempDiagTouch.dx = t.clientX - tempDiagTouch.x0;
     tempDiagTouch.dy = t.clientY - tempDiagTouch.y0;
+    tempDiagTouch.maxDist = Math.max(
+      tempDiagTouch.maxDist,
+      Math.hypot(tempDiagTouch.dx, tempDiagTouch.dy),
+    );
     tempDiagTouch.moves += 1;
     if (event.defaultPrevented) tempDiagTouch.preventedMoves += 1;
   };
 
-  const tempDiagOnTouchEnd = (event: TouchEvent) => {
+  const tempDiagEmitGesture = (event: TouchEvent, ended: 'touchend' | 'touchcancel') => {
     if (!tempDiagTouch) return;
     const rec = {
-      phase: 'touchend',
+      phase: 'gesture',
+      ended,
       ...tempDiagTouch,
+      dx: Math.round(tempDiagTouch.dx),
+      dy: Math.round(tempDiagTouch.dy),
+      maxDist: Math.round(tempDiagTouch.maxDist),
+      /** Endpoint displacement — what a slop test would compare. */
+      endDist: Math.round(Math.hypot(tempDiagTouch.dx, tempDiagTouch.dy)),
+      touchMoves: tempDiagTouch.moves,
+      pointerMoves: tempDiagState.pointerMoves,
+      tapEmitted: tempDiagState.tapEmitted,
+      pointerCancelled: tempDiagState.cancelled,
+      durationMs: Math.round(performance.now() - tempDiagTouch.t0),
+      docUrl: (() => {
+        try {
+          return win?.location.href ?? null;
+        } catch {
+          return null;
+        }
+      })(),
       defaultPrevented: event.defaultPrevented,
       label: tempDiagLabel(),
     };
     tempDiagLog.push(rec);
-    console.log('[TEMP-DIAG touch]', JSON.stringify(rec));
+    console.log('[TEMP-DIAG gesture]', JSON.stringify(rec));
     tempDiagTouch = null;
   };
 
+  const tempDiagOnTouchEnd = (event: TouchEvent) => tempDiagEmitGesture(event, 'touchend');
+  const tempDiagOnTouchCancel = (event: TouchEvent) => tempDiagEmitGesture(event, 'touchcancel');
+
   const tempDiagOnScroll = (event: Event) => {
     const t = event.target;
-    if (!t || typeof t !== 'object' || !('tagName' in t)) return;
-    const el = t as HTMLElement;
-    const rec = {
-      phase: 'scroll',
-      target: tempDiagTag(el),
-      scrollLeft: el.scrollLeft,
-      scrollTop: el.scrollTop,
-      label: tempDiagLabel(),
+    if (!t || typeof t !== 'object') return;
+    const el = (
+      'tagName' in t ? (t as HTMLElement) : (doc.scrollingElement as HTMLElement | null)
+    );
+    if (!el) return;
+    tempDiagState.lastScrollAt = performance.now();
+    if (!tempDiagTouch) return;
+    const key = tempDiagTag(el);
+    const origin = tempDiagState.scrollOrigins.get(key);
+    if (!origin) {
+      tempDiagState.scrollOrigins.set(key, { left: el.scrollLeft, top: el.scrollTop });
+      tempDiagTouch.scrolled[key] = { dLeft: 0, dTop: 0 };
+      return;
+    }
+    tempDiagTouch.scrolled[key] = {
+      dLeft: Math.round(el.scrollLeft - origin.left),
+      dTop: Math.round(el.scrollTop - origin.top),
     };
-    tempDiagLog.push(rec);
-    console.log('[TEMP-DIAG scroll]', JSON.stringify(rec));
   };
 
   const tempDiagOnPointerCancel = (event: PointerEvent) => {
-    const rec = {
-      phase: 'pointercancel',
-      pointerId: event.pointerId,
-      pointerType: event.pointerType,
-      label: tempDiagLabel(),
-    };
-    tempDiagLog.push(rec);
-    console.log('[TEMP-DIAG pointercancel]', JSON.stringify(rec));
+    if (event.pointerType === 'touch') tempDiagState.cancelled = true;
   };
 
   const tempDiagOpts = { capture: true, passive: true as const };
   doc.addEventListener('touchstart', tempDiagOnTouchStart, tempDiagOpts);
   doc.addEventListener('touchmove', tempDiagOnTouchMove, tempDiagOpts);
   doc.addEventListener('touchend', tempDiagOnTouchEnd, tempDiagOpts);
+  doc.addEventListener('touchcancel', tempDiagOnTouchCancel, tempDiagOpts);
   doc.addEventListener('scroll', tempDiagOnScroll, tempDiagOpts);
   doc.addEventListener('pointercancel', tempDiagOnPointerCancel, tempDiagOpts);
   if (win) {
@@ -712,9 +818,12 @@ export function attachProjectedInputCapture(
     doc.removeEventListener('pointerup', onPointerUp as EventListener, pointerOpts);
     doc.removeEventListener('pointercancel', onPointerCancel as EventListener, pointerOpts);
     doc.removeEventListener('lostpointercapture', onLostPointerCapture as EventListener, pointerOpts);
+    doc.removeEventListener('touchstart', onTouchStartTrack as EventListener, touchTrackOpts);
+    doc.removeEventListener('touchmove', onTouchMoveTrack as EventListener, touchTrackOpts);
+    doc.removeEventListener('touchend', onNavigableTouchEnd as EventListener, navigableTouchEndOpts);
     detachNativeGuard();
     pendingPointers.clear();
-    deferredTouch = null;
+    touchGesture = null;
     doc.removeEventListener('click', onClick as EventListener, true);
     doc.removeEventListener('submit', onSubmit, true);
     doc.removeEventListener('contextmenu', onContextMenu as EventListener, true);
@@ -729,6 +838,7 @@ export function attachProjectedInputCapture(
     doc.removeEventListener('touchstart', tempDiagOnTouchStart, tempDiagOpts);
     doc.removeEventListener('touchmove', tempDiagOnTouchMove, tempDiagOpts);
     doc.removeEventListener('touchend', tempDiagOnTouchEnd, tempDiagOpts);
+    doc.removeEventListener('touchcancel', tempDiagOnTouchCancel, tempDiagOpts);
     doc.removeEventListener('scroll', tempDiagOnScroll, tempDiagOpts);
     doc.removeEventListener('pointercancel', tempDiagOnPointerCancel, tempDiagOpts);
   };

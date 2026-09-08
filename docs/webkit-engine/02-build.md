@@ -4,12 +4,21 @@ Tudo aqui foi lido da arvore real em `wpewebkit-2.52.6`, nao de memoria.
 
 ## Maquina de build
 
-**Nenhuma das maquinas alcancaveis hoje serve.** Registrado pra nao se descobrir isso no meio:
+Medido em 2026-09-08 na WSL Ubuntu 24.04 do desktop (primeiro build a frio, tentativa instrumentada).
 
-| ambiente | disco | RAM | cores | cmake/ninja | veredito |
-|---|---|---|---|---|---|
-| VM local do desktop | ~9 GB | — | — | ausentes | nao serve |
-| container de nuvem da sessao | ~30 GB | 7 GB | 2 | presentes | nao serve (RAM/cores) |
+| ambiente | disco livre | RAM | swap | cores | cmake/ninja/ccache/lld | veredito |
+|---|---|---|---|---|---|---|
+| Host Windows (C:) | 282 GB | 32 GB fisica | — | — | — | disco OK |
+| WSL antes (.wslconfig 8 GB) | 282 GB (/mnt/c) | 7 GB | 2 GB | 6 | git/cmake/ninja/ccache; lld ausente | RAM insuficiente |
+| WSL depois (.wslconfig 22 GB + swap 32 GB) | 282 GB (/mnt/c) | 21 GB | 32 GB | 6 | cmake 3.28.3, ninja 1.11.1, ccache 4.9.1, lld 18.1.3, g++ 13.3.0; **libwpe ausente no apt** | toolchain OK, **libwpe bloqueia configure** |
+| VM local (registro antigo) | ~9 GB | — | — | — | ausentes | nao serve |
+| container de nuvem da sessao (registro antigo) | ~30 GB | 7 GB | — | 2 | presentes | nao serve (RAM/cores) |
+
+`.wslconfig` do host (antes → depois):
+
+    memory=8GB  →  memory=22GB   (70% de 32 GB)
+    swap=(default 2GB)  →  swap=32GB
+    processors=6 (inalterado)
 
 WebKit precisa de maquina dedicada: muitos cores, RAM alta (link de `libWebKit` e' o pico),
 disco em dezenas de GB por configuracao de build, e **ccache obrigatorio**.
@@ -17,6 +26,27 @@ disco em dezenas de GB por configuracao de build, e **ccache obrigatorio**.
 `scripts/build.sh` aborta se `ccache` nao existir. Isso e' de proposito: sem ccache o ciclo de
 feedback vira dezenas de minutos e o projeto morre pelo loop, nao pelo codigo. Esse e' o modo
 de falha mais comum de projeto de fork.
+
+### Primeiro build a frio (medido)
+
+Comando: `BUILD_TYPE=Release JOBS=4 bash webkit-engine/scripts/build.sh`
+
+Paralelismo: `build-webkit` nao tem flag propria de jobs — repassa via `--makeargs="-jN"`.
+
+Flags provisorias no `build.sh` (commit separado, ajuste de maquina WSL): `-g0`, `-fuse-ld=lld`.
+
+| tentativa | resultado | fase | tempo wall | pico RSS (time) | pico RAM (free -g, 2 min) | swap usado |
+|---|---|---|---|---|---|---|
+| 1 | **falhou** | CMake configure — `FindWPE`: `WPE_LIBRARY` / `WPE_INCLUDE_DIR` ausentes | 133 s | 104 MB | 0 GB used / 21 GB total | 0 GB |
+| 2 | **falhou** | idem (cache CMake reutilizado) | 27 s | 46 MB | 0 GB used / 21 GB total | 0 GB |
+
+Diretorio de build apos falha: `checkout/WebKitBuild/` = **980 KB** (so CMake parcial).
+
+`ccache -s`: cache vazio (0 GiB, nenhuma compilacao chegou a rodar).
+
+**Bloqueio:** `Tools/wpe/install-dependencies` (apt) nao instala `libwpe` — pacote inexistente no Ubuntu 24.04.
+Upstream espera stack WPE via jhbuild (`Tools/wpe/jhbuild-minimal.modules`) ou libwpe pre-instalada.
+MiniBrowser headless **nao rodou** (build nao completou).
 
 ## Dependencias
 

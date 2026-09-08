@@ -137,6 +137,14 @@
       .surface-hud[data-more="true"] .surface-hud-body {
         display: block;
       }
+      .surface-hud[data-collapsed="true"] {
+        /* Só o chip — não cobrir a faixa toda do stage (atrapalha olhar Virtual/Projected). */
+        left: auto;
+        right: 0.4rem;
+        top: 0.4rem;
+        width: auto;
+        pointer-events: none;
+      }
       .surface-hud[data-collapsed="true"] .surface-hud-body {
         display: none !important;
       }
@@ -144,15 +152,27 @@
         display: none;
       }
       .surface-hud[data-collapsed="true"] .surface-hud-bar {
-        padding: 0.3rem;
+        display: inline-flex;
+        width: auto;
+        padding: 0;
         background: transparent;
         border-bottom: 0;
         box-shadow: none;
+        gap: 0;
+        pointer-events: none;
       }
       .surface-hud[data-collapsed="true"] #hudToggle {
-        background: rgba(251, 251, 248, 0.92);
-        border: 1px solid var(--line);
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+        pointer-events: auto;
+        width: 1.55rem;
+        height: 1.55rem;
+        background: rgba(251, 251, 248, 0.88);
+        border: 1px solid rgba(210, 209, 200, 0.9);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+        opacity: 0.72;
+      }
+      .surface-hud[data-collapsed="true"] #hudToggle:hover,
+      .surface-hud[data-collapsed="true"] #hudToggle:focus-visible {
+        opacity: 1;
       }
       .hdr-top {
         display: flex;

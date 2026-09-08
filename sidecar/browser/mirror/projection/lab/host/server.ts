@@ -126,6 +126,47 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
         res.end(JSON.stringify({ runs }));
         return;
       }
+      // TEMP-DIAG sink (PP-SCROLL-AXIS). The phone has no console, so the projected
+      // gesture records are POSTed here and appended to lab-runs/gesture-diag/.
+      if (pathname === '/lab/diag/gesture' && req.method === 'POST') {
+        let body: unknown;
+        try {
+          body = await readJsonBody(req);
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid json' }));
+          return;
+        }
+        const payload = body as { sessionId?: unknown; entries?: unknown } | null;
+        const entries = payload?.entries;
+        if (!Array.isArray(entries) || entries.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'entries required' }));
+          return;
+        }
+        const rawId = typeof payload?.sessionId === 'string' ? payload.sessionId : '';
+        const safeId = rawId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'unbound';
+        const dir = path.join(defaultLabRunsDir(), 'gesture-diag');
+        const file = path.join(dir, `${safeId}.ndjson`);
+        const receivedAt = new Date().toISOString();
+        const lines = entries
+          .map((entry) => JSON.stringify({ receivedAt, entry }))
+          .join('\n');
+        try {
+          await fs.promises.mkdir(dir, { recursive: true });
+          await fs.promises.appendFile(file, `${lines}\n`, 'utf8');
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+          );
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, written: entries.length, file }));
+        return;
+      }
+
       if (pathname === '/lab/runs/delete' && req.method === 'POST') {
         let body: unknown;
         try {

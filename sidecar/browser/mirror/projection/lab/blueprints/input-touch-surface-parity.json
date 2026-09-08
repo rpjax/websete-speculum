@@ -1,0 +1,40 @@
+{
+  "id": "input-touch-surface-parity",
+  "description": "PP-TOUCH-SURFACE-PARITY — computed touch-action / overflow / scroll range, Projected vs original (no gesture)",
+  "sessionPolicy": "cold",
+  "fold": "touch-surface-parity",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        {
+          "id": "boot",
+          "type": "boot",
+          "params": { "url": "fixtures/touch-scroll-axis.html" }
+        },
+        {
+          "id": "wait",
+          "type": "sleep",
+          "dependsOn": ["boot"],
+          "params": { "ms": 4000 }
+        },
+        {
+          "id": "probe",
+          "type": "probe.touchSurfaceParity",
+          "dependsOn": ["wait"]
+        },
+        {
+          "id": "fold",
+          "type": "fold",
+          "dependsOn": ["probe"],
+          "params": { "ruleset": "touch-surface-parity" }
+        },
+        {
+          "id": "writeDossier",
+          "type": "writeDossier",
+          "dependsOn": ["fold"]
+        }
+      ]
+    }
+  ]
+}

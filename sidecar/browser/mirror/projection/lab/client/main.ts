@@ -28,7 +28,7 @@ import { NGROK_SKIP_HEADERS } from '../labPublicOrigin';
 import labBuildStamp from '../static/labBuildStamp.json';
 import { createRunsPanel } from './runsPanel';
 import { initLabShell, type LabShell } from './labShell';
-import { installScrollDiagHostApis } from './scrollDiagHost';
+import { installScrollDiagHostApis, setScrollDiagSessionId } from './scrollDiagHost';
 
 function labFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
@@ -1255,6 +1255,7 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'session.hello') {
         sessionId = String(msg.sessionId ?? '');
+        setScrollDiagSessionId(sessionId);
         sessionToken = String((msg as { sessionToken?: string }).sessionToken ?? '');
         assetBaseUrl = window.location.origin;
         logActivity(`session.hello ${sessionId}`);
@@ -1265,6 +1266,7 @@ export function bootLabClient(): void {
         clearCrashOverlay();
         sessionLive = true;
         sessionId = String(msg.sessionId ?? sessionId ?? '');
+        setScrollDiagSessionId(sessionId);
         phase = 'live';
         browseSnapCount = 0;
         $('streamSnaps').textContent = '0';
@@ -1589,7 +1591,17 @@ export function bootLabClient(): void {
     void enterLabFullscreen();
   });
   document.getElementById('diagCopy')?.addEventListener('click', () => {
-    (window as unknown as { diagDump?: () => unknown }).diagDump?.();
+    const api = window as unknown as {
+      diagDump?: () => unknown;
+      diagFlush?: () => Promise<{ ok: boolean; sent: number; error?: string }>;
+    };
+    void api.diagFlush?.().then((r) => {
+      if (!r) return;
+      logActivity(
+        r.ok ? `diag flush ${r.sent} gesto(s) -> lab-runs/gesture-diag` : `diag flush falhou: ${r.error}`,
+      );
+    });
+    api.diagDump?.();
   });
   $('exitFullscreen').addEventListener('click', () => {
     void exitLabFullscreen();

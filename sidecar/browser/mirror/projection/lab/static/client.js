@@ -4933,7 +4933,8 @@
       }
       var EDGE_SWIPE_PX = 24;
       var EDGE_SWIPE_MIN_DX = 72;
-      var TOUCH_TAP_SLOP_PX = 8;
+      var TOUCH_CLICK_POINTER_ID = 1;
+      var NAVIGABLE_TAP_SLOP_PX = 8;
       function historyNavFromKeyboard(event) {
         if (isEditableTarget(event.target))
           return null;
@@ -4953,9 +4954,14 @@
         const buffer = new ClientBuffer_1.ClientBuffer();
         let edgeSwipe = null;
         const pendingPointers = /* @__PURE__ */ new Set();
-        let deferredTouch = null;
-        const discardDeferredTouch = () => {
-          deferredTouch = null;
+        let lastPointerType = null;
+        let touchGesture = null;
+        const tempDiagState = {
+          pointerMoves: 0,
+          tapEmitted: false,
+          cancelled: false,
+          lastScrollAt: 0,
+          scrollOrigins: /* @__PURE__ */ new Map()
         };
         const fireHistoryNav = (direction) => {
           enqueue({
@@ -5111,20 +5117,86 @@
             return;
           emitPointerEdge(type, geometry, event.pointerId);
         };
-        const emitDeferredTouchTap = () => {
-          if (!deferredTouch)
-            return;
-          const { geometry, pointerId } = deferredTouch;
-          emitPointerEdge("down", geometry, pointerId);
-          emitPointerEdge("up", geometry, pointerId);
-          deferredTouch = null;
-        };
         const onPointerEdge = (event, type) => {
           runPointerEdge(event, type);
         };
+        const emitTouchTap = (target, clientX, clientY) => {
+          const geometry = resolvePointerGeometry({
+            target,
+            clientX,
+            clientY,
+            button: 0
+          });
+          if (!geometry)
+            return false;
+          tempDiagState.tapEmitted = true;
+          emitPointerEdge("down", geometry, TOUCH_CLICK_POINTER_ID);
+          emitPointerEdge("up", geometry, TOUCH_CLICK_POINTER_ID);
+          return true;
+        };
         const onClick = (event) => {
+          if (event.detail === 0)
+            return;
+          if (lastPointerType !== "touch")
+            return;
+          touchGesture = null;
+          if (!emitTouchTap(event.target, event.clientX, event.clientY)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
+        };
+        const beginTouchGesture = (clientX, clientY) => {
+          lastPointerType = "touch";
+          touchGesture = {
+            scrolled: false,
+            startX: clientX,
+            startY: clientY,
+            maxDist: 0
+          };
+        };
+        const trackTouchMove = (clientX, clientY) => {
+          if (!touchGesture)
+            return;
+          const dist = Math.hypot(clientX - touchGesture.startX, clientY - touchGesture.startY);
+          touchGesture.maxDist = Math.max(touchGesture.maxDist, dist);
+        };
+        const touchTargetAt = (clientX, clientY, fallback) => {
+          if (typeof doc.elementFromPoint === "function") {
+            return doc.elementFromPoint(clientX, clientY) ?? fallback;
+          }
+          return fallback;
+        };
+        const onTouchStartTrack = (event) => {
+          const touch = event.changedTouches[0] ?? event.touches[0];
+          if (!touch)
+            return;
+          beginTouchGesture(touch.clientX, touch.clientY);
+        };
+        const onTouchMoveTrack = (event) => {
+          const touch = event.touches[0] ?? event.changedTouches[0];
+          if (!touch)
+            return;
+          trackTouchMove(touch.clientX, touch.clientY);
+        };
+        const onNavigableTouchEnd = (event) => {
+          const gesture = touchGesture;
+          touchGesture = null;
+          if (lastPointerType !== "touch" || !gesture)
+            return;
+          const touch = event.changedTouches[0];
+          if (!touch)
+            return;
+          const target = touchTargetAt(touch.clientX, touch.clientY, event.target);
+          if (!(0, projectedNativeGuard_1.isProjectedNavigable)(target))
+            return;
+          if (gesture.scrolled)
+            return;
+          if (gesture.maxDist > NAVIGABLE_TAP_SLOP_PX)
+            return;
+          emitTouchTap(target, touch.clientX, touch.clientY);
         };
         const onSubmit = (event) => {
           event.preventDefault();
@@ -5170,6 +5242,8 @@
           });
         };
         const onScroll = (event) => {
+          if (touchGesture)
+            touchGesture.scrolled = true;
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
             return;
@@ -5189,8 +5263,6 @@
               opts.onProgrammaticScrollSuppress?.("viewport");
               return;
             }
-            if (deferredTouch)
-              discardDeferredTouch();
             opts.metrics?.noteScrollCoalesce();
             enqueue({
               schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -5220,8 +5292,6 @@
             opts.onProgrammaticScrollSuppress?.(nodeId);
             return;
           }
-          if (deferredTouch)
-            discardDeferredTouch();
           opts.metrics?.noteScrollCoalesce();
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -5245,24 +5315,6 @@
           opts.onMarkPropDirty?.(nodeId);
         };
         const pointerOpts = { capture: true, passive: false };
-        const capturePointer = (event) => {
-          const target = event.target;
-          if (!target || typeof target !== "object" || !("setPointerCapture" in target))
-            return;
-          try {
-            target.setPointerCapture(event.pointerId);
-          } catch {
-          }
-        };
-        const releasePointer = (event) => {
-          const target = event.target;
-          if (!target || typeof target !== "object" || !("releasePointerCapture" in target))
-            return;
-          try {
-            target.releasePointerCapture(event.pointerId);
-          } catch {
-          }
-        };
         const onPointerDown = (event) => {
           if (event.pointerType === "touch" && win) {
             const rootWin = opts.getRootWindow?.() ?? win;
@@ -5289,44 +5341,18 @@
               event.stopPropagation();
               return;
             }
-          }
-          if (event.pointerType === "touch") {
-            let skipTouchCapture = false;
-            try {
-              const root = win ?? void 0;
-              if (root?.__SCROLL_DIAG_SKIP_TOUCH_CAPTURE__ === true) {
-                skipTouchCapture = true;
-              } else {
-                const search = (typeof win?.parent !== "undefined" && win.parent !== win ? win.parent.location.search : null) ?? win?.location.search ?? "";
-                skipTouchCapture = new URLSearchParams(search).get("touchCapture") === "off";
-              }
-            } catch {
-            }
-            if (!skipTouchCapture) {
-              event.preventDefault();
-              event.stopPropagation();
-              capturePointer(event);
-            }
-            const geometry = resolvePointerGeometry(event);
-            if (!geometry)
-              return;
-            deferredTouch = {
-              pointerId: event.pointerId,
-              startX: event.clientX,
-              startY: event.clientY,
-              geometry
-            };
+            lastPointerType = "touch";
+            beginTouchGesture(event.clientX, event.clientY);
             return;
           }
+          lastPointerType = event.pointerType;
+          touchGesture = null;
           onPointerEdge(event, "down");
         };
         const onPointerMove = (event) => {
-          if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
-            const dx = event.clientX - deferredTouch.startX;
-            const dy = event.clientY - deferredTouch.startY;
-            if (Math.hypot(dx, dy) > TOUCH_TAP_SLOP_PX) {
-              discardDeferredTouch();
-            }
+          if (event.pointerType === "touch") {
+            tempDiagState.pointerMoves += 1;
+            trackTouchMove(event.clientX, event.clientY);
           }
           if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId)
             return;
@@ -5366,44 +5392,20 @@
             }
             return;
           }
-          if (event.pointerType === "touch") {
-            event.preventDefault();
-            event.stopPropagation();
-            releasePointer(event);
-            if (deferredTouch && event.pointerId === deferredTouch.pointerId) {
-              const dx = event.clientX - deferredTouch.startX;
-              const dy = event.clientY - deferredTouch.startY;
-              if (Math.hypot(dx, dy) <= TOUCH_TAP_SLOP_PX) {
-                emitDeferredTouchTap();
-              } else {
-                discardDeferredTouch();
-              }
-            }
+          if (event.pointerType === "touch")
             return;
-          }
           onPointerEdge(event, "up");
         };
         const onPointerCancel = (event) => {
           if (clearEdgeSwipe(event))
             return;
-          if (event.pointerType === "touch") {
-            event.preventDefault();
-            event.stopPropagation();
-            releasePointer(event);
-            if (deferredTouch?.pointerId === event.pointerId) {
-              discardDeferredTouch();
-            }
+          if (event.pointerType === "touch")
             return;
-          }
           finishPendingPointer(event);
         };
         const onLostPointerCapture = (event) => {
           if (edgeSwipe?.pointerId === event.pointerId) {
             edgeSwipe = null;
-            return;
-          }
-          if (deferredTouch?.pointerId === event.pointerId) {
-            discardDeferredTouch();
             return;
           }
           finishPendingPointer(event);
@@ -5413,6 +5415,11 @@
         doc.addEventListener("pointerup", onPointerUp, pointerOpts);
         doc.addEventListener("pointercancel", onPointerCancel, pointerOpts);
         doc.addEventListener("lostpointercapture", onLostPointerCapture, pointerOpts);
+        const navigableTouchEndOpts = { capture: true, passive: false };
+        const touchTrackOpts = { capture: true, passive: true };
+        doc.addEventListener("touchstart", onTouchStartTrack, touchTrackOpts);
+        doc.addEventListener("touchmove", onTouchMoveTrack, touchTrackOpts);
+        doc.addEventListener("touchend", onNavigableTouchEnd, navigableTouchEndOpts);
         const detachNativeGuard = (0, projectedNativeGuard_1.attachProjectedNativeGuard)(doc, {
           onTouchStartSeen: () => opts.metrics?.noteTouchStartSeen()
         });
@@ -5428,7 +5435,52 @@
         win?.addEventListener("scroll", onScroll, true);
         let tempDiagTouch = null;
         const tempDiagLog = [];
-        const tempDiagTag = (el2) => `${el2.tagName}.${String(el2.className || "").slice(0, 40)}`;
+        const tempDiagTag = (el2) => {
+          const id = el2.id ? `#${el2.id}` : "";
+          const cls = String(el2.className || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+          return `${el2.tagName}${id}${cls ? `.${cls}` : ""}`.slice(0, 60);
+        };
+        const tempDiagChain = (x, y) => {
+          const rows = [];
+          let el2 = doc.elementFromPoint(x, y);
+          let depth = 0;
+          while (el2 && depth < 24) {
+            const he = el2;
+            const cs = win?.getComputedStyle(he);
+            rows.push({
+              depth,
+              tag: tempDiagTag(el2),
+              touchAction: cs?.touchAction ?? null,
+              overflowX: cs?.overflowX ?? null,
+              overflowY: cs?.overflowY ?? null,
+              overscrollX: cs?.overscrollBehaviorX ?? null,
+              overscrollY: cs?.overscrollBehaviorY ?? null,
+              rangeX: he.scrollWidth - he.clientWidth,
+              rangeY: he.scrollHeight - he.clientHeight
+            });
+            el2 = el2.parentElement;
+            depth += 1;
+          }
+          return rows;
+        };
+        const tempDiagViewport = () => {
+          if (!win)
+            return null;
+          const de = doc.documentElement;
+          const vv = win.visualViewport;
+          return {
+            clientW: de?.clientWidth ?? 0,
+            clientH: de?.clientHeight ?? 0,
+            innerW: win.innerWidth,
+            innerH: win.innerHeight,
+            visualW: vv?.width ?? null,
+            visualH: vv?.height ?? null,
+            visualScale: vv?.scale ?? null,
+            dpr: win.devicePixelRatio,
+            surfaceW: opts.getViewportSize().width,
+            surfaceH: opts.getViewportSize().height
+          };
+        };
         const tempDiagLabel = () => win.__SCROLL_DIAG_LABEL ?? null;
         const tempDiagOnTouchStart = (event) => {
           const t = event.changedTouches[0];
@@ -5440,18 +5492,19 @@
             y0: t.clientY,
             dx: 0,
             dy: 0,
+            maxDist: 0,
             moves: 0,
-            preventedMoves: 0
+            preventedMoves: 0,
+            msSincePrevScroll: tempDiagState.lastScrollAt === 0 ? null : Math.round(performance.now() - tempDiagState.lastScrollAt),
+            scrolled: {},
+            chain: tempDiagChain(t.clientX, t.clientY),
+            viewport: tempDiagViewport(),
+            t0: performance.now()
           };
-          const rec = {
-            phase: "touchstart",
-            x: t.clientX,
-            y: t.clientY,
-            defaultPrevented: event.defaultPrevented,
-            label: tempDiagLabel()
-          };
-          tempDiagLog.push(rec);
-          console.log("[TEMP-DIAG touch]", JSON.stringify(rec));
+          tempDiagState.pointerMoves = 0;
+          tempDiagState.tapEmitted = false;
+          tempDiagState.cancelled = false;
+          tempDiagState.scrollOrigins.clear();
         };
         const tempDiagOnTouchMove = (event) => {
           if (!tempDiagTouch)
@@ -5461,52 +5514,75 @@
             return;
           tempDiagTouch.dx = t.clientX - tempDiagTouch.x0;
           tempDiagTouch.dy = t.clientY - tempDiagTouch.y0;
+          tempDiagTouch.maxDist = Math.max(tempDiagTouch.maxDist, Math.hypot(tempDiagTouch.dx, tempDiagTouch.dy));
           tempDiagTouch.moves += 1;
           if (event.defaultPrevented)
             tempDiagTouch.preventedMoves += 1;
         };
-        const tempDiagOnTouchEnd = (event) => {
+        const tempDiagEmitGesture = (event, ended) => {
           if (!tempDiagTouch)
             return;
           const rec = {
-            phase: "touchend",
+            phase: "gesture",
+            ended,
             ...tempDiagTouch,
+            dx: Math.round(tempDiagTouch.dx),
+            dy: Math.round(tempDiagTouch.dy),
+            maxDist: Math.round(tempDiagTouch.maxDist),
+            /** Endpoint displacement — what a slop test would compare. */
+            endDist: Math.round(Math.hypot(tempDiagTouch.dx, tempDiagTouch.dy)),
+            touchMoves: tempDiagTouch.moves,
+            pointerMoves: tempDiagState.pointerMoves,
+            tapEmitted: tempDiagState.tapEmitted,
+            pointerCancelled: tempDiagState.cancelled,
+            durationMs: Math.round(performance.now() - tempDiagTouch.t0),
+            docUrl: (() => {
+              try {
+                return win?.location.href ?? null;
+              } catch {
+                return null;
+              }
+            })(),
             defaultPrevented: event.defaultPrevented,
             label: tempDiagLabel()
           };
           tempDiagLog.push(rec);
-          console.log("[TEMP-DIAG touch]", JSON.stringify(rec));
+          console.log("[TEMP-DIAG gesture]", JSON.stringify(rec));
           tempDiagTouch = null;
         };
+        const tempDiagOnTouchEnd = (event) => tempDiagEmitGesture(event, "touchend");
+        const tempDiagOnTouchCancel = (event) => tempDiagEmitGesture(event, "touchcancel");
         const tempDiagOnScroll = (event) => {
           const t = event.target;
-          if (!t || typeof t !== "object" || !("tagName" in t))
+          if (!t || typeof t !== "object")
             return;
-          const el2 = t;
-          const rec = {
-            phase: "scroll",
-            target: tempDiagTag(el2),
-            scrollLeft: el2.scrollLeft,
-            scrollTop: el2.scrollTop,
-            label: tempDiagLabel()
+          const el2 = "tagName" in t ? t : doc.scrollingElement;
+          if (!el2)
+            return;
+          tempDiagState.lastScrollAt = performance.now();
+          if (!tempDiagTouch)
+            return;
+          const key = tempDiagTag(el2);
+          const origin = tempDiagState.scrollOrigins.get(key);
+          if (!origin) {
+            tempDiagState.scrollOrigins.set(key, { left: el2.scrollLeft, top: el2.scrollTop });
+            tempDiagTouch.scrolled[key] = { dLeft: 0, dTop: 0 };
+            return;
+          }
+          tempDiagTouch.scrolled[key] = {
+            dLeft: Math.round(el2.scrollLeft - origin.left),
+            dTop: Math.round(el2.scrollTop - origin.top)
           };
-          tempDiagLog.push(rec);
-          console.log("[TEMP-DIAG scroll]", JSON.stringify(rec));
         };
         const tempDiagOnPointerCancel = (event) => {
-          const rec = {
-            phase: "pointercancel",
-            pointerId: event.pointerId,
-            pointerType: event.pointerType,
-            label: tempDiagLabel()
-          };
-          tempDiagLog.push(rec);
-          console.log("[TEMP-DIAG pointercancel]", JSON.stringify(rec));
+          if (event.pointerType === "touch")
+            tempDiagState.cancelled = true;
         };
         const tempDiagOpts = { capture: true, passive: true };
         doc.addEventListener("touchstart", tempDiagOnTouchStart, tempDiagOpts);
         doc.addEventListener("touchmove", tempDiagOnTouchMove, tempDiagOpts);
         doc.addEventListener("touchend", tempDiagOnTouchEnd, tempDiagOpts);
+        doc.addEventListener("touchcancel", tempDiagOnTouchCancel, tempDiagOpts);
         doc.addEventListener("scroll", tempDiagOnScroll, tempDiagOpts);
         doc.addEventListener("pointercancel", tempDiagOnPointerCancel, tempDiagOpts);
         if (win) {
@@ -5524,9 +5600,12 @@
           doc.removeEventListener("pointerup", onPointerUp, pointerOpts);
           doc.removeEventListener("pointercancel", onPointerCancel, pointerOpts);
           doc.removeEventListener("lostpointercapture", onLostPointerCapture, pointerOpts);
+          doc.removeEventListener("touchstart", onTouchStartTrack, touchTrackOpts);
+          doc.removeEventListener("touchmove", onTouchMoveTrack, touchTrackOpts);
+          doc.removeEventListener("touchend", onNavigableTouchEnd, navigableTouchEndOpts);
           detachNativeGuard();
           pendingPointers.clear();
-          deferredTouch = null;
+          touchGesture = null;
           doc.removeEventListener("click", onClick, true);
           doc.removeEventListener("submit", onSubmit, true);
           doc.removeEventListener("contextmenu", onContextMenu, true);
@@ -5540,6 +5619,7 @@
           doc.removeEventListener("touchstart", tempDiagOnTouchStart, tempDiagOpts);
           doc.removeEventListener("touchmove", tempDiagOnTouchMove, tempDiagOpts);
           doc.removeEventListener("touchend", tempDiagOnTouchEnd, tempDiagOpts);
+          doc.removeEventListener("touchcancel", tempDiagOnTouchCancel, tempDiagOpts);
           doc.removeEventListener("scroll", tempDiagOnScroll, tempDiagOpts);
           doc.removeEventListener("pointercancel", tempDiagOnPointerCancel, tempDiagOpts);
         };
@@ -7075,8 +7155,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 69,
-    builtAt: "2026-09-03T00:25:21.055Z"
+    seq: 91,
+    builtAt: "2026-09-07T20:00:37.476Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -7896,8 +7976,70 @@
     }
     return found;
   }
+  var sentCounts = /* @__PURE__ */ new WeakMap();
+  var diagSessionId = null;
+  var flushTimer = null;
+  function collectUnsent() {
+    const frames = [];
+    walkFrames(window, frames);
+    const entries = [];
+    const commits = [];
+    for (const w of frames) {
+      try {
+        const log = w.__SCROLL_DIAG_LOG;
+        if (!Array.isArray(log)) continue;
+        const sent = sentCounts.get(w) ?? 0;
+        if (log.length <= sent) continue;
+        entries.push(...log.slice(sent));
+        const total = log.length;
+        commits.push(() => sentCounts.set(w, total));
+      } catch {
+      }
+    }
+    return { entries, commit: () => commits.forEach((c) => c()) };
+  }
+  async function flushDiag() {
+    const { entries, commit } = collectUnsent();
+    if (entries.length === 0) return { ok: true, sent: 0 };
+    try {
+      const res = await fetch("/lab/diag/gesture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        body: JSON.stringify({ sessionId: diagSessionId, entries })
+      });
+      if (!res.ok) return { ok: false, sent: 0, error: `http ${res.status}` };
+      commit();
+      return { ok: true, sent: entries.length };
+    } catch (err) {
+      return { ok: false, sent: 0, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  function setScrollDiagSessionId(id) {
+    diagSessionId = id;
+  }
   function installScrollDiagHostApis() {
     const api = window;
+    api.diagFlush = () => flushDiag();
+    api.diagLabel = (label) => {
+      const frames = [];
+      walkFrames(window, frames);
+      for (const w of frames) {
+        try {
+          w.__SCROLL_DIAG_LABEL = label;
+        } catch {
+        }
+      }
+    };
+    if (flushTimer === null) {
+      flushTimer = window.setInterval(() => {
+        const queryLabel = new URLSearchParams(location.search).get("diagLabel");
+        if (queryLabel) api.diagLabel?.(queryLabel);
+        void flushDiag();
+      }, 2e3);
+      window.addEventListener("pagehide", () => {
+        void flushDiag();
+      });
+    }
     api.diagDump = () => {
       const frames = collectDiagFrames();
       const payload = frames.length === 0 ? { ok: false, message: "no __SCROLL_DIAG_LOG in any frame yet \u2014 Connect + Start Virtual first", frames: [] } : {
@@ -7917,9 +8059,16 @@
       return payload;
     };
     api.diagClear = () => {
-      const frames = collectDiagFrames();
-      for (const f of frames) f.clear?.();
-      console.log(`[diagClear] cleared ${frames.length} frame log(s)`);
+      const frames = [];
+      walkFrames(window, frames);
+      for (const w of frames) {
+        try {
+          w.__SCROLL_DIAG_CLEAR?.();
+          sentCounts.set(w, 0);
+        } catch {
+        }
+      }
+      console.log(`[diagClear] cleared ${frames.length} frame(s)`);
     };
   }
 
@@ -8925,6 +9074,7 @@
         }
         if (msg.type === "session.hello") {
           sessionId = String(msg.sessionId ?? "");
+          setScrollDiagSessionId(sessionId);
           sessionToken = String(msg.sessionToken ?? "");
           assetBaseUrl = window.location.origin;
           logActivity(`session.hello ${sessionId}`);
@@ -8935,6 +9085,7 @@
           clearCrashOverlay();
           sessionLive = true;
           sessionId = String(msg.sessionId ?? sessionId ?? "");
+          setScrollDiagSessionId(sessionId);
           phase = "live";
           browseSnapCount = 0;
           $("streamSnaps").textContent = "0";
@@ -9242,7 +9393,14 @@
       void enterLabFullscreen();
     });
     document.getElementById("diagCopy")?.addEventListener("click", () => {
-      window.diagDump?.();
+      const api = window;
+      void api.diagFlush?.().then((r) => {
+        if (!r) return;
+        logActivity(
+          r.ok ? `diag flush ${r.sent} gesto(s) -> lab-runs/gesture-diag` : `diag flush falhou: ${r.error}`
+        );
+      });
+      api.diagDump?.();
     });
     $("exitFullscreen").addEventListener("click", () => {
       void exitLabFullscreen();

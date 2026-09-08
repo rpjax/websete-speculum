@@ -10,7 +10,7 @@ Medido em 2026-09-08 na WSL Ubuntu 24.04 do desktop (primeiro build a frio, tent
 |---|---|---|---|---|---|---|
 | Host Windows (C:) | 282 GB | 32 GB fisica | — | — | — | disco OK |
 | WSL antes (.wslconfig 8 GB) | 282 GB (/mnt/c) | 7 GB | 2 GB | 6 | git/cmake/ninja/ccache; lld ausente | RAM insuficiente |
-| WSL depois (.wslconfig 22 GB + swap 32 GB) | 282 GB (/mnt/c) | 21 GB | 32 GB | 6 | cmake 3.28.3, ninja 1.11.1, ccache 4.9.1, lld 18.1.3, g++ 13.3.0; **libwpe ausente no apt** | toolchain OK, **libwpe bloqueia configure** |
+| WSL depois (.wslconfig 22 GB + swap 32 GB) | 282 GB (/mnt/c) | 21 GB | 32 GB | 6 | cmake 3.28.3, ninja 1.11.1, ccache 4.9.1, lld 18.1.3, g++ 13.3.0 | toolchain OK; configure bloqueia em **LibBacktrace** |
 | VM local (registro antigo) | ~9 GB | — | — | — | ausentes | nao serve |
 | container de nuvem da sessao (registro antigo) | ~30 GB | 7 GB | — | 2 | presentes | nao serve (RAM/cores) |
 
@@ -29,24 +29,37 @@ de falha mais comum de projeto de fork.
 
 ### Primeiro build a frio (medido)
 
-Comando: `BUILD_TYPE=Release JOBS=4 bash webkit-engine/scripts/build.sh`
-
 Paralelismo: `build-webkit` nao tem flag propria de jobs — repassa via `--makeargs="-jN"`.
 
 Flags provisorias no `build.sh` (commit separado, ajuste de maquina WSL): `-g0`, `-fuse-ld=lld`.
 
+#### Sessao [6] — antes de `ENABLE_WPE_LEGACY_API=OFF`
+
+Comando: `BUILD_TYPE=Release JOBS=4 bash webkit-engine/scripts/build.sh`
+
 | tentativa | resultado | fase | tempo wall | pico RSS (time) | pico RAM (free -g, 2 min) | swap usado |
 |---|---|---|---|---|---|---|
-| 1 | **falhou** | CMake configure — `FindWPE`: `WPE_LIBRARY` / `WPE_INCLUDE_DIR` ausentes | 133 s | 104 MB | 0 GB used / 21 GB total | 0 GB |
+| 1 | **falhou** | CMake configure — `find_package(WPE)` (`ENABLE_WPE_LEGACY_API` default ON) | 133 s | 104 MB | 0 GB used / 21 GB total | 0 GB |
 | 2 | **falhou** | idem (cache CMake reutilizado) | 27 s | 46 MB | 0 GB used / 21 GB total | 0 GB |
 
-Diretorio de build apos falha: `checkout/WebKitBuild/` = **980 KB** (so CMake parcial).
+Causa: `OptionsWPE.cmake:114` liga `ENABLE_WPE_LEGACY_API` ON; `:304-305` chama `find_package(WPE)`.
+Nao e' falta de jhbuild — e' API legada ligada com WPEPlatform.
+
+#### Sessao [7] — com `ENABLE_WPE_LEGACY_API=OFF`, so configure
+
+Comando: `build-webkit --wpe --release --generate-project-only` (WebKitBuild/ apagado antes).
+
+| tentativa | resultado | fase | tempo wall |
+|---|---|---|---|
+| 1 | **falhou** | CMake configure — `find_package(LibBacktrace)` (`USE_LIBBACKTRACE` default ON, `:463-467`) | **172 s** |
+
+`FindWPE` **nao falhou**. Proximo bloqueio: `LibBacktrace` (`LIBBACKTRACE_INCLUDE_DIR`, `LIBBACKTRACE_LIBRARY`).
+
+Build completo e MiniBrowser **nao rodaram** (configure nao passou).
+
+Diretorio de build apos falha [7]: `checkout/WebKitBuild/` parcial (CMake incompleto).
 
 `ccache -s`: cache vazio (0 GiB, nenhuma compilacao chegou a rodar).
-
-**Bloqueio:** `Tools/wpe/install-dependencies` (apt) nao instala `libwpe` — pacote inexistente no Ubuntu 24.04.
-Upstream espera stack WPE via jhbuild (`Tools/wpe/jhbuild-minimal.modules`) ou libwpe pre-instalada.
-MiniBrowser headless **nao rodou** (build nao completou).
 
 ## Dependencias
 
@@ -72,6 +85,7 @@ Lidas de `Source/cmake/OptionsWPE.cmake` na tag pinada.
 | `ENABLE_WPE_PLATFORM` | `${ENABLE_DEVELOPER_MODE}` | **ON** | WPEPlatform e' a API de embedding moderna. Em build de release o default deixa ela **desligada** — tem que ligar explicito. Upstream tambem exige que ao menos uma de `ENABLE_WPE_PLATFORM` ou `ENABLE_WPE_LEGACY_API` esteja ligada. |
 | `ENABLE_WPE_PLATFORM_HEADLESS` | ON | ON | Plataforma headless e' opcao de primeira classe. E' o modo de producao. |
 | `ENABLE_WPE_PLATFORM_WAYLAND` | ON | ON | Util pra debug com janela. |
+| `ENABLE_WPE_LEGACY_API` | **ON (PUBLIC)** | **OFF** | `:114` default ON; `:304-305` `find_package(WPE)` so com legada. Speculum usa WPEPlatform — desliga libwpe e Cog (`ENABLE_COG` depende dela, `:136`). |
 | `ENABLE_WEBDRIVER` | **ON (PUBLIC)** | **OFF** | O upstream liga WebDriver por default no WPE. Somos o embedder, nao precisamos, e e' superficie de automacao — exatamente o sinal que o port existe pra nao emitir. |
 | `ENABLE_WEBDRIVER_BIDI` | experimental (off) | OFF | idem, explicito. |
 | `ENABLE_TOUCH_EVENTS` | ON | ON | E' o caminho de input do produto. |
@@ -87,9 +101,12 @@ Notas de flags que **nao** mexemos mas importam saber:
 
 ## Backend de view
 
-`Tools/wpe/backends/` traz `HeadlessViewBackend.{cpp,h}` (caminho da API legada) alem de `fdo`.
-Com `ENABLE_WPE_PLATFORM=ON` o caminho e' a plataforma headless do WPEPlatform, nao esse backend.
-Decidir qual dos dois antes de escrever C1 — os dois existem e nao sao a mesma coisa.
+**Decidido: WPEPlatform headless.** `ENABLE_WPE_PLATFORM=ON`, `ENABLE_WPE_PLATFORM_HEADLESS=ON`,
+`ENABLE_WPE_LEGACY_API=OFF`.
+
+O caminho legado (`Tools/wpe/backends/HeadlessViewBackend`, API libwpe/fdo) fica fora do build.
+C1 (runtime WebKit) embute via WPEPlatform — viewport, DPR e ciclo de vida pela API moderna.
+Wayland (`ENABLE_WPE_PLATFORM_WAYLAND=ON`) fica disponivel so pra debug com janela.
 
 ## Ordem
 

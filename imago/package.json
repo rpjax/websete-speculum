@@ -1,0 +1,41 @@
+{
+  "name": "imago",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Imago — Windows desktop tool: record a live site by browsing it, generate a bundle without its backend, plus the API contract",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "build:agent": "esbuild src/agent/index.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=dist/agent.js",
+    "build": "npm run check:boundaries && npm run build:agent && vite build && tsc",
+    "start": "tsx src/index.ts",
+    "dev": "vite",
+    "watch": "vite build --watch",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.ui.json",
+    "test": "npm run check:boundaries && tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "fastify": "^5.2.0",
+    "pixelmatch": "^7.2.0",
+    "playwright-core": "^1.49.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "esbuild": "^0.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vite": "^6.0.0"
+  }
+}

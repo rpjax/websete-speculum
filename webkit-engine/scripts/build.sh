@@ -27,6 +27,10 @@ CMAKE_ARGS=(
   -DENABLE_WPE_PLATFORM_HEADLESS=ON
   -DENABLE_WPE_PLATFORM_WAYLAND=ON
 
+  # API legada (libwpe). OptionsWPE.cmake:114 default ON; :304-305 find_package(WPE) so
+  # com ENABLE_WPE_LEGACY_API. Speculum usa WPEPlatform — desligamos a legada.
+  -DENABLE_WPE_LEGACY_API=OFF
+
   # Superficie de automacao: o upstream liga WebDriver por default no WPE. Nos somos o
   # embedder, nao precisamos dele, e ele e' exatamente o tipo de sinal que queremos ausente.
   -DENABLE_WEBDRIVER=OFF

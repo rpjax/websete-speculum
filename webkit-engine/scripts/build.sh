@@ -37,6 +37,13 @@ CMAKE_ARGS=(
 
   # O Virtual nao decodifica midia: o sidecar proxia assets e quem da play e' o cliente.
   -DENABLE_ENCRYPTED_MEDIA=OFF
+
+  # PROVISORIO — ajuste de maquina de build (feat/webkit-engine, build a frio WSL).
+  # Reduz debug info e usa lld para aliviar pico de memoria no link.
+  -DCMAKE_CXX_FLAGS=-g0
+  -DCMAKE_C_FLAGS=-g0
+  -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+  -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld
 )
 
 echo ">> build $BUILD_TYPE, $JOBS jobs, ccache em $CCACHE_DIR"

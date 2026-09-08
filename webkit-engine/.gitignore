@@ -1,0 +1,5 @@
+# O checkout do WebKit NUNCA entra neste repo. Ele e' materializado por scripts/fork-init.sh.
+checkout/
+build/
+.ccache/
+*.log

@@ -42,6 +42,9 @@ CMAKE_ARGS=(
   # O Virtual nao decodifica midia: o sidecar proxia assets e quem da play e' o cliente.
   -DENABLE_ENCRYPTED_MEDIA=OFF
 
+  # Dev/diag — pagina nao observa backtraces nativos (categoria B).
+  -DUSE_LIBBACKTRACE=OFF
+
   # PROVISORIO — ajuste de maquina de build (feat/webkit-engine, build a frio WSL).
   # Reduz debug info e usa lld para aliviar pico de memoria no link.
   -DCMAKE_CXX_FLAGS=-g0
@@ -53,9 +56,17 @@ CMAKE_ARGS=(
 echo ">> build $BUILD_TYPE, $JOBS jobs, ccache em $CCACHE_DIR"
 ccache -s | head -5 || true
 
-Tools/Scripts/build-webkit --wpe "--$(printf '%s' "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')" \
-  --makeargs="-j$JOBS" \
-  --cmakeargs="${CMAKE_ARGS[*]}"
+BUILD_DIR="$CHECKOUT/WebKitBuild/WPE/$(printf '%s' "$BUILD_TYPE" | sed 's/./\U&/')"
+PORT_ARGS=(--wpe "--$(printf '%s' "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')")
+
+if [ ! -f "$BUILD_DIR/build.ninja" ]; then
+  perl Tools/Scripts/build-webkit "${PORT_ARGS[@]}" \
+    --generate-project-only \
+    --cmakeargs="${CMAKE_ARGS[*]}"
+fi
+
+# build-webkit repassa caminho com espacos sem quote — quebra cmake --build no WSL.
+ninja -C "$BUILD_DIR" -j"$JOBS"
 
 echo
 echo ">> ccache depois:"

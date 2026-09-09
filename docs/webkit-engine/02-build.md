@@ -10,7 +10,7 @@ Medido em 2026-09-08 na WSL Ubuntu 24.04 do desktop (primeiro build a frio, tent
 |---|---|---|---|---|---|---|
 | Host Windows (C:) | 282 GB | 32 GB fisica | — | — | — | disco OK |
 | WSL antes (.wslconfig 8 GB) | 282 GB (/mnt/c) | 7 GB | 2 GB | 6 | git/cmake/ninja/ccache; lld ausente | RAM insuficiente |
-| WSL depois (.wslconfig 22 GB + swap 32 GB) | 282 GB (/mnt/c) | 21 GB | 32 GB | 6 | cmake 3.28.3, ninja 1.11.1, ccache 4.9.1, lld 18.1.3, g++ 13.3.0 | toolchain OK; configure bloqueia em **LibBacktrace** |
+| WSL depois (.wslconfig 22 GB + swap 32 GB) | 282 GB (/mnt/c) | 21 GB | 32 GB | 6 | cmake 3.28.3, ninja 1.11.1, ccache 4.9.1, lld 18.1.3, g++ 13.3.0 | **configure verde**; build a frio incompleto (~40%) |
 | VM local (registro antigo) | ~9 GB | — | — | — | ausentes | nao serve |
 | container de nuvem da sessao (registro antigo) | ~30 GB | 7 GB | — | 2 | presentes | nao serve (RAM/cores) |
 
@@ -55,11 +55,21 @@ Comando: `build-webkit --wpe --release --generate-project-only` (WebKitBuild/ ap
 
 `FindWPE` **nao falhou**. Proximo bloqueio: `LibBacktrace` (`LIBBACKTRACE_INCLUDE_DIR`, `LIBBACKTRACE_LIBRARY`).
 
-Build completo e MiniBrowser **nao rodaram** (configure nao passou).
+#### Sessao [8] — configure verde + build a frio (incompleto)
 
-Diretorio de build apos falha [7]: `checkout/WebKitBuild/` parcial (CMake incompleto).
+Configure (`scripts/configure.sh`): **486 s**, verde.
 
-`ccache -s`: cache vazio (0 GiB, nenhuma compilacao chegou a rodar).
+Build (`BUILD_TYPE=Release JOBS=6`, `scripts/build.sh` com `ninja -C` — contorna bug do
+`build-webkit` com espacos no path do repo).
+
+| tentativa | resultado | fase | tempo wall | progresso | notas |
+|---|---|---|---|---|---|
+| 1 | **falhou** | pos-configure — `cmake --build` do `build-webkit` quebra path com espaco | 493 s | 0% compile | corrigido no `build.sh`: `ninja -C` |
+| 2 | **falhou** | compile — alvo `WebCoreBindings` (`generate-bindings-all.pl` / `CodeGenerator.pm`) | **8333 s** (~2h19m) | **3960/9998** (~40%) | erros: mixin supplemental deps; sessao WSL perdeu logs em `/tmp` |
+
+Pos-falha: `WebKitBuild/` = **726 MB**; `ccache -s`: **1797 misses**, 0 hits, **0,1 GiB**.
+Monitor `free -g` (2 min) reportou 0 GB used o tempo todo — arredondamento de `free -g`, nao confiar como pico.
+MiniBrowser headless **nao rodou** (binario nao linkado).
 
 ## Dependencias
 
@@ -69,12 +79,24 @@ e `pacman` (Arch). Fora dessas tres o script recusa.
 Alternativa do upstream para deps isoladas: jhbuild (`Tools/wpe/jhbuild.modules`,
 `jhbuild-minimal.modules`, `jhbuild-minimal-plus-gstreamer.modules`).
 
+### Dependencias e classificacao
+
+Regra: se a pagina JS consegue perceber a diferenca → **A** (instalar, nunca desligar).
+Dev/diag/desktop → **B** (apt se existir; senao `-D…=OFF`).
+
+| dependencia | cat. | acao tomada | motivo |
+|---|---|---|---|
+| `LibBacktrace` (`USE_LIBBACKTRACE`) | B | `-DUSE_LIBBACKTRACE=OFF` | dev/diag backtrace; pagina nao observa. `libbacktrace-dev` **ausente** no apt Ubuntu 24.04 |
+| `xdg-dbus-proxy` (`ENABLE_BUBBLEWRAP_SANDBOX`) | B | `apt install xdg-dbus-proxy` | infra sandbox bubblewrap; pagina nao observa |
+| `ENABLE_WPE_LEGACY_API` / `find_package(WPE)` | — | `-DENABLE_WPE_LEGACY_API=OFF` | decisao de arquitetura WPEPlatform (sessao [7]) |
+
 ## Entrada de build
 
-    Tools/Scripts/build-webkit --wpe --release
+    scripts/configure.sh          # so configure (mesmas flags de build.sh)
+    BUILD_TYPE=Release JOBS=6 bash webkit-engine/scripts/build.sh
 
-`build-webkit` expoe `--gtk` e `--wpe` como portas. `scripts/build.sh` chama isso e passa
-`--cmakeargs` com as flags abaixo.
+`build-webkit` expoe `--gtk` e `--wpe`. `scripts/build.sh` usa `--generate-project-only` para
+configure e `ninja -C` para compilar (o `build-webkit` quebra `cmake --build` com espacos no path).
 
 ## Flags do Speculum e por que
 
@@ -90,6 +112,7 @@ Lidas de `Source/cmake/OptionsWPE.cmake` na tag pinada.
 | `ENABLE_WEBDRIVER_BIDI` | experimental (off) | OFF | idem, explicito. |
 | `ENABLE_TOUCH_EVENTS` | ON | ON | E' o caminho de input do produto. |
 | `ENABLE_ENCRYPTED_MEDIA` | experimental (off) | OFF | O Virtual nao decodifica midia: o sidecar proxia assets e quem da play e' o cliente projetado. DRM e codec sao irrelevantes aqui. |
+| `USE_LIBBACKTRACE` | ON | **OFF** | B — dev/diag; pagina nao observa. Pacote apt ausente (ver tabela acima). |
 
 Notas de flags que **nao** mexemos mas importam saber:
 

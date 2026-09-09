@@ -4,17 +4,20 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${SPECULUM_WEBKIT_ROOT:-$HERE}"
 # shellcheck disable=SC1091
 source "$HERE/UPSTREAM"
 
-CHECKOUT="$HERE/checkout"
+CHECKOUT="$ROOT/checkout"
+BUILD_ROOT="$ROOT/build"
 [ -d "$CHECKOUT/.git" ] || { echo "ABORT: checkout/ nao existe. Rodar scripts/fork-init.sh." >&2; exit 1; }
 
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 JOBS="${JOBS:-$(nproc)}"
 
-export CCACHE_DIR="${CCACHE_DIR:-$HERE/.ccache}"
+export CCACHE_DIR="${CCACHE_DIR:-$ROOT/.ccache}"
 export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-50G}"
+mkdir -p "$BUILD_ROOT" "$CCACHE_DIR"
 command -v ccache >/dev/null || { echo "ABORT: ccache ausente. Sem ccache o ciclo de build inviabiliza o projeto." >&2; exit 1; }
 
 cd "$CHECKOUT"

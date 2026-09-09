@@ -5,10 +5,12 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${SPECULUM_WEBKIT_ROOT:-$HERE}"
 # shellcheck disable=SC1091
 source "$HERE/UPSTREAM"
 
-CHECKOUT="$HERE/checkout"
+CHECKOUT="$ROOT/checkout"
+mkdir -p "$ROOT"
 
 # Serie estavel = minor PAR. Guarda contra pinar acidentalmente uma serie de desenvolvimento.
 MINOR="$(printf '%s' "$UPSTREAM_TAG" | sed -E 's/^wpewebkit-[0-9]+\.([0-9]+)\..*$/\1/')"

@@ -3,10 +3,12 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CHECKOUT="$HERE/checkout"
+ROOT="${SPECULUM_WEBKIT_ROOT:-$HERE}"
+CHECKOUT="$ROOT/checkout"
 [ -d "$CHECKOUT/.git" ] || { echo "ABORT: checkout/ nao existe." >&2; exit 1; }
 
-export CCACHE_DIR="${CCACHE_DIR:-$HERE/.ccache}"
+export CCACHE_DIR="${CCACHE_DIR:-$ROOT/.ccache}"
+mkdir -p "$CCACHE_DIR"
 
 cd "$CHECKOUT"
 

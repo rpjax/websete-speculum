@@ -1,0 +1,85 @@
+# Captura parcial — baseline WebKit (interrompida 2026-09-09 ~16:21 UTC-3)
+# Logs em ~/speculum-webkit/baseline/ (WSL ext4, não versionados)
+
+## Parte A — ciclo de iteração (CONCLUÍDA)
+
+Arquivo tocado: Source/WebCore/dom/Node.cpp (comentário, revertido)
+Build dir: WebKitBuild/WPE/Release
+ENABLE_UNIFIED_BUILDS: ON (default upstream, A3 não rodou)
+
+RUN1_ELAPSED_SEC=93.01
+RUN2_ELAPSED_SEC=1.18
+Decisão A2: <= 5 min → A3 pulado
+
+Build completo (sessão [9]): ELAPSED_SEC=8097.97, MAX_RSS_KB=7634668
+
+## Parte B — suítes (PARCIAL / INTERROMPIDA)
+
+### B1 Runners
+WebKitTestRunner, TestWebKitAPI, jsc — presentes em WebKitBuild/WPE/Release/bin/
+
+### B2 bindings-tests
+meta: ELAPSED_SEC=24.64 EXIT_CODE=0
+log tail: All tests PASS!
+
+### B2 javascriptcore-tests (1ª tentativa — config errada)
+meta: ELAPSED_SEC=5.13 EXIT_CODE=2
+erro: Failed to switch directory to '.../WebKitBuild/Release/bin' (path correto é WPE/Release)
+
+### B2 javascriptcore-tests (rerun completo, teto 45 min)
+meta: ELAPSED_SEC=2700.04 EXIT_CODE=124 (timeout)
+pass: testmasm, testair, testb3, testdfg, testapi, testwasmdebugger (rc=0)
+fail observados: stress/ftl-osr-exit-materialize-phantom-array-with-live-butterfly.js.default,
+                 stress/typed-array-set.js.default
+stress suite: INCOMPLETA (timeout)
+
+### B2 javascriptcore-tests --quick (subconjunto padrão, teto 45 min)
+meta: ELAPSED_SEC=2700.02 EXIT_CODE=124 (timeout)
+pass: testmasm, testair, testb3, testdfg, testapi, testwasmdebugger (rc=0)
+fail observados: stress/array-prototype-flat-reentrant-mutation.js.default,
+                 stress/ftl-osr-exit-materialize-phantom-array-with-live-butterfly.js.default,
+                 stress/many-substrings-of-rope-shouldnt-use-excessive-memory.js.default,
+                 stress/many-substrings-of-rope-shouldnt-use-excessive-memory-2.js.default
+stress suite: INCOMPLETA (timeout)
+
+### B2 api-tests
+meta: ELAPSED_SEC=119.73 EXIT_CODE=3
+Found 2088 tests
+Passed: 2039 | Failed: 3 | Crashed: 1 | Timeout: 0
+Falhas nomeadas:
+  TestWTF.StackTraceTest.CaptureStackTraceLimitAndSkip
+  TestWTF.StackTraceTest.StackTraceWorks
+  TestWTF.GStreamerTest.capsFromCodecString (worker/3 TestWebCore...)
+  TestWebCore.ImageBufferTests/...SinkIntoNativeImageWorks/51byteobject01 (Crashed)
+  + timeouts de parking lot (TestWTF.WTF_ParkingLot.UnparkOneFiftyThenFiftyAllFast, UnparkOneHundredFast)
+
+### B3 layout-tests (1ª tentativa como root — FALHOU antes de rodar)
+meta: ELAPSED_SEC=78.71 EXIT_CODE=254
+erro: Apache recusa rodar como root
+
+### B3 layout-tests-rerun (usuário webkit, teto 4 h)
+meta: ELAPSED_SEC=14416.28 EXIT_CODE=124 (timeout no retry)
+1ª passagem: 85179/85179 testes executados
+Unexpected failures 1ª passagem: 419 (log: "Retrying 419 unexpected failures")
+Retry: 268/419 quando interrompido pelo teto
+Linhas "failed unexpectedly" no log total: 675 (inclui retry)
+
+Classificação B4 (só 1ª passagem, script classify-layout-failures.py):
+  total_unexpected: 476
+  bucket1 ESPERADA: 79 (16.6%)
+  bucket2 AMBIENTE: 290 (60.9%)
+  bucket3 INEXPLICADA: 107 (22.5%)
+  JSON completo: layout-classification.json em ~/speculum-webkit/baseline/
+
+## Ambiente baseline
+WSL Ubuntu 24.04, 21 GB RAM, 32 GB swap, 6 cores
+Sem GPU utilizável (GBM/DRM falham)
+Checkout/build: ~/speculum-webkit (ext4)
+Usuário testes layout: webkit (root falha no Apache)
+Pré-requisitos layout descobertos: /tmp/WebKit gravável, chown layout-test-results
+
+## O que NÃO foi medido / incompleto
+- Classificação B4 pós-retry: não medido
+- Veredito baseline ESTABELECIDA/BLOQUEADA: não emitido (interrompido)
+- JSC suite completa ou --quick até o fim: não medido (timeout 45 min)
+- Layout retry 419: incompleto (268/419)

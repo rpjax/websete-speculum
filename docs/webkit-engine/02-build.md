@@ -92,6 +92,16 @@ MiniBrowser WPE headless (`bin/MiniBrowser --headless`): processo **sobe e fica 
 WSL emite `DRM_IOCTL_MODE_CREATE_DUMB failed` / `Failed to create GBM buffer` (sem GPU/DRI util).
 Sinal de vida parcial — render headless na WSL ainda precisa validacao.
 
+#### Sessao [10] — ciclo de iteracao (A1)
+
+Arquivo: `Source/WebCore/dom/Node.cpp` (comentario temporario, revertido).
+`ENABLE_UNIFIED_BUILDS=ON` (default). A3 nao rodou (A2: ciclo viavel).
+
+| run | tempo incremental | notas |
+|---|---|---|
+| 1 | **93,01 s** | recompila unified source + relink cadeia WPE |
+| 2 | **1,18 s** | so bindings glob; sem recompilar .o |
+
 ## Dependencias
 
 `Tools/wpe/install-dependencies` no checkout. Suporta `apt-get` (Debian/Ubuntu), `dnf` (Fedora)

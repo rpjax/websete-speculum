@@ -1,0 +1,12 @@
+# Pin do upstream Firefox/Gecko para avaliacao Speculum (lado B).
+# Trocar esta linha e nada mais e' o unico jeito de mudar a base do fork.
+
+UPSTREAM_REMOTE=https://github.com/mozilla-firefox/firefox.git
+UPSTREAM_FORK=https://github.com/rpjax/firefox.git
+UPSTREAM_TAG=FIREFOX_153_2_0esr_RELEASE
+UPSTREAM_COMMIT=feec67e62a5148b41fd017ccbbc463e8a6f9e83d
+UPSTREAM_RELEASED=2026-09-01
+UPSTREAM_PORT=Gecko
+
+# Branch do fork onde viveriam os patches do Speculum (se promovido).
+FORK_BRANCH=speculum/153.2.0esr

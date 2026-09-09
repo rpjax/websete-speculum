@@ -1,0 +1,4 @@
+# O checkout do Gecko NUNCA entra neste repo. Materializado fora (SPECULUM_GECKO_ROOT).
+checkout/
+build/
+.ccache/

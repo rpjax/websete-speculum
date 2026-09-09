@@ -10,7 +10,7 @@ Medido em 2026-09-08 na WSL Ubuntu 24.04 do desktop (primeiro build a frio, tent
 |---|---|---|---|---|---|---|
 | Host Windows (C:) | 282 GB | 32 GB fisica | — | — | — | disco OK |
 | WSL antes (.wslconfig 8 GB) | 282 GB (/mnt/c) | 7 GB | 2 GB | 6 | git/cmake/ninja/ccache; lld ausente | RAM insuficiente |
-| WSL depois (.wslconfig 22 GB + swap 32 GB) | 282 GB (/mnt/c) | 21 GB | 32 GB | 6 | cmake 3.28.3, ninja 1.11.1, ccache 4.9.1, lld 18.1.3, g++ 13.3.0 | **configure verde**; build a frio incompleto (~40%) |
+| WSL depois (.wslconfig 22 GB + swap 32 GB) | 282 GB (/mnt/c) | 21 GB | 32 GB | 6 | cmake 3.28.3, ninja 1.11.1, ccache 4.9.1, lld 18.1.3, g++ 13.3.0 | **build verde em ext4** (`~/speculum-webkit`) |
 | VM local (registro antigo) | ~9 GB | — | — | — | ausentes | nao serve |
 | container de nuvem da sessao (registro antigo) | ~30 GB | 7 GB | — | 2 | presentes | nao serve (RAM/cores) |
 
@@ -71,6 +71,27 @@ Pos-falha: `WebKitBuild/` = **726 MB**; `ccache -s`: **1797 misses**, 0 hits, **
 Monitor `free -g` (2 min) reportou 0 GB used o tempo todo — arredondamento de `free -g`, nao confiar como pico.
 MiniBrowser headless **nao rodou** (binario nao linkado).
 
+#### Sessao [9] — ext4 nativa (`SPECULUM_WEBKIT_ROOT=~/speculum-webkit`)
+
+**Nunca buildar em `/mnt/c`.** NTFS via ponte WSL + path com espaco no repo (`Websete Speculum`)
+degradam clone e I/O de compile. Checkout/build/ccache vivem em ext4 via `SPECULUM_WEBKIT_ROOT`.
+
+| metrica | `/mnt/c` (NTFS) | ext4 (`~/speculum-webkit`) |
+|---|---|---|
+| clone (`fork-init.sh`) | **5666 s** (~94 min) | **113 s** (~1,9 min) |
+| configure | 486 s | (incluso no build) |
+| build a frio (`JOBS=6`) | incompleto ~40%, morte por bateria | **8098 s** (~2h15m), **verde** |
+| `WebKitBuild/` pos-build | 726 MB (parcial) | **1,5 GB** |
+| pico RSS (`time`) | — | **7634668 KB** (~7,5 GB) |
+| ccache hits no inicio | 0 | 0 (path mudou; `CCACHE_NOHASHDIR=1` nao bastou) |
+| `WebCoreBindings` | erro pos-queda (provavel artefato) | **passou** |
+
+Build em tmux, maquina na tomada. `CCACHE_NOHASHDIR=1` ao migrar cache.
+
+MiniBrowser WPE headless (`bin/MiniBrowser --headless`): processo **sobe e fica vivo** 15 s;
+WSL emite `DRM_IOCTL_MODE_CREATE_DUMB failed` / `Failed to create GBM buffer` (sem GPU/DRI util).
+Sinal de vida parcial — render headless na WSL ainda precisa validacao.
+
 ## Dependencias
 
 `Tools/wpe/install-dependencies` no checkout. Suporta `apt-get` (Debian/Ubuntu), `dnf` (Fedora)
@@ -92,11 +113,12 @@ Dev/diag/desktop → **B** (apt se existir; senao `-D…=OFF`).
 
 ## Entrada de build
 
+    export SPECULUM_WEBKIT_ROOT=~/speculum-webkit   # ext4 — obrigatorio na WSL
+    bash scripts/fork-init.sh
     scripts/configure.sh          # so configure (mesmas flags de build.sh)
-    BUILD_TYPE=Release JOBS=6 bash webkit-engine/scripts/build.sh
+    BUILD_TYPE=Release JOBS=6 CCACHE_NOHASHDIR=1 bash scripts/build.sh
 
-`build-webkit` expoe `--gtk` e `--wpe`. `scripts/build.sh` usa `--generate-project-only` para
-configure e `ninja -C` para compilar (o `build-webkit` quebra `cmake --build` com espacos no path).
+Sem `SPECULUM_WEBKIT_ROOT`, checkout/build/ccache ficam em `webkit-engine/` (default).
 
 ## Flags do Speculum e por que
 
@@ -133,7 +155,7 @@ Wayland (`ENABLE_WPE_PLATFORM_WAYLAND=ON`) fica disponivel so pra debug com jane
 
 ## Ordem
 
-1. Provisionar maquina de build (bloqueia tudo).
+1. Provisionar maquina de build (bloqueia tudo). **WSL: ext4 via `SPECULUM_WEBKIT_ROOT`, nunca `/mnt/c`.**
 2. `scripts/fork-init.sh`
 3. `Tools/wpe/install-dependencies`
 4. `scripts/build.sh` — primeiro build a frio, medir. Esse numero define a cadencia do projeto.

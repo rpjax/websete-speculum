@@ -78,8 +78,8 @@ internal sealed partial class LiveSession
                                 notification.TraceId,
                                 notification.ClientTimestampMs);
                             break;
-                        case "sidecar_admitted":
-                            _telemetry.VideoStreamingInput.SidecarAdmitted(
+                        case "sidecar_enqueued":
+                            _telemetry.VideoStreamingInput.SidecarEnqueued(
                                 pathKind,
                                 notification.TraceId,
                                 notification.ClientTimestampMs);
@@ -137,8 +137,8 @@ internal sealed partial class LiveSession
                                 notification.TraceId,
                                 notification.ClientTimestampMs);
                             break;
-                        case "sidecar_admitted":
-                            _telemetry.PageProjection.Input.SidecarAdmitted(
+                        case "sidecar_enqueued":
+                            _telemetry.PageProjection.Input.SidecarEnqueued(
                                 domKind,
                                 notification.DomGeneration,
                                 notification.DomAnchor,
@@ -148,6 +148,25 @@ internal sealed partial class LiveSession
                         case "cdp_dropped":
                             _telemetry.PageProjection.Input.CdpDropped(
                                 domKind,
+                                notification.Reason,
+                                notification.DomGeneration,
+                                notification.DomAnchor,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
+                            break;
+                        case "cdp_applied":
+                            _telemetry.PageProjection.Input.Applied(
+                                domKind,
+                                notification.Phase,
+                                notification.DomGeneration,
+                                notification.DomAnchor,
+                                notification.TraceId,
+                                notification.ClientTimestampMs);
+                            break;
+                        case "cdp_rejected":
+                            _telemetry.PageProjection.Input.Rejected(
+                                notification.ErrorCode,
+                                notification.Message,
                                 notification.Reason,
                                 notification.DomGeneration,
                                 notification.DomAnchor,

@@ -1,0 +1,41 @@
+{
+  "id": "input-touch-fling-tap",
+  "description": "PP-TOUCH-FLING-TAP — tap that arrests an inertial scroll must not emit a Projected down/up (phantom click)",
+  "sessionPolicy": "cold",
+  "fold": "touch-fling-tap",
+  "queues": [
+    {
+      "name": "main",
+      "actions": [
+        {
+          "id": "boot",
+          "type": "boot",
+          "params": { "url": "fixtures/touch-scroll-axis.html" }
+        },
+        {
+          "id": "wait",
+          "type": "sleep",
+          "dependsOn": ["boot"],
+          "params": { "ms": 4000 }
+        },
+        {
+          "id": "probe",
+          "type": "probe.touchFlingTap",
+          "dependsOn": ["wait"],
+          "params": { "anchorSelector": "#hscroller-v2" }
+        },
+        {
+          "id": "fold",
+          "type": "fold",
+          "dependsOn": ["probe"],
+          "params": { "ruleset": "touch-fling-tap" }
+        },
+        {
+          "id": "writeDossier",
+          "type": "writeDossier",
+          "dependsOn": ["fold"]
+        }
+      ]
+    }
+  ]
+}

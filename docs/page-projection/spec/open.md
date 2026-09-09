@@ -1,6 +1,7 @@
 # PageProjection — open items (bugs, gaps, rulings)
 
 **Status:** living tracker. Single place for a weaker agent to see what is **not** done.  
+**Execution-ordered backlog (pending work):** [PENDING.md](../PENDING.md).  
 **Do not** treat a missing row here as permission to invent a workaround. If you find a new defect, **append**.  
 **Protocol OPEN-* source of truth** remains the table in [frame-protocol.md](frame-protocol.md) §10; this file copies it plus product/cutover items.
 
@@ -87,6 +88,12 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 202
 | Id | Symptom | Notes |
 |----|---------|-------|
 | **PP-HARDNAV-PLANE-ACK** | After in-page hard nav (link / `location.replace` / 202→200), Node adopts new `generation` but Virtual stays on `producer_booting` / no hello-ack through the extension Port; units log the race and still assert gen bump + cold carrier. | Cutover delivered C2 + MAIN content script; socket still opens per document. Closing this = finish SW-owned loopback across nav ([runtime-redesign.md](runtime-redesign.md) §5). Softened: `runMetaOnlyHugeCspPlaneUnitTests` / `runDataPlaneNavChurnUnitTests`. |
+
+### BUG — swipe vertical over horizontal scroller does not page-scroll (**CLOSED 2026-09-02**)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **PP-SCROLL-AXIS** | Swipe vertical starting on a horizontal carousel (Eneba `NAV.zyqj8m`) did not page-scroll on Projected. | **Cause:** `projectedNativeGuard` `preventDefault` on cancelable `touchstart` when target ∈ `a[href]` cancelled Chrome native pan. **Fix:** suppress navigable activation on `touchend` instead; `touchstart` metrics-only. Lab `FIXED` — `sidecar/lab-runs/2026-09-02T23-11-38-017Z-input-touch-scroll-axis/probes/touch-scroll-axis.json`. PENDING P5 resolved. |
 
 ### BUG — inject dual-boot / isolate lateBoot (**CLOSED 2026-08-28**)
 

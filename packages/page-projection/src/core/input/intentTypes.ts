@@ -36,7 +36,9 @@ export type DomInputIngress = {
   localY?: number;
   key?: string;
   code?: string;
-  scrollX?: number;
-  scrollY?: number;
+  /** Fraction of scroll range [0,1] — scrollLeft / (scrollWidth - clientWidth). */
+  scrollFracX?: number;
+  /** Fraction of scroll range [0,1] — scrollTop / (scrollHeight - clientHeight). */
+  scrollFracY?: number;
   button?: string | number;
 };

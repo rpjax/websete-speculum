@@ -16,6 +16,7 @@ export function labLaunchOptions(
     frameRateHz: overrides.frameRateHz ?? 60,
     projectionTelemetry: overrides.projectionTelemetry ?? { ...LAB_TELEMETRY_DEFAULTS },
     cpuProfiling: overrides.cpuProfiling ?? true,
+    inputPathTelemetry: overrides.inputPathTelemetry,
     projectionDataPlane: overrides.projectionDataPlane ?? 'loopback',
     locale: overrides.locale ?? 'en-US',
     language: overrides.language ?? 'en-US',

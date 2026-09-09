@@ -352,7 +352,19 @@ internal static class SessionDataStreamsHost
                 item.Anchor,
                 item.TraceId,
                 ToClientTimestampMs(item.TimestampClient));
-            _ = live.AdmitPageProjectionInput(item);
+            var admit = live.AdmitPageProjectionInput(item);
+            if (admit.IsFailure)
+            {
+                var message = string.Join("; ", admit.Errors.Select(e => e.Message));
+                live.TracePageProjectionIntentAdmissionFailed(
+                    item.Type,
+                    item.Generation,
+                    item.Anchor,
+                    "admission_failed",
+                    string.IsNullOrWhiteSpace(message) ? "Admission failed" : message,
+                    item.TraceId,
+                    ToClientTimestampMs(item.TimestampClient));
+            }
         }
     }
 

@@ -157,7 +157,7 @@ async function testBusDeadContextFailClosedFast(): Promise<void> {
   bus.setDeliverableCheck((id) => id === 1);
 
   const t0 = performance.now();
-  const r = await bus.requestApplyScroll(99, [{ nodeId: null, scrollX: 0, scrollY: 0 }]);
+  const r = await bus.requestApplyScroll(99, [{ nodeId: null, scrollFracX: 0, scrollFracY: 0 }]);
   const wall = performance.now() - t0;
   assert.strictEqual(r.ok, false);
   assert.ok(

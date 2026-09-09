@@ -29,6 +29,11 @@ public class SessionsConfiguration
     public bool CpuProfiling { get; init; }
 
     /// <summary>
+    /// Emit PageProjection input path hops from sidecar (Launch-injected; zero cost when false). Default false.
+    /// </summary>
+    public bool InputPathTelemetry { get; init; }
+
+    /// <summary>
     /// Bounded PageProjection frame transport queue (sidecar EventBridge Dom + API
     /// connection Wait channel). M3: .NET never drops — overflow reports ConsumerPressure.
     /// Default matches <c>PageProjectionFrameChannels.DefaultConnectionCapacity</c>.

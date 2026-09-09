@@ -35,8 +35,8 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
   localY?: number;
   key?: string;
   code?: string;
-  scrollX?: number;
-  scrollY?: number;
+  scrollFracX?: number;
+  scrollFracY?: number;
   button?: string | number;
   direction?: string;
 }): UnifiedIntent | null {
@@ -107,8 +107,8 @@ export function ingressToUnifiedIntent(raw: DomInputIngress & {
       timestampClient: raw.timestampClient ?? undefined,
       contextId: raw.contextId && raw.contextId > 0 ? raw.contextId : 1,
       nodeId: nodeId != null && nodeId > 0 ? nodeId : null,
-      scrollX: Number(raw.scrollX ?? payload.scrollX ?? payload.scrollLeft ?? 0),
-      scrollY: Number(raw.scrollY ?? payload.scrollY ?? payload.scrollTop ?? 0),
+      scrollFracX: Number(raw.scrollFracX ?? payload.scrollFracX ?? 0),
+      scrollFracY: Number(raw.scrollFracY ?? payload.scrollFracY ?? 0),
     };
   }
 

@@ -127,6 +127,19 @@ public interface ILiveSession
         long? clientTimestampMs = null);
 
     /// <summary>
+    /// Log + Journal when <see cref="AdmitPageProjectionInput"/> fails on the data plane.
+    /// No-op when <c>Telemetry.Sessions.PageProjection.Input.Rejected</c> is disabled (log still emitted).
+    /// </summary>
+    void TracePageProjectionIntentAdmissionFailed(
+        string kind,
+        long? generation,
+        string? anchor,
+        string errorCode,
+        string message,
+        string? traceId = null,
+        long? clientTimestampMs = null);
+
+    /// <summary>
     /// Opt-in Journal hop: Diff written to the client data-plane stream.
     /// No-op when <c>Telemetry.Sessions.PageProjection.Frame.WireDelivered</c> is disabled.
     /// </summary>

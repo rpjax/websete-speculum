@@ -25,6 +25,12 @@ export type LastInputIntentRecord = {
   localY?: number;
   x?: number;
   y?: number;
+  /** Wire ingress stamp — recorded from DomInputIngress, not UnifiedIntent. */
+  schemaVersion: number;
+  viewportW: number;
+  viewportH: number;
+  /** Wire ingress census JSON (null when absent). */
+  census: string | null;
   atMs: number;
 };
 

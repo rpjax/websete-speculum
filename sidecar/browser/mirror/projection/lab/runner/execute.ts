@@ -24,12 +24,18 @@ import { foldTurnstile } from '../blueprints/fold/turnstile';
 import { foldCssomMatrixNested } from '../blueprints/fold/cssomMatrixNested';
 import { foldDocumentChurn } from '../blueprints/fold/documentChurn';
 import { foldInputIframeXoShadow } from '../blueprints/fold/inputIframeXoShadow';
+import { foldTouchScrollAxisBlueprint } from '../blueprints/fold/touchScrollAxis';
+import { foldTouchFlingTapBlueprint } from '../blueprints/fold/touchFlingTap';
+import { foldTouchSurfaceParityBlueprint } from '../blueprints/fold/touchSurfaceParity';
 import { runNestedHostReadyProbe } from '../probes/nestedHostReady';
 import { runTurnstileDiagnostic } from '../probes/turnstileDiagnostic';
 import { runNestedApplyFailureDiagnostic } from '../probes/nestedApplyFailureDiagnostic';
 import { runCssomMatrixDiagnostic } from '../probes/cssomMatrixDiagnostic';
 import { runPaintDiffProbe } from '../probes/paintDiffProbe';
 import { runLaunchTelemetryProbe } from '../probes/launchTelemetryProbe';
+import { runTouchScrollAxisProbe } from '../probes/touchScrollAxis';
+import { runTouchFlingTapProbe } from '../probes/touchFlingTap';
+import { runTouchSurfaceParityProbe } from '../probes/touchSurfaceParity';
 import {
   CSSOM_SHEET_DUMP_EXPR,
   parseCssomSheetDump,
@@ -351,7 +357,7 @@ export async function executeBlueprint(
         const session = chassis.browser;
         const pushFn = (session as unknown as { pushInput?: (i: unknown) => Promise<{ status: string; reason?: string }> }).pushInput?.bind(session);
         if (!session || !pushFn) return finish(false, 'pushInput missing');
-        const push = pushFn as (i: unknown) => Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }>;
+        const push = pushFn as (i: unknown) => Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }>;
         const sequence = params.sequence;
         if (Array.isArray(sequence)) {
           for (const step of sequence) {
@@ -482,7 +488,7 @@ export async function executeBlueprint(
           return finish(true);
         }
         const out = await push(params);
-        return finish(out.status === 'dispatched', out.status === 'dropped' ? out.reason : undefined);
+        return finish(out.status === 'enqueued', out.status === 'dropped' ? out.reason : undefined);
       }
       case 'snap': {
         const session = chassis.browser;
@@ -888,6 +894,147 @@ export async function executeBlueprint(
           diagnostic.established ? 'established' : diagnostic.bootOutcome?.reason ?? 'not established',
         );
       }
+      case 'probe.touchScrollAxis': {
+        const cdp = hooks.projectedCdpUrl;
+        if (!cdp || !String(cdp).trim()) {
+          const voidDiag = {
+            capturedAt: new Date().toISOString(),
+            matrixMode: params.matrixMode === 'navigable' ? 'navigable' : 'r1',
+            fixtureUrl: '',
+            scrollerSelector: '#hscroller',
+            plaintextSelector: '#plaintext',
+            surfaceHost: null,
+            controlViewport: null,
+            cells: [],
+            verdict: 'VOID' as const,
+            voidReasons: ['no_projected_cdp_url'],
+            hypothesis: ['VOID: no_projected_cdp_url'],
+          };
+          (chassis.journal as { touchScrollAxis?: unknown }).touchScrollAxis = voidDiag;
+          if (chassis.dossierHandle) {
+            await writeJson(
+              chassis.dossierHandle,
+              'probes/touch-scroll-axis.json',
+              voidDiag,
+              'probes.touchScrollAxis',
+            );
+          }
+          chassis.journal.acts.push({ name: 'probe.touchScrollAxis', ok: true });
+          return finish(true, 'VOID: no_projected_cdp_url');
+        }
+        const fixtureParam =
+          typeof params.url === 'string' && params.url.trim()
+            ? hooks.resolveUrl(params.url.trim())
+            : undefined;
+        const diagnostic = await runTouchScrollAxisProbe({
+          chassis,
+          dossier: chassis.dossierHandle,
+          projectedCdpUrl: cdp,
+          labOrigin: hooks.labOrigin,
+          fixtureUrl: fixtureParam,
+          scrollerSelector:
+            typeof params.scrollerSelector === 'string' ? params.scrollerSelector : '#hscroller',
+          plaintextSelector:
+            typeof params.plaintextSelector === 'string' ? params.plaintextSelector : '#plaintext',
+          matrixMode: params.matrixMode === 'navigable' ? 'navigable' : 'r1',
+        });
+        chassis.journal.acts.push({
+          name: 'probe.touchScrollAxis',
+          ok: true,
+        });
+        return finish(true, diagnostic.hypothesis[0] ?? diagnostic.verdict);
+      }
+
+      case 'probe.touchFlingTap': {
+        const cdp = hooks.projectedCdpUrl;
+        const anchorSelector =
+          typeof params.anchorSelector === 'string' ? params.anchorSelector : '#hscroller-v2';
+        if (!cdp || !String(cdp).trim()) {
+          const voidDiag = {
+            capturedAt: new Date().toISOString(),
+            fixtureUrl: '',
+            anchorSelector,
+            surfaceHost: null,
+            controlViewport: null,
+            cells: [],
+            verdict: 'VOID' as const,
+            voidReasons: ['no_projected_cdp_url'],
+            hypothesis: ['VOID: no_projected_cdp_url'],
+          };
+          (chassis.journal as { touchFlingTap?: unknown }).touchFlingTap = voidDiag;
+          if (chassis.dossierHandle) {
+            await writeJson(
+              chassis.dossierHandle,
+              'probes/touch-fling-tap.json',
+              voidDiag,
+              'probes.touchFlingTap',
+            );
+          }
+          chassis.journal.acts.push({ name: 'probe.touchFlingTap', ok: true });
+          return finish(true, 'VOID: no_projected_cdp_url');
+        }
+        const fixtureParam =
+          typeof params.url === 'string' && params.url.trim()
+            ? hooks.resolveUrl(params.url.trim())
+            : undefined;
+        const flingDiag = await runTouchFlingTapProbe({
+          chassis,
+          dossier: chassis.dossierHandle,
+          projectedCdpUrl: cdp,
+          labOrigin: hooks.labOrigin,
+          fixtureUrl: fixtureParam,
+          anchorSelector,
+        });
+        chassis.journal.acts.push({ name: 'probe.touchFlingTap', ok: true });
+        return finish(true, flingDiag.hypothesis[0] ?? flingDiag.verdict);
+      }
+
+      case 'probe.touchSurfaceParity': {
+        const cdp = hooks.projectedCdpUrl;
+        const selectors = Array.isArray(params.selectors)
+          ? params.selectors.filter((v): v is string => typeof v === 'string')
+          : undefined;
+        if (!cdp || !String(cdp).trim()) {
+          const voidDiag = {
+            capturedAt: new Date().toISOString(),
+            fixtureUrl: '',
+            selectors: selectors ?? [],
+            surfaceHost: null,
+            controlViewport: null,
+            control: [],
+            projected: [],
+            divergences: [],
+            verdict: 'VOID' as const,
+            voidReasons: ['no_projected_cdp_url'],
+            hypothesis: ['VOID: no_projected_cdp_url'],
+          };
+          (chassis.journal as { touchSurfaceParity?: unknown }).touchSurfaceParity = voidDiag;
+          if (chassis.dossierHandle) {
+            await writeJson(
+              chassis.dossierHandle,
+              'probes/touch-surface-parity.json',
+              voidDiag,
+              'probes.touchSurfaceParity',
+            );
+          }
+          chassis.journal.acts.push({ name: 'probe.touchSurfaceParity', ok: true });
+          return finish(true, 'VOID: no_projected_cdp_url');
+        }
+        const fixtureParam =
+          typeof params.url === 'string' && params.url.trim()
+            ? hooks.resolveUrl(params.url.trim())
+            : undefined;
+        const parityDiag = await runTouchSurfaceParityProbe({
+          chassis,
+          dossier: chassis.dossierHandle,
+          projectedCdpUrl: cdp,
+          labOrigin: hooks.labOrigin,
+          fixtureUrl: fixtureParam,
+          selectors,
+        });
+        chassis.journal.acts.push({ name: 'probe.touchSurfaceParity', ok: true });
+        return finish(true, parityDiag.hypothesis[0] ?? parityDiag.verdict);
+      }
       case 'collect.enable':
         return finish(true, 'collectors always on chassis');
       case 'injectFrame': {
@@ -1089,6 +1236,12 @@ export async function executeBlueprint(
           verdicts = foldDocumentChurn(chassis);
         } else if (ruleset === 'input-iframe-xo-shadow' || ruleset === 'fold/inputIframeXoShadow') {
           verdicts = foldInputIframeXoShadow(chassis);
+        } else if (ruleset === 'touch-scroll-axis' || ruleset === 'fold/touchScrollAxis') {
+          verdicts = foldTouchScrollAxisBlueprint(chassis);
+        } else if (ruleset === 'touch-fling-tap' || ruleset === 'fold/touchFlingTap') {
+          verdicts = foldTouchFlingTapBlueprint(chassis);
+        } else if (ruleset === 'touch-surface-parity' || ruleset === 'fold/touchSurfaceParity') {
+          verdicts = foldTouchSurfaceParityBlueprint(chassis);
         } else return finish(false, `unknown fold ruleset ${ruleset}`);
         return finish(true, `verdicts=${verdicts.length}`);
       }

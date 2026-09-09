@@ -24,6 +24,32 @@ public sealed class SessionsTestFixture
             },
             ct);
         response.EnsureSuccessStatusCode();
+
+        // Configuration authority is the database; compose env only seeds first boot.
+        // Set InputPathTelemetry through the configuration API, as any caller would.
+        await EnsureSessionsInputPathTelemetryAsync(enabled: true, ct);
+    }
+
+    /// <summary>
+    /// GET Sessions → patch <c>inputPathTelemetry</c> → PUT full body.
+    /// </summary>
+    public async Task EnsureSessionsInputPathTelemetryAsync(
+        bool enabled,
+        CancellationToken ct = default)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        using var get = await http.GetAsync($"{Host.ApiBase}/api/configurations/Sessions", ct);
+        get.EnsureSuccessStatusCode();
+        var json = await get.Content.ReadAsStringAsync(ct);
+        var node = JsonNode.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json)
+            ?? new JsonObject();
+        node["inputPathTelemetry"] = enabled;
+
+        using var put = await http.PutAsync(
+            $"{Host.ApiBase}/api/configurations/Sessions",
+            new StringContent(node.ToJsonString(), System.Text.Encoding.UTF8, "application/json"),
+            ct);
+        put.EnsureSuccessStatusCode();
     }
 
     /// <summary>
@@ -118,10 +144,14 @@ public sealed class SessionsTestFixture
     {
         ["Telemetry.Sessions.VideoStreamingInput.Applied"] = true,
         ["Telemetry.Sessions.VideoStreamingInput.Rejected"] = true,
+        ["Telemetry.Sessions.VideoStreamingInput.SidecarEnqueued"] = true,
         ["Telemetry.Sessions.Resize.Applied"] = true,
         ["Telemetry.Sessions.Resize.Rejected"] = true,
         ["Telemetry.Sessions.PageProjection.Frame.ResyncRequested"] = true,
         ["Telemetry.Sessions.PageProjection.Frame.FrameReceived"] = true,
+        ["Telemetry.Sessions.PageProjection.Input.Applied"] = true,
+        ["Telemetry.Sessions.PageProjection.Input.Rejected"] = true,
+        ["Telemetry.Sessions.PageProjection.Input.SidecarEnqueued"] = true,
     };
 }
 

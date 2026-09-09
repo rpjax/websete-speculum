@@ -1,0 +1,2 @@
+TEMP-DIAG: no top frame digite diagDump() ou diagClear(); ou clique "Copiar diagnóstico" na barra HUD (ao lado do ⋯ / Fullscreen).
+A/B: Build A default; Build B = ?touchCapture=off

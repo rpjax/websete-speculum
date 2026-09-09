@@ -13,5 +13,5 @@ public interface ISessionVideoStreamingInputTelemetryEvents
     void DataPlaneReceived(string kind, string? traceId = null, long? clientTimestampMs = null);
     void ControlReceived(string kind, string? traceId = null, long? clientTimestampMs = null);
     void SidecarPushWritten(string kind, string? phase, string? traceId = null, long? clientTimestampMs = null);
-    void SidecarAdmitted(string kind, string? traceId = null, long? clientTimestampMs = null);
+    void SidecarEnqueued(string kind, string? traceId = null, long? clientTimestampMs = null);
 }

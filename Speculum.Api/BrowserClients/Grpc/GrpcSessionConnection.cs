@@ -1270,8 +1270,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
             async (ev, token) =>
             {
                 TryPublishVideoStreamingInputPathTrace(
-                    TelemetryJournalFacts.VideoStreamingInputSidecarAdmitted,
-                    "sidecar_admitted",
+                    TelemetryJournalFacts.VideoStreamingInputSidecarEnqueued,
+                    "sidecar_enqueued",
                     ev.Kind);
                 await Task.CompletedTask.ConfigureAwait(false);
             },
@@ -1296,11 +1296,32 @@ public sealed class GrpcSessionConnection : ISessionConnection
                         null,
                         reason: ev.HasReason ? ev.Reason : null);
                 }
+                else if (string.Equals(phase, "cdp_applied", StringComparison.Ordinal))
+                {
+                    TryPublishPageProjectionIntentPathTrace(
+                        TelemetryJournalFacts.PageProjectionIntentApplied,
+                        "cdp_applied",
+                        ev.Kind,
+                        ev.HasGeneration ? ev.Generation : null,
+                        null);
+                }
+                else if (string.Equals(phase, "cdp_rejected", StringComparison.Ordinal))
+                {
+                    TryPublishPageProjectionIntentPathTrace(
+                        TelemetryJournalFacts.PageProjectionIntentRejected,
+                        "cdp_rejected",
+                        ev.Kind,
+                        ev.HasGeneration ? ev.Generation : null,
+                        null,
+                        reason: ev.HasValidationPhase ? ev.ValidationPhase : null,
+                        errorCode: ev.HasErrorCode ? ev.ErrorCode : null,
+                        message: ev.HasReason ? ev.Reason : null);
+                }
                 else
                 {
                     TryPublishPageProjectionIntentPathTrace(
-                        TelemetryJournalFacts.PageProjectionIntentSidecarAdmitted,
-                        "sidecar_admitted",
+                        TelemetryJournalFacts.PageProjectionIntentSidecarEnqueued,
+                        "sidecar_enqueued",
                         ev.Kind,
                         ev.HasGeneration ? ev.Generation : null,
                         null);
@@ -1907,7 +1928,9 @@ public sealed class GrpcSessionConnection : ISessionConnection
         string? anchor,
         string? traceId = null,
         long? clientTimestampMs = null,
-        string? reason = null)
+        string? reason = null,
+        string? errorCode = null,
+        string? message = null)
     {
         if (string.IsNullOrWhiteSpace(inputKind)
             || !_journalCatalog.IsTypeEnabled(catalogType))
@@ -1925,6 +1948,8 @@ public sealed class GrpcSessionConnection : ISessionConnection
             TraceId = NullIfEmpty(traceId),
             ClientTimestampMs = clientTimestampMs,
             Reason = NullIfEmpty(reason),
+            ErrorCode = NullIfEmpty(errorCode),
+            Message = NullIfEmpty(message),
         });
     }
 

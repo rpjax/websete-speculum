@@ -210,8 +210,8 @@ async function runSingleTabLocaleCspPlaneUnitTests(): Promise<void> {
     measureApplyScrollSet: (args: {
       contextId: number;
       nodeId: number | null;
-      scrollX: number;
-      scrollY: number;
+      scrollFracX: number;
+      scrollFracY: number;
     }) => Promise<{ ok: boolean; error?: string; wallMs: number }>;
   };
   try {
@@ -259,8 +259,8 @@ async function runSingleTabLocaleCspPlaneUnitTests(): Promise<void> {
       const lastPlane = await session.measureApplyScrollSet({
         contextId: 1,
         nodeId: null,
-        scrollX: 0,
-        scrollY: 1,
+        scrollFracX: 0,
+        scrollFracY: 0,
       });
       if (lastPlane.ok) {
         planeOk = true;
@@ -289,8 +289,8 @@ type PpSessionWithPlaneProbe = ReturnType<
   measureApplyScrollSet: (args: {
     contextId: number;
     nodeId: number | null;
-    scrollX: number;
-    scrollY: number;
+    scrollFracX: number;
+    scrollFracY: number;
   }) => Promise<{ ok: boolean; error?: string; wallMs: number }>;
   probeLoopbackStatus: () => Promise<{
     nodeEstablished: boolean;
@@ -333,8 +333,8 @@ async function waitDataPlaneOpen(
         const r = await session.measureApplyScrollSet({
           contextId: 1,
           nodeId: null,
-          scrollX: 0,
-          scrollY: 1,
+          scrollFracX: 0,
+          scrollFracY: 0,
         });
         if (r.ok) return { ok: true, lastErr: '' };
         lastErr = r.error ?? '';
@@ -350,8 +350,8 @@ async function waitDataPlaneOpen(
         const r = await session.measureApplyScrollSet({
           contextId: 1,
           nodeId: null,
-          scrollX: 0,
-          scrollY: 1,
+          scrollFracX: 0,
+          scrollFracY: 0,
         });
         if (r.ok) return { ok: true, lastErr: '' };
         lastErr =
@@ -525,8 +525,8 @@ async function runDataPlaneNavChurnUnitTests(): Promise<void> {
     const scroll = await session.measureApplyScrollSet({
       contextId: 1,
       nodeId: null,
-      scrollX: 0,
-      scrollY: 4,
+      scrollFracX: 0,
+      scrollFracY: 0,
     });
     assert.ok(scroll.ok, `scroll first-try after nav churn: ${scroll.error ?? ''}`);
   } finally {

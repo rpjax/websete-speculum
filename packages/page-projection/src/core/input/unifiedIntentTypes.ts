@@ -1,10 +1,12 @@
 /**
- * Unified input intent envelope v1 (§10.6) — sparse-cdp / id-addressed path only.
+ * Unified input intent envelope — sparse-cdp / id-addressed path only.
  * OS census (`ScrollCensus` on down/up) was removed with the PP OS stack
  * (decision-log.md 2026-08-27).
+ *
+ * schemaVersion 2: scrollSet carries scrollFracX/Y (fraction of scroll range), not px.
  */
 
-export const UNIFIED_INTENT_SCHEMA_VERSION = 1 as const;
+export const UNIFIED_INTENT_SCHEMA_VERSION = 2 as const;
 
 export type UnifiedIntentType =
   | 'move'
@@ -16,11 +18,14 @@ export type UnifiedIntentType =
   | 'setFiles'
   | 'historyNav';
 
-/** Single-context scroll position (used by `scrollSet` / Virtual applyScrollPositions). */
+/**
+ * Single-context scroll position (used by `scrollSet` / Virtual applyScrollPositions).
+ * Fractions of the scroller range: scrollTop / (scrollHeight - clientHeight), idem X.
+ */
 export type ScrollPositionEntry = {
   nodeId: number | null;
-  scrollX: number;
-  scrollY: number;
+  scrollFracX: number;
+  scrollFracY: number;
 };
 
 export type UnifiedIntentBase = {
@@ -61,8 +66,8 @@ export type ScrollSetIntent = UnifiedIntentBase & {
   type: 'scrollSet';
   contextId: number;
   nodeId: number | null;
-  scrollX: number;
-  scrollY: number;
+  scrollFracX: number;
+  scrollFracY: number;
 };
 
 export type SetFilesIntent = UnifiedIntentBase & {

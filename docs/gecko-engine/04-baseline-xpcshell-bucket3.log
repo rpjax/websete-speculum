@@ -1,0 +1,137 @@
+browser/components/urlbar/tests/quicksuggest/unit/test_merinoClient_sessions.js
+  FAIL browser/components/urlbar/tests/quicksuggest/unit/test_merinoClient_sessions.js - xpcshell return code: 0
+  FAIL networkError - [networkError : 157] The request failed with a network error - "http_error" == "network_error"
+xpcshell-remote.toml:toolkit/components/extensions/test/xpcshell/test_ext_background_early_shutdown.js
+  CRASH xpcshell-remote.toml:toolkit/components/extensions/test/xpcshell/test_ext_background_early_shutdown.js - Test crashed
+xpcshell-remote.toml:toolkit/components/extensions/test/xpcshell/test_ext_downloads_misc.js
+  FAIL xpcshell-remote.toml:toolkit/components/extensions/test/xpcshell/test_ext_downloads_misc.js - xpcshell return code: 0
+  FAIL test_file_removeFile_permission_failure - [test_file_removeFile_permission_failure : 846] removeFile() fails due to missing dir perms - "success" == "error"
+xpcshell-remote.toml:toolkit/components/extensions/test/xpcshell/test_ext_storage_session_on_crash.js
+  CRASH xpcshell-remote.toml:toolkit/components/extensions/test/xpcshell/test_ext_storage_session_on_crash.js - Test crashed
+browser/components/backup/tests/xpcshell/test_BackupService.js
+  FAIL browser/components/backup/tests/xpcshell/test_BackupService.js - xpcshell return code: 0
+  FAIL test_createBackup_robustToFileSystemErrors - [test_createBackup_robustToFileSystemErrors : 561] folder is read-only - true == false
+browser/components/backup/tests/xpcshell/test_BackupService_scheduler.js
+  FAIL browser/components/backup/tests/xpcshell/test_BackupService_scheduler.js - xpcshell return code: 0
+  FAIL test_BackupService_idle_not_expired_backup - uncaught rejection: PathUtils.join: PathUtils does not support empty paths
+test_BackupService_idle_no_backup_exists@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/backup/tests/xpcshell/test_BackupService_scheduler.js:186:6
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+  FAIL test_BackupService_idle_not_expired_backup - uncaught rejection: PathUtils.join: PathUtils does not support empty paths
+test_BackupService_idle_not_expired_backup@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/backup/tests/xpcshell/test_BackupService_scheduler.js:224:6
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+browser/components/backup/tests/xpcshell/test_BackupService_takeMeasurements.js
+  FAIL browser/components/backup/tests/xpcshell/test_BackupService_takeMeasurements.js - xpcshell return code: 0
+browser/components/search/test/unit/test_domain_to_categories_store.js
+  FAIL browser/components/search/test/unit/test_domain_to_categories_store.js - xpcshell return code: 0
+  FAIL init_read_only_store - [init_read_only_store : 302] foo should not have a result. - [0,1] deepEqual []
+browser/components/shell/test/unit/test_linuxDesktopEntry.js
+  FAIL browser/components/shell/test/unit/test_linuxDesktopEntry.js - xpcshell return code: 0
+  FAIL test_xdgdir - [test_xdgdir : 137] Desktop file was created in the default location if XDG_DATA_HOME is unset - false == true
+browser/components/tests/unit/test_browserGlue_migration_osauth.js
+  FAIL browser/components/tests/unit/test_browserGlue_migration_osauth.js - xpcshell return code: 0
+  FAIL test_pref_migration_old_pref_os_auth_enabled - [test_pref_migration_old_pref_os_auth_enabled : 73] OS Auth should be enabled for credit cards since it was enabled before migration. - false == true
+browser/components/urlbar/tests/quicksuggest/unit/test_merinoClient.js
+  FAIL browser/components/urlbar/tests/quicksuggest/unit/test_merinoClient.js - xpcshell return code: 0
+  FAIL networkError - [networkError : 374] The request failed with a network error - "http_error" == "network_error"
+browser/components/shell/test/unit/test_dynamicLauncher.js
+  FAIL browser/components/shell/test/unit/test_dynamicLauncher.js - xpcshell return code: 0
+browser/components/urlbar/tests/unit/test_protocol_swap.js
+  FAIL browser/components/urlbar/tests/unit/test_protocol_swap.js - xpcshell return code: 0
+  FAIL test_swap_protocol - [test_swap_protocol : 1127] result.type at result index 0 - 2 == 3
+browser/components/urlbar/tests/unit/test_providerHeuristicFallback.js
+  FAIL browser/components/urlbar/tests/unit/test_providerHeuristicFallback.js - xpcshell return code: 0
+  FAIL  - result.type at result index 0 - 2 == 3
+browser/components/urlbar/tests/unit/test_search_suggestions.js
+  FAIL browser/components/urlbar/tests/unit/test_search_suggestions.js - xpcshell return code: 0
+  FAIL avoid_remote_url_suggestions_2 - [avoid_remote_url_suggestions_2 : 1127] result.type at result index 0 - 2 == 3
+xpcshell-parent-process.toml:dom/indexedDB/test/unit/test_idle_maintenance.js
+  FAIL xpcshell-parent-process.toml:dom/indexedDB/test/unit/test_idle_maintenance.js - xpcshell return code: 0
+  FAIL testSteps - [testSteps : 162] Maintenance decreased file sizes or left them the same - false == true
+extensions/permissions/test/unit/test_permmanager_load_invalid_entries.js
+  FAIL extensions/permissions/test/unit/test_permmanager_load_invalid_entries.js - xpcshell return code: 0
+  FAIL run_test - [run_test : 251] we found at least 1 record that was migrated - 0 > 0
+extensions/permissions/test/unit/test_permmanager_migrate_7-8.js
+  FAIL extensions/permissions/test/unit/test_permmanager_migrate_7-8.js - xpcshell return code: 0
+  FAIL test - [test : 322] 7 == 9
+extensions/pref/autoconfig/test/unit/test_autoconfig_sysconfd.js
+  FAIL extensions/pref/autoconfig/test/unit/test_autoconfig_sysconfd.js - xpcshell return code: 0
+  FAIL  - uncaught rejection: Component returned failure code: 0x80520012 (NS_ERROR_FILE_NOT_FOUND) [nsIFile.copyTo]
+run_test@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/extensions/pref/autoconfig/test/unit/test_autoconfig_sysconfd.js:52:18
+async*_execute_test@/root/speculum-gecko/checkout/testing/xpcshell/head.js:644:7
+netwerk/test/unit/test_bug561042.js
+  FAIL netwerk/test/unit/test_bug561042.js - xpcshell return code: 0
+netwerk/test/unit/test_remove_invalid_first_party_partitioned_cookie.js
+  FAIL netwerk/test/unit/test_remove_invalid_first_party_partitioned_cookie.js - xpcshell return code: 0
+  FAIL run_test - [run_test : 191] 1 == 0
+netwerk/test/unit/test_unix_domain.js
+  FAIL netwerk/test/unit/test_unix_domain.js - xpcshell return code: 0
+  FAIL test_create_permission - [test_create_permission : 322] do_check_throws_nsIException: func should throw an nsIException whose 'result' is Components.results.NS_ERROR_CONNECTION_REFUSED, but returned normally
+security/manager/ssl/tests/unit/test_osclientcerts_module.js
+  FAIL security/manager/ssl/tests/unit/test_osclientcerts_module.js - xpcshell return code: 0
+  FAIL run_test - [run_test : 1240] Test module should have been found - null != null
+netwerk/test/unit/test_httpssvc_retry_without_ech.js
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+networkError@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/quicksuggest/unit/test_merinoClient_sessions.js:157:12
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+test_file_removeFile_permission_failure@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/toolkit/components/extensions/test/xpcshell/test_ext_downloads_misc.js:846:8
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+makeFolderReadonly@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/backup/tests/xpcshell/test_BackupService.js:561:12
+async*test_createBackup_robustToFileSystemErrors@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/backup/tests/xpcshell/test_BackupService.js:614:11
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+async*test_takeMeasurements@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/backup/tests/xpcshell/test_BackupService_takeMeasurements.js:23:12
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+init_read_only_store@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/search/test/unit/test_domain_to_categories_store.js:302:10
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+test_xdgdir@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/shell/test/unit/test_linuxDesktopEntry.js:137:10
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+cleanupTmp@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/shell/test/unit/test_linuxDesktopEntry.js:84:11
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+test_pref_migration_old_pref_os_auth_enabled@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/tests/unit/test_browserGlue_migration_osauth.js:73:10
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+networkError@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/quicksuggest/unit/test_merinoClient.js:374:10
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+check_results@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/unit/head.js:1127:16
+async*test_swap_protocol@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/unit/test_protocol_swap.js:80:9
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+check_results@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/unit/head.js:1127:16
+async*@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/unit/test_providerHeuristicFallback.js:452:9
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+check_results@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/unit/head.js:1127:16
+async*avoid_remote_url_suggestions_2@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/browser/components/urlbar/tests/unit/test_search_suggestions.js:1427:9
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+test@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/extensions/permissions/test/unit/test_permmanager_migrate_7-8.js:322:14
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+run_test@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/netwerk/test/unit/test_bug561042.js:32:10
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+run_test@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/netwerk/test/unit/test_remove_invalid_first_party_partitioned_cookie.js:191:12
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+do_check_throws_nsIException@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1139:19
+test_create_permission@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/netwerk/test/unit/test_unix_domain.js:322:33
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9
+do_report_result@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1054:5
+checkPKCS11ModuleExists@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/security/manager/ssl/tests/unit/head_psm.js:1240:11
+async*check_osclientcerts_module_loaded@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/security/manager/ssl/tests/unit/test_osclientcerts_module.js:18:26
+async*run_test@/root/speculum-gecko/checkout/obj-x86_64-pc-linux-gnu/_tests/xpcshell/security/manager/ssl/tests/unit/test_osclientcerts_module.js:39:9
+async*_run_next_test/<@/root/speculum-gecko/checkout/testing/xpcshell/head.js:1858:22
+run@/root/speculum-gecko/checkout/testing/xpcshell/head.js:877:9

@@ -13,6 +13,23 @@ Regra: nada sai daqui por inercia. Sai por decisao registrada.
 
 ---
 
+> ## STATUS 2026-09-10 — **nenhum item de design em aberto**
+>
+> Todos os itens A–S estao FECHADOS ou DESCARTADOS. O que resta nao e' decisao:
+>
+> - **O** e **P** sao **medicao** (backlog abaixo), e so produzem numero depois que
+>   um par supervisor+Gecko estiver rodando.
+> - A **baseline do Gecko** ainda precisa ser fechada em doc proprio
+>   (`gecko-engine/04-baseline.md`): xpcshell e mochitest rodados — **mochitest bateu
+>   o teto de 3 h, entao registrar como "N de M rodaram", nunca como "passou"** — e
+>   WPT com teto de 4 h.
+> - **Divida de spec** aberta por decisao: `page-projection/spec/virtual-assets.md`
+>   §1.1 e §6.1 ficaram obsoletos (`gecko-engine/13-plano-de-ativos.md` §8).
+>
+> Proximo movimento e' implementacao, nao design.
+
+---
+
 ## Destravam outras coisas — decidiveis agora
 
 | id | decisao | destrava | status |
@@ -32,8 +49,8 @@ essa se reescreve.
 | **E** | **O que se corta por observabilidade** | **FECHADO 2026-09-10 → `gecko-engine/05-otimizacao.md`.** Principio: **fazer funcionar primeiro, otimizar depois.** Ausencia (sem tela, sem alto-falante, sem frame de video) entra dia 1; corte de verdade espera C3 + baseline como juiz. Nao e' fundacao, nao entra no caminho critico. | **FECHADO** |
 | **F** | **Fronteira autor / UA** | **FECHADO 2026-09-10 → `gecko-engine/14-fronteira-ua.md`.** Regra: **o elemento e' o contrato; o interior e' trabalho do navegador — dos dois lados.** Componente de spec (`<video>`, `<input>`, `<details>`…) projeta **raiz + atributos + propriedades** (`PropSet` 0x63 cobre o estado que nao e' atributo); o navegador projetado constroi o interior. Nada criado pelo navegador e' projetado. Enunciado assim, o design **nao precisa enumerar** tipos de conteudo de UA — a checagem no C++ vira detalhe de implementacao. Duas exigencias sobre ela: vale **na admissao e em cada mutacao**; **shadow fechado do autor continua replicando** (fechado e' escolha do autor, nao fronteira de UA). Limite registrado: pseudo-elemento de UA nao atravessa entre motores. | **FECHADO** |
 | **G** | **Identidade de no** + risco de referencia pendurada no acumulador. | **RESOLVIDO no Gecko** — nao ha id nativo (tabela paralela fica), **mas `NodeWillBeDestroyed` avisa antes do no morrer** (`gecko-engine/02-costura-evidencia.md` §3). O acumulador guarda identidade e o motor diz quando despejar; dispensa referencia forte. Com K fechada em Gecko, **isto vale como a resposta do projeto.** |
-| **H** | **Relogio de frame** — nasce no commit de style/layout, ou continua timer (`timerFrameClock`)? **De-riscado** pelo acumulador de conjunto sujo: checkpoint vazio = zero trabalho, entao virou otimizacao, nao decisao critica. | ABERTO — baixa criticidade |
-| **I** | **Contextos aninhados / Fission** | **FECHADO COM ASTERISCO 2026-09-10 → `gecko-engine/08-fission.md`.** Fission desligado no v1. **Mas desligar nao garante processo unico** — header COOP/COEP do site ainda separa. O produtor **tolera** frame de outro processo. **(*) REABRIR:** checagem de 5 min sobre desligar tambem COOP/COEP sem matar `SharedArrayBuffer`. Nao mexer nessas prefs antes. | **FECHADO (*)** |
+| **H** | **Relogio de frame** | **FECHADO SEM MUDANCA 2026-09-10 → `gecko-engine/16-multiprocesso.md` §7.** Continua **timer**. A alternativa (commit de style/layout) acoplaria o relogio ao ciclo de pintura, que e' o que o item E pretende mexer. Tick vazio custa zero pelo acumulador. Nao havia decisao a tomar. | **FECHADO** |
+| **I** | **Contextos aninhados / Fission** | **FECHADO SEM ASTERISCO 2026-09-10 → `gecko-engine/16-multiprocesso.md`.** Fission off no v1; **COOP/COEP nao se mexe** — desligar provavelmente mata `SharedArrayBuffer` e o ganho e' marginal, porque o produtor **ja tolera** documento em outro processo. **Nao existe injecao:** o produtor e' codigo do fork no content process, ativa ao receber documento. **Um socket so:** produtor → IPC do Gecko → processo pai (embedder) → supervisor. Morte de content process vira `ContextDestroyed`. Id nao colide (`contextId` no prefixo). | **FECHADO** |
 | **J** | **Plano de ativos** | **FECHADO 2026-09-10 → `gecko-engine/13-plano-de-ativos.md`.** **Service worker no cliente** intercepta tudo; **ninguem reescreve URL** (o hop `rewritePart` morre — era incompativel com o supervisor cego). O Virtual age como **proxy de rede** para o que so o cliente pede (midia, com `Range` repassado), porque a razao de proxiar pelo navegador e a **identidade** (TLS, cookie, HTTP/2). Sobreposicao real e' so **imagem e fonte** — o resto e' exclusivo de um lado. Plano de ativos e' **tee de stream por offset**, nao cache de corpo inteiro. Limites escritos: stream de script (SSE/WebSocket) nunca e' servido; **MSE nao atravessa** (limite estrutural, nao backlog). **Risco de `<video>`+`Range` por SW foi testado e retirado** — evidencia e harness em `gecko-engine/evidence/sw-range/`. | **FECHADO** |
 
 ## Escopo, nao mecanismo — decisao de produto
@@ -45,13 +62,16 @@ essa se reescreve.
 | **M** | **TLS / JA3-JA4 e HTTP/2** | **FECHADO 2026-09-10 → `gecko-engine/07-rede.md`.** Com Gecko e' **de graca** — mesmo NSS e mesmo Necko do Firefox. Virou **proibicao** (nao mexer em `security.tls.*`, nao endurecer, nao trocar NSS) + uma verificacao de JA3 contra Firefox de fabrica. Era projeto grande no plano WebKit. | **FECHADO** |
 | **N** | **Granularidade de processo** (`06-runtime.md` §8.1) | **FECHADO 2026-09-10 → `gecko-engine/10-orquestrador.md`.** Fechou junto com R, porque eram a mesma pergunta. **Sessao = processo** (par supervisor + Gecko), dentro de um **container longo por host**. Nao e' container por sessao. | **FECHADO** |
 
-## Precisam de numero, nao de debate
+## Backlog de medicao — NAO sao decisoes
 
-| id | decisao | status |
+> Movidos para ca' em 2026-09-10. Nao ha nada a decidir nestes itens; eles so
+> produzem numero, e so depois que existir um par supervisor+Gecko rodando.
+> Ficavam no indice dando impressao de pendencia de design.
+
+| id | o que medir | quando |
 |---|---|---|
-| **O** | **Onde os bytes de frame realmente passam** (`06-runtime` §8.3). **Escopo estreitado 2026-09-10:** e' sobre *como* passam pelo supervisor (copia, pooling, shm vs socket), nao sobre *se* passam — isso ficou decidido por arquitetura em `11-supervisor-linguagem.md` §2. | AGUARDA MEDICAO |
-| **P** | **Densidade — sessoes por host.** Recebeu 2026-09-10 a pegada de memoria por runtime .NET × N sessoes (ordem de 20–40 MB de baseline por processo antes de AOT), **adiada por decisao** em `11-supervisor-linguagem.md` §8. | AGUARDA MEDICAO |
-| **S** | **Vida da sessao quando o caller cai** — **FECHADO 2026-09-10 → `gecko-engine/15-vida-da-sessao.md`.** Uma regra so nas tres pontes: **caiu = morre**. Supervisor **nao reconecta**: morre com o orquestrador via `PR_SET_PDEATHSIG` (kernel, funciona no crash — que e' justamente o caso em que codigo de limpeza nao roda). Application **degrada aquele orquestrador**, nao entra em falha global. **Timer espelhado obrigatorio:** sessao sem caller ha N morre, senao um piscar de rede vaza sessao viva no host. | **FECHADO** |
+| **O** | **Por onde os bytes de frame realmente passam** — copia, pooling, socket vs memoria compartilhada. Inclui o hop content → pai (`16-multiprocesso.md` §5), que existe sempre. **Escopo:** e' sobre *como* passam pelo supervisor, nao sobre *se* passam (decidido em `11-supervisor-linguagem.md` §2). | quando o relay existir |
+| **P** | **Densidade — sessoes por host.** Carrega tambem a pegada de memoria por runtime .NET × N sessoes, adiada por decisao em `11-supervisor-linguagem.md` §8. | quando um par rodar |
 
 ## Confirmacoes assumidas — agora declaradas
 
@@ -67,6 +87,7 @@ essa se reescreve.
 
 | id | como foi resolvida |
 |---|---|
+| **I + H** | Sem asterisco: COOP/COEP nao se mexe, sem injecao, um socket so. Relogio segue timer. `gecko-engine/16-multiprocesso.md`. |
 | **S** | Caiu = morre, nas tres pontes; PDEATHSIG; degradacao em vez de falha global; timer espelhado. `gecko-engine/15-vida-da-sessao.md`. |
 | **F** | O elemento e' o contrato; o interior e' do navegador. `gecko-engine/14-fronteira-ua.md`. |
 | **J** | Service worker no cliente; zero reescrita de URL; navegador como proxy; tee por offset. `gecko-engine/13-plano-de-ativos.md`. |

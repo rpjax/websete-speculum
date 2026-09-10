@@ -1,6 +1,12 @@
-# Baseline upstream Gecko ESR 153 — PARCIAL / BLOQUEADA
+# Baseline upstream Gecko ESR 153 — ESTABELECIDA
 
-**Status: BLOQUEADA (baseline não estabelecida).** Medição 2026-09-09/10.
+**Status: ESTABELECIDA 2026-09-10.** Medição 2026-09-09/10.
+
+> **Correção do veredito, 2026-09-10.** Uma versão anterior deste doc dizia
+> **BLOQUEADA**. Estava errado, e o erro custou tempo. Ver §"Veredito" abaixo:
+> as duas suítes que fecharam dizem que o build está são, e a terceira (WPT) não
+> mediu o motor — mediu o próprio harness. **A baseline está fechada. Nada aqui
+> bloqueia o início da implementação.**
 
 **Regra de re-baselinizar:** mudou tag, flag de build, **modo de renderização** ou ambiente → re-baselinizar do zero.
 
@@ -142,14 +148,55 @@ Gecko xpcshell: ambiente **≈44%** dos test files unexpected (não 61%, mas **d
 
 ---
 
-## Veredito (uma linha)
+## Veredito
 
-**BLOQUEADA** — mochitest e web-platform-tests **incompletas** (timeout); WPT com **4992** ERROR sistemático (`__wptrunner_process_next_event`); bucket 3 WPT domina; baseline tri-suíte não fechada.
+**ESTABELECIDA.** O build upstream está são e serve como ponto de partida.
+
+### Por quê
+
+A baseline existia para responder **uma** pergunta: *o build está normal antes de
+adicionarmos nosso código?* A resposta é sim, e vem das duas suítes que fecharam:
+
+| suíte | resultado | leitura |
+|---|---|---|
+| xpcshell | 43 unexpected em **8803 checks** = **0,5%**, com ~44% já nomeados como ambiente | saudável |
+| mochitest | **2828 PASS** contra 126 FAIL/TIMEOUT do que rodou = **~96%** | saudável |
+| SWGL | compositor `RenderCompositorSWGL` provado em log | renderização por software funciona sem GPU |
+
+### Sobre o WPT — não é resultado de motor
+
+`TEST_END: OK` = **0** em 9130 testes iniciados, todos com a mesma mensagem
+(`window.__wptrunner_process_next_event is not a function`, 14976 ocorrências).
+
+Isso é o bootstrap do **próprio wptrunner** não carregando na janela de teste. Um
+motor que reprovasse 100% do WPT não abriria uma página — e o SWGL prova que ele
+subiu e compôs.
+
+**Portanto os 4992 ERROR não são bucket 3.** Não são resultado nenhum. A
+classificação anterior transformava uma falha de setup em veredito sobre o Gecko.
+
+Suspeito principal, e é **nosso**: a rodada usou `baseline-profile/user.js` com as
+prefs de SWGL forçadas. WPT é, das três, a suíte mais sensível a perfil e
+marionette. Há chance real de termos medido o nosso próprio `user.js`.
+
+**Decisão: WPT sai do caminho crítico.** Não bloqueia, não se re-roda agora, não se
+aumenta teto. Fica registrado como dívida de ferramental, não como risco de motor.
+
+### Regra de método que sai daqui
+
+Suíte que retorna **0 sucesso com falha uniforme** é harness quebrado até prova em
+contrário — nunca veredito sobre o software testado. Custou dias aprender isso
+neste projeto.
 
 ---
 
-## O que faltou
+## Dívida (não bloqueante)
 
-- [ ] mochitest até resumo final do harness (ou teto maior documentado)
-- [ ] WPT até fim ou diagnóstico do runner headless+SWGL vs produção VPS
-- [ ] Classificação bucket 2/3 linha-a-linha nos 126 mochitest FAIL/TIMEOUT
+- WPT: diagnosticar o runner quando houver folga. Primeiro teste barato: rodar um
+  subconjunto pequeno **sem** o nosso `user.js`. Se aparecer OK > 0, o culpado é o
+  perfil.
+- Mochitest: fechar o resumo do harness rodando em chunks
+  (`--total-chunks 4 --this-chunk N`), não em parede única.
+- Classificação bucket 2/3 dos 126 mochitest FAIL/TIMEOUT.
+
+Nenhum destes precede a implementação.

@@ -56,23 +56,39 @@ caller/consumer**, nao pelo supervisor.
 Motivo: o supervisor nao adivinha o formato que o produto quer. Ele expoe uma
 superficie neutra; quem consome molda.
 
-## 6. Pool e admissao ficam no caller
+## 6. Pool e admissao — CORRIGIDO 2026-09-10
 
-O supervisor nao decide **quantas** instancias existem. Admissao, cota, colocacao e
-recolher instancia morta sao responsabilidade do **caller**.
+> **CORRECAO (item R, `gecko-engine/10-orquestrador.md` §5).** Este capitulo dizia
+> "pool e admissao ficam no caller". **Nao ficam.** O caller nao cria processo em
+> host remoto e nao sabe a capacidade do host. Quem sabe e' o **Orquestrador**.
 
-Motivo: quem sabe de tenant, prioridade e cota e' o produto. Ele deve decidir colocacao.
+**Divisao correta: o produto pede, o Orquestrador aloca ou recusa.**
 
-Consequencia para o contrato: ele precisa expor o suficiente para o caller decidir —
-readiness, health, e sinal de consumo de recurso.
+- **Produto (caller):** conhece tenant, prioridade e cota. Decide **se quer** uma
+  sessao e **de quem** ela e'. Pede.
+- **Orquestrador:** conhece capacidade do host, sobe e derruba os pares, recolhe
+  orfao. Decide **se cabe** e **onde**. Aloca ou recusa.
+- **Supervisor:** nao decide quantas instancias existem. Isso segue valendo.
 
-Hoje isso vive em `BrowserPool` / `BrowserPoolRegistry` no sidecar. No desenho novo, sobe.
+Consequencia para o contrato: ele precisa expor o suficiente para o caller decidir
+o lado dele — readiness, health, e sinal de consumo de recurso — e o suficiente
+para o Orquestrador decidir o lado dele.
+
+Hoje isso vive em `BrowserPool` / `BrowserPoolRegistry` no sidecar. No desenho novo,
+a parte de capacidade e ciclo de vida vai para o Orquestrador; a parte de tenant e
+cota fica no produto.
 
 ## 7. Ponte de controle supervisor <-> embedder — DECIDIDO
 
 Escopo: a ponte carrega **controle**. Plano de dados e' separado (ver 8.3).
-Controle sao poucas mensagens por sessao, entao a performance dele e' irrelevante e a
-simplicidade vale tudo.
+
+> **CORRECAO 2026-09-10 (item C, `gecko-engine/12-ponte-controle-vocabulario.md` §1).**
+> A versao anterior deste paragrafo dizia que controle e' "poucas mensagens por sessao,
+> entao a performance dele e' irrelevante". **Errado.** `Input` viaja por esta ponte:
+> movimento de ponteiro e' 60-120 mensagens por segundo, continuo. E latencia de entrada
+> e' a qualidade percebida da projecao inteira. A ponte precisa **aguentar vazao alta com
+> conforto, com paralelismo e sem engasgo**; protocolo assincrono com id de correlacao e
+> sem bloqueio de cabeca de fila. Simplicidade continua valendo, mas nao a custa disso.
 
 ### 7.1 Forma
 

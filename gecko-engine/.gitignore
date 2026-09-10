@@ -2,3 +2,7 @@
 checkout/
 build/
 .ccache/
+
+# Perfil de prefs apenas; nunca cache/SQLite gerado por mach run.
+baseline-profile/*
+!baseline-profile/user.js

@@ -3440,8 +3440,6 @@ nsresult Document::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
              "Bad readyState");
   SetReadyStateInternal(READYSTATE_LOADING);
 
-  SetSpeculumWatchingDOMMutations(true);
-
   if (nsCRT::strcmp(kLoadAsData, aCommand) == 0) {
     MOZ_RELEASE_ASSERT(mLoadedAsData);
     SetLoadedAsData(true, /* aConsiderForMemoryReporting */ true);
@@ -3480,6 +3478,7 @@ nsresult Document::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
   RetrieveRelevantHeaders(aChannel);
 
   mChannel = aChannel;
+  SetSpeculumWatchingDOMMutations(true);
   RecomputeResistFingerprinting();
   if (nsCOMPtr<nsIInputStreamChannel> inStrmChan =
           do_QueryInterface(mChannel)) {
@@ -15232,6 +15231,14 @@ void Document::SetSpeculumWatchingDOMMutations(bool aValue) {
     if (nsIURI* docUri = GetDocumentURI()) {
       uri = docUri->GetSpecOrDefault();
     }
+    nsAutoCString channelUri("(null)");
+    if (nsIChannel* channel = GetChannel()) {
+      nsCOMPtr<nsIURI> channelSpec;
+      if (NS_SUCCEEDED(channel->GetURI(getter_AddRefs(channelSpec))) &&
+          channelSpec) {
+        channelUri = channelSpec->GetSpecOrDefault();
+      }
+    }
     int bcIsContent = -1;
     if (nsIDocShell* shell = GetDocShell()) {
       if (BrowsingContext* bc = shell->GetBrowsingContext()) {
@@ -15248,10 +15255,12 @@ void Document::SetSpeculumWatchingDOMMutations(bool aValue) {
     if (FILE* fp = fopen(logPath, "a")) {
       fprintf(
           fp,
-          "[SPECULUM-DOC] pid=%d | proc=%s | uri=%s | contentDoc=%d | "
+          "[SPECULUM-DOC] pid=%d | proc=%s | uri=%s | channelUri=%s | "
+          "contentDoc=%d | "
           "chromeShell=%d | bcIsContent=%d | systemPrincipal=%d | hasParentDoc=%d "
           "| root=%d\n",
-          static_cast<int>(pid), proc, uri.get(), IsContentDocument() ? 1 : 0,
+          static_cast<int>(pid), proc, uri.get(), channelUri.get(),
+          IsContentDocument() ? 1 : 0,
           IsInChromeDocShell() ? 1 : 0, bcIsContent,
           NodePrincipal()->IsSystemPrincipal() ? 1 : 0, hasParentDoc ? 1 : 0,
           hasParentDoc ? 0 : 1);

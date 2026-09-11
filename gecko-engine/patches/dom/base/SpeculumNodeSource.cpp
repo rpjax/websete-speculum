@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <string>
 #include <vector>
 
 using mozilla::dom::CharacterData;
@@ -161,6 +162,43 @@ uint32_t NextSpeculumFrameIndex() {
   return sNext++;
 }
 
+std::string Base64Encode(const uint8_t* aData, size_t aLen) {
+  static const char kAlphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve(((aLen + 2) / 3) * 4);
+  for (size_t i = 0; i < aLen; i += 3) {
+    const uint32_t b0 = aData[i];
+    const uint32_t b1 = (i + 1 < aLen) ? aData[i + 1] : 0;
+    const uint32_t b2 = (i + 2 < aLen) ? aData[i + 2] : 0;
+    const uint32_t n = (b0 << 16) | (b1 << 8) | b2;
+    out.push_back(kAlphabet[(n >> 18) & 0x3f]);
+    out.push_back(kAlphabet[(n >> 12) & 0x3f]);
+    out.push_back((i + 1 < aLen) ? kAlphabet[(n >> 6) & 0x3f] : '=');
+    out.push_back((i + 2 < aLen) ? kAlphabet[n & 0x3f] : '=');
+  }
+  return out;
+}
+
+void EmitFrameToStderr(uint32_t aSeq, const std::vector<uint8_t>& aFrame) {
+  constexpr size_t kMaxB64PerLine = 64 * 1024;
+  const std::string b64 = Base64Encode(aFrame.data(), aFrame.size());
+  if (b64.size() <= kMaxB64PerLine) {
+    printf_stderr("[SPECULUM-FRAME] seq=%u bytes=%zu %s\n", aSeq, aFrame.size(),
+                  b64.c_str());
+    return;
+  }
+  const size_t partCount =
+      (b64.size() + kMaxB64PerLine - 1) / kMaxB64PerLine;
+  for (size_t idx = 0; idx < partCount; ++idx) {
+    const size_t start = idx * kMaxB64PerLine;
+    const size_t chunkLen = std::min(kMaxB64PerLine, b64.size() - start);
+    const std::string part = b64.substr(start, chunkLen);
+    printf_stderr("[SPECULUM-FRAME-PART] seq=%u idx=%zu de=%zu %s\n", aSeq, idx,
+                  partCount, part.c_str());
+  }
+}
+
 bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
   if (!aDocument || aDocument->IsInChromeDocShell()) {
     return true;
@@ -206,6 +244,8 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
     }
     fclose(fp);
   }
+  const uint32_t seq = producer.sequence();
+  EmitFrameToStderr(seq, frame);
   printf_stderr(
       "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
       frame.size(),

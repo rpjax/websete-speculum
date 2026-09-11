@@ -73,12 +73,35 @@ for m in part_re.finditer(text):
 events.sort(key=lambda e: e[0])
 
 written = 0
-part_buf: dict[int, dict[int, tuple[int, str]]] = {}
-part_total: dict[int, int] = {}
-part_seen_pos: dict[int, int] = {}
+cur_parts: dict[int, str] = {}
+cur_total = 0
+
+
+def flush_part_frame() -> None:
+    global written, cur_parts, cur_total
+    if not cur_total:
+        return
+    if len(cur_parts) != cur_total:
+        print(
+            f"  AVISO: {len(cur_parts)} de {cur_total} partes — frame descartado"
+        )
+        cur_parts = {}
+        cur_total = 0
+        return
+    try:
+        data = decode_b64("".join(cur_parts[i] for i in sorted(cur_parts)))
+    except Exception as exc:
+        print(f"  AVISO: base64 invalido ({exc}) — frame descartado")
+    else:
+        written += 1
+        (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
+    cur_parts = {}
+    cur_total = 0
+
 
 for _pos, kind, groups in events:
     if kind == "whole":
+        flush_part_frame()
         seq, declared, b64 = groups
         try:
             data = decode_b64(b64)
@@ -93,27 +116,22 @@ for _pos, kind, groups in events:
         (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
         continue
 
-    seq_s, idx_s, total_s, chunk = groups
-    seq_i, idx_i, total_i = int(seq_s), int(idx_s), int(total_s)
-    part_buf.setdefault(seq_i, {})[idx_i] = (total_i, chunk)
-    part_total[seq_i] = total_i
-    part_seen_pos.setdefault(seq_i, _pos)
+    _seq_s, idx_s, total_s, chunk = groups
+    idx_i, total_i = int(idx_s), int(total_s)
+    if idx_i == 0:
+        flush_part_frame()
+        cur_total = total_i
+        cur_parts = {}
+    elif total_i != cur_total:
+        print("  AVISO: parte com de= inesperado — frame descartado")
+        cur_parts = {}
+        cur_total = 0
+        continue
+    cur_parts[idx_i] = chunk
+    if len(cur_parts) == cur_total:
+        flush_part_frame()
 
-for seq_i in sorted(part_seen_pos, key=lambda s: part_seen_pos[s]):
-    chunks = part_buf.get(seq_i, {})
-    total_i = part_total[seq_i]
-    if len(chunks) != total_i:
-        print(
-            f"  AVISO seq={seq_i}: {len(chunks)} de {total_i} partes — frame descartado"
-        )
-        continue
-    try:
-        data = decode_b64("".join(chunks[i][1] for i in sorted(chunks)))
-    except Exception as exc:
-        print(f"  AVISO seq={seq_i}: base64 invalido ({exc}) — frame descartado")
-        continue
-    written += 1
-    (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
+flush_part_frame()
 
 if written:
     print(f"extraidos do stderr: {written} frame(s)")

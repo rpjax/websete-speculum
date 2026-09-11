@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <string>
 #include <vector>
 
@@ -181,20 +182,19 @@ std::string Base64Encode(const uint8_t* aData, size_t aLen) {
 }
 
 void EmitFrameToStderr(uint32_t aSeq, const std::vector<uint8_t>& aFrame) {
-  constexpr size_t kMaxB64PerLine = 64 * 1024;
+  // stderr write is only atomic up to ~4 KiB; keep each line under 3000 bytes.
+  constexpr size_t kMaxB64PerPart = 2048;
   const std::string b64 = Base64Encode(aFrame.data(), aFrame.size());
-  if (b64.size() <= kMaxB64PerLine) {
-    printf_stderr("[SPECULUM-FRAME] seq=%u bytes=%zu %s\n", aSeq, aFrame.size(),
-                  b64.c_str());
+  if (b64.empty()) {
     return;
   }
-  const size_t partCount =
-      (b64.size() + kMaxB64PerLine - 1) / kMaxB64PerLine;
-  for (size_t idx = 0; idx < partCount; ++idx) {
-    const size_t start = idx * kMaxB64PerLine;
-    const size_t chunkLen = std::min(kMaxB64PerLine, b64.size() - start);
+  const uint32_t partCount = static_cast<uint32_t>(
+      (b64.size() + kMaxB64PerPart - 1) / kMaxB64PerPart);
+  for (uint32_t idx = 0; idx < partCount; ++idx) {
+    const size_t start = static_cast<size_t>(idx) * kMaxB64PerPart;
+    const size_t chunkLen = std::min(kMaxB64PerPart, b64.size() - start);
     const std::string part = b64.substr(start, chunkLen);
-    printf_stderr("[SPECULUM-FRAME-PART] seq=%u idx=%zu de=%zu %s\n", aSeq, idx,
+    printf_stderr("[SPECULUM-FRAME-PART] seq=%u idx=%u de=%u %s\n", aSeq, idx,
                   partCount, part.c_str());
   }
 }
@@ -222,10 +222,17 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
   SpeculumNodeSource source;
   speculum::Producer producer(source);
   producer.bootstrap(aDocument);
+  const uint32_t ops = producer.pendingOps();
   std::vector<uint8_t> frame = producer.emitFrame();
   if (frame.empty()) {
     return false;
   }
+  nsAutoCString uri("(null)");
+  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
+    uri = docUri->GetSpecOrDefault();
+  }
+  printf_stderr("[SPECULUM-BOOT] pid=%d uri=%s ops=%u bytes=%zu\n",
+                static_cast<int>(getpid()), uri.get(), ops, frame.size());
   mkdir("/tmp/speculum-frames", 0777);
   const uint32_t index = NextSpeculumFrameIndex();
   char binPath[128];

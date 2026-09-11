@@ -165,12 +165,15 @@ bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
   if (!aDocument || aDocument->IsInChromeDocShell()) {
     return true;
   }
-  if (nsIDocShell* shell = aDocument->GetDocShell()) {
-    if (BrowsingContext* bc = shell->GetBrowsingContext()) {
-      return !bc->IsContent();
-    }
+  nsIDocShell* shell = aDocument->GetDocShell();
+  if (!shell) {
+    return true;
   }
-  return false;
+  BrowsingContext* bc = shell->GetBrowsingContext();
+  if (!bc) {
+    return true;
+  }
+  return !bc->IsContent();
 }
 
 bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {

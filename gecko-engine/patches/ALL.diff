@@ -1,0 +1,570 @@
+diff --git a/dom/base/Document.cpp b/dom/base/Document.cpp
+index 0122df8a7f..50a084d8ee 100644
+--- a/dom/base/Document.cpp
++++ b/dom/base/Document.cpp
+@@ -7,6 +7,16 @@
+  */
+ 
+ #include "mozilla/dom/Document.h"
++#include "SpeculumMutationObserver.h"
++#include "SpeculumNodeSource.h"
++#include "mozilla/dom/BrowsingContext.h"
++#include "nsDocShell.h"
++
++#include <cstdio>
++#include <unistd.h>
++#include <sys/stat.h>
++#include <sys/types.h>
++#include <vector>
+ 
+ #include <inttypes.h>
+ #include <stdlib.h>
+@@ -3430,6 +3440,8 @@ nsresult Document::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
+              "Bad readyState");
+   SetReadyStateInternal(READYSTATE_LOADING);
+ 
++  SetSpeculumWatchingDOMMutations(true);
++
+   if (nsCRT::strcmp(kLoadAsData, aCommand) == 0) {
+     MOZ_RELEASE_ASSERT(mLoadedAsData);
+     SetLoadedAsData(true, /* aConsiderForMemoryReporting */ true);
+@@ -12259,6 +12271,7 @@ void Document::Destroy() {
+   // is set inside ReportPageLoadEvent.
+   ReportPageLoadEvent();
+   ReportLCP();
++  SetSpeculumWatchingDOMMutations(false);
+   SetDevToolsWatchingDOMMutations(false);
+ 
+   mIsGoingAway = true;
+@@ -12989,6 +13002,7 @@ void Document::SetReadyStateInternal(ReadyState aReadyState,
+ 
+   AsyncEventDispatcher::RunDOMEventWhenSafe(
+       *this, u"readystatechange"_ns, CanBubble::eNo, ChromeOnlyDispatch::eNo);
++
+ }
+ 
+ void Document::GetReadyState(nsAString& aReadyState) const {
+@@ -15205,6 +15219,49 @@ void Document::SetDevToolsWatchingDOMMutations(bool aValue) {
+   }
+ }
+ 
++void Document::SetSpeculumWatchingDOMMutations(bool aValue) {
++  // Diagnostic-only path (speculum-doc-diagnostic.py).
++  if (mSpeculumWatchingDOMMutations == aValue || mIsGoingAway) {
++    return;
++  }
++  if (aValue) {
++    nsAutoCString uri("(null)");
++    if (nsIURI* docUri = GetDocumentURI()) {
++      uri = docUri->GetSpecOrDefault();
++    }
++    int bcIsContent = -1;
++    if (nsIDocShell* shell = GetDocShell()) {
++      if (BrowsingContext* bc = shell->GetBrowsingContext()) {
++        bcIsContent = bc->IsContent() ? 1 : 0;
++      }
++    }
++    const bool hasParentDoc = GetEmbedderElement() != nullptr;
++    const char* proc = XRE_IsParentProcess() ? "pai" : "conteudo";
++    mkdir("/tmp/speculum-docs", 0777);
++    char logPath[128];
++    const pid_t pid = getpid();
++    snprintf(logPath, sizeof(logPath), "/tmp/speculum-docs/%d.log",
++             static_cast<int>(pid));
++    if (FILE* fp = fopen(logPath, "a")) {
++      fprintf(
++          fp,
++          "[SPECULUM-DOC] pid=%d | proc=%s | uri=%s | contentDoc=%d | "
++          "chromeShell=%d | bcIsContent=%d | systemPrincipal=%d | hasParentDoc=%d "
++          "| root=%d\n",
++          static_cast<int>(pid), proc, uri.get(), IsContentDocument() ? 1 : 0,
++          IsInChromeDocShell() ? 1 : 0, bcIsContent,
++          NodePrincipal()->IsSystemPrincipal() ? 1 : 0, hasParentDoc ? 1 : 0,
++          hasParentDoc ? 0 : 1);
++      fclose(fp);
++    }
++    return;
++  }
++  mSpeculumWatchingDOMMutations = aValue;
++  SpeculumDetachMutationObserverFromDocument(this);
++}
++
++
++
+ void EvaluateMediaQueryLists(nsTArray<RefPtr<MediaQueryList>>& aListsToNotify,
+                              Document& aDocument) {
+   if (nsPresContext* pc = aDocument.GetPresContext()) {
+diff --git a/dom/base/Document.h b/dom/base/Document.h
+index 42c105bb32..2feb64d41c 100644
+--- a/dom/base/Document.h
++++ b/dom/base/Document.h
+@@ -3862,6 +3862,7 @@ class Document : public nsINode,
+     return mDevToolsWatchingDOMMutations;
+   }
+   void SetDevToolsWatchingDOMMutations(bool aValue);
++  void SetSpeculumWatchingDOMMutations(bool aValue);
+ 
+   // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
+   void EvaluateMediaQueriesAndReportChanges();
+@@ -5022,6 +5023,7 @@ class Document : public nsINode,
+   bool mUpgradeInsecureRequests : 1;
+   bool mUpgradeInsecurePreloads : 1;
+   bool mDevToolsWatchingDOMMutations : 1;
++  bool mSpeculumWatchingDOMMutations : 1;
+ 
+   // Indicates whether this document is normal as in navigation or loaded as
+   // data as in XHR or DOMParser.
+diff --git a/dom/base/SpeculumMutationObserver.cpp b/dom/base/SpeculumMutationObserver.cpp
+new file mode 100755
+index 0000000000..0b32aaf3fa
+--- /dev/null
++++ b/dom/base/SpeculumMutationObserver.cpp
+@@ -0,0 +1,90 @@
++/* Speculum — minimal DOM mutation probe (producer spike). */
++#include "SpeculumMutationObserver.h"
++
++#include "mozilla/ClearOnShutdown.h"
++#include "mozilla/StaticPtr.h"
++#include "mozilla/dom/Document.h"
++#include "mozilla/Assertions.h"
++#include "nsDebug.h"
++
++
++#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
++#include "speculum/Producer.h"
++
++
++using mozilla::StaticRefPtr;
++
++NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver)
++
++#define SPECULUM_LOG(cb) printf_stderr("[SPECULUM] %s\n", cb)
++
++void SpeculumMutationObserver::CharacterDataWillChange(
++    nsIContent*, const CharacterDataChangeInfo&) {
++  SPECULUM_LOG("CharacterDataWillChange");
++}
++
++void SpeculumMutationObserver::CharacterDataChanged(
++    nsIContent*, const CharacterDataChangeInfo&) {
++  SPECULUM_LOG("CharacterDataChanged");
++}
++
++void SpeculumMutationObserver::AttributeWillChange(mozilla::dom::Element*,
++                                                   int32_t, nsAtom*,
++                                                   AttrModType) {
++  SPECULUM_LOG("AttributeWillChange");
++}
++
++void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element*, int32_t,
++                                                nsAtom*, AttrModType,
++                                                const nsAttrValue*) {
++  SPECULUM_LOG("AttributeChanged");
++}
++
++void SpeculumMutationObserver::AttributeSetToCurrentValue(
++    mozilla::dom::Element*, int32_t, nsAtom*) {
++  SPECULUM_LOG("AttributeSetToCurrentValue");
++}
++
++void SpeculumMutationObserver::ContentAppended(nsIContent*,
++                                               const ContentAppendInfo&) {
++  SPECULUM_LOG("ContentAppended");
++}
++
++void SpeculumMutationObserver::ContentInserted(nsIContent*,
++                                               const ContentInsertInfo&) {
++  printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
++  SPECULUM_LOG("ContentInserted");
++}
++
++void SpeculumMutationObserver::ContentWillBeRemoved(nsIContent*,
++                                                    const ContentRemoveInfo&) {
++  SPECULUM_LOG("ContentWillBeRemoved");
++}
++
++void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode*) {
++  SPECULUM_LOG("NodeWillBeDestroyed");
++}
++
++void SpeculumMutationObserver::ParentChainChanged(nsIContent*) {
++  SPECULUM_LOG("ParentChainChanged");
++}
++
++static StaticRefPtr<SpeculumMutationObserver> sSpeculumMutationObserver;
++
++void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
++  if (!aDocument) {
++    return;
++  }
++  if (MOZ_UNLIKELY(!sSpeculumMutationObserver)) {
++    sSpeculumMutationObserver = new SpeculumMutationObserver();
++    ClearOnShutdown(&sSpeculumMutationObserver);
++  }
++  aDocument->AddMutationObserver(sSpeculumMutationObserver);
++}
++
++void SpeculumDetachMutationObserverFromDocument(Document* aDocument) {
++  if (!aDocument || !sSpeculumMutationObserver) {
++    return;
++  }
++  aDocument->RemoveMutationObserver(sSpeculumMutationObserver);
++}
+diff --git a/dom/base/SpeculumMutationObserver.h b/dom/base/SpeculumMutationObserver.h
+new file mode 100755
+index 0000000000..8d05ad07d2
+--- /dev/null
++++ b/dom/base/SpeculumMutationObserver.h
+@@ -0,0 +1,43 @@
++/* Speculum — minimal DOM mutation probe (producer spike). */
++#ifndef dom_base_SpeculumMutationObserver_h
++#define dom_base_SpeculumMutationObserver_h
++
++#include "nsStubMutationObserver.h"
++
++class SpeculumMutationObserver final : public nsStubMutationObserver {
++ public:
++  NS_DECL_ISUPPORTS
++
++  void CharacterDataWillChange(nsIContent* aContent,
++                               const CharacterDataChangeInfo&) override;
++  void CharacterDataChanged(nsIContent* aContent,
++                            const CharacterDataChangeInfo&) override;
++  void AttributeWillChange(mozilla::dom::Element* aElement, int32_t aNamespaceID,
++                           nsAtom* aAttribute, AttrModType aModType) override;
++  void AttributeChanged(mozilla::dom::Element* aElement, int32_t aNamespaceID,
++                        nsAtom* aAttribute, AttrModType aModType,
++                        const nsAttrValue* aOldValue) override;
++  void AttributeSetToCurrentValue(mozilla::dom::Element* aElement,
++                                  int32_t aNamespaceID,
++                                  nsAtom* aAttribute) override;
++  void ContentAppended(nsIContent* aFirstNewContent,
++                       const ContentAppendInfo&) override;
++  void ContentInserted(nsIContent* aChild,
++                       const ContentInsertInfo&) override;
++  void ContentWillBeRemoved(nsIContent* aChild,
++                            const ContentRemoveInfo&) override;
++  void NodeWillBeDestroyed(nsINode* aNode) override;
++  void ParentChainChanged(nsIContent* aContent) override;
++
++ private:
++  ~SpeculumMutationObserver() = default;
++};
++
++namespace mozilla::dom {
++class Document;
++}
++
++void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
++void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
++
++#endif
+diff --git a/dom/base/SpeculumNodeSource.cpp b/dom/base/SpeculumNodeSource.cpp
+new file mode 100644
+index 0000000000..5c9e9e13ff
+--- /dev/null
++++ b/dom/base/SpeculumNodeSource.cpp
+@@ -0,0 +1,229 @@
++/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
++#include "mozilla/Assertions.h"
++#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
++#include "SpeculumNodeSource.h"
++
++#include "AttrArray.h"
++#include "DocumentType.h"
++#include "Element.h"
++#include "NameSpaceConstants.h"
++#include "mozilla/dom/CharacterData.h"
++#include "nsAttrName.h"
++#include "nsAttrValue.h"
++#include "nsIContent.h"
++#include "nsINode.h"
++#include "nsReadableUtils.h"
++#include "mozilla/dom/Document.h"
++#include "mozilla/dom/BrowsingContext.h"
++#include "nsIDocShell.h"
++
++#include <cstdio>
++#include <sys/stat.h>
++#include <sys/types.h>
++#include <vector>
++
++using mozilla::dom::CharacterData;
++using mozilla::dom::DocumentType;
++using mozilla::dom::Element;
++
++namespace {
++
++nsINode* AsNode(const void* aNode) {
++  return const_cast<nsINode*>(static_cast<const nsINode*>(aNode));
++}
++
++std::string Utf8FromUtf16(const nsAString& aUtf16) {
++  return std::string(NS_ConvertUTF16toUTF8(aUtf16).get());
++}
++
++std::string Utf8FromAtom(const nsAtom* aAtom) {
++  if (!aAtom) {
++    return std::string();
++  }
++  nsAutoString tmp;
++  aAtom->ToString(tmp);
++  return Utf8FromUtf16(tmp);
++}
++
++}  // namespace
++
++speculum::NodeKind SpeculumNodeSource::kindOf(const void* node) const {
++  nsINode* n = AsNode(node);
++  if (n->IsElement()) {
++    return speculum::NodeKind::Element;
++  }
++  if (n->IsText()) {
++    return speculum::NodeKind::Text;
++  }
++  if (n->IsComment()) {
++    return speculum::NodeKind::Comment;
++  }
++  if (n->NodeType() == nsINode::DOCUMENT_TYPE_NODE) {
++    return speculum::NodeKind::Doctype;
++  }
++  MOZ_CRASH("SpeculumNodeSource::kindOf: unsupported node");
++}
++
++speculum::ElementNs SpeculumNodeSource::nsOf(const void* node) const {
++  nsINode* n = AsNode(node);
++  nsIContent* content = n->AsContent();
++  if (!content || !content->IsElement()) {
++    return speculum::ElementNs::None;
++  }
++  const int32_t nsId = content->GetNameSpaceID();
++  if (nsId == kNameSpaceID_XHTML) {
++    return speculum::ElementNs::Html;
++  }
++  if (nsId == kNameSpaceID_SVG) {
++    return speculum::ElementNs::Svg;
++  }
++  if (nsId == kNameSpaceID_MathML) {
++    return speculum::ElementNs::Mathml;
++  }
++  if (nsId == kNameSpaceID_None) {
++    return speculum::ElementNs::None;
++  }
++  return speculum::ElementNs::Custom;
++}
++
++std::string SpeculumNodeSource::uriOf(const void* node) const {
++  nsINode* n = AsNode(node);
++  if (nsOf(node) != speculum::ElementNs::Custom) {
++    return std::string();
++  }
++  nsAutoString uri;
++  n->GetNamespaceURI(uri);
++  return Utf8FromUtf16(uri);
++}
++
++std::string SpeculumNodeSource::nameOf(const void* node) const {
++  nsINode* n = AsNode(node);
++  if (n->NodeType() == nsINode::DOCUMENT_TYPE_NODE) {
++    nsAutoString name;
++    static_cast<DocumentType*>(n)->GetName(name);
++    return Utf8FromUtf16(name);
++  }
++  return Utf8FromUtf16(n->LocalName());
++}
++
++std::string SpeculumNodeSource::valueOf(const void* node) const {
++  nsINode* n = AsNode(node);
++  if (!n->IsText() && !n->IsComment()) {
++    return std::string();
++  }
++  nsAutoString data;
++  static_cast<CharacterData*>(n)->GetData(data);
++  return Utf8FromUtf16(data);
++}
++
++std::vector<speculum::AttrPair> SpeculumNodeSource::attrsOf(const void* node) const {
++  std::vector<speculum::AttrPair> out;
++  Element* el = Element::FromNode(AsNode(node));
++  if (!el) {
++    return out;
++  }
++  const AttrArray& attrs = el->GetAttrs();
++  const uint32_t count = attrs.AttrCount();
++  out.reserve(count);
++  for (uint32_t i = 0; i < count; ++i) {
++    const nsAttrName* attrName = attrs.AttrNameAt(i);
++    const nsAttrValue* attrVal = attrs.AttrAt(i);
++    if (!attrName || !attrVal) {
++      continue;
++    }
++    nsAutoString val;
++    attrVal->ToString(val);
++    out.push_back(speculum::AttrPair{Utf8FromAtom(attrName->LocalName()), Utf8FromUtf16(val)});
++  }
++  return out;
++}
++
++std::vector<const void*> SpeculumNodeSource::childrenOf(const void* node) const {
++  std::vector<const void*> out;
++  for (nsIContent* child = AsNode(node)->GetFirstChild(); child;
++       child = child->GetNextSibling()) {
++    if (child->IsElement() || child->IsText() || child->IsComment() ||
++        child->NodeType() == nsINode::DOCUMENT_TYPE_NODE) {
++      out.push_back(child);
++    }
++  }
++  return out;
++}
++
++bool SpeculumNodeSource::isUaOwned(const void* node) const {
++  return AsNode(node)->IsInNativeAnonymousSubtree();
++}
++
++namespace {
++
++uint32_t NextSpeculumFrameIndex() {
++  static uint32_t sNext = 0;
++  return sNext++;
++}
++
++bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
++  if (!aDocument || aDocument->IsInChromeDocShell()) {
++    return true;
++  }
++  nsIDocShell* shell = aDocument->GetDocShell();
++  if (!shell) {
++    return true;
++  }
++  BrowsingContext* bc = shell->GetBrowsingContext();
++  if (!bc) {
++    return true;
++  }
++  return !bc->IsContent();
++}
++
++bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
++  if (IsSpeculumChromeOrNonContent(aDocument) ||
++      !aDocument->IsContentDocument()) {
++    return false;
++  }
++  SpeculumNodeSource source;
++  speculum::Producer producer(source);
++  producer.bootstrap(aDocument);
++  std::vector<uint8_t> frame = producer.emitFrame();
++  if (frame.empty()) {
++    return false;
++  }
++  mkdir("/tmp/speculum-frames", 0777);
++  const uint32_t index = NextSpeculumFrameIndex();
++  char binPath[128];
++  (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
++                 index);
++  if (FILE* fp = fopen(binPath, "wb")) {
++    (void)fwrite(frame.data(), 1, frame.size(), fp);
++    fclose(fp);
++  }
++  if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
++    char line[64];
++    const int lineLen =
++        snprintf(line, sizeof(line), "frame_%u.bin\n", index);
++    if (lineLen > 0) {
++      (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
++    }
++    fclose(fp);
++  }
++  printf_stderr(
++      "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
++      frame.size(),
++      static_cast<unsigned long long>(producer.table().tableHash()));
++  return true;
++}
++
++}  // namespace
++
++void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument) {
++  if (!aDocument || IsSpeculumChromeOrNonContent(aDocument)) {
++    return;
++  }
++  static mozilla::dom::Document* sLastBootstrappedDocument = nullptr;
++  if (sLastBootstrappedDocument == aDocument) {
++    return;
++  }
++  if (WriteBootstrapFrame(aDocument)) {
++    sLastBootstrappedDocument = aDocument;
++  }
++}
+diff --git a/dom/base/SpeculumNodeSource.h b/dom/base/SpeculumNodeSource.h
+new file mode 100644
+index 0000000000..b047851f99
+--- /dev/null
++++ b/dom/base/SpeculumNodeSource.h
+@@ -0,0 +1,31 @@
++/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
++#ifndef dom_base_SpeculumNodeSource_h
++#define dom_base_SpeculumNodeSource_h
++
++#include "mozilla/Assertions.h"
++#ifndef SPECULUM_FATAL
++#  define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
++#endif
++#include "speculum/Producer.h"
++
++class nsINode;
++
++namespace mozilla::dom {
++class Document;
++}
++
++void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument);
++
++class SpeculumNodeSource final : public speculum::NodeSource {
++ public:
++  speculum::NodeKind kindOf(const void* node) const override;
++  speculum::ElementNs nsOf(const void* node) const override;
++  std::string uriOf(const void* node) const override;
++  std::string nameOf(const void* node) const override;
++  std::string valueOf(const void* node) const override;
++  std::vector<speculum::AttrPair> attrsOf(const void* node) const override;
++  std::vector<const void*> childrenOf(const void* node) const override;
++  bool isUaOwned(const void* node) const override;
++};
++
++#endif
+diff --git a/dom/base/moz.build b/dom/base/moz.build
+index 06e0efa0d9..1a9b8d5c6c 100644
+--- a/dom/base/moz.build
++++ b/dom/base/moz.build
+@@ -357,7 +357,6 @@ UNIFIED_SOURCES += [
+     "CustomElementRegistry.cpp",
+     "DirectionalityUtils.cpp",
+     "DocGroup.cpp",
+-    "Document.cpp",
+     "DocumentFragment.cpp",
+     "DocumentOrShadowRoot.cpp",
+     "DocumentType.cpp",
+@@ -472,6 +471,8 @@ UNIFIED_SOURCES += [
+     "SerializedStackHolder.cpp",
+     "ShadowRoot.cpp",
+     "SourceLocation.cpp",
++    "SpeculumMutationObserver.cpp",
++    "SpeculumNodeSource.cpp",
+     "StaticRange.cpp",
+     "StorageAccessPermissionRequest.cpp",
+     "StructuredCloneBlob.cpp",
+@@ -519,6 +520,7 @@ if CONFIG["MOZ_PLACES"]:
+ # these files couldn't be in UNIFIED_SOURCES for now for reasons given below:
+ SOURCES += [
+     # Several conflicts with other bindings.
++    "Document.cpp",
+     "DOMIntersectionObserver.cpp",
+     # Because of OS X headers.
+     "nsContentUtils.cpp",
+@@ -593,6 +595,7 @@ LOCAL_INCLUDES += [
+     "/netwerk/url-classifier",
+     "/parser/htmlparser",
+     "/security/manager/ssl",
++    "/third_party/speculum-wire/include",
+     "/third_party/xsimd/include",
+     "/widget",
+     "/xpcom/build",

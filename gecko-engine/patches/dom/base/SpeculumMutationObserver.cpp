@@ -4,7 +4,13 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/Assertions.h"
 #include "nsDebug.h"
+
+
+#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
+#include "speculum/Producer.h"
+
 
 using mozilla::StaticRefPtr;
 
@@ -46,6 +52,7 @@ void SpeculumMutationObserver::ContentAppended(nsIContent*,
 
 void SpeculumMutationObserver::ContentInserted(nsIContent*,
                                                const ContentInsertInfo&) {
+  printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
   SPECULUM_LOG("ContentInserted");
 }
 

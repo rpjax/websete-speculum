@@ -14,7 +14,7 @@ namespace mozilla::dom {
 class Document;
 }
 
-void SpeculumScheduleBootstrapFrame(mozilla::dom::Document* aDocument);
+void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument);
 
 class SpeculumNodeSource final : public speculum::NodeSource {
  public:

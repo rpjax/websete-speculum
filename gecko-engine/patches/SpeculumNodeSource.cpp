@@ -13,9 +13,9 @@
 #include "nsIContent.h"
 #include "nsINode.h"
 #include "nsReadableUtils.h"
-#include "nsThreadUtils.h"
-
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/BrowsingContext.h"
+#include "nsIDocShell.h"
 
 #include <cstdio>
 #include <sys/stat.h>
@@ -156,59 +156,71 @@ bool SpeculumNodeSource::isUaOwned(const void* node) const {
 
 namespace {
 
-void WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
+uint32_t NextSpeculumFrameIndex() {
+  static uint32_t sNext = 0;
+  return sNext++;
+}
+
+bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
+  if (!aDocument || aDocument->IsInChromeDocShell()) {
+    return true;
+  }
+  if (nsIDocShell* shell = aDocument->GetDocShell()) {
+    if (BrowsingContext* bc = shell->GetBrowsingContext()) {
+      return !bc->IsContent();
+    }
+  }
+  return false;
+}
+
+bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
+  if (IsSpeculumChromeOrNonContent(aDocument) ||
+      !aDocument->IsContentDocument()) {
+    return false;
+  }
   SpeculumNodeSource source;
   speculum::Producer producer(source);
   producer.bootstrap(aDocument);
   std::vector<uint8_t> frame = producer.emitFrame();
   if (frame.empty()) {
-    return;
+    return false;
   }
   mkdir("/tmp/speculum-frames", 0777);
-  if (FILE* fp = fopen("/tmp/speculum-frames/frame_0.bin", "wb")) {
+  const uint32_t index = NextSpeculumFrameIndex();
+  char binPath[128];
+  (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
+                 index);
+  if (FILE* fp = fopen(binPath, "wb")) {
     (void)fwrite(frame.data(), 1, frame.size(), fp);
     fclose(fp);
   }
-  if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "w")) {
-    (void)fwrite("frame_0.bin\n", 1, 12, fp);
+  if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
+    char line[64];
+    const int lineLen =
+        snprintf(line, sizeof(line), "frame_%u.bin\n", index);
+    if (lineLen > 0) {
+      (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
+    }
     fclose(fp);
   }
-  printf_stderr("[SPECULUM] bootstrap frame bytes=%zu tableHash=%llu\n",
-                frame.size(),
-                static_cast<unsigned long long>(producer.table().tableHash()));
+  printf_stderr(
+      "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
+      frame.size(),
+      static_cast<unsigned long long>(producer.table().tableHash()));
+  return true;
 }
-
-class SpeculumBootstrapRunnable final : public Runnable {
- public:
-  explicit SpeculumBootstrapRunnable(already_AddRefed<mozilla::dom::Document> aDoc)
-      : Runnable("SpeculumBootstrapRunnable"),
-        mDocument(std::move(aDoc)) {}
-
-  NS_IMETHOD Run() override {
-    if (!mDocument || !mDocument->GetComposedDoc()) {
-      return NS_OK;
-    }
-    if (mDocument->GetReadyStateEnum() !=
-        mozilla::dom::Document::READYSTATE_COMPLETE) {
-      nsCOMPtr<nsIRunnable> again =
-          new SpeculumBootstrapRunnable(do_AddRef(mDocument));
-      NS_DispatchToCurrentThread(again.forget());
-      return NS_OK;
-    }
-    WriteBootstrapFrame(mDocument);
-    return NS_OK;
-  }
-
- private:
-  RefPtr<mozilla::dom::Document> mDocument;
-};
 
 }  // namespace
 
-void SpeculumScheduleBootstrapFrame(mozilla::dom::Document* aDocument) {
-  if (!aDocument) {
+void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument) {
+  if (!aDocument || IsSpeculumChromeOrNonContent(aDocument)) {
     return;
   }
-  nsCOMPtr<nsIRunnable> task = new SpeculumBootstrapRunnable(do_AddRef(aDocument));
-  NS_DispatchToCurrentThread(task.forget());
+  static mozilla::dom::Document* sLastBootstrappedDocument = nullptr;
+  if (sLastBootstrappedDocument == aDocument) {
+    return;
+  }
+  if (WriteBootstrapFrame(aDocument)) {
+    sLastBootstrappedDocument = aDocument;
+  }
 }

@@ -1,1 +1,1 @@
-https://example.com — Gecko ESR 153, bootstrap
+https://example.com — Gecko ESR 153, documento de conteudo

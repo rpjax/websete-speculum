@@ -12,8 +12,9 @@
 #include "speculum/Hash.h"
 #include "speculum/Wire.h"
 
+#include "speculum/Fatal.h"
+
 #include <algorithm>
-#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -360,7 +361,7 @@ class ReplicatedTable {
       uint32_t child = lastChild(id);
       while (child != kNone) {
         if (!visited.insert(child).second) {
-          throw std::runtime_error("ReplicatedTable: ciclo na caminhada de subarvore");
+          SPECULUM_FATAL("ReplicatedTable: ciclo na caminhada de subarvore");
         }
         stack.push_back(child);
         const Row* r = getRow(child);
@@ -370,7 +371,7 @@ class ReplicatedTable {
       auto sh = shadowRootByHost_.find(id);
       if (sh != shadowRootByHost_.end() && sh->second != id) {
         if (!visited.insert(sh->second).second) {
-          throw std::runtime_error("ReplicatedTable: ciclo na caminhada de subarvore");
+          SPECULUM_FATAL("ReplicatedTable: ciclo na caminhada de subarvore");
         }
         stack.push_back(sh->second);
       }

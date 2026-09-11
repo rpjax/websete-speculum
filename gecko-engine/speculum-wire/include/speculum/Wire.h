@@ -3,9 +3,10 @@
 // byte a byte com core/decode.ts — é isso que o teste de round-trip prova.
 #pragma once
 #include <cstdint>
+#include "speculum/Fatal.h"
+
 #include <cstring>
 #include <map>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -189,10 +190,10 @@ class FramePartBuilder {
                       const std::vector<AttrPair>& attrs, const std::string& customUri = "",
                       bool nestedHost = false, uint32_t childScopeId = 0) {
     if (ns == ElementNs::Custom && customUri.empty()) {
-      throw std::runtime_error("NODE_NEW custom ns exige uri (frame-protocol.md §4.2)");
+      SPECULUM_FATAL("NODE_NEW custom ns exige uri (frame-protocol.md 4.2)");
     }
     if (nestedHost && childScopeId < 2) {
-      throw std::runtime_error("NODE_NEW childScopeId nao e contexto aninhado (§4.2)");
+      SPECULUM_FATAL("NODE_NEW childScopeId nao e contexto aninhado (4.2)");
     }
     op(Op::NodeNew);
     w_.u32(id);

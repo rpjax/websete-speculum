@@ -5,15 +5,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${SPECULUM_OUT:-/tmp/speculum-wire}"
 mkdir -p "$OUT"
 
-"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -I"$HERE/include" \
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
   "$HERE/test/wire_roundtrip.cpp" -o "$OUT/wire_test"
 "$OUT/wire_test" "$OUT"
 
-"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -I"$HERE/include" \
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
   "$HERE/test/table_parity.cpp" -o "$OUT/table_test"
 "$OUT/table_test" "$HERE/test/table_script.txt" "$OUT/table_cpp.json"
 
-"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -I"$HERE/include" \
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
   "$HERE/test/producer_loop.cpp" -o "$OUT/producer_test"
 "$OUT/producer_test" "$OUT"
 

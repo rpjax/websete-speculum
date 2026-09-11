@@ -64,6 +64,11 @@ cd gecko-engine/speculum-wire
 ./run-tests.sh
 ```
 
+Os binários de teste são compilados com **`-fno-exceptions -fno-rtti -Werror`**, que é como
+o Gecko compila: se algo aqui só funcionar com exceções, quebra no teste e não no fork.
+Falha de invariante aborta via `SPECULUM_FATAL`, que o lado do motor redefine para
+`MOZ_CRASH`.
+
 Precisa de `g++` (C++17), `python3` e `npx` (usa `tsx` para carregar o TS do cliente).
 Os artefatos vão para `/tmp/speculum-wire` — mude com `SPECULUM_OUT=... ./run-tests.sh`.
 

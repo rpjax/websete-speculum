@@ -1,0 +1,7 @@
+url=https://example.com
+label=chroot-fix
+stamp=20260911-123048
+gecko=/root/speculum-gecko/checkout
+gecko_commit=06e698655dffa552580a1df481e8304cfc51db7f
+speculum_commit=2bde815f308dc5d4c959514a93a60964c5f07c40
+binary_mtime=2026-09-11 12:25:02.333932455 -0300

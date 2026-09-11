@@ -14,7 +14,16 @@ echo "== captura =="
 cat "$CAP/MANIFEST.txt" 2>/dev/null || echo "(sem MANIFEST)"
 
 echo
-echo "== processos que construiram DOM =="
+echo "== frames vindos do stderr (processo de conteudo) =="
+nstderr=$(grep -c 'SPECULUM-FRAME' "$CAP/logs/stdout.log" 2>/dev/null || echo 0)
+echo "  $nstderr linha(s) [SPECULUM-FRAME] no stdout.log"
+if [ "$nstderr" -eq 0 ]; then
+  echo "  -> o processo de conteudo roda em chroot e NAO escreve arquivo."
+  echo "     Se aqui esta zero, o produtor nao rodou la — nao adianta procurar arquivo."
+fi
+
+echo
+echo "== processos que construiram DOM (via arquivo; so o pai consegue) =="
 shopt -s nullglob
 docs=("$CAP"/logs/*.log)
 if [ ${#docs[@]} -eq 0 ]; then

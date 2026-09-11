@@ -22,6 +22,11 @@ adicionado e o caminho funcional saiu junto, em silêncio. Um passo muda
 comportamento, outro passo observa. Nunca os dois.
 
 **3. Captura mora no repo, não em `/tmp`.**
+E mais: **o processo de conteúdo roda em chroot** — ele não enxerga o `/tmp` do
+host, e `fopen` ali falha calado. Foi isso que escondeu onze frames por horas.
+O que atravessa é `stderr`; por isso o frame também sai em base64 e o
+`capture.sh` extrai. É andaime: o caminho definitivo é o frame subir por IPC até
+o processo pai (`docs/gecko-engine/16-multiprocesso.md` §3).
 Frame capturado de página real é evidência e é teste. Em `/tmp` ele evapora e a
 regressão passa despercebida.
 
@@ -57,12 +62,14 @@ produtor emitir algo incoerente, reprova aqui pelo mesmo critério que reprovari
 em produção. Frames de documentos diferentes são agrupados por
 `contextId`+`generation`, como o cliente faz.
 
-**`doctor.sh`** existe porque "não saiu frame" tem três causas possíveis e a
+**`doctor.sh`** existe porque "não saiu frame" tem várias causas possíveis e a
 gente ficou pulando entre elas. Ele força a ordem:
 
-1. existe log de documento? → se não, o attach não roda
+0. existe processo `-contentproc`? → se não, a página não roda onde você pensa
+1. existe log de documento? → se não, o attach não roda **ou o processo é chrootado**
 2. existe documento com `content=1`? → se não, só chegou chrome
-3. existe linha de bootstrap? → se não, o bootstrap não dispara
+3. existe `[SPECULUM-FRAME]` no `stdout.log`? → é por aí que o conteúdo fala
+4. existe linha de bootstrap? → se não, o bootstrap não dispara
 
 Responda **na ordem**. Não pule para a hipótese seguinte sem fechar a anterior.
 

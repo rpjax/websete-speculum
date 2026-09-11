@@ -39,6 +39,46 @@ MOZ_CRASHREPORTER_DISABLE=1 timeout "${TIMEOUT:-30}" "$BIN" --headless \
 cp -a /tmp/speculum-frames/. "$OUT/frames/" 2>/dev/null || true
 cp -a /tmp/speculum-docs/.   "$OUT/logs/"   2>/dev/null || true
 
+# O processo de conteudo roda em chroot: nao enxerga o /tmp do host e nao
+# consegue gravar arquivo. O caminho que atravessa e' o stderr, entao os frames
+# vem em base64 nas linhas [SPECULUM-FRAME]. Andaime: o definitivo e' o frame
+# subir por IPC ate o pai (docs/gecko-engine/16-multiprocesso.md ss3).
+python3 - "$OUT/logs/stdout.log" "$OUT/frames" <<'PYEOF'
+import base64, re, sys, pathlib
+
+log, outdir = sys.argv[1], pathlib.Path(sys.argv[2])
+try:
+    text = pathlib.Path(log).read_text(errors="replace")
+except FileNotFoundError:
+    sys.exit(0)
+
+whole = re.findall(r"\[SPECULUM-FRAME\] seq=(\d+) bytes=(\d+) (\S+)", text)
+parts = {}
+for seq, idx, total, chunk in re.findall(
+        r"\[SPECULUM-FRAME-PART\] seq=(\d+) idx=(\d+) de=(\d+) (\S+)", text):
+    parts.setdefault(int(seq), {})[int(idx)] = (int(total), chunk)
+
+written = 0
+for seq, declared, b64 in whole:
+    data = base64.b64decode(b64)
+    if len(data) != int(declared):
+        print(f"  AVISO seq={seq}: declarou {declared} bytes, decodificou {len(data)}")
+    (outdir / f"stderr_{int(seq):04d}.bin").write_bytes(data)
+    written += 1
+
+for seq, chunks in parts.items():
+    total = next(iter(chunks.values()))[0]
+    if len(chunks) != total:
+        print(f"  AVISO seq={seq}: {len(chunks)} de {total} partes — frame descartado")
+        continue
+    data = base64.b64decode("".join(chunks[i][1] for i in sorted(chunks)))
+    (outdir / f"stderr_{int(seq):04d}.bin").write_bytes(data)
+    written += 1
+
+if written:
+    print(f"extraidos do stderr: {written} frame(s)")
+PYEOF
+
 {
   echo "url=$URL"
   echo "label=$LABEL"

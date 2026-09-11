@@ -1,5 +1,5 @@
 diff --git a/dom/base/Document.cpp b/dom/base/Document.cpp
-index 0122df8a7f..50a084d8ee 100644
+index 0122df8a7f..0806734244 100644
 --- a/dom/base/Document.cpp
 +++ b/dom/base/Document.cpp
 @@ -7,6 +7,16 @@
@@ -36,23 +36,26 @@ index 0122df8a7f..50a084d8ee 100644
    SetDevToolsWatchingDOMMutations(false);
  
    mIsGoingAway = true;
-@@ -12989,6 +13002,7 @@ void Document::SetReadyStateInternal(ReadyState aReadyState,
+@@ -12989,6 +13002,10 @@ void Document::SetReadyStateInternal(ReadyState aReadyState,
  
    AsyncEventDispatcher::RunDOMEventWhenSafe(
        *this, u"readystatechange"_ns, CanBubble::eNo, ChromeOnlyDispatch::eNo);
 +
++  if (aReadyState == READYSTATE_COMPLETE && mSpeculumWatchingDOMMutations) {
++    SpeculumTryWriteBootstrapFrame(this);
++  }
  }
  
  void Document::GetReadyState(nsAString& aReadyState) const {
-@@ -15205,6 +15219,49 @@ void Document::SetDevToolsWatchingDOMMutations(bool aValue) {
+@@ -15205,6 +15222,49 @@ void Document::SetDevToolsWatchingDOMMutations(bool aValue) {
    }
  }
  
 +void Document::SetSpeculumWatchingDOMMutations(bool aValue) {
-+  // Diagnostic-only path (speculum-doc-diagnostic.py).
 +  if (mSpeculumWatchingDOMMutations == aValue || mIsGoingAway) {
 +    return;
 +  }
++  mSpeculumWatchingDOMMutations = aValue;
 +  if (aValue) {
 +    nsAutoCString uri("(null)");
 +    if (nsIURI* docUri = GetDocumentURI()) {
@@ -83,10 +86,10 @@ index 0122df8a7f..50a084d8ee 100644
 +          hasParentDoc ? 0 : 1);
 +      fclose(fp);
 +    }
-+    return;
++    SpeculumAttachMutationObserverToDocument(this);
++  } else {
++    SpeculumDetachMutationObserverFromDocument(this);
 +  }
-+  mSpeculumWatchingDOMMutations = aValue;
-+  SpeculumDetachMutationObserverFromDocument(this);
 +}
 +
 +

@@ -13003,6 +13003,9 @@ void Document::SetReadyStateInternal(ReadyState aReadyState,
   AsyncEventDispatcher::RunDOMEventWhenSafe(
       *this, u"readystatechange"_ns, CanBubble::eNo, ChromeOnlyDispatch::eNo);
 
+  if (aReadyState == READYSTATE_COMPLETE && mSpeculumWatchingDOMMutations) {
+    SpeculumTryWriteBootstrapFrame(this);
+  }
 }
 
 void Document::GetReadyState(nsAString& aReadyState) const {
@@ -15220,10 +15223,10 @@ void Document::SetDevToolsWatchingDOMMutations(bool aValue) {
 }
 
 void Document::SetSpeculumWatchingDOMMutations(bool aValue) {
-  // Diagnostic-only path (speculum-doc-diagnostic.py).
   if (mSpeculumWatchingDOMMutations == aValue || mIsGoingAway) {
     return;
   }
+  mSpeculumWatchingDOMMutations = aValue;
   if (aValue) {
     nsAutoCString uri("(null)");
     if (nsIURI* docUri = GetDocumentURI()) {
@@ -15254,10 +15257,10 @@ void Document::SetSpeculumWatchingDOMMutations(bool aValue) {
           hasParentDoc ? 0 : 1);
       fclose(fp);
     }
-    return;
+    SpeculumAttachMutationObserverToDocument(this);
+  } else {
+    SpeculumDetachMutationObserverFromDocument(this);
   }
-  mSpeculumWatchingDOMMutations = aValue;
-  SpeculumDetachMutationObserverFromDocument(this);
 }
 
 

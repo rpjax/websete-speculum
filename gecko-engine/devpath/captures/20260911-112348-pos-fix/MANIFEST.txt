@@ -1,0 +1,7 @@
+url=https://example.com
+label=pos-fix
+stamp=20260911-112348
+gecko=/root/speculum-gecko/checkout
+gecko_commit=06e698655dffa552580a1df481e8304cfc51db7f
+speculum_commit=62434e36af53ca860a50e28e9c61a8ee03207cd2
+binary_mtime=2026-09-11 10:08:07.115332657 -0300

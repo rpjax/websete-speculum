@@ -1,0 +1,7 @@
+url=https://example.com
+label=onze-frames
+stamp=20260911-130951
+gecko=/root/speculum-gecko/checkout
+gecko_commit=f8d84e9319b2367cd949d36f2eebdeef4b49cd9d
+speculum_commit=c16788973aa5a22f29f0975582ccf6e469664ab8
+binary_mtime=2026-09-11 12:25:02.333932455 -0300

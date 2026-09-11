@@ -52,28 +52,68 @@ try:
 except FileNotFoundError:
     sys.exit(0)
 
-whole = re.findall(r"\[SPECULUM-FRAME\] seq=(\d+) bytes=(\d+) (\S+)", text)
-parts = {}
-for seq, idx, total, chunk in re.findall(
-        r"\[SPECULUM-FRAME-PART\] seq=(\d+) idx=(\d+) de=(\d+) (\S+)", text):
-    parts.setdefault(int(seq), {})[int(idx)] = (int(total), chunk)
+def decode_b64(raw: str) -> bytes:
+    s = re.sub(r"[^A-Za-z0-9+/=]", "", raw)
+    s = s.rstrip("=")
+    pad = (-len(s)) % 4
+    if pad:
+        s += "=" * pad
+    return base64.b64decode(s, validate=False)
+
+whole_re = re.compile(r"^\[SPECULUM-FRAME\] seq=(\d+) bytes=(\d+) (.+)\s*$", re.M)
+part_re = re.compile(
+    r"^\[SPECULUM-FRAME-PART\] seq=(\d+) idx=(\d+) de=(\d+) (.+)\s*$", re.M
+)
+
+events: list[tuple[int, str, tuple]] = []
+for m in whole_re.finditer(text):
+    events.append((m.start(), "whole", m.groups()))
+for m in part_re.finditer(text):
+    events.append((m.start(), "part", m.groups()))
+events.sort(key=lambda e: e[0])
 
 written = 0
-for seq, declared, b64 in whole:
-    data = base64.b64decode(b64)
-    if len(data) != int(declared):
-        print(f"  AVISO seq={seq}: declarou {declared} bytes, decodificou {len(data)}")
-    (outdir / f"stderr_{int(seq):04d}.bin").write_bytes(data)
-    written += 1
+part_buf: dict[int, dict[int, tuple[int, str]]] = {}
+part_total: dict[int, int] = {}
+part_seen_pos: dict[int, int] = {}
 
-for seq, chunks in parts.items():
-    total = next(iter(chunks.values()))[0]
-    if len(chunks) != total:
-        print(f"  AVISO seq={seq}: {len(chunks)} de {total} partes — frame descartado")
+for _pos, kind, groups in events:
+    if kind == "whole":
+        seq, declared, b64 = groups
+        try:
+            data = decode_b64(b64)
+        except Exception as exc:
+            print(f"  AVISO seq={seq}: base64 invalido ({exc}) — frame descartado")
+            continue
+        if len(data) != int(declared):
+            print(
+                f"  AVISO seq={seq}: declarou {declared} bytes, decodificou {len(data)}"
+            )
+        written += 1
+        (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
         continue
-    data = base64.b64decode("".join(chunks[i][1] for i in sorted(chunks)))
-    (outdir / f"stderr_{int(seq):04d}.bin").write_bytes(data)
+
+    seq_s, idx_s, total_s, chunk = groups
+    seq_i, idx_i, total_i = int(seq_s), int(idx_s), int(total_s)
+    part_buf.setdefault(seq_i, {})[idx_i] = (total_i, chunk)
+    part_total[seq_i] = total_i
+    part_seen_pos.setdefault(seq_i, _pos)
+
+for seq_i in sorted(part_seen_pos, key=lambda s: part_seen_pos[s]):
+    chunks = part_buf.get(seq_i, {})
+    total_i = part_total[seq_i]
+    if len(chunks) != total_i:
+        print(
+            f"  AVISO seq={seq_i}: {len(chunks)} de {total_i} partes — frame descartado"
+        )
+        continue
+    try:
+        data = decode_b64("".join(chunks[i][1] for i in sorted(chunks)))
+    except Exception as exc:
+        print(f"  AVISO seq={seq_i}: base64 invalido ({exc}) — frame descartado")
+        continue
     written += 1
+    (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
 
 if written:
     print(f"extraidos do stderr: {written} frame(s)")

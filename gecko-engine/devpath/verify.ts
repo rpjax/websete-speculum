@@ -7,6 +7,8 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFramePart, PersistentStringTable } from '../../packages/page-projection/src/core/decode';
+import { NodeKind } from '../../packages/page-projection/src/core/frame';
+import { OpCode } from '../../packages/page-projection/src/core/opcodes';
 import { ReplicatedTable } from '../../packages/page-projection/src/core/replicatedTable';
 import { applyFrameToTableChecked } from '../../packages/page-projection/src/core/replicatedTableApply';
 
@@ -35,6 +37,7 @@ if (names.length === 0) {
 }
 
 const tables = new Map<string, ReplicatedTable>();
+const tagsByKey = new Map<string, string[]>();
 const persistent = new PersistentStringTable();
 let aceitos = 0, recusados = 0;
 
@@ -49,9 +52,16 @@ for (const name of names) {
     continue;
   }
   const p = res.part;
-  const key = `ctx${p.contextId}/gen${p.generation}`;
-  if (!tables.has(key)) tables.set(key, new ReplicatedTable());
-  const table = tables.get(key)!;
+  const key = `${name} ctx${p.contextId}/gen${p.generation}`;
+  const table = new ReplicatedTable();
+  tables.set(key, table);
+  const tags: string[] = [];
+  tagsByKey.set(key, tags);
+  for (const op of p.ops) {
+    if (op.op === OpCode.NodeNew && op.kind === NodeKind.Element) {
+      tags.push(op.name);
+    }
+  }
   const r = applyFrameToTableChecked(table, p.flags?.resync ?? false, p.ops, p.sequence);
   if (r.ok) {
     aceitos++;
@@ -64,9 +74,14 @@ for (const name of names) {
 
 console.log('');
 for (const [key, t] of tables) {
-  const tags: string[] = [];
-  t.forEachRow((id, row) => { if (row.kind === 1) tags.push(String(id)); });
-  console.log(`${key}: ${t.size} linhas (${tags.length} elementos), tableHash=${t.tableHash}`);
+  const elementRows = t.size;
+  let elements = 0;
+  t.forEachRow((_id, row) => {
+    if (row.kind === 1) elements++;
+  });
+  const tags = tagsByKey.get(key) ?? [];
+  console.log(`${key}: ${elementRows} linhas (${elements} elementos), tableHash=${t.tableHash}`);
+  console.log(`  tags: ${j(tags)}`);
   console.log(`  filhos do Document: ${j(t.orderedChildIds(1))}`);
 }
 

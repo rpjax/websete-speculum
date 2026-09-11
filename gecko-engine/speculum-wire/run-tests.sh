@@ -9,7 +9,12 @@ mkdir -p "$OUT"
   "$HERE/test/wire_roundtrip.cpp" -o "$OUT/wire_test"
 "$OUT/wire_test" "$OUT"
 
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -I"$HERE/include" \
+  "$HERE/test/table_parity.cpp" -o "$OUT/table_test"
+"$OUT/table_test" "$HERE/test/table_script.txt" "$OUT/table_cpp.json"
+
 cd "$HERE/test"
 SPECULUM_OUT="$OUT" npx --yes tsx verify.ts
+SPECULUM_OUT="$OUT" npx --yes tsx table_parity.ts
 
 python3 "$HERE/test/compare.py" "$OUT"

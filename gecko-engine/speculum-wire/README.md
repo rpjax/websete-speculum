@@ -9,7 +9,7 @@ encostar na árvore do motor.
 
 | camada | onde | testável fora do Gecko |
 |---|---|---|
-| **`speculum-wire`** (esta) — hash, ops, codificação | `gecko-engine/speculum-wire/` | **sim** |
+| **`speculum-wire`** (esta) — hash, tabela replicada, ops, codificação | `gecko-engine/speculum-wire/` | **sim** |
 | cola do motor — callbacks do `nsIMutationObserver` → chamadas daqui | `dom/base/Speculum*` no fork | não |
 
 ## O que está provado
@@ -21,10 +21,21 @@ encostar na árvore do motor.
    prop str/bool, remove, node drop, check);
 2. `core/decode.ts` — o decodificador que o cliente usa em produção — lê esses bytes;
 3. os hashes são recomputados por `core/rowHash.ts` e comparados com os do C++;
-4. o `CHECK` que viajou no fio é conferido contra o `tableHash` dos dois lados.
+4. o `CHECK` que viajou no fio é conferido contra o `tableHash` dos dois lados;
+5. um **roteiro único** (`test/table_script.txt`, lido pelos dois lados — não são dois
+   roteiros que por acaso concordam) roda na tabela replicada em C++ e no
+   `ReplicatedTable` de produção em TypeScript, comparando `tableHash`, contagem de linhas
+   e **ordem de filhos** depois de *cada* comando.
 
 Última execução: **12/12 fixtures de hash idênticos, 20/20 ops decodificadas, CHECK igual
-ao `tableHash` em C++ e em TypeScript.**
+ao `tableHash` nos dois lados, e 49/49 passos da tabela idênticos.**
+
+O roteiro da tabela exercita de propósito o que costuma quebrar: prepend antes do primeiro
+filho, mover um nó já ligado para outro pai, remover do meio, reinserir antes do último,
+`shadow root` (que tem `parent = host` mas fica **fora** da cadeia de luz), derrubar
+subárvore destacada que ainda tem filhos, e o caso **OPEN-8** (evict da cauda logo depois
+de um prepend) — que é exatamente onde um `lastChildOf` mal consertado passa despercebido
+até a projeção mostrar um filho só.
 
 Se qualquer um desses passos falhar, produtor e cliente discordam — e é exatamente esse
 desacordo que o `preTableHash`/`CHECK` existe para detectar em produção. Aqui ele é
@@ -48,12 +59,13 @@ O ABI está selado e é definido por:
 - `packages/page-projection/src/core/opcodes.ts` — lista de opcodes
 - `packages/page-projection/src/core/rowHash.ts` — H64 e `rowHash`/`tableHash`
 - `packages/page-projection/src/virtual/frame/binaryFrameEncoder.ts` — layout do fio
+- `packages/page-projection/src/core/replicatedTable.ts` — linhas, índices derivados, topologia
 
 Este diretório é **port**, não reinterpretação. Valores no fio nunca são renumerados;
 divergência de hash não é detalhe de implementação, é quebra de contrato.
 
 ## O que ainda não tem
 
-Tabela de linhas própria (o `TableHashTracker` existe, o índice de linhas não), montagem
-por partes quando o frame passa do teto, CSSOM (`SHEET_*` / `RULE_*` estão na ISA mas não
-no builder), e o tick de frame. Nada disso é bloqueado por design — é ordem de trabalho.
+Montagem por partes quando o frame passa do teto, CSSOM (`SHEET_*` / `RULE_*` estão na ISA
+mas não no builder nem na tabela), validação de precondição no lado do cliente, e o tick de
+frame. Nada disso é bloqueado por design — é ordem de trabalho.

@@ -23,5 +23,24 @@ else:
     print("CHECK no fio == tableHash (C++ e TS)")
 
 print(f"ops decodificadas pelo cliente: {dec['opCount']}")
+# ---- tabela replicada, passo a passo ----
+tc = json.loads((out / "table_cpp.json").read_text())
+tt = json.loads((out / "table_ts.json").read_text())
+if len(tc) != len(tt):
+    print(f"  X trace de tamanhos diferentes: cpp={len(tc)} ts={len(tt)}"); fail = True
+else:
+    diverged = 0
+    for a, b in zip(tc, tt):
+        if a["tableHash"] != b["tableHash"] or a["size"] != b["size"] or a["children"] != b["children"]:
+            diverged += 1
+            if diverged <= 3:
+                print(f"  X linha {a['line']} `{a['cmd']}`")
+                print(f"      cpp hash={a['tableHash']} size={a['size']} children={a['children']}")
+                print(f"      ts  hash={b['tableHash']} size={b['size']} children={b['children']}")
+    if diverged:
+        print(f"  X {diverged}/{len(tc)} passos divergentes"); fail = True
+    else:
+        print(f"tabela replicada: {len(tc)}/{len(tc)} passos identicos (tableHash, size, ordem de filhos)")
+
 print("FALHOU" if fail else "OK — paridade C++ <-> TypeScript")
 sys.exit(1 if fail else 0)

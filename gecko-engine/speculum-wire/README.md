@@ -9,8 +9,12 @@ encostar na árvore do motor.
 
 | camada | onde | testável fora do Gecko |
 |---|---|---|
-| **`speculum-wire`** (esta) — hash, tabela replicada, ops, codificação | `gecko-engine/speculum-wire/` | **sim** |
-| cola do motor — callbacks do `nsIMutationObserver` → chamadas daqui | `dom/base/Speculum*` no fork | não |
+| **`speculum-wire`** (esta) — identidade, tabela replicada, hash, ops, codificação, **algoritmo do produtor** | `gecko-engine/speculum-wire/` | **sim** |
+| cola do motor — callbacks do `nsIMutationObserver` preenchendo a interface `NodeSource` | `dom/base/Speculum*` no fork | não |
+
+O produtor lê a árvore viva por uma interface (`NodeSource`), nunca pelo DOM direto. No
+Gecko essa interface é implementada sobre `nsINode`; no teste, sobre um DOM falso. O
+algoritmo é o mesmo nos dois casos — é isso que permite provar o laço aqui.
 
 ## O que está provado
 
@@ -22,13 +26,25 @@ encostar na árvore do motor.
 2. `core/decode.ts` — o decodificador que o cliente usa em produção — lê esses bytes;
 3. os hashes são recomputados por `core/rowHash.ts` e comparados com os do C++;
 4. o `CHECK` que viajou no fio é conferido contra o `tableHash` dos dois lados;
-5. um **roteiro único** (`test/table_script.txt`, lido pelos dois lados — não são dois
+5. o **laço completo do produtor** roda sobre um DOM falso — registro → op → tabela → hash →
+   frame — e cada frame emitido é aplicado pelo cliente com `applyFrameToTableChecked`, o
+   apply **estrito** de produção, que valida a precondição de cada op e confere o `CHECK`.
+   Se o produtor emitir qualquer coisa incoerente, o mesmo juiz que reprovaria em produção
+   reprova aqui;
+6. um **roteiro único** (`test/table_script.txt`, lido pelos dois lados — não são dois
    roteiros que por acaso concordam) roda na tabela replicada em C++ e no
    `ReplicatedTable` de produção em TypeScript, comparando `tableHash`, contagem de linhas
    e **ordem de filhos** depois de *cada* comando.
 
-Última execução: **12/12 fixtures de hash idênticos, 20/20 ops decodificadas, CHECK igual
-ao `tableHash` nos dois lados, e 49/49 passos da tabela idênticos.**
+Última execução: **12/12 fixtures de hash idênticos, 20/20 ops decodificadas, CHECK igual ao
+`tableHash` nos dois lados, 49/49 passos da tabela idênticos, e 8/8 frames do produtor
+aceitos pelo apply estrito com `tableHash` final igual.**
+
+O laço do produtor exercita carga inicial, inserção no fim e no meio (com `before` resolvido
+pelo irmão seguinte), subárvore inteira descrita de uma vez, mover nó já ligado para outro
+pai, troca e remoção de atributo, troca de texto, `PROP_SET` string e bool, remoção, e
+`NODE_DROP` de raiz destacada levando o filho junto. Também confere o item **F**: nós de UA
+pendurados na árvore **não** aparecem em frame nenhum.
 
 O roteiro da tabela exercita de propósito o que costuma quebrar: prepend antes do primeiro
 filho, mover um nó já ligado para outro pai, remover do meio, reinserir antes do último,

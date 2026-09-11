@@ -42,5 +42,19 @@ else:
     else:
         print(f"tabela replicada: {len(tc)}/{len(tc)} passos identicos (tableHash, size, ordem de filhos)")
 
+# ---- laço do produtor: C++ emite, cliente aplica com o apply estrito ----
+pc = json.loads((out / "producer_cpp.json").read_text())
+pt = json.loads((out / "producer_ts.json").read_text())
+if pt.get("failed"):
+    print(f"  X cliente recusou: {pt['failed']}"); fail = True
+elif pc["frames"] != pt["frames"] or pc["rows"] != pt["rows"] or pc["tableHash"] != pt["tableHash"]:
+    print("  X produtor e cliente divergem")
+    print(f"      cpp frames={pc['frames']} rows={pc['rows']} hash={pc['tableHash']}")
+    print(f"      ts  frames={pt['frames']} rows={pt['rows']} hash={pt['tableHash']}")
+    fail = True
+else:
+    print(f"laco do produtor: {pc['frames']} frames aceitos pelo apply estrito; "
+          f"{pc['rows']} linhas, tableHash igual dos dois lados")
+
 print("FALHOU" if fail else "OK — paridade C++ <-> TypeScript")
 sys.exit(1 if fail else 0)

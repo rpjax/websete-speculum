@@ -13,8 +13,13 @@ mkdir -p "$OUT"
   "$HERE/test/table_parity.cpp" -o "$OUT/table_test"
 "$OUT/table_test" "$HERE/test/table_script.txt" "$OUT/table_cpp.json"
 
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -I"$HERE/include" \
+  "$HERE/test/producer_loop.cpp" -o "$OUT/producer_test"
+"$OUT/producer_test" "$OUT"
+
 cd "$HERE/test"
 SPECULUM_OUT="$OUT" npx --yes tsx verify.ts
 SPECULUM_OUT="$OUT" npx --yes tsx table_parity.ts
+SPECULUM_OUT="$OUT" npx --yes tsx producer_loop.ts
 
 python3 "$HERE/test/compare.py" "$OUT"

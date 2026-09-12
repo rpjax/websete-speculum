@@ -518,7 +518,8 @@ class ContentParent final : public PContentParent,
     return PContentParent::RecvPHalConstructor(aActor);
   }
 
-  mozilla::ipc::IPCResult RecvSpeculumFrame(const uint32_t& aContextId,
+  mozilla::ipc::IPCResult RecvSpeculumFrame(const uint64_t& aDocToken,
+                                              const uint32_t& aContextId,
                                               const uint32_t& aSequence,
                                               nsTArray<uint8_t>&& aFrame);
 

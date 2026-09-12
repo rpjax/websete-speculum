@@ -14,6 +14,7 @@ if (!cap) {
 type FrameRow = {
   ordem: number;
   childPid: number;
+  docToken?: number;
   contextId: number;
   sequence: number;
   bytes: number;
@@ -82,10 +83,10 @@ for (const row of rows) {
   }
   const p = res.part;
   const ctxGen = `ctx${p.contextId}/gen${p.generation}`;
-  if (!tables.has(row.childPid)) {
-    tables.set(row.childPid, new ReplicatedTable());
+  if (!tables.has(row.contextId)) {
+    tables.set(row.contextId, new ReplicatedTable());
   }
-  const table = tables.get(row.childPid)!;
+  const table = tables.get(row.contextId)!;
   const r = applyFrameToTableChecked(table, p.flags?.resync ?? false, p.ops, p.sequence);
   if (r.ok) {
     aceitos++;

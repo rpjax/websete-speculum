@@ -1268,26 +1268,49 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateGMPService() {
 }
 
 
-IPCResult ContentParent::RecvSpeculumFrame(const uint32_t& aContextId,
+IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
+                                           const uint32_t& aContextId,
                                            const uint32_t& aSequence,
                                            nsTArray<uint8_t>&& aFrame) {
   const char* dir = getenv("SPECULUM_FRAME_DIR");
   if (!dir || !dir[0]) {
     return IPC_OK();
   }
+  if (aFrame.Length() < 28) {
+    fprintf(stderr, "[SPECULUM-FRAME-ERR] curto=1\n");
+    return IPC_OK();
+  }
+
+  static std::map<std::pair<ContentParent*, uint64_t>, uint32_t> sDocContextIds;
+  // ANDAIME: o contextId virá do ContextCreate quando a ponte existir.
+  static uint32_t sNextContextId = 1;
+
+  const auto docKey = std::make_pair(this, aDocToken);
+  uint32_t contextId = aContextId;
+  const auto found = sDocContextIds.find(docKey);
+  if (found == sDocContextIds.end()) {
+    contextId = sNextContextId++;
+    sDocContextIds.emplace(docKey, contextId);
+  } else {
+    contextId = found->second;
+  }
+
+  aFrame[4] = static_cast<uint8_t>(contextId & 0xffu);
+  aFrame[5] = static_cast<uint8_t>((contextId >> 8) & 0xffu);
+  aFrame[6] = static_cast<uint8_t>((contextId >> 16) & 0xffu);
+  aFrame[7] = static_cast<uint8_t>((contextId >> 24) & 0xffu);
+
   static uint32_t sOrder = 0;
   const uint32_t ordem = ++sOrder;
   const base::ProcessId childPid = OtherPid();
 
   char name[128];
-  snprintf(name, sizeof(name), "f-%04u-ctx%u-seq%u.bin", ordem, aContextId,
+  snprintf(name, sizeof(name), "f-%04u-ctx%u-seq%u.bin", ordem, contextId,
            aSequence);
   char path[512];
   snprintf(path, sizeof(path), "%s/%s", dir, name);
   if (FILE* fp = fopen(path, "wb")) {
-    if (!aFrame.IsEmpty()) {
-      (void)fwrite(aFrame.Elements(), 1, aFrame.Length(), fp);
-    }
+    (void)fwrite(aFrame.Elements(), 1, aFrame.Length(), fp);
     fclose(fp);
   }
 
@@ -1295,8 +1318,10 @@ IPCResult ContentParent::RecvSpeculumFrame(const uint32_t& aContextId,
   snprintf(ndpath, sizeof(ndpath), "%s/frames.ndjson", dir);
   if (FILE* nd = fopen(ndpath, "a")) {
     fprintf(nd,
-            "{\"ordem\":%u,\"childPid\":%u,\"contextId\":%u,\"sequence\":%u,\"bytes\":%zu}\n",
-            ordem, static_cast<unsigned>(childPid), aContextId, aSequence,
+            "{\"ordem\":%u,\"childPid\":%u,\"docToken\":%llu,\"contextId\":%u,"
+            "\"sequence\":%u,\"bytes\":%zu}\n",
+            ordem, static_cast<unsigned>(childPid),
+            static_cast<unsigned long long>(aDocToken), contextId, aSequence,
             static_cast<size_t>(aFrame.Length()));
     fclose(nd);
   }

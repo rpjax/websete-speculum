@@ -18,6 +18,9 @@ void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument);
 
 class SpeculumNodeSource final : public speculum::NodeSource {
  public:
+  SpeculumNodeSource();
+  uint64_t docToken() const { return mDocToken; }
+
   speculum::NodeKind kindOf(const void* node) const override;
   speculum::ElementNs nsOf(const void* node) const override;
   std::string uriOf(const void* node) const override;
@@ -26,6 +29,9 @@ class SpeculumNodeSource final : public speculum::NodeSource {
   std::vector<speculum::AttrPair> attrsOf(const void* node) const override;
   std::vector<const void*> childrenOf(const void* node) const override;
   bool isUaOwned(const void* node) const override;
+
+ private:
+  uint64_t mDocToken;
 };
 
 #endif

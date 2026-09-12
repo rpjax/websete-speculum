@@ -52,6 +52,11 @@ std::string Utf8FromAtom(const nsAtom* aAtom) {
 
 }  // namespace
 
+SpeculumNodeSource::SpeculumNodeSource() {
+  static uint64_t sNextDocToken = 1;
+  mDocToken = sNextDocToken++;
+}
+
 speculum::NodeKind SpeculumNodeSource::kindOf(const void* node) const {
   nsINode* n = AsNode(node);
   if (n->IsElement()) {
@@ -204,7 +209,7 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
   if (ContentChild* cc = ContentChild::GetSingleton()) {
     nsTArray<uint8_t> bytes;
     bytes.AppendElements(frame.data(), frame.size());
-    cc->SendSpeculumFrame(kContextId, seq, bytes);
+    cc->SendSpeculumFrame(source.docToken(), kContextId, seq, bytes);
   }
   printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
                 static_cast<int>(getpid()), kContextId, uri.get(), ops,

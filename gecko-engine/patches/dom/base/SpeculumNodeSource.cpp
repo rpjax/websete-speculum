@@ -8,7 +8,7 @@
 #include "Element.h"
 #include "NameSpaceConstants.h"
 #include "mozilla/dom/CharacterData.h"
-#include "mozilla/dom/ContentChild.h"
+#include "SpeculumMutationObserver.h"
 #include "nsAttrName.h"
 #include "nsAttrValue.h"
 #include "nsIContent.h"
@@ -27,7 +27,6 @@
 #include <vector>
 
 using mozilla::dom::CharacterData;
-using mozilla::dom::ContentChild;
 using mozilla::dom::DocumentType;
 using mozilla::dom::Element;
 
@@ -166,11 +165,6 @@ bool SpeculumNodeSource::isUaOwned(const void* node) const {
 
 namespace {
 
-uint32_t NextSpeculumFrameIndex() {
-  static uint32_t sNext = 0;
-  return sNext++;
-}
-
 bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
   if (!aDocument || aDocument->IsInChromeDocShell()) {
     return true;
@@ -191,52 +185,11 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
       !aDocument->IsContentDocument()) {
     return false;
   }
-  // ANDAIME: contextId virá do ContextCreate
-  constexpr uint32_t kContextId = speculum::kContextIdRoot;
-  SpeculumNodeSource source;
-  speculum::Producer producer(source, kContextId, 0);
-  producer.bootstrap(aDocument);
-  const uint32_t ops = producer.pendingOps();
-  std::vector<uint8_t> frame = producer.emitFrame();
-  if (frame.empty()) {
+  SpeculumMutationObserver* obs = aDocument->GetSpeculumMutationObserver();
+  if (!obs) {
     return false;
   }
-  nsAutoCString uri("(null)");
-  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
-    uri = docUri->GetSpecOrDefault();
-  }
-  const uint32_t seq = producer.sequence();
-  if (ContentChild* cc = ContentChild::GetSingleton()) {
-    nsTArray<uint8_t> bytes;
-    bytes.AppendElements(frame.data(), frame.size());
-    cc->SendSpeculumFrame(source.docToken(), kContextId, seq, bytes);
-  }
-  printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
-                static_cast<int>(getpid()), kContextId, uri.get(), ops,
-                frame.size());
-  mkdir("/tmp/speculum-frames", 0777);
-  const uint32_t index = NextSpeculumFrameIndex();
-  char binPath[128];
-  (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
-                 index);
-  if (FILE* fp = fopen(binPath, "wb")) {
-    (void)fwrite(frame.data(), 1, frame.size(), fp);
-    fclose(fp);
-  }
-  if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
-    char line[64];
-    const int lineLen =
-        snprintf(line, sizeof(line), "frame_%u.bin\n", index);
-    if (lineLen > 0) {
-      (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
-    }
-    fclose(fp);
-  }
-  printf_stderr(
-      "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
-      frame.size(),
-      static_cast<unsigned long long>(producer.table().tableHash()));
-  return true;
+  return obs->TryWriteBootstrapFrame();
 }
 
 }  // namespace

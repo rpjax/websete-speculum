@@ -154,6 +154,7 @@ class nsIDocShell;
 class nsIDocShellTreeItem;
 class nsIDocumentEncoder;
 class nsIDocumentObserver;
+class SpeculumMutationObserver;
 class nsIEventTarget;
 class nsIFrame;
 class nsIGlobalObject;
@@ -3864,6 +3865,13 @@ class Document : public nsINode,
   void SetDevToolsWatchingDOMMutations(bool aValue);
   void SetSpeculumWatchingDOMMutations(bool aValue);
 
+  SpeculumMutationObserver* GetSpeculumMutationObserver() const {
+    return mSpeculumMutationObserver;
+  }
+  void SetSpeculumMutationObserver(SpeculumMutationObserver* aObserver) {
+    mSpeculumMutationObserver = aObserver;
+  }
+
   // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
   void EvaluateMediaQueriesAndReportChanges();
 
@@ -5024,6 +5032,8 @@ class Document : public nsINode,
   bool mUpgradeInsecurePreloads : 1;
   bool mDevToolsWatchingDOMMutations : 1;
   bool mSpeculumWatchingDOMMutations : 1;
+
+  RefPtr<SpeculumMutationObserver> mSpeculumMutationObserver;
 
   // Indicates whether this document is normal as in navigation or loaded as
   // data as in XHR or DOMParser.

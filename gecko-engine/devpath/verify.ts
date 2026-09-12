@@ -24,6 +24,35 @@ if (!existsSync(framesDir)) {
   process.exit(2);
 }
 
+const stdoutPath = join(cap, 'logs/stdout.log');
+const stdoutText = existsSync(stdoutPath) ? readFileSync(stdoutPath, 'utf8') : '';
+
+const bootUriByPidCtx = new Map<string, string>();
+for (const m of stdoutText.matchAll(
+  /\[SPECULUM-BOOT\] pid=(\d+) ctx=(\d+) uri=(\S+) ops=/g,
+)) {
+  bootUriByPidCtx.set(`${m[1]}:${m[2]}`, m[3]);
+}
+
+function pidForFrame(contextId: number, sequence: number): number | undefined {
+  for (const m of stdoutText.matchAll(
+    /\[SPECULUM-FRAME-PART\] pid=(\d+) ctx=(\d+) seq=(\d+)/g,
+  )) {
+    if (Number(m[2]) === contextId && Number(m[3]) === sequence) {
+      return Number(m[1]);
+    }
+  }
+  return undefined;
+}
+
+function uriForFrame(contextId: number, sequence: number): string {
+  const pid = pidForFrame(contextId, sequence);
+  if (pid === undefined) {
+    return 'uri=?';
+  }
+  return bootUriByPidCtx.get(`${pid}:${contextId}`) ?? 'uri=?';
+}
+
 const names = readdirSync(framesDir)
   .filter((n) => n.endsWith('.bin'))
   .sort((a, b) => {
@@ -36,8 +65,6 @@ if (names.length === 0) {
   process.exit(1);
 }
 
-const tables = new Map<string, ReplicatedTable>();
-const tagsByKey = new Map<string, string[]>();
 const persistent = new PersistentStringTable();
 let aceitos = 0, recusados = 0;
 
@@ -47,42 +74,32 @@ for (const name of names) {
   const bytes = new Uint8Array(readFileSync(join(framesDir, name)));
   const res = decodeFramePart(bytes, persistent);
   if (!res.ok) {
-    console.log(`${name.padEnd(16)} DECODE FALHOU  ${res.reason}: ${res.message}`);
+    console.log(
+      `${name.padEnd(16)} —  —  —  uri=?  DECODE FALHOU  ${res.reason}: ${res.message}`,
+    );
     recusados++;
     continue;
   }
   const p = res.part;
-  const key = `${name} ctx${p.contextId}/gen${p.generation}`;
-  const table = new ReplicatedTable();
-  tables.set(key, table);
-  const tags: string[] = [];
-  tagsByKey.set(key, tags);
-  for (const op of p.ops) {
-    if (op.op === OpCode.NodeNew && op.kind === NodeKind.Element) {
-      tags.push(op.name);
-    }
-  }
-  const r = applyFrameToTableChecked(table, p.flags?.resync ?? false, p.ops, p.sequence);
+  const ctxGen = `ctx${p.contextId}/gen${p.generation}`;
+  const uri = uriForFrame(p.contextId, p.sequence);
+  const r = applyFrameToTableChecked(
+    new ReplicatedTable(),
+    p.flags?.resync ?? false,
+    p.ops,
+    p.sequence,
+  );
   if (r.ok) {
     aceitos++;
-    console.log(`${name.padEnd(16)} ${key} seq=${p.sequence} ops=${String(p.ops.length).padStart(3)}  ACEITO   linhas=${table.size} hash=${table.tableHash}`);
+    console.log(
+      `${name.padEnd(16)} ${ctxGen} seq=${p.sequence} ops=${String(p.ops.length).padStart(4)}  ${uri}  ACEITO`,
+    );
   } else {
     recusados++;
-    console.log(`${name.padEnd(16)} ${key} seq=${p.sequence} ops=${String(p.ops.length).padStart(3)}  RECUSADO ${j(r)}`);
+    console.log(
+      `${name.padEnd(16)} ${ctxGen} seq=${p.sequence} ops=${String(p.ops.length).padStart(4)}  ${uri}  RECUSADO ${j(r)}`,
+    );
   }
-}
-
-console.log('');
-for (const [key, t] of tables) {
-  const elementRows = t.size;
-  let elements = 0;
-  t.forEachRow((_id, row) => {
-    if (row.kind === 1) elements++;
-  });
-  const tags = tagsByKey.get(key) ?? [];
-  console.log(`${key}: ${elementRows} linhas (${elements} elementos), tableHash=${t.tableHash}`);
-  console.log(`  tags: ${j(tags)}`);
-  console.log(`  filhos do Document: ${j(t.orderedChildIds(1))}`);
 }
 
 console.log('');

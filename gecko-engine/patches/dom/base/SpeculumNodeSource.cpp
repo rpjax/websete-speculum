@@ -181,7 +181,8 @@ std::string Base64Encode(const uint8_t* aData, size_t aLen) {
   return out;
 }
 
-void EmitFrameToStderr(uint32_t aSeq, const std::vector<uint8_t>& aFrame) {
+void EmitFrameToStderr(uint32_t aCtx, uint32_t aSeq,
+                       const std::vector<uint8_t>& aFrame) {
   // stderr write is only atomic up to ~4 KiB; keep each line under 3000 bytes.
   constexpr size_t kMaxB64PerPart = 2048;
   const std::string b64 = Base64Encode(aFrame.data(), aFrame.size());
@@ -194,9 +195,9 @@ void EmitFrameToStderr(uint32_t aSeq, const std::vector<uint8_t>& aFrame) {
     const size_t start = static_cast<size_t>(idx) * kMaxB64PerPart;
     const size_t chunkLen = std::min(kMaxB64PerPart, b64.size() - start);
     const std::string part = b64.substr(start, chunkLen);
-    printf_stderr("[SPECULUM-FRAME-PART] pid=%d seq=%u idx=%u de=%u %s\n",
-                  static_cast<int>(getpid()), aSeq, idx, partCount,
-                  part.c_str());
+    printf_stderr(
+        "[SPECULUM-FRAME-PART] pid=%d ctx=%u seq=%u idx=%u de=%u %s\n",
+        static_cast<int>(getpid()), aCtx, aSeq, idx, partCount, part.c_str());
   }
 }
 
@@ -220,8 +221,11 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
       !aDocument->IsContentDocument()) {
     return false;
   }
+  static uint32_t sNextScaffoldContextId = 1;
+  // ANDAIME: contextId virá do ContextCreate
+  const uint32_t contextId = sNextScaffoldContextId++;
   SpeculumNodeSource source;
-  speculum::Producer producer(source);
+  speculum::Producer producer(source, contextId, 0);
   producer.bootstrap(aDocument);
   const uint32_t ops = producer.pendingOps();
   std::vector<uint8_t> frame = producer.emitFrame();
@@ -232,8 +236,9 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
   if (nsIURI* docUri = aDocument->GetDocumentURI()) {
     uri = docUri->GetSpecOrDefault();
   }
-  printf_stderr("[SPECULUM-BOOT] pid=%d uri=%s ops=%u bytes=%zu\n",
-                static_cast<int>(getpid()), uri.get(), ops, frame.size());
+  printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
+                static_cast<int>(getpid()), contextId, uri.get(), ops,
+                frame.size());
   mkdir("/tmp/speculum-frames", 0777);
   const uint32_t index = NextSpeculumFrameIndex();
   char binPath[128];
@@ -253,7 +258,7 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
     fclose(fp);
   }
   const uint32_t seq = producer.sequence();
-  EmitFrameToStderr(seq, frame);
+  EmitFrameToStderr(contextId, seq, frame);
   printf_stderr(
       "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
       frame.size(),

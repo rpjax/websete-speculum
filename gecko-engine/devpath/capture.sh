@@ -62,29 +62,34 @@ def decode_b64(raw: str) -> bytes:
     return base64.b64decode(s, validate=False)
 
 part_re = re.compile(
+    r"^\[SPECULUM-FRAME-PART\] pid=(\d+) ctx=(\d+) seq=(\d+) idx=(\d+) de=(\d+) (.+)\s*$",
+    re.M,
+)
+# Legado: pid+seq sem ctx (ctx=0).
+legacy_pid_re = re.compile(
     r"^\[SPECULUM-FRAME-PART\] pid=(\d+) seq=(\d+) idx=(\d+) de=(\d+) (.+)\s*$",
     re.M,
 )
-# Legado (sem pid): trata pid=0 para nao misturar processos distintos com seq igual.
 legacy_re = re.compile(
     r"^\[SPECULUM-FRAME-PART\] seq=(\d+) idx=(\d+) de=(\d+) (.+)\s*$", re.M
 )
 
+FrameKey = tuple[int, int, int]
 failures: list[str] = []
-inflight: dict[tuple[int, int], dict] = {}
-completed: list[tuple[int, tuple[int, int], bytes]] = []
+inflight: dict[FrameKey, dict] = {}
+completed: list[tuple[int, FrameKey, bytes]] = []
 
 
-def fail_incomplete(key: tuple[int, int], state: dict, reason: str) -> None:
-    pid, seq = key
+def fail_incomplete(key: FrameKey, state: dict, reason: str) -> None:
+    pid, ctx, seq = key
     got = len(state.get("parts", {}))
     need = state.get("total", 0)
     failures.append(
-        f"stderr_frame_incomplete pid={pid} seq={seq} got={got} de={need} reason={reason}"
+        f"stderr_frame_incomplete pid={pid} ctx={ctx} seq={seq} got={got} de={need} reason={reason}"
     )
 
 
-def try_complete(key: tuple[int, int], state: dict) -> None:
+def try_complete(key: FrameKey, state: dict) -> None:
     total = state["total"]
     parts = state["parts"]
     if len(parts) != total:
@@ -95,49 +100,48 @@ def try_complete(key: tuple[int, int], state: dict) -> None:
     try:
         data = decode_b64("".join(parts[i] for i in range(total)))
     except Exception as exc:
-        pid, seq = key
-        failures.append(f"stderr_frame_decode_fail pid={pid} seq={seq} err={exc}")
+        pid, ctx, seq = key
+        failures.append(
+            f"stderr_frame_decode_fail pid={pid} ctx={ctx} seq={seq} err={exc}"
+        )
         return
     completed.append((state["first_pos"], key, data))
 
 
-for m in part_re.finditer(text):
-    pid, seq, idx, total, chunk = m.groups()
-    key = (int(pid), int(seq))
-    idx_i, total_i = int(idx), int(total)
+def ingest_part(key: FrameKey, idx_i: int, total_i: int, chunk: str, pos: int) -> None:
     if idx_i == 0 and key in inflight:
         fail_incomplete(key, inflight.pop(key), "superseded")
     if key not in inflight:
-        inflight[key] = {"total": total_i, "parts": {}, "first_pos": m.start()}
+        inflight[key] = {"total": total_i, "parts": {}, "first_pos": pos}
     state = inflight[key]
     if total_i != state["total"]:
         fail_incomplete(key, state, "de_mismatch")
         inflight.pop(key, None)
-        continue
+        return
     state["parts"][idx_i] = chunk
     try_complete(key, state)
     if len(state["parts"]) == state["total"]:
         inflight.pop(key, None)
 
+
+for m in part_re.finditer(text):
+    pid, ctx, seq, idx, total, chunk = m.groups()
+    key = (int(pid), int(ctx), int(seq))
+    ingest_part(key, int(idx), int(total), chunk, m.start())
+
+for m in legacy_pid_re.finditer(text):
+    if " ctx=" in m.group(0):
+        continue
+    pid, seq, idx, total, chunk = m.groups()
+    key = (int(pid), 0, int(seq))
+    ingest_part(key, int(idx), int(total), chunk, m.start())
+
 for m in legacy_re.finditer(text):
-    if part_re.match(m.group(0)):
+    if "pid=" in m.group(0):
         continue
     seq, idx, total, chunk = m.groups()
-    key = (0, int(seq))
-    idx_i, total_i = int(idx), int(total)
-    if idx_i == 0 and key in inflight:
-        fail_incomplete(key, inflight.pop(key), "superseded")
-    if key not in inflight:
-        inflight[key] = {"total": total_i, "parts": {}, "first_pos": m.start()}
-    state = inflight[key]
-    if total_i != state["total"]:
-        fail_incomplete(key, state, "de_mismatch")
-        inflight.pop(key, None)
-        continue
-    state["parts"][idx_i] = chunk
-    try_complete(key, state)
-    if len(state["parts"]) == state["total"]:
-        inflight.pop(key, None)
+    key = (0, 0, int(seq))
+    ingest_part(key, int(idx), int(total), chunk, m.start())
 
 for key, state in list(inflight.items()):
     fail_incomplete(key, state, "eof")

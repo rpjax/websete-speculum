@@ -23,3 +23,5 @@ SPECULUM_OUT="$OUT" npx --yes tsx table_parity.ts
 SPECULUM_OUT="$OUT" npx --yes tsx producer_loop.ts
 
 python3 "$HERE/test/compare.py" "$OUT"
+
+SPECULUM_LIVE_FRAMES="$HERE/evidence/live-frames" npx --yes tsx "$HERE/test/live_frames.ts"

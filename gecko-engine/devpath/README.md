@@ -35,6 +35,12 @@ Lá o ciclo é de segundos e o cliente de produção é o juiz. No Gecko o ciclo
 40 minutos. O que fica no fork é cola — leitura de árvore e nada mais.
 Isso não é preferência, é o que torna o projeto iterável.
 
+**5. `mach build binaries` NÃO regenera IPDL.**
+Mexeu em `.ipdl`: rode `./mach build pre-export export` antes.
+
+**6. Identidade de documento nunca vem de contador em processo de conteúdo.**
+Colide entre processos. Quem atribui `contextId` é o processo pai.
+
 ---
 
 ## Os comandos

@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ContentParent.h"
+#include "SpeculumFrameSink.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -1272,10 +1273,6 @@ IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
                                            const uint32_t& aContextId,
                                            const uint32_t& aSequence,
                                            nsTArray<uint8_t>&& aFrame) {
-  const char* dir = getenv("SPECULUM_FRAME_DIR");
-  if (!dir || !dir[0]) {
-    return IPC_OK();
-  }
   if (aFrame.Length() < 28) {
     fprintf(stderr, "[SPECULUM-FRAME-ERR] curto=1\n");
     return IPC_OK();
@@ -1300,31 +1297,8 @@ IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
   aFrame[6] = static_cast<uint8_t>((contextId >> 16) & 0xffu);
   aFrame[7] = static_cast<uint8_t>((contextId >> 24) & 0xffu);
 
-  static uint32_t sOrder = 0;
-  const uint32_t ordem = ++sOrder;
-  const base::ProcessId childPid = OtherPid();
-
-  char name[128];
-  snprintf(name, sizeof(name), "f-%04u-ctx%u-seq%u.bin", ordem, contextId,
-           aSequence);
-  char path[512];
-  snprintf(path, sizeof(path), "%s/%s", dir, name);
-  if (FILE* fp = fopen(path, "wb")) {
-    (void)fwrite(aFrame.Elements(), 1, aFrame.Length(), fp);
-    fclose(fp);
-  }
-
-  char ndpath[512];
-  snprintf(ndpath, sizeof(ndpath), "%s/frames.ndjson", dir);
-  if (FILE* nd = fopen(ndpath, "a")) {
-    fprintf(nd,
-            "{\"ordem\":%u,\"childPid\":%u,\"docToken\":%llu,\"contextId\":%u,"
-            "\"sequence\":%u,\"bytes\":%zu}\n",
-            ordem, static_cast<unsigned>(childPid),
-            static_cast<unsigned long long>(aDocToken), contextId, aSequence,
-            static_cast<size_t>(aFrame.Length()));
-    fclose(nd);
-  }
+  GetSpeculumFrameSink().DeliverFrame(contextId, aDocToken, aSequence, OtherPid(),
+                                      aFrame);
   return IPC_OK();
 }
 

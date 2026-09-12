@@ -273,10 +273,10 @@ index 0000000000..8d05ad07d2
 +#endif
 diff --git a/dom/base/SpeculumNodeSource.cpp b/dom/base/SpeculumNodeSource.cpp
 new file mode 100644
-index 0000000000..b1d2278fc6
+index 0000000000..319df6149e
 --- /dev/null
 +++ b/dom/base/SpeculumNodeSource.cpp
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,277 @@
 +/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
 +#include "mozilla/Assertions.h"
 +#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
@@ -473,8 +473,9 @@ index 0000000000..b1d2278fc6
 +    const size_t start = static_cast<size_t>(idx) * kMaxB64PerPart;
 +    const size_t chunkLen = std::min(kMaxB64PerPart, b64.size() - start);
 +    const std::string part = b64.substr(start, chunkLen);
-+    printf_stderr("[SPECULUM-FRAME-PART] seq=%u idx=%u de=%u %s\n", aSeq, idx,
-+                  partCount, part.c_str());
++    printf_stderr("[SPECULUM-FRAME-PART] pid=%d seq=%u idx=%u de=%u %s\n",
++                  static_cast<int>(getpid()), aSeq, idx, partCount,
++                  part.c_str());
 +  }
 +}
 +

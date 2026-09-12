@@ -41,12 +41,13 @@ cp -a /tmp/speculum-docs/.   "$OUT/logs/"   2>/dev/null || true
 
 # O processo de conteudo roda em chroot: nao enxerga o /tmp do host e nao
 # consegue gravar arquivo. O caminho que atravessa e' o stderr, entao os frames
-# vem em base64 nas linhas [SPECULUM-FRAME]. Andaime: o definitivo e' o frame
-# subir por IPC ate o pai (docs/gecko-engine/16-multiprocesso.md ss3).
-python3 - "$OUT/logs/stdout.log" "$OUT/frames" <<'PYEOF'
+# vem em base64 nas linhas [SPECULUM-FRAME-PART] (pid+seq). Andaime: IPC no pai.
+EXTRACT_NOTE="$OUT/stderr_extract_failures.txt"
+: > "$EXTRACT_NOTE"
+python3 - "$OUT/logs/stdout.log" "$OUT/frames" "$EXTRACT_NOTE" <<'PYEOF'
 import base64, re, sys, pathlib
 
-log, outdir = sys.argv[1], pathlib.Path(sys.argv[2])
+log, outdir, note_path = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
 try:
     text = pathlib.Path(log).read_text(errors="replace")
 except FileNotFoundError:
@@ -60,81 +61,100 @@ def decode_b64(raw: str) -> bytes:
         s += "=" * pad
     return base64.b64decode(s, validate=False)
 
-whole_re = re.compile(r"^\[SPECULUM-FRAME\] seq=(\d+) bytes=(\d+) (.+)\s*$", re.M)
 part_re = re.compile(
+    r"^\[SPECULUM-FRAME-PART\] pid=(\d+) seq=(\d+) idx=(\d+) de=(\d+) (.+)\s*$",
+    re.M,
+)
+# Legado (sem pid): trata pid=0 para nao misturar processos distintos com seq igual.
+legacy_re = re.compile(
     r"^\[SPECULUM-FRAME-PART\] seq=(\d+) idx=(\d+) de=(\d+) (.+)\s*$", re.M
 )
 
-events: list[tuple[int, str, tuple]] = []
-for m in whole_re.finditer(text):
-    events.append((m.start(), "whole", m.groups()))
-for m in part_re.finditer(text):
-    events.append((m.start(), "part", m.groups()))
-events.sort(key=lambda e: e[0])
-
-written = 0
-cur_parts: dict[int, str] = {}
-cur_total = 0
+failures: list[str] = []
+inflight: dict[tuple[int, int], dict] = {}
+completed: list[tuple[int, tuple[int, int], bytes]] = []
 
 
-def flush_part_frame() -> None:
-    global written, cur_parts, cur_total
-    if not cur_total:
+def fail_incomplete(key: tuple[int, int], state: dict, reason: str) -> None:
+    pid, seq = key
+    got = len(state.get("parts", {}))
+    need = state.get("total", 0)
+    failures.append(
+        f"stderr_frame_incomplete pid={pid} seq={seq} got={got} de={need} reason={reason}"
+    )
+
+
+def try_complete(key: tuple[int, int], state: dict) -> None:
+    total = state["total"]
+    parts = state["parts"]
+    if len(parts) != total:
         return
-    if len(cur_parts) != cur_total:
-        print(
-            f"  AVISO: {len(cur_parts)} de {cur_total} partes — frame descartado"
-        )
-        cur_parts = {}
-        cur_total = 0
+    if set(parts.keys()) != set(range(total)):
+        fail_incomplete(key, state, "missing_idx")
         return
     try:
-        data = decode_b64("".join(cur_parts[i] for i in sorted(cur_parts)))
+        data = decode_b64("".join(parts[i] for i in range(total)))
     except Exception as exc:
-        print(f"  AVISO: base64 invalido ({exc}) — frame descartado")
-    else:
-        written += 1
-        (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
-    cur_parts = {}
-    cur_total = 0
+        pid, seq = key
+        failures.append(f"stderr_frame_decode_fail pid={pid} seq={seq} err={exc}")
+        return
+    completed.append((state["first_pos"], key, data))
 
 
-for _pos, kind, groups in events:
-    if kind == "whole":
-        flush_part_frame()
-        seq, declared, b64 = groups
-        try:
-            data = decode_b64(b64)
-        except Exception as exc:
-            print(f"  AVISO seq={seq}: base64 invalido ({exc}) — frame descartado")
-            continue
-        if len(data) != int(declared):
-            print(
-                f"  AVISO seq={seq}: declarou {declared} bytes, decodificou {len(data)}"
-            )
-        written += 1
-        (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
+for m in part_re.finditer(text):
+    pid, seq, idx, total, chunk = m.groups()
+    key = (int(pid), int(seq))
+    idx_i, total_i = int(idx), int(total)
+    if idx_i == 0 and key in inflight:
+        fail_incomplete(key, inflight.pop(key), "superseded")
+    if key not in inflight:
+        inflight[key] = {"total": total_i, "parts": {}, "first_pos": m.start()}
+    state = inflight[key]
+    if total_i != state["total"]:
+        fail_incomplete(key, state, "de_mismatch")
+        inflight.pop(key, None)
         continue
+    state["parts"][idx_i] = chunk
+    try_complete(key, state)
+    if len(state["parts"]) == state["total"]:
+        inflight.pop(key, None)
 
-    _seq_s, idx_s, total_s, chunk = groups
-    idx_i, total_i = int(idx_s), int(total_s)
-    if idx_i == 0:
-        flush_part_frame()
-        cur_total = total_i
-        cur_parts = {}
-    elif total_i != cur_total:
-        print("  AVISO: parte com de= inesperado — frame descartado")
-        cur_parts = {}
-        cur_total = 0
+for m in legacy_re.finditer(text):
+    if part_re.match(m.group(0)):
         continue
-    cur_parts[idx_i] = chunk
-    if len(cur_parts) == cur_total:
-        flush_part_frame()
+    seq, idx, total, chunk = m.groups()
+    key = (0, int(seq))
+    idx_i, total_i = int(idx), int(total)
+    if idx_i == 0 and key in inflight:
+        fail_incomplete(key, inflight.pop(key), "superseded")
+    if key not in inflight:
+        inflight[key] = {"total": total_i, "parts": {}, "first_pos": m.start()}
+    state = inflight[key]
+    if total_i != state["total"]:
+        fail_incomplete(key, state, "de_mismatch")
+        inflight.pop(key, None)
+        continue
+    state["parts"][idx_i] = chunk
+    try_complete(key, state)
+    if len(state["parts"]) == state["total"]:
+        inflight.pop(key, None)
 
-flush_part_frame()
+for key, state in list(inflight.items()):
+    fail_incomplete(key, state, "eof")
+    inflight.pop(key, None)
 
+completed.sort(key=lambda x: x[0])
+written = 0
+for _pos, key, data in completed:
+    written += 1
+    (outdir / f"stderr_{written:04d}.bin").write_bytes(data)
+
+if failures:
+    note_path.write_text("\n".join(failures) + "\n", encoding="utf-8")
 if written:
     print(f"extraidos do stderr: {written} frame(s)")
+if failures:
+    print(f"  {len(failures)} frame(s) incompleto(s) — ver MANIFEST.txt")
 PYEOF
 
 {
@@ -145,7 +165,13 @@ PYEOF
   echo "gecko_commit=$(cd "$GECKO" && git rev-parse HEAD 2>/dev/null || echo '?')"
   echo "speculum_commit=$(cd "$REPO" && git rev-parse HEAD)"
   echo "binary_mtime=$(stat -c %y "$BIN" 2>/dev/null || echo '?')"
+  if [ -s "$EXTRACT_NOTE" ]; then
+    echo ""
+    echo "[stderr_extract_failures]"
+    cat "$EXTRACT_NOTE"
+  fi
 } > "$OUT/MANIFEST.txt"
+rm -f "$EXTRACT_NOTE"
 
 echo "--- frames ---"; ls -l "$OUT/frames" || true
 echo "--- logs ---";   ls -l "$OUT/logs"   || true

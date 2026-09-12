@@ -194,8 +194,9 @@ void EmitFrameToStderr(uint32_t aSeq, const std::vector<uint8_t>& aFrame) {
     const size_t start = static_cast<size_t>(idx) * kMaxB64PerPart;
     const size_t chunkLen = std::min(kMaxB64PerPart, b64.size() - start);
     const std::string part = b64.substr(start, chunkLen);
-    printf_stderr("[SPECULUM-FRAME-PART] seq=%u idx=%u de=%u %s\n", aSeq, idx,
-                  partCount, part.c_str());
+    printf_stderr("[SPECULUM-FRAME-PART] pid=%d seq=%u idx=%u de=%u %s\n",
+                  static_cast<int>(getpid()), aSeq, idx, partCount,
+                  part.c_str());
   }
 }
 

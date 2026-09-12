@@ -541,3 +541,10 @@ sidecar/browser/mirror/projection/lab/static/client.buildA-*.js
 sidecar/browser/mirror/projection/lab/static/client.buildB.js
 sidecar/scripts/lab-probe-diagdump.js
 sidecar/scripts/lab-scroll-*.js
+
+# Local ad-hoc debug / smoke / agent artifacts (large or ephemeral)
+debug-ad4d6c-pending/
+debug-*/
+smoke.png
+*.tgz
+Claude outputs/

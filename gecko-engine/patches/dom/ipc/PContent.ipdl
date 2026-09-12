@@ -1984,8 +1984,8 @@ parent:
     async KillGPUProcess();
 #endif
 
-  async SpeculumFrame(uint32_t aContextId, uint32_t aSequence,
-                        nsTArray<uint8_t> aFrame);
+    async SpeculumFrame(uint32_t aContextId, uint32_t aSequence,
+                        uint8_t[] aFrame);
 
   async AttributionEvent(nsCString aSourceHost,
                          PrivateAttributionImpressionType aType,

@@ -673,15 +673,15 @@ index 4e7694702d..b29e03b27f 100644
        const nsACString& aHost, PrivateAttributionImpressionType aType,
        uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost);
 diff --git a/dom/ipc/PContent.ipdl b/dom/ipc/PContent.ipdl
-index 23fb648516..69f1f5a1c8 100644
+index 23fb648516..82ae28ba0b 100644
 --- a/dom/ipc/PContent.ipdl
 +++ b/dom/ipc/PContent.ipdl
 @@ -1984,6 +1984,9 @@ parent:
      async KillGPUProcess();
  #endif
  
-+  async SpeculumFrame(uint32_t aContextId, uint32_t aSequence,
-+                        nsTArray<uint8_t> aFrame);
++    async SpeculumFrame(uint32_t aContextId, uint32_t aSequence,
++                        uint8_t[] aFrame);
 +
    async AttributionEvent(nsCString aSourceHost,
                           PrivateAttributionImpressionType aType,

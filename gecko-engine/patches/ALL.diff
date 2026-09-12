@@ -107,14 +107,14 @@ index 0122df8a7f..a5750f7257 100644
                               Document& aDocument) {
    if (nsPresContext* pc = aDocument.GetPresContext()) {
 diff --git a/dom/base/Document.h b/dom/base/Document.h
-index 42c105bb32..ff3d2a40a5 100644
+index 42c105bb32..50012b4538 100644
 --- a/dom/base/Document.h
 +++ b/dom/base/Document.h
 @@ -154,6 +154,7 @@ class nsIDocShell;
  class nsIDocShellTreeItem;
  class nsIDocumentEncoder;
  class nsIDocumentObserver;
-+class SpeculumMutationObserver;
++#include "SpeculumMutationObserver.h"
  class nsIEventTarget;
  class nsIFrame;
  class nsIGlobalObject;
@@ -145,26 +145,40 @@ index 42c105bb32..ff3d2a40a5 100644
    // data as in XHR or DOMParser.
 diff --git a/dom/base/SpeculumMutationObserver.cpp b/dom/base/SpeculumMutationObserver.cpp
 new file mode 100755
-index 0000000000..aeff3596d6
+index 0000000000..3add1bbf2e
 --- /dev/null
 +++ b/dom/base/SpeculumMutationObserver.cpp
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,275 @@
 +/* Speculum — minimal DOM mutation probe (producer spike). */
 +#include "SpeculumMutationObserver.h"
 +
++#include "SpeculumNodeSource.h"
++#include "mozilla/RefPtr.h"
++#include "mozilla/UniquePtrExtensions.h"
 +#include "mozilla/dom/ContentChild.h"
 +#include "mozilla/dom/Document.h"
 +#include "nsComponentManagerUtils.h"
 +#include "nsDebug.h"
 +#include "nsReadableUtils.h"
 +#include "nsTArray.h"
-+#include "nsITimer.h"
++#include "speculum/Producer.h"
++#include "speculum/Wire.h"
 +
 +#include <cstdio>
++#include <sys/stat.h>
 +#include <vector>
 +
 +using mozilla::dom::ContentChild;
 +using mozilla::dom::Document;
++
++struct SpeculumProducerState {
++  SpeculumNodeSource source;
++  speculum::Producer producer;
++  nsCOMPtr<nsITimer> frameTimer;
++
++  SpeculumProducerState()
++      : producer(source, speculum::kContextIdRoot, 0) {}
++};
 +
 +NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallback)
 +
@@ -172,7 +186,7 @@ index 0000000000..aeff3596d6
 +
 +namespace {
 +
-+std::string Utf8FromAtom(const nsAtom* aAtom) {
++std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
 +  if (!aAtom) {
 +    return std::string();
 +  }
@@ -186,58 +200,22 @@ index 0000000000..aeff3596d6
 +  return sNext++;
 +}
 +
-+}  // namespace
-+
-+SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument)
-+    : mDocument(aDocument),
-+      mProducer(mSource, speculum::kContextIdRoot, 0) {}
-+
-+SpeculumMutationObserver::~SpeculumMutationObserver() {
-+  CancelFrameTimer();
-+}
-+
-+void SpeculumMutationObserver::CancelFrameTimer() {
-+  if (mFrameTimer) {
-+    mFrameTimer->Cancel();
-+    mFrameTimer = nullptr;
-+  }
-+}
-+
-+void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
-+  if (mFrameTimer) {
-+    return;
-+  }
-+  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mFrameTimer), this, 16,
-+                                        nsITimer::TYPE_ONE_SHOT);
-+  if (NS_FAILED(rv)) {
-+    mFrameTimer = nullptr;
-+  }
-+}
-+
-+NS_IMETHODIMP
-+SpeculumMutationObserver::Notify(nsITimer* aTimer) {
-+  if (aTimer != mFrameTimer) {
-+    return NS_OK;
-+  }
-+  mFrameTimer = nullptr;
-+  EmitPendingFrame();
-+  return NS_OK;
-+}
-+
-+void SpeculumMutationObserver::SendFrameBytes(const std::vector<uint8_t>& aFrame,
-+                                              uint32_t aOps, bool aBootstrap) {
-+  if (aFrame.empty() || !mDocument) {
++void SendFrameBytes(mozilla::dom::Document* aDocument,
++                    SpeculumProducerState& aState,
++                    const std::vector<uint8_t>& aFrame, uint32_t aOps,
++                    bool aBootstrap) {
++  if (aFrame.empty() || !aDocument) {
 +    return;
 +  }
 +  constexpr uint32_t kContextId = speculum::kContextIdRoot;
-+  const uint32_t seq = mProducer.sequence();
++  const uint32_t seq = aState.producer.sequence();
 +  if (ContentChild* cc = ContentChild::GetSingleton()) {
 +    nsTArray<uint8_t> bytes;
 +    bytes.AppendElements(aFrame.data(), aFrame.size());
-+    cc->SendSpeculumFrame(mSource.docToken(), kContextId, seq, bytes);
++    cc->SendSpeculumFrame(aState.source.docToken(), kContextId, seq, bytes);
 +  }
 +  nsAutoCString uri("(null)");
-+  if (nsIURI* docUri = mDocument->GetDocumentURI()) {
++  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
 +    uri = docUri->GetSpecOrDefault();
 +  }
 +  if (aBootstrap) {
@@ -265,36 +243,76 @@ index 0000000000..aeff3596d6
 +    printf_stderr(
 +        "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
 +        aFrame.size(),
-+        static_cast<unsigned long long>(mProducer.table().tableHash()));
++        static_cast<unsigned long long>(aState.producer.table().tableHash()));
 +  } else {
 +    printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n", kContextId,
 +                  seq, aOps, aFrame.size());
 +  }
 +}
 +
++}  // namespace
++
++SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument)
++    : mDocument(aDocument), mState(mozilla::MakeUnique<SpeculumProducerState>()) {}
++
++SpeculumMutationObserver::~SpeculumMutationObserver() {
++  CancelFrameTimer();
++}
++
++void SpeculumMutationObserver::CancelFrameTimer() {
++  if (mState && mState->frameTimer) {
++    mState->frameTimer->Cancel();
++    mState->frameTimer = nullptr;
++  }
++}
++
++void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
++  if (!mState || mState->frameTimer) {
++    return;
++  }
++  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mState->frameTimer), this,
++                                        16, nsITimer::TYPE_ONE_SHOT);
++  if (NS_FAILED(rv)) {
++    mState->frameTimer = nullptr;
++  }
++}
++
++NS_IMETHODIMP
++SpeculumMutationObserver::Notify(nsITimer* aTimer) {
++  if (!mState || aTimer != mState->frameTimer) {
++    return NS_OK;
++  }
++  mState->frameTimer = nullptr;
++  EmitPendingFrame();
++  return NS_OK;
++}
++
 +void SpeculumMutationObserver::EmitPendingFrame() {
-+  const uint32_t ops = mProducer.pendingOps();
++  if (!mState) {
++    return;
++  }
++  const uint32_t ops = mState->producer.pendingOps();
 +  if (ops == 0) {
 +    return;
 +  }
-+  std::vector<uint8_t> frame = mProducer.emitFrame();
++  std::vector<uint8_t> frame = mState->producer.emitFrame();
 +  if (frame.empty()) {
 +    return;
 +  }
-+  SendFrameBytes(frame, ops, false);
++  SendFrameBytes(mDocument, *mState, frame, ops, false);
 +}
 +
 +bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
-+  if (!mDocument || !mDocument->IsContentDocument()) {
++  if (!mDocument || !mDocument->IsContentDocument() || !mState) {
 +    return false;
 +  }
-+  mProducer.bootstrap(mDocument);
-+  const uint32_t ops = mProducer.pendingOps();
-+  std::vector<uint8_t> frame = mProducer.emitFrame();
++  mState->producer.bootstrap(mDocument);
++  const uint32_t ops = mState->producer.pendingOps();
++  std::vector<uint8_t> frame = mState->producer.emitFrame();
 +  if (frame.empty()) {
 +    return false;
 +  }
-+  SendFrameBytes(frame, ops, true);
++  SendFrameBytes(mDocument, *mState, frame, ops, true);
 +  return true;
 +}
 +
@@ -306,7 +324,10 @@ index 0000000000..aeff3596d6
 +void SpeculumMutationObserver::CharacterDataChanged(
 +    nsIContent* aContent, const CharacterDataChangeInfo&) {
 +  SPECULUM_LOG("CharacterDataChanged");
-+  mProducer.onTextChanged(aContent);
++  if (!mState) {
++    return;
++  }
++  mState->producer.onTextChanged(aContent);
 +  ArmFrameTimerIfNeeded();
 +}
 +
@@ -321,7 +342,11 @@ index 0000000000..aeff3596d6
 +                                                AttrModType,
 +                                                const nsAttrValue*) {
 +  SPECULUM_LOG("AttributeChanged");
-+  mProducer.onAttrChanged(aElement, Utf8FromAtom(aAttribute));
++  if (!mState) {
++    return;
++  }
++  mState->producer.onAttrChanged(aElement,
++                                 SpeculumObserverUtf8FromAtom(aAttribute));
 +  ArmFrameTimerIfNeeded();
 +}
 +
@@ -333,13 +358,13 @@ index 0000000000..aeff3596d6
 +void SpeculumMutationObserver::ContentAppended(
 +    nsIContent* aFirstNewContent, const ContentAppendInfo&) {
 +  SPECULUM_LOG("ContentAppended");
-+  if (!aFirstNewContent) {
++  if (!mState || !aFirstNewContent) {
 +    return;
 +  }
 +  nsINode* parent = aFirstNewContent->GetParentNode();
 +  for (nsIContent* child = aFirstNewContent; child;
 +       child = child->GetNextSibling()) {
-+    mProducer.onInserted(parent, child);
++    mState->producer.onInserted(parent, child);
 +  }
 +  ArmFrameTimerIfNeeded();
 +}
@@ -348,26 +373,29 @@ index 0000000000..aeff3596d6
 +                                               const ContentInsertInfo&) {
 +  printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
 +  SPECULUM_LOG("ContentInserted");
-+  if (!aChild) {
++  if (!mState || !aChild) {
 +    return;
 +  }
-+  mProducer.onInserted(aChild->GetParentNode(), aChild);
++  mState->producer.onInserted(aChild->GetParentNode(), aChild);
 +  ArmFrameTimerIfNeeded();
 +}
 +
 +void SpeculumMutationObserver::ContentWillBeRemoved(
 +    nsIContent* aChild, const ContentRemoveInfo&) {
 +  SPECULUM_LOG("ContentWillBeRemoved");
-+  if (!aChild) {
++  if (!mState || !aChild) {
 +    return;
 +  }
-+  mProducer.onRemoved(aChild->GetParentNode(), aChild);
++  mState->producer.onRemoved(aChild->GetParentNode(), aChild);
 +  ArmFrameTimerIfNeeded();
 +}
 +
 +void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode* aNode) {
 +  SPECULUM_LOG("NodeWillBeDestroyed");
-+  mProducer.onDestroyed(aNode);
++  if (!mState) {
++    return;
++  }
++  mState->producer.onDestroyed(aNode);
 +  ArmFrameTimerIfNeeded();
 +}
 +
@@ -398,19 +426,19 @@ index 0000000000..aeff3596d6
 +}
 diff --git a/dom/base/SpeculumMutationObserver.h b/dom/base/SpeculumMutationObserver.h
 new file mode 100755
-index 0000000000..b1e49047f8
+index 0000000000..57d20c8323
 --- /dev/null
 +++ b/dom/base/SpeculumMutationObserver.h
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,61 @@
 +/* Speculum — minimal DOM mutation probe (producer spike). */
 +#ifndef dom_base_SpeculumMutationObserver_h
 +#define dom_base_SpeculumMutationObserver_h
 +
-+#include "SpeculumNodeSource.h"
-+#include "mozilla/RefPtr.h"
++#include "mozilla/UniquePtr.h"
 +#include "nsStubMutationObserver.h"
 +#include "nsITimer.h"
-+#include "speculum/Producer.h"
++
++struct SpeculumProducerState;
 +
 +namespace mozilla::dom {
 +class Document;
@@ -450,17 +478,13 @@ index 0000000000..b1e49047f8
 +  void ParentChainChanged(nsIContent* aContent) override;
 +
 + private:
-+  ~SpeculumMutationObserver() override;
++  ~SpeculumMutationObserver();
 +
 +  void ArmFrameTimerIfNeeded();
 +  void EmitPendingFrame();
-+  void SendFrameBytes(const std::vector<uint8_t>& aFrame, uint32_t aOps,
-+                      bool aBootstrap);
 +
 +  mozilla::dom::Document* mDocument;
-+  SpeculumNodeSource mSource;
-+  speculum::Producer mProducer;
-+  nsCOMPtr<nsITimer> mFrameTimer;
++  mozilla::UniquePtr<SpeculumProducerState> mState;
 +};
 +
 +void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
@@ -725,10 +749,18 @@ index 0000000000..66d49a380f
 +
 +#endif
 diff --git a/dom/base/moz.build b/dom/base/moz.build
-index 06e0efa0d9..1a9b8d5c6c 100644
+index 06e0efa0d9..ba195e3968 100644
 --- a/dom/base/moz.build
 +++ b/dom/base/moz.build
-@@ -357,7 +357,6 @@ UNIFIED_SOURCES += [
+@@ -109,6 +109,7 @@ EXPORTS += [
+     "nsWrapperCache.h",
+     "nsWrapperCacheInlines.h",
+     "SharedLcpMarkerState.h",
++    "SpeculumMutationObserver.h",
+     "XPathGenerator.h",
+ ]
+ 
+@@ -357,7 +358,6 @@ UNIFIED_SOURCES += [
      "CustomElementRegistry.cpp",
      "DirectionalityUtils.cpp",
      "DocGroup.cpp",
@@ -736,7 +768,7 @@ index 06e0efa0d9..1a9b8d5c6c 100644
      "DocumentFragment.cpp",
      "DocumentOrShadowRoot.cpp",
      "DocumentType.cpp",
-@@ -472,6 +471,8 @@ UNIFIED_SOURCES += [
+@@ -472,6 +472,8 @@ UNIFIED_SOURCES += [
      "SerializedStackHolder.cpp",
      "ShadowRoot.cpp",
      "SourceLocation.cpp",
@@ -745,7 +777,7 @@ index 06e0efa0d9..1a9b8d5c6c 100644
      "StaticRange.cpp",
      "StorageAccessPermissionRequest.cpp",
      "StructuredCloneBlob.cpp",
-@@ -519,6 +520,7 @@ if CONFIG["MOZ_PLACES"]:
+@@ -519,6 +521,7 @@ if CONFIG["MOZ_PLACES"]:
  # these files couldn't be in UNIFIED_SOURCES for now for reasons given below:
  SOURCES += [
      # Several conflicts with other bindings.
@@ -753,7 +785,7 @@ index 06e0efa0d9..1a9b8d5c6c 100644
      "DOMIntersectionObserver.cpp",
      # Because of OS X headers.
      "nsContentUtils.cpp",
-@@ -593,6 +595,7 @@ LOCAL_INCLUDES += [
+@@ -593,6 +596,7 @@ LOCAL_INCLUDES += [
      "/netwerk/url-classifier",
      "/parser/htmlparser",
      "/security/manager/ssl",

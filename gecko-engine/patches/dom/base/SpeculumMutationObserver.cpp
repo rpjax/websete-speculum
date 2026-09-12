@@ -1,19 +1,33 @@
 /* Speculum — minimal DOM mutation probe (producer spike). */
 #include "SpeculumMutationObserver.h"
 
+#include "SpeculumNodeSource.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Document.h"
 #include "nsComponentManagerUtils.h"
 #include "nsDebug.h"
 #include "nsReadableUtils.h"
 #include "nsTArray.h"
-#include "nsITimer.h"
+#include "speculum/Producer.h"
+#include "speculum/Wire.h"
 
 #include <cstdio>
+#include <sys/stat.h>
 #include <vector>
 
 using mozilla::dom::ContentChild;
 using mozilla::dom::Document;
+
+struct SpeculumProducerState {
+  SpeculumNodeSource source;
+  speculum::Producer producer;
+  nsCOMPtr<nsITimer> frameTimer;
+
+  SpeculumProducerState()
+      : producer(source, speculum::kContextIdRoot, 0) {}
+};
 
 NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallback)
 
@@ -21,7 +35,7 @@ NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallbac
 
 namespace {
 
-std::string Utf8FromAtom(const nsAtom* aAtom) {
+std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
   if (!aAtom) {
     return std::string();
   }
@@ -35,58 +49,22 @@ uint32_t NextSpeculumFrameIndex() {
   return sNext++;
 }
 
-}  // namespace
-
-SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument)
-    : mDocument(aDocument),
-      mProducer(mSource, speculum::kContextIdRoot, 0) {}
-
-SpeculumMutationObserver::~SpeculumMutationObserver() {
-  CancelFrameTimer();
-}
-
-void SpeculumMutationObserver::CancelFrameTimer() {
-  if (mFrameTimer) {
-    mFrameTimer->Cancel();
-    mFrameTimer = nullptr;
-  }
-}
-
-void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
-  if (mFrameTimer) {
-    return;
-  }
-  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mFrameTimer), this, 16,
-                                        nsITimer::TYPE_ONE_SHOT);
-  if (NS_FAILED(rv)) {
-    mFrameTimer = nullptr;
-  }
-}
-
-NS_IMETHODIMP
-SpeculumMutationObserver::Notify(nsITimer* aTimer) {
-  if (aTimer != mFrameTimer) {
-    return NS_OK;
-  }
-  mFrameTimer = nullptr;
-  EmitPendingFrame();
-  return NS_OK;
-}
-
-void SpeculumMutationObserver::SendFrameBytes(const std::vector<uint8_t>& aFrame,
-                                              uint32_t aOps, bool aBootstrap) {
-  if (aFrame.empty() || !mDocument) {
+void SendFrameBytes(mozilla::dom::Document* aDocument,
+                    SpeculumProducerState& aState,
+                    const std::vector<uint8_t>& aFrame, uint32_t aOps,
+                    bool aBootstrap) {
+  if (aFrame.empty() || !aDocument) {
     return;
   }
   constexpr uint32_t kContextId = speculum::kContextIdRoot;
-  const uint32_t seq = mProducer.sequence();
+  const uint32_t seq = aState.producer.sequence();
   if (ContentChild* cc = ContentChild::GetSingleton()) {
     nsTArray<uint8_t> bytes;
     bytes.AppendElements(aFrame.data(), aFrame.size());
-    cc->SendSpeculumFrame(mSource.docToken(), kContextId, seq, bytes);
+    cc->SendSpeculumFrame(aState.source.docToken(), kContextId, seq, bytes);
   }
   nsAutoCString uri("(null)");
-  if (nsIURI* docUri = mDocument->GetDocumentURI()) {
+  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
     uri = docUri->GetSpecOrDefault();
   }
   if (aBootstrap) {
@@ -114,36 +92,76 @@ void SpeculumMutationObserver::SendFrameBytes(const std::vector<uint8_t>& aFrame
     printf_stderr(
         "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
         aFrame.size(),
-        static_cast<unsigned long long>(mProducer.table().tableHash()));
+        static_cast<unsigned long long>(aState.producer.table().tableHash()));
   } else {
     printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n", kContextId,
                   seq, aOps, aFrame.size());
   }
 }
 
+}  // namespace
+
+SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument)
+    : mDocument(aDocument), mState(mozilla::MakeUnique<SpeculumProducerState>()) {}
+
+SpeculumMutationObserver::~SpeculumMutationObserver() {
+  CancelFrameTimer();
+}
+
+void SpeculumMutationObserver::CancelFrameTimer() {
+  if (mState && mState->frameTimer) {
+    mState->frameTimer->Cancel();
+    mState->frameTimer = nullptr;
+  }
+}
+
+void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
+  if (!mState || mState->frameTimer) {
+    return;
+  }
+  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mState->frameTimer), this,
+                                        16, nsITimer::TYPE_ONE_SHOT);
+  if (NS_FAILED(rv)) {
+    mState->frameTimer = nullptr;
+  }
+}
+
+NS_IMETHODIMP
+SpeculumMutationObserver::Notify(nsITimer* aTimer) {
+  if (!mState || aTimer != mState->frameTimer) {
+    return NS_OK;
+  }
+  mState->frameTimer = nullptr;
+  EmitPendingFrame();
+  return NS_OK;
+}
+
 void SpeculumMutationObserver::EmitPendingFrame() {
-  const uint32_t ops = mProducer.pendingOps();
+  if (!mState) {
+    return;
+  }
+  const uint32_t ops = mState->producer.pendingOps();
   if (ops == 0) {
     return;
   }
-  std::vector<uint8_t> frame = mProducer.emitFrame();
+  std::vector<uint8_t> frame = mState->producer.emitFrame();
   if (frame.empty()) {
     return;
   }
-  SendFrameBytes(frame, ops, false);
+  SendFrameBytes(mDocument, *mState, frame, ops, false);
 }
 
 bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
-  if (!mDocument || !mDocument->IsContentDocument()) {
+  if (!mDocument || !mDocument->IsContentDocument() || !mState) {
     return false;
   }
-  mProducer.bootstrap(mDocument);
-  const uint32_t ops = mProducer.pendingOps();
-  std::vector<uint8_t> frame = mProducer.emitFrame();
+  mState->producer.bootstrap(mDocument);
+  const uint32_t ops = mState->producer.pendingOps();
+  std::vector<uint8_t> frame = mState->producer.emitFrame();
   if (frame.empty()) {
     return false;
   }
-  SendFrameBytes(frame, ops, true);
+  SendFrameBytes(mDocument, *mState, frame, ops, true);
   return true;
 }
 
@@ -155,7 +173,10 @@ void SpeculumMutationObserver::CharacterDataWillChange(
 void SpeculumMutationObserver::CharacterDataChanged(
     nsIContent* aContent, const CharacterDataChangeInfo&) {
   SPECULUM_LOG("CharacterDataChanged");
-  mProducer.onTextChanged(aContent);
+  if (!mState) {
+    return;
+  }
+  mState->producer.onTextChanged(aContent);
   ArmFrameTimerIfNeeded();
 }
 
@@ -170,7 +191,11 @@ void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element* aElement,
                                                 AttrModType,
                                                 const nsAttrValue*) {
   SPECULUM_LOG("AttributeChanged");
-  mProducer.onAttrChanged(aElement, Utf8FromAtom(aAttribute));
+  if (!mState) {
+    return;
+  }
+  mState->producer.onAttrChanged(aElement,
+                                 SpeculumObserverUtf8FromAtom(aAttribute));
   ArmFrameTimerIfNeeded();
 }
 
@@ -182,13 +207,13 @@ void SpeculumMutationObserver::AttributeSetToCurrentValue(
 void SpeculumMutationObserver::ContentAppended(
     nsIContent* aFirstNewContent, const ContentAppendInfo&) {
   SPECULUM_LOG("ContentAppended");
-  if (!aFirstNewContent) {
+  if (!mState || !aFirstNewContent) {
     return;
   }
   nsINode* parent = aFirstNewContent->GetParentNode();
   for (nsIContent* child = aFirstNewContent; child;
        child = child->GetNextSibling()) {
-    mProducer.onInserted(parent, child);
+    mState->producer.onInserted(parent, child);
   }
   ArmFrameTimerIfNeeded();
 }
@@ -197,26 +222,29 @@ void SpeculumMutationObserver::ContentInserted(nsIContent* aChild,
                                                const ContentInsertInfo&) {
   printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
   SPECULUM_LOG("ContentInserted");
-  if (!aChild) {
+  if (!mState || !aChild) {
     return;
   }
-  mProducer.onInserted(aChild->GetParentNode(), aChild);
+  mState->producer.onInserted(aChild->GetParentNode(), aChild);
   ArmFrameTimerIfNeeded();
 }
 
 void SpeculumMutationObserver::ContentWillBeRemoved(
     nsIContent* aChild, const ContentRemoveInfo&) {
   SPECULUM_LOG("ContentWillBeRemoved");
-  if (!aChild) {
+  if (!mState || !aChild) {
     return;
   }
-  mProducer.onRemoved(aChild->GetParentNode(), aChild);
+  mState->producer.onRemoved(aChild->GetParentNode(), aChild);
   ArmFrameTimerIfNeeded();
 }
 
 void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode* aNode) {
   SPECULUM_LOG("NodeWillBeDestroyed");
-  mProducer.onDestroyed(aNode);
+  if (!mState) {
+    return;
+  }
+  mState->producer.onDestroyed(aNode);
   ArmFrameTimerIfNeeded();
 }
 

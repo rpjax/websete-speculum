@@ -2,11 +2,11 @@
 #ifndef dom_base_SpeculumMutationObserver_h
 #define dom_base_SpeculumMutationObserver_h
 
-#include "SpeculumNodeSource.h"
-#include "mozilla/RefPtr.h"
+#include "mozilla/UniquePtr.h"
 #include "nsStubMutationObserver.h"
 #include "nsITimer.h"
-#include "speculum/Producer.h"
+
+struct SpeculumProducerState;
 
 namespace mozilla::dom {
 class Document;
@@ -46,17 +46,13 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   void ParentChainChanged(nsIContent* aContent) override;
 
  private:
-  ~SpeculumMutationObserver() override;
+  ~SpeculumMutationObserver();
 
   void ArmFrameTimerIfNeeded();
   void EmitPendingFrame();
-  void SendFrameBytes(const std::vector<uint8_t>& aFrame, uint32_t aOps,
-                      bool aBootstrap);
 
   mozilla::dom::Document* mDocument;
-  SpeculumNodeSource mSource;
-  speculum::Producer mProducer;
-  nsCOMPtr<nsITimer> mFrameTimer;
+  mozilla::UniquePtr<SpeculumProducerState> mState;
 };
 
 void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);

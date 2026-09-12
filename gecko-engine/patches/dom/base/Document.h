@@ -154,7 +154,7 @@ class nsIDocShell;
 class nsIDocShellTreeItem;
 class nsIDocumentEncoder;
 class nsIDocumentObserver;
-class SpeculumMutationObserver;
+#include "SpeculumMutationObserver.h"
 class nsIEventTarget;
 class nsIFrame;
 class nsIGlobalObject;

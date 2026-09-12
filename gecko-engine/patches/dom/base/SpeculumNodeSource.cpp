@@ -8,10 +8,12 @@
 #include "Element.h"
 #include "NameSpaceConstants.h"
 #include "mozilla/dom/CharacterData.h"
+#include "mozilla/dom/ContentChild.h"
 #include "nsAttrName.h"
 #include "nsAttrValue.h"
 #include "nsIContent.h"
 #include "nsINode.h"
+#include "nsTArray.h"
 #include "nsReadableUtils.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/BrowsingContext.h"
@@ -25,6 +27,7 @@
 #include <vector>
 
 using mozilla::dom::CharacterData;
+using mozilla::dom::ContentChild;
 using mozilla::dom::DocumentType;
 using mozilla::dom::Element;
 
@@ -163,44 +166,6 @@ uint32_t NextSpeculumFrameIndex() {
   return sNext++;
 }
 
-std::string Base64Encode(const uint8_t* aData, size_t aLen) {
-  static const char kAlphabet[] =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  std::string out;
-  out.reserve(((aLen + 2) / 3) * 4);
-  for (size_t i = 0; i < aLen; i += 3) {
-    const uint32_t b0 = aData[i];
-    const uint32_t b1 = (i + 1 < aLen) ? aData[i + 1] : 0;
-    const uint32_t b2 = (i + 2 < aLen) ? aData[i + 2] : 0;
-    const uint32_t n = (b0 << 16) | (b1 << 8) | b2;
-    out.push_back(kAlphabet[(n >> 18) & 0x3f]);
-    out.push_back(kAlphabet[(n >> 12) & 0x3f]);
-    out.push_back((i + 1 < aLen) ? kAlphabet[(n >> 6) & 0x3f] : '=');
-    out.push_back((i + 2 < aLen) ? kAlphabet[n & 0x3f] : '=');
-  }
-  return out;
-}
-
-void EmitFrameToStderr(uint32_t aCtx, uint32_t aSeq,
-                       const std::vector<uint8_t>& aFrame) {
-  // stderr write is only atomic up to ~4 KiB; keep each line under 3000 bytes.
-  constexpr size_t kMaxB64PerPart = 2048;
-  const std::string b64 = Base64Encode(aFrame.data(), aFrame.size());
-  if (b64.empty()) {
-    return;
-  }
-  const uint32_t partCount = static_cast<uint32_t>(
-      (b64.size() + kMaxB64PerPart - 1) / kMaxB64PerPart);
-  for (uint32_t idx = 0; idx < partCount; ++idx) {
-    const size_t start = static_cast<size_t>(idx) * kMaxB64PerPart;
-    const size_t chunkLen = std::min(kMaxB64PerPart, b64.size() - start);
-    const std::string part = b64.substr(start, chunkLen);
-    printf_stderr(
-        "[SPECULUM-FRAME-PART] pid=%d ctx=%u seq=%u idx=%u de=%u %s\n",
-        static_cast<int>(getpid()), aCtx, aSeq, idx, partCount, part.c_str());
-  }
-}
-
 bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
   if (!aDocument || aDocument->IsInChromeDocShell()) {
     return true;
@@ -221,11 +186,10 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
       !aDocument->IsContentDocument()) {
     return false;
   }
-  static uint32_t sNextScaffoldContextId = 1;
   // ANDAIME: contextId virá do ContextCreate
-  const uint32_t contextId = sNextScaffoldContextId++;
+  constexpr uint32_t kContextId = speculum::kContextIdRoot;
   SpeculumNodeSource source;
-  speculum::Producer producer(source, contextId, 0);
+  speculum::Producer producer(source, kContextId, 0);
   producer.bootstrap(aDocument);
   const uint32_t ops = producer.pendingOps();
   std::vector<uint8_t> frame = producer.emitFrame();
@@ -236,8 +200,14 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
   if (nsIURI* docUri = aDocument->GetDocumentURI()) {
     uri = docUri->GetSpecOrDefault();
   }
+  const uint32_t seq = producer.sequence();
+  if (ContentChild* cc = ContentChild::GetSingleton()) {
+    nsTArray<uint8_t> bytes;
+    bytes.AppendElements(frame.data(), frame.size());
+    cc->SendSpeculumFrame(kContextId, seq, bytes);
+  }
   printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
-                static_cast<int>(getpid()), contextId, uri.get(), ops,
+                static_cast<int>(getpid()), kContextId, uri.get(), ops,
                 frame.size());
   mkdir("/tmp/speculum-frames", 0777);
   const uint32_t index = NextSpeculumFrameIndex();
@@ -257,8 +227,6 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
     }
     fclose(fp);
   }
-  const uint32_t seq = producer.sequence();
-  EmitFrameToStderr(contextId, seq, frame);
   printf_stderr(
       "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
       frame.size(),

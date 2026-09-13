@@ -4,6 +4,7 @@
 #include "SpeculumNodeSource.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtrExtensions.h"
+#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Document.h"
 #include "nsComponentManagerUtils.h"
@@ -24,9 +25,10 @@ struct SpeculumProducerState {
   SpeculumNodeSource source;
   speculum::Producer producer;
   nsCOMPtr<nsITimer> frameTimer;
+  const uint32_t contextId;
 
-  SpeculumProducerState()
-      : producer(source, speculum::kContextIdRoot, 0) {}
+  explicit SpeculumProducerState(uint32_t aContextId)
+      : producer(source, aContextId, 0), contextId(aContextId) {}
 };
 
 NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallback)
@@ -56,12 +58,11 @@ void SendFrameBytes(mozilla::dom::Document* aDocument,
   if (aFrame.empty() || !aDocument) {
     return;
   }
-  constexpr uint32_t kContextId = speculum::kContextIdRoot;
   const uint32_t seq = aState.producer.sequence();
   if (ContentChild* cc = ContentChild::GetSingleton()) {
     nsTArray<uint8_t> bytes;
     bytes.AppendElements(aFrame.data(), aFrame.size());
-    cc->SendSpeculumFrame(aState.source.docToken(), kContextId, seq, bytes);
+    cc->SendSpeculumFrame(aState.source.docToken(), aState.contextId, seq, bytes);
   }
   nsAutoCString uri("(null)");
   if (nsIURI* docUri = aDocument->GetDocumentURI()) {
@@ -69,7 +70,7 @@ void SendFrameBytes(mozilla::dom::Document* aDocument,
   }
   if (aBootstrap) {
     printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
-                  static_cast<int>(getpid()), kContextId, uri.get(), aOps,
+                  static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
                   aFrame.size());
     mkdir("/tmp/speculum-frames", 0777);
     const uint32_t index = NextSpeculumFrameIndex();
@@ -94,15 +95,17 @@ void SendFrameBytes(mozilla::dom::Document* aDocument,
         aFrame.size(),
         static_cast<unsigned long long>(aState.producer.table().tableHash()));
   } else {
-    printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n", kContextId,
-                  seq, aOps, aFrame.size());
+    printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n",
+                  aState.contextId, seq, aOps, aFrame.size());
   }
 }
 
 }  // namespace
 
-SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument)
-    : mDocument(aDocument), mState(mozilla::MakeUnique<SpeculumProducerState>()) {}
+SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
+                                                   uint32_t aContextId)
+    : mDocument(aDocument),
+      mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {}
 
 SpeculumMutationObserver::~SpeculumMutationObserver() {
   CancelFrameTimer();
@@ -256,7 +259,14 @@ void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
   if (!aDocument || aDocument->GetSpeculumMutationObserver()) {
     return;
   }
-  RefPtr<SpeculumMutationObserver> obs = new SpeculumMutationObserver(aDocument);
+  BrowsingContext* bc = aDocument->GetBrowsingContext();
+  const uint64_t topId = bc ? bc->Top()->Id() : 0;
+  uint32_t ctx = 0;
+  if (!ContentChild::SpeculumContextIdFor(topId, &ctx)) {
+    return;
+  }
+  RefPtr<SpeculumMutationObserver> obs =
+      new SpeculumMutationObserver(aDocument, ctx);
   aDocument->SetSpeculumMutationObserver(obs.get());
   aDocument->AddMutationObserver(obs);
 }

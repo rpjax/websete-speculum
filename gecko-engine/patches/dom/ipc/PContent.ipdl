@@ -1984,6 +1984,11 @@ parent:
     async KillGPUProcess();
 #endif
 
+parent:
+    async SpeculumProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId);
+    async SpeculumUnprojectContext(uint64_t aBrowsingContextId);
+
+child:
     async SpeculumFrame(uint64_t aDocToken, uint32_t aContextId,
                         uint32_t aSequence, uint8_t[] aFrame);
 

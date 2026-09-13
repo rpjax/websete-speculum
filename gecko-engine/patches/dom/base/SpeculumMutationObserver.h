@@ -18,7 +18,7 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   NS_DECL_ISUPPORTS
   NS_DECL_NSITIMERCALLBACK
 
-  explicit SpeculumMutationObserver(mozilla::dom::Document* aDocument);
+  SpeculumMutationObserver(mozilla::dom::Document* aDocument, uint32_t aContextId);
 
   bool TryWriteBootstrapFrame();
 

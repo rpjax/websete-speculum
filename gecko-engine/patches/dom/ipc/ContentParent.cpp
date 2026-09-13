@@ -1278,26 +1278,7 @@ IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
     return IPC_OK();
   }
 
-  static std::map<std::pair<ContentParent*, uint64_t>, uint32_t> sDocContextIds;
-  // ANDAIME: o contextId virá do ContextCreate quando a ponte existir.
-  static uint32_t sNextContextId = 1;
-
-  const auto docKey = std::make_pair(this, aDocToken);
-  uint32_t contextId = aContextId;
-  const auto found = sDocContextIds.find(docKey);
-  if (found == sDocContextIds.end()) {
-    contextId = sNextContextId++;
-    sDocContextIds.emplace(docKey, contextId);
-  } else {
-    contextId = found->second;
-  }
-
-  aFrame[4] = static_cast<uint8_t>(contextId & 0xffu);
-  aFrame[5] = static_cast<uint8_t>((contextId >> 8) & 0xffu);
-  aFrame[6] = static_cast<uint8_t>((contextId >> 16) & 0xffu);
-  aFrame[7] = static_cast<uint8_t>((contextId >> 24) & 0xffu);
-
-  GetSpeculumFrameSink().DeliverFrame(contextId, aDocToken, aSequence, OtherPid(),
+  GetSpeculumFrameSink().DeliverFrame(aContextId, aDocToken, aSequence, OtherPid(),
                                       aFrame);
   return IPC_OK();
 }

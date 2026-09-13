@@ -18,11 +18,11 @@ SpeculumControlReader::SpeculumControlReader(const uint8_t* aData,
   if (!aData || aLength < kSpeculumControlHeaderBytes) {
     return;
   }
+  mOk = true;
   if (!ReadUInt16(&mOpCode) || !ReadUInt32(&mCorrelationId)) {
     mOk = false;
     return;
   }
-  mOk = true;
 }
 
 bool SpeculumControlReader::Require(size_t aBytes) {

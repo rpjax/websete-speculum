@@ -80,13 +80,15 @@ bool WriteAll(int aFd, const void* aData, size_t aLen) {
   return true;
 }
 
-bool ReadAll(int aFd, void* aData, size_t aLen) {
+// Lê exatamente aLen bytes, acumulando reads parciais (comportamento normal de
+// socket stream). read()==0 é EOF; EINTR/EAGAIN não abortam.
+bool ReadExactly(int aFd, void* aData, size_t aLen) {
   uint8_t* p = static_cast<uint8_t*>(aData);
   size_t left = aLen;
   while (left > 0) {
     const ssize_t n = recv(aFd, p, left, 0);
     if (n < 0) {
-      if (errno == EINTR) {
+      if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
         continue;
       }
       return false;
@@ -543,7 +545,7 @@ struct SpeculumProjectionRuntime::Impl {
       }
 
       uint8_t header[9];
-      if (!ReadAll(localFd, header, sizeof(header))) {
+      if (!ReadExactly(localFd, header, sizeof(header))) {
         mozilla::MutexAutoLock lock(sendMutex);
         if (fd == localFd) {
           LogBridgeErr("socket read failed");
@@ -566,7 +568,7 @@ struct SpeculumProjectionRuntime::Impl {
           }
           continue;
         }
-        if (!ReadAll(localFd, payload.Elements(), payloadLen)) {
+        if (!ReadExactly(localFd, payload.Elements(), payloadLen)) {
           mozilla::MutexAutoLock lock(sendMutex);
           if (fd == localFd) {
             LogBridgeErr("socket read failed");

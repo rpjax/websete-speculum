@@ -940,7 +940,7 @@ index 23fb648516..ce3e415fbe 100644
  }
 diff --git a/dom/ipc/SpeculumControlAbi.cpp b/dom/ipc/SpeculumControlAbi.cpp
 new file mode 100755
-index 0000000000..f72c33bba4
+index 0000000000..c7029fb75d
 --- /dev/null
 +++ b/dom/ipc/SpeculumControlAbi.cpp
 @@ -0,0 +1,181 @@
@@ -964,11 +964,11 @@ index 0000000000..f72c33bba4
 +  if (!aData || aLength < kSpeculumControlHeaderBytes) {
 +    return;
 +  }
++  mOk = true;
 +  if (!ReadUInt16(&mOpCode) || !ReadUInt32(&mCorrelationId)) {
 +    mOk = false;
 +    return;
 +  }
-+  mOk = true;
 +}
 +
 +bool SpeculumControlReader::Require(size_t aBytes) {
@@ -1127,10 +1127,10 @@ index 0000000000..f72c33bba4
 +}
 diff --git a/dom/ipc/SpeculumProjectionRuntime.cpp b/dom/ipc/SpeculumProjectionRuntime.cpp
 new file mode 100755
-index 0000000000..ccc5b8698a
+index 0000000000..0c73450887
 --- /dev/null
 +++ b/dom/ipc/SpeculumProjectionRuntime.cpp
-@@ -0,0 +1,656 @@
+@@ -0,0 +1,658 @@
 +/* Speculum — runtime de projeção no processo base (doc 17). */
 +#include "SpeculumProjectionRuntime.h"
 +
@@ -1213,13 +1213,15 @@ index 0000000000..ccc5b8698a
 +  return true;
 +}
 +
-+bool ReadAll(int aFd, void* aData, size_t aLen) {
++// Lê exatamente aLen bytes, acumulando reads parciais (comportamento normal de
++// socket stream). read()==0 é EOF; EINTR/EAGAIN não abortam.
++bool ReadExactly(int aFd, void* aData, size_t aLen) {
 +  uint8_t* p = static_cast<uint8_t*>(aData);
 +  size_t left = aLen;
 +  while (left > 0) {
 +    const ssize_t n = recv(aFd, p, left, 0);
 +    if (n < 0) {
-+      if (errno == EINTR) {
++      if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
 +        continue;
 +      }
 +      return false;
@@ -1676,7 +1678,7 @@ index 0000000000..ccc5b8698a
 +      }
 +
 +      uint8_t header[9];
-+      if (!ReadAll(localFd, header, sizeof(header))) {
++      if (!ReadExactly(localFd, header, sizeof(header))) {
 +        mozilla::MutexAutoLock lock(sendMutex);
 +        if (fd == localFd) {
 +          LogBridgeErr("socket read failed");
@@ -1699,7 +1701,7 @@ index 0000000000..ccc5b8698a
 +          }
 +          continue;
 +        }
-+        if (!ReadAll(localFd, payload.Elements(), payloadLen)) {
++        if (!ReadExactly(localFd, payload.Elements(), payloadLen)) {
 +          mozilla::MutexAutoLock lock(sendMutex);
 +          if (fd == localFd) {
 +            LogBridgeErr("socket read failed");

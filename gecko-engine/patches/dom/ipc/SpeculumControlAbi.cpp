@@ -1,7 +1,7 @@
 /* Speculum — codec binário do plano de controle (doc 18). */
 #include "SpeculumControlAbi.h"
 
-#include "mozilla/LittleEndian.h"
+#include "mozilla/EndianUtils.h"
 
 #include <cstring>
 

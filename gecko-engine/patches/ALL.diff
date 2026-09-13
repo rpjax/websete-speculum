@@ -627,15 +627,300 @@ index 06e0efa0d9..1a9b8d5c6c 100644
      "/third_party/xsimd/include",
      "/widget",
      "/xpcom/build",
+diff --git a/dom/ipc/SpeculumControlAbi.cpp b/dom/ipc/SpeculumControlAbi.cpp
+new file mode 100755
+index 0000000000..0e7ee1ea2e
+--- /dev/null
++++ b/dom/ipc/SpeculumControlAbi.cpp
+@@ -0,0 +1,181 @@
++/* Speculum — codec binário do plano de controle (doc 18). */
++#include "SpeculumControlAbi.h"
++
++#include "mozilla/LittleEndian.h"
++
++#include <cstring>
++
++using mozilla::LittleEndian;
++
++SpeculumControlReader::SpeculumControlReader(const uint8_t* aData,
++                                               size_t aLength)
++    : mData(aData),
++      mLength(aLength),
++      mPos(0),
++      mOk(false),
++      mOpCode(0),
++      mCorrelationId(0) {
++  if (!aData || aLength < kSpeculumControlHeaderBytes) {
++    return;
++  }
++  if (!ReadUInt16(&mOpCode) || !ReadUInt32(&mCorrelationId)) {
++    mOk = false;
++    return;
++  }
++  mOk = true;
++}
++
++bool SpeculumControlReader::Require(size_t aBytes) {
++  if (!mOk) {
++    return false;
++  }
++  if (mPos + aBytes > mLength) {
++    mOk = false;
++    return false;
++  }
++  return true;
++}
++
++bool SpeculumControlReader::ReadUInt8(uint8_t* aOut) {
++  if (!Require(sizeof(uint8_t))) {
++    return false;
++  }
++  *aOut = mData[mPos++];
++  return true;
++}
++
++bool SpeculumControlReader::ReadUInt16(uint16_t* aOut) {
++  if (!Require(sizeof(uint16_t))) {
++    return false;
++  }
++  *aOut = LittleEndian::readUint16(mData + mPos);
++  mPos += sizeof(uint16_t);
++  return true;
++}
++
++bool SpeculumControlReader::ReadInt32(int32_t* aOut) {
++  if (!Require(sizeof(int32_t))) {
++    return false;
++  }
++  *aOut = LittleEndian::readInt32(mData + mPos);
++  mPos += sizeof(int32_t);
++  return true;
++}
++
++bool SpeculumControlReader::ReadUInt32(uint32_t* aOut) {
++  if (!Require(sizeof(uint32_t))) {
++    return false;
++  }
++  *aOut = LittleEndian::readUint32(mData + mPos);
++  mPos += sizeof(uint32_t);
++  return true;
++}
++
++bool SpeculumControlReader::ReadUInt64(uint64_t* aOut) {
++  if (!Require(sizeof(uint64_t))) {
++    return false;
++  }
++  *aOut = LittleEndian::readUint64(mData + mPos);
++  mPos += sizeof(uint64_t);
++  return true;
++}
++
++bool SpeculumControlReader::ReadString(nsACString& aOut) {
++  uint32_t byteCount = 0;
++  if (!ReadUInt32(&byteCount)) {
++    return false;
++  }
++  if (!Require(byteCount)) {
++    return false;
++  }
++  aOut.Assign(reinterpret_cast<const char*>(mData + mPos), byteCount);
++  mPos += byteCount;
++  return true;
++}
++
++SpeculumControlWriter::SpeculumControlWriter(uint8_t* aBuffer, size_t aCapacity,
++                                             SpeculumControlOpCode aOpCode,
++                                             uint32_t aCorrelationId)
++    : mBuffer(aBuffer),
++      mCapacity(aCapacity),
++      mPos(0),
++      mOk(aBuffer && aCapacity >= kSpeculumControlHeaderBytes) {
++  if (!mOk) {
++    return;
++  }
++  if (!WriteUInt16(static_cast<uint16_t>(aOpCode)) ||
++      !WriteUInt32(aCorrelationId)) {
++    mOk = false;
++  }
++}
++
++bool SpeculumControlWriter::Ensure(size_t aBytes) {
++  if (!mOk) {
++    return false;
++  }
++  if (mPos + aBytes > mCapacity) {
++    mOk = false;
++    return false;
++  }
++  return true;
++}
++
++bool SpeculumControlWriter::WriteUInt8(uint8_t aValue) {
++  if (!Ensure(sizeof(uint8_t))) {
++    return false;
++  }
++  mBuffer[mPos++] = aValue;
++  return true;
++}
++
++bool SpeculumControlWriter::WriteUInt16(uint16_t aValue) {
++  if (!Ensure(sizeof(uint16_t))) {
++    return false;
++  }
++  LittleEndian::writeUint16(mBuffer + mPos, aValue);
++  mPos += sizeof(uint16_t);
++  return true;
++}
++
++bool SpeculumControlWriter::WriteInt32(int32_t aValue) {
++  if (!Ensure(sizeof(int32_t))) {
++    return false;
++  }
++  LittleEndian::writeInt32(mBuffer + mPos, aValue);
++  mPos += sizeof(int32_t);
++  return true;
++}
++
++bool SpeculumControlWriter::WriteUInt32(uint32_t aValue) {
++  if (!Ensure(sizeof(uint32_t))) {
++    return false;
++  }
++  LittleEndian::writeUint32(mBuffer + mPos, aValue);
++  mPos += sizeof(uint32_t);
++  return true;
++}
++
++bool SpeculumControlWriter::WriteUInt64(uint64_t aValue) {
++  if (!Ensure(sizeof(uint64_t))) {
++    return false;
++  }
++  LittleEndian::writeUint64(mBuffer + mPos, aValue);
++  mPos += sizeof(uint64_t);
++  return true;
++}
++
++bool SpeculumControlWriter::WriteString(const nsACString& aValue) {
++  const uint32_t byteCount = static_cast<uint32_t>(aValue.Length());
++  if (!WriteUInt32(byteCount)) {
++    return false;
++  }
++  if (byteCount == 0) {
++    return true;
++  }
++  if (!Ensure(byteCount)) {
++    return false;
++  }
++  memcpy(mBuffer + mPos, aValue.Data(), byteCount);
++  mPos += byteCount;
++  return true;
++}
+diff --git a/dom/ipc/SpeculumControlAbi.h b/dom/ipc/SpeculumControlAbi.h
+new file mode 100755
+index 0000000000..d01fa30e9b
+--- /dev/null
++++ b/dom/ipc/SpeculumControlAbi.h
+@@ -0,0 +1,91 @@
++/* Speculum — codec binário do plano de controle (doc 18). */
++#ifndef dom_ipc_SpeculumControlAbi_h
++#define dom_ipc_SpeculumControlAbi_h
++
++#include "nsStringFwd.h"
++
++#include <stddef.h>
++#include <stdint.h>
++
++enum class SpeculumControlOpCode : uint16_t {
++  // supervisor -> browser
++  ContextCreate = 0x0101,
++  ContextDestroy = 0x0102,
++  Navigate = 0x0103,
++  Reload = 0x0104,
++  Stop = 0x0105,
++  HistoryGo = 0x0106,
++  ViewportSet = 0x0107,
++  Input = 0x0108,
++  Resync = 0x0109,
++  DialogRespond = 0x010a,
++  PermissionRespond = 0x010b,
++  DownloadRespond = 0x010c,
++  Shutdown = 0x01ff,
++
++  // browser -> supervisor
++  Ready = 0x0201,
++  Heartbeat = 0x0202,
++  ContextCreated = 0x0203,
++  ContextDestroyed = 0x0204,
++  Navigated = 0x0205,
++  LoadStateChanged = 0x0206,
++  DialogRequested = 0x0207,
++  PermissionRequested = 0x0208,
++  DownloadRequested = 0x0209,
++  Fault = 0x02ff,
++};
++
++constexpr size_t kSpeculumControlHeaderBytes = sizeof(uint16_t) + sizeof(uint32_t);
++
++class SpeculumControlReader {
++ public:
++  SpeculumControlReader(const uint8_t* aData, size_t aLength);
++
++  bool Ok() const { return mOk; }
++  uint16_t OpCode() const { return mOpCode; }
++  uint32_t CorrelationId() const { return mCorrelationId; }
++
++  bool ReadUInt8(uint8_t* aOut);
++  bool ReadUInt16(uint16_t* aOut);
++  bool ReadInt32(int32_t* aOut);
++  bool ReadUInt32(uint32_t* aOut);
++  bool ReadUInt64(uint64_t* aOut);
++  bool ReadString(nsACString& aOut);
++
++ private:
++  bool Require(size_t aBytes);
++
++  const uint8_t* mData;
++  size_t mLength;
++  size_t mPos;
++  bool mOk;
++  uint16_t mOpCode;
++  uint32_t mCorrelationId;
++};
++
++class SpeculumControlWriter {
++ public:
++  SpeculumControlWriter(uint8_t* aBuffer, size_t aCapacity,
++                        SpeculumControlOpCode aOpCode, uint32_t aCorrelationId);
++
++  bool Ok() const { return mOk; }
++  size_t Length() const { return mPos; }
++
++  bool WriteUInt8(uint8_t aValue);
++  bool WriteUInt16(uint16_t aValue);
++  bool WriteInt32(int32_t aValue);
++  bool WriteUInt32(uint32_t aValue);
++  bool WriteUInt64(uint64_t aValue);
++  bool WriteString(const nsACString& aValue);
++
++ private:
++  bool Ensure(size_t aBytes);
++
++  uint8_t* mBuffer;
++  size_t mCapacity;
++  size_t mPos;
++  bool mOk;
++};
++
++#endif
 diff --git a/dom/ipc/SpeculumControlHandler.cpp b/dom/ipc/SpeculumControlHandler.cpp
 new file mode 100755
-index 0000000000..f46dbcdac0
+index 0000000000..53a492ec9d
 --- /dev/null
 +++ b/dom/ipc/SpeculumControlHandler.cpp
-@@ -0,0 +1,401 @@
-+/* Speculum — ContextCreate/Destroy no processo pai (controle supervisor). */
+@@ -0,0 +1,366 @@
++/* Speculum — controle binário no processo pai (doc 18). */
 +#include "SpeculumControlHandler.h"
 +
++#include "SpeculumControlAbi.h"
 +#include "SpeculumSupervisorLink.h"
 +#include "mozilla/SystemPrincipal.h"
 +#include "mozilla/dom/BrowsingContext.h"
@@ -651,11 +936,9 @@ index 0000000000..f46dbcdac0
 +#include "nsNetUtil.h"
 +#include "nsPIDOMWindow.h"
 +#include "nsPIDOMWindowInlines.h"
-+#include "nsPrintfCString.h"
 +#include "nsSupportsPrimitives.h"
 +#include "nsThreadUtils.h"
 +#include <map>
-+#include <string>
 +#include <utility>
 +
 +using mozilla::ErrorResult;
@@ -671,29 +954,25 @@ index 0000000000..f46dbcdac0
 +std::map<uint64_t, uint32_t> sBcIdToContextId;
 +std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> sContextToWindow;
 +
-+static void SendBrowserEventJson(const nsACString& aJson) {
++static void SendControlEvent(const uint8_t* aPayload, uint32_t aLength) {
 +  GetSpeculumSupervisorLink().SendBrowserEvent(
-+      0, aJson.Data(), static_cast<uint32_t>(aJson.Length()));
++      0, reinterpret_cast<const char*>(aPayload), aLength);
 +}
 +
-+static void SendFault(uint32_t aId, const char* aReason) {
-+  nsPrintfCString json(R"({"type":"Fault","id":%u,"reason":"%s"})", aId,
-+                       aReason);
-+  SendBrowserEventJson(json);
-+}
-+
-+static nsCString JsonQuoteUtf8(const nsACString& aIn) {
-+  nsCString out;
-+  out.Append('"');
-+  for (size_t i = 0; i < aIn.Length(); ++i) {
-+    const char c = aIn.CharAt(i);
-+    if (c == '"' || c == '\\') {
-+      out.Append('\\');
-+    }
-+    out.Append(c);
++static void SendFault(uint32_t aCorrelationId, uint32_t aContextId,
++                      const char* aReason) {
++  uint8_t buffer[512];
++  SpeculumControlWriter writer(buffer, sizeof(buffer),
++                             SpeculumControlOpCode::Fault, aCorrelationId);
++  if (!writer.WriteUInt32(aContextId) ||
++      !writer.WriteString(nsDependentCString(aReason)) ||
++      !writer.Ok()) {
++    fprintf(stderr,
++            "[SPECULUM-CTRL-ERR] falha ao codificar Fault correlationId=%u\n",
++            aCorrelationId);
++    return;
 +  }
-+  out.Append('"');
-+  return out;
++  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 +}
 +
 +static void BroadcastProjectContext(uint64_t aBrowsingContextId,
@@ -709,64 +988,8 @@ index 0000000000..f46dbcdac0
 +  }
 +}
 +
-+static bool JsonExtractString(const std::string& aJson, const char* aKey,
-+                       nsACString& aOut) {
-+  const nsAutoCString pattern(nsPrintfCString("\"%s\":\"", aKey));
-+  const char* start = strstr(aJson.c_str(), pattern.get());
-+  if (!start) {
-+    return false;
-+  }
-+  start += pattern.Length();
-+  const char* end = strchr(start, '"');
-+  if (!end) {
-+    return false;
-+  }
-+  aOut.Assign(Substring(start, end));
-+  return true;
-+}
-+
-+static bool JsonExtractUint(const std::string& aJson, const char* aKey,
-+                     uint32_t* aOut) {
-+  const nsAutoCString pattern(nsPrintfCString("\"%s\":", aKey));
-+  const char* start = strstr(aJson.c_str(), pattern.get());
-+  if (!start) {
-+    return false;
-+  }
-+  start += pattern.Length();
-+  while (*start == ' ') {
-+    ++start;
-+  }
-+  char* endPtr = nullptr;
-+  const unsigned long value = strtoul(start, &endPtr, 10);
-+  if (endPtr == start) {
-+    return false;
-+  }
-+  *aOut = static_cast<uint32_t>(value);
-+  return true;
-+}
-+
-+static bool JsonExtractInt(const std::string& aJson, const char* aKey,
-+                           int32_t* aOut) {
-+  const nsAutoCString pattern(nsPrintfCString("\"%s\":", aKey));
-+  const char* start = strstr(aJson.c_str(), pattern.get());
-+  if (!start) {
-+    return false;
-+  }
-+  start += pattern.Length();
-+  while (*start == ' ') {
-+    ++start;
-+  }
-+  char* endPtr = nullptr;
-+  const long value = strtol(start, &endPtr, 10);
-+  if (endPtr == start) {
-+    return false;
-+  }
-+  *aOut = static_cast<int32_t>(value);
-+  return true;
-+}
-+
 +static nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
-+                                   mozIDOMWindowProxy** aOutWindow) {
++                                          mozIDOMWindowProxy** aOutWindow) {
 +  nsCOMPtr<nsIURI> uri;
 +  nsresult rv = NS_NewURI(getter_AddRefs(uri), "about:blank"_ns);
 +  NS_ENSURE_SUCCESS(rv, rv);
@@ -826,41 +1049,42 @@ index 0000000000..f46dbcdac0
 +                        "_blank"_ns, features, args, aOutWindow);
 +}
 +
-+static void HandleContextCreate(uint32_t aId, uint32_t aContextId, int32_t aWidth,
-+                         int32_t aHeight) {
++static void HandleContextCreate(uint32_t aCorrelationId, uint32_t aContextId,
++                                int32_t aWidth, int32_t aHeight) {
 +  StaticMutexAutoLock lock(sSpeculumProjectedMutex);
 +  if (sContextToRootBc.find(aContextId) != sContextToRootBc.end()) {
-+    SendFault(aId, "contextId already registered");
++    SendFault(aCorrelationId, aContextId, "contextId already registered");
 +    return;
 +  }
 +
 +  nsCOMPtr<mozIDOMWindowProxy> window;
-+  nsresult rv = OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
++  nsresult rv =
++      OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
 +  if (NS_FAILED(rv) || !window) {
-+    SendFault(aId, "OpenWindow failed");
++    SendFault(aCorrelationId, aContextId, "OpenWindow failed");
 +    return;
 +  }
 +
 +  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window);
 +  if (!outer) {
-+    SendFault(aId, "no outer window");
++    SendFault(aCorrelationId, aContextId, "no outer window");
 +    return;
 +  }
 +
 +  RefPtr<BrowsingContext> bc = outer->GetBrowsingContext();
 +  if (!bc) {
-+    SendFault(aId, "no browsing context");
++    SendFault(aCorrelationId, aContextId, "no browsing context");
 +    return;
 +  }
 +  bc = bc->Top();
 +  if (!bc) {
-+    SendFault(aId, "no top browsing context");
++    SendFault(aCorrelationId, aContextId, "no top browsing context");
 +    return;
 +  }
 +
 +  const uint64_t bcId = bc->Id();
 +  if (sBcIdToContextId.find(bcId) != sBcIdToContextId.end()) {
-+    SendFault(aId, "browsing context already registered");
++    SendFault(aCorrelationId, aContextId, "browsing context already registered");
 +    return;
 +  }
 +
@@ -870,13 +1094,19 @@ index 0000000000..f46dbcdac0
 +
 +  BroadcastProjectContext(bcId, aContextId);
 +
-+  nsPrintfCString json(
-+      R"({"type":"ContextCreated","id":%u,"contextId":%u,"browsingContextId":%llu})",
-+      aId, aContextId, static_cast<unsigned long long>(bcId));
-+  SendBrowserEventJson(json);
++  uint8_t buffer[64];
++  SpeculumControlWriter writer(buffer, sizeof(buffer),
++                               SpeculumControlOpCode::ContextCreated,
++                               aCorrelationId);
++  if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt64(bcId) ||
++      !writer.WriteUInt32(0) || !writer.Ok()) {
++    SendFault(aCorrelationId, aContextId, "ContextCreated encode failed");
++    return;
++  }
++  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 +}
 +
-+static void HandleContextDestroy(uint32_t aId, uint32_t aContextId) {
++static void HandleContextDestroy(uint32_t aCorrelationId, uint32_t aContextId) {
 +  RefPtr<BrowsingContext> bc;
 +  nsCOMPtr<mozIDOMWindowProxy> window;
 +  uint64_t bcId = 0;
@@ -885,7 +1115,7 @@ index 0000000000..f46dbcdac0
 +    StaticMutexAutoLock lock(sSpeculumProjectedMutex);
 +    const auto found = sContextToRootBc.find(aContextId);
 +    if (found == sContextToRootBc.end()) {
-+      SendFault(aId, "unknown contextId");
++      SendFault(aCorrelationId, aContextId, "unknown contextId");
 +      return;
 +    }
 +    bc = found->second;
@@ -907,45 +1137,51 @@ index 0000000000..f46dbcdac0
 +    }
 +  }
 +
-+  nsPrintfCString json(
-+      R"({"type":"ContextDestroyed","id":%u,"contextId":%u})", aId, aContextId);
-+  SendBrowserEventJson(json);
++  uint8_t buffer[32];
++  SpeculumControlWriter writer(buffer, sizeof(buffer),
++                               SpeculumControlOpCode::ContextDestroyed,
++                               aCorrelationId);
++  if (!writer.WriteUInt32(aContextId) || !writer.Ok()) {
++    SendFault(aCorrelationId, aContextId, "ContextDestroyed encode failed");
++    return;
++  }
++  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 +}
 +
-+static void HandleNavigate(uint32_t aId, uint32_t aContextId,
++static void HandleNavigate(uint32_t aCorrelationId, uint32_t aContextId,
 +                           const nsACString& aUrl) {
 +  RefPtr<BrowsingContext> bc;
 +  {
 +    StaticMutexAutoLock lock(sSpeculumProjectedMutex);
 +    const auto found = sContextToRootBc.find(aContextId);
 +    if (found == sContextToRootBc.end()) {
-+      SendFault(aId, "unknown contextId");
++      SendFault(aCorrelationId, aContextId, "unknown contextId");
 +      return;
 +    }
 +    bc = found->second;
 +  }
 +
 +  if (!bc || bc->IsDiscarded()) {
-+    SendFault(aId, "browsing context unavailable");
++    SendFault(aCorrelationId, aContextId, "browsing context unavailable");
 +    return;
 +  }
 +
 +  if (!bc->IsTargetable()) {
-+    SendFault(aId, "browsing context not targetable");
++    SendFault(aCorrelationId, aContextId, "browsing context not targetable");
 +    return;
 +  }
 +
 +  nsCOMPtr<nsIURI> uri;
 +  nsresult rv = NS_NewURI(getter_AddRefs(uri), aUrl);
 +  if (NS_FAILED(rv) || !uri) {
-+    SendFault(aId, "invalid url");
++    SendFault(aCorrelationId, aContextId, "invalid url");
 +    return;
 +  }
 +
 +  nsAutoCString spec;
 +  rv = uri->GetSpec(spec);
 +  if (NS_FAILED(rv)) {
-+    SendFault(aId, "url spec failed");
++    SendFault(aCorrelationId, aContextId, "url spec failed");
 +    return;
 +  }
 +
@@ -953,74 +1189,87 @@ index 0000000000..f46dbcdac0
 +  ErrorResult error;
 +  bc->Navigate(uri, /* aSourceDocument */ nullptr, *systemPrincipal, error);
 +  if (error.Failed()) {
-+    SendFault(aId, "navigate failed");
++    SendFault(aCorrelationId, aContextId, "navigate failed");
 +    return;
 +  }
 +
-+  const nsCString urlJson = JsonQuoteUtf8(spec);
-+  nsPrintfCString json(
-+      R"({"type":"Navigated","id":%u,"contextId":%u,"url":%s})", aId,
-+      aContextId, urlJson.get());
-+  SendBrowserEventJson(json);
++  uint8_t buffer[4096];
++  SpeculumControlWriter writer(buffer, sizeof(buffer),
++                               SpeculumControlOpCode::Navigated, aCorrelationId);
++  if (!writer.WriteUInt32(aContextId) || !writer.WriteString(spec) ||
++      !writer.Ok()) {
++    SendFault(aCorrelationId, aContextId, "Navigated encode failed");
++    return;
++  }
++  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 +}
 +
-+static void HandleControlJson(const std::string& aJson) {
-+  nsAutoCString type;
-+  if (!JsonExtractString(aJson, "type", type)) {
-+    fprintf(stderr, "[SPECULUM-CTRL-IGNORADO] (sem type)\n");
++static void HandleControlBinary(const uint8_t* aData, size_t aLength) {
++  SpeculumControlReader reader(aData, aLength);
++  if (!reader.Ok()) {
++    fprintf(stderr, "[SPECULUM-CTRL-ERR] mensagem truncada (cabecalho)\n");
 +    return;
 +  }
 +
-+  uint32_t id = 0;
-+  (void)JsonExtractUint(aJson, "id", &id);
++  const uint16_t op = reader.OpCode();
++  const uint32_t correlationId = reader.CorrelationId();
++  fprintf(stderr, "[SPECULUM-CTRL] opcode=0x%04x correlationId=%u\n", op,
++          correlationId);
 +
-+  if (type.EqualsLiteral("ContextCreate")) {
-+    uint32_t contextId = 0;
-+    int32_t width = 0;
-+    int32_t height = 0;
-+    if (!JsonExtractUint(aJson, "contextId", &contextId) ||
-+        !JsonExtractInt(aJson, "width", &width) ||
-+        !JsonExtractInt(aJson, "height", &height)) {
-+      SendFault(id, "ContextCreate malformed");
++  switch (static_cast<SpeculumControlOpCode>(op)) {
++    case SpeculumControlOpCode::ContextCreate: {
++      uint32_t contextId = 0;
++      int32_t width = 0;
++      int32_t height = 0;
++      if (!reader.ReadUInt32(&contextId) || !reader.ReadInt32(&width) ||
++          !reader.ReadInt32(&height)) {
++        SendFault(correlationId, 0, "ContextCreate truncated");
++        return;
++      }
++      HandleContextCreate(correlationId, contextId, width, height);
 +      return;
 +    }
-+    HandleContextCreate(id, contextId, width, height);
-+    return;
-+  }
-+
-+  if (type.EqualsLiteral("ContextDestroy")) {
-+    uint32_t contextId = 0;
-+    if (!JsonExtractUint(aJson, "contextId", &contextId)) {
-+      SendFault(id, "ContextDestroy malformed");
++    case SpeculumControlOpCode::ContextDestroy: {
++      uint32_t contextId = 0;
++      if (!reader.ReadUInt32(&contextId)) {
++        SendFault(correlationId, 0, "ContextDestroy truncated");
++        return;
++      }
++      HandleContextDestroy(correlationId, contextId);
 +      return;
 +    }
-+    HandleContextDestroy(id, contextId);
-+    return;
-+  }
-+
-+  if (type.EqualsLiteral("Navigate")) {
-+    uint32_t contextId = 0;
-+    nsAutoCString url;
-+    if (!JsonExtractUint(aJson, "contextId", &contextId) ||
-+        !JsonExtractString(aJson, "url", url)) {
-+      SendFault(id, "Navigate malformed");
++    case SpeculumControlOpCode::Navigate: {
++      uint32_t contextId = 0;
++      nsAutoCString url;
++      if (!reader.ReadUInt32(&contextId) || !reader.ReadString(url)) {
++        SendFault(correlationId, 0, "Navigate truncated");
++        return;
++      }
++      HandleNavigate(correlationId, contextId, url);
 +      return;
 +    }
-+    HandleNavigate(id, contextId, url);
-+    return;
++    default:
++      fprintf(stderr,
++              "[SPECULUM-CTRL-IGNORADO] opcode=0x%04x correlationId=%u\n", op,
++              correlationId);
++      return;
 +  }
-+
-+  fprintf(stderr, "[SPECULUM-CTRL-IGNORADO] %s\n", type.get());
 +}
 +
-+void SpeculumDispatchControlPayload(const char* aJson, size_t aLength) {
-+  if (!aJson || aLength == 0) {
++void SpeculumDispatchControlPayload(const uint8_t* aPayload, size_t aLength) {
++  if (!aPayload || aLength == 0) {
 +    return;
 +  }
-+  std::string json(aJson, aLength);
++  nsTArray<uint8_t> payload;
++  if (!payload.AppendElements(aPayload, aLength, mozilla::fallible)) {
++    fprintf(stderr, "[SPECULUM-CTRL-ERR] alloc falhou len=%zu\n", aLength);
++    return;
++  }
 +  NS_DispatchToMainThread(NS_NewRunnableFunction(
 +      "SpeculumHandleControl",
-+      [payload = std::move(json)]() { HandleControlJson(payload); }));
++      [payload = std::move(payload)]() {
++        HandleControlBinary(payload.Elements(), payload.Length());
++      }));
 +}
 +
 +void SpeculumReplayProjectedContexts(mozilla::dom::ContentParent* aChild) {
@@ -1036,10 +1285,10 @@ index 0000000000..f46dbcdac0
 +}
 diff --git a/dom/ipc/SpeculumControlHandler.h b/dom/ipc/SpeculumControlHandler.h
 new file mode 100755
-index 0000000000..29540aba1e
+index 0000000000..b30206603e
 --- /dev/null
 +++ b/dom/ipc/SpeculumControlHandler.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,15 @@
 +/* Speculum — ContextCreate/Destroy no processo pai (controle supervisor). */
 +#ifndef dom_ipc_SpeculumControlHandler_h
 +#define dom_ipc_SpeculumControlHandler_h
@@ -1047,10 +1296,12 @@ index 0000000000..29540aba1e
 +#include <stddef.h>
 +#include <stdint.h>
 +
++namespace mozilla::dom {
 +class ContentParent;
++}
 +
-+void SpeculumDispatchControlPayload(const char* aJson, size_t aLength);
-+void SpeculumReplayProjectedContexts(ContentParent* aChild);
++void SpeculumDispatchControlPayload(const uint8_t* aPayload, size_t aLength);
++void SpeculumReplayProjectedContexts(mozilla::dom::ContentParent* aChild);
 +
 +#endif
 diff --git a/dom/ipc/SpeculumFrameSink.cpp b/dom/ipc/SpeculumFrameSink.cpp
@@ -1419,12 +1670,13 @@ index 0000000000..045a8cd737
 +#endif
 diff --git a/dom/ipc/SpeculumSupervisorLink.cpp b/dom/ipc/SpeculumSupervisorLink.cpp
 new file mode 100755
-index 0000000000..b1a7acb5f5
+index 0000000000..18a5cccdfc
 --- /dev/null
 +++ b/dom/ipc/SpeculumSupervisorLink.cpp
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,347 @@
 +/* Speculum — ponte de controle com o supervisor (doc 12); frames trafegam aqui. */
 +#include "SpeculumSupervisorLink.h"
++#include "SpeculumControlAbi.h"
 +#include "SpeculumControlHandler.h"
 +
 +#include "mozilla/Mutex.h"
@@ -1448,8 +1700,6 @@ index 0000000000..b1a7acb5f5
 +constexpr uint8_t kKindBrowserEvent = 0x02;
 +constexpr uint8_t kKindHello = 0x03;
 +constexpr uint8_t kKindControl = 0x04;
-+
-+constexpr char kReadyBrowserEvent[] = R"({"type":"Ready","id":0})";
 +
 +void LogLinkErr(const char* aMsg) {
 +  fprintf(stderr, "[SPECULUM-LINK-ERR] %s\n", aMsg);
@@ -1618,8 +1868,15 @@ index 0000000000..b1a7acb5f5
 +      close(fd);
 +      FatalSupervisorLink("hello send failed");
 +    }
-+    if (!SendEnvelope(fd, kKindBrowserEvent, 0, kReadyBrowserEvent,
-+                      static_cast<uint32_t>(sizeof(kReadyBrowserEvent) - 1))) {
++    uint8_t readyPayload[kSpeculumControlHeaderBytes];
++    SpeculumControlWriter readyWriter(
++        readyPayload, sizeof(readyPayload), SpeculumControlOpCode::Ready, 0);
++    if (!readyWriter.Ok()) {
++      close(fd);
++      FatalSupervisorLink("ready encode failed");
++    }
++    if (!SendEnvelope(fd, kKindBrowserEvent, 0, readyPayload,
++                      static_cast<uint32_t>(readyWriter.Length()))) {
 +      close(fd);
 +      FatalSupervisorLink("ready send failed");
 +    }
@@ -1631,10 +1888,7 @@ index 0000000000..b1a7acb5f5
 +    if (!aPayload || aLength == 0) {
 +      return;
 +    }
-+    fprintf(stderr, "[SPECULUM-CTRL] %.*s\n", static_cast<int>(aLength),
-+            reinterpret_cast<const char*>(aPayload));
-+    SpeculumDispatchControlPayload(reinterpret_cast<const char*>(aPayload),
-+                                   aLength);
++    SpeculumDispatchControlPayload(aPayload, aLength);
 +  }
 +
 +  void ReadLoop() {
@@ -1769,7 +2023,7 @@ index 0000000000..b1a7acb5f5
 +}
 diff --git a/dom/ipc/SpeculumSupervisorLink.h b/dom/ipc/SpeculumSupervisorLink.h
 new file mode 100755
-index 0000000000..b91496f223
+index 0000000000..628f5637c3
 --- /dev/null
 +++ b/dom/ipc/SpeculumSupervisorLink.h
 @@ -0,0 +1,24 @@
@@ -1788,15 +2042,29 @@ index 0000000000..b91496f223
 +                            uint32_t aSequence, base::ProcessId aChildPid,
 +                            nsTArray<uint8_t>& aFrame) = 0;
 +
-+  // Envelope kind 0x02 (BrowserEvent), payload JSON UTF-8.
-+  virtual void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
-+                                uint32_t aJsonLength) {}
++  // Envelope kind 0x02 (Event), payload binário de controle (doc 18).
++  virtual void SendBrowserEvent(uint32_t aContextId, const char* aPayload,
++                                uint32_t aPayloadLength) {}
 +};
 +
 +void InitSpeculumSupervisorLink();
 +SpeculumSupervisorLink& GetSpeculumSupervisorLink();
 +
 +#endif
+diff --git a/dom/ipc/moz.build b/dom/ipc/moz.build
+index 40382ea499..ca39dcd22e 100644
+--- a/dom/ipc/moz.build
++++ b/dom/ipc/moz.build
+@@ -150,6 +150,9 @@ UNIFIED_SOURCES += [
+     "SharedMap.cpp",
+     "SharedMessageBody.cpp",
+     "SharedStringMap.cpp",
++    "SpeculumControlAbi.cpp",
++    "SpeculumControlHandler.cpp",
++    "SpeculumSupervisorLink.cpp",
+     "StructuredCloneData.cpp",
+     "TabContext.cpp",
+     "UniqueContentParentKeepAlive.cpp",
 diff --git a/dom/base/Document.h b/dom/base/Document.h
 index 2feb64d41c..50012b4538 100644
 --- a/dom/base/Document.h
@@ -2555,23 +2823,6 @@ index 23fb648516..ce3e415fbe 100644
  };
  
  }
-diff --git a/dom/ipc/SpeculumControlHandler.h b/dom/ipc/SpeculumControlHandler.h
-index 29540aba1e..a314e340ad 100755
---- a/dom/ipc/SpeculumControlHandler.h
-+++ b/dom/ipc/SpeculumControlHandler.h
-@@ -5,9 +5,11 @@
- #include <stddef.h>
- #include <stdint.h>
- 
-+namespace mozilla::dom {
- class ContentParent;
-+}
- 
- void SpeculumDispatchControlPayload(const char* aJson, size_t aLength);
--void SpeculumReplayProjectedContexts(ContentParent* aChild);
-+void SpeculumReplayProjectedContexts(mozilla::dom::ContentParent* aChild);
- 
- #endif
 diff --git a/dom/ipc/SpeculumFrameSink.cpp b/dom/ipc/SpeculumFrameSink.cpp
 deleted file mode 100755
 index e83e21c731..0000000000
@@ -2936,16 +3187,3 @@ index 045a8cd737..0000000000
 -SpeculumFrameSink& GetSpeculumFrameSink();
 -
 -#endif
-diff --git a/dom/ipc/moz.build b/dom/ipc/moz.build
-index 40382ea499..f053cdd5a9 100644
---- a/dom/ipc/moz.build
-+++ b/dom/ipc/moz.build
-@@ -150,6 +150,8 @@ UNIFIED_SOURCES += [
-     "SharedMap.cpp",
-     "SharedMessageBody.cpp",
-     "SharedStringMap.cpp",
-+    "SpeculumControlHandler.cpp",
-+    "SpeculumSupervisorLink.cpp",
-     "StructuredCloneData.cpp",
-     "TabContext.cpp",
-     "UniqueContentParentKeepAlive.cpp",

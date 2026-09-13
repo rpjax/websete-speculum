@@ -1,5 +1,6 @@
 /* Speculum — ponte de controle com o supervisor (doc 12); frames trafegam aqui. */
 #include "SpeculumSupervisorLink.h"
+#include "SpeculumControlAbi.h"
 #include "SpeculumControlHandler.h"
 
 #include "mozilla/Mutex.h"
@@ -23,8 +24,6 @@ constexpr uint8_t kKindFrame = 0x01;
 constexpr uint8_t kKindBrowserEvent = 0x02;
 constexpr uint8_t kKindHello = 0x03;
 constexpr uint8_t kKindControl = 0x04;
-
-constexpr char kReadyBrowserEvent[] = R"({"type":"Ready","id":0})";
 
 void LogLinkErr(const char* aMsg) {
   fprintf(stderr, "[SPECULUM-LINK-ERR] %s\n", aMsg);
@@ -193,8 +192,15 @@ class SocketLink final : public SpeculumSupervisorLink {
       close(fd);
       FatalSupervisorLink("hello send failed");
     }
-    if (!SendEnvelope(fd, kKindBrowserEvent, 0, kReadyBrowserEvent,
-                      static_cast<uint32_t>(sizeof(kReadyBrowserEvent) - 1))) {
+    uint8_t readyPayload[kSpeculumControlHeaderBytes];
+    SpeculumControlWriter readyWriter(
+        readyPayload, sizeof(readyPayload), SpeculumControlOpCode::Ready, 0);
+    if (!readyWriter.Ok()) {
+      close(fd);
+      FatalSupervisorLink("ready encode failed");
+    }
+    if (!SendEnvelope(fd, kKindBrowserEvent, 0, readyPayload,
+                      static_cast<uint32_t>(readyWriter.Length()))) {
       close(fd);
       FatalSupervisorLink("ready send failed");
     }
@@ -206,10 +212,7 @@ class SocketLink final : public SpeculumSupervisorLink {
     if (!aPayload || aLength == 0) {
       return;
     }
-    fprintf(stderr, "[SPECULUM-CTRL] %.*s\n", static_cast<int>(aLength),
-            reinterpret_cast<const char*>(aPayload));
-    SpeculumDispatchControlPayload(reinterpret_cast<const char*>(aPayload),
-                                   aLength);
+    SpeculumDispatchControlPayload(aPayload, aLength);
   }
 
   void ReadLoop() {

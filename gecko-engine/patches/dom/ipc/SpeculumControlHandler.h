@@ -9,7 +9,7 @@ namespace mozilla::dom {
 class ContentParent;
 }
 
-void SpeculumDispatchControlPayload(const char* aJson, size_t aLength);
+void SpeculumDispatchControlPayload(const uint8_t* aPayload, size_t aLength);
 void SpeculumReplayProjectedContexts(mozilla::dom::ContentParent* aChild);
 
 #endif

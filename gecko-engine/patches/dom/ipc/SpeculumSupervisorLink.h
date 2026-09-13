@@ -13,9 +13,9 @@ class SpeculumSupervisorLink {
                             uint32_t aSequence, base::ProcessId aChildPid,
                             nsTArray<uint8_t>& aFrame) = 0;
 
-  // Envelope kind 0x02 (BrowserEvent), payload JSON UTF-8.
-  virtual void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
-                                uint32_t aJsonLength) {}
+  // Envelope kind 0x02 (Event), payload binário de controle (doc 18).
+  virtual void SendBrowserEvent(uint32_t aContextId, const char* aPayload,
+                                uint32_t aPayloadLength) {}
 };
 
 void InitSpeculumSupervisorLink();

@@ -1,6 +1,7 @@
-/* Speculum — ContextCreate/Destroy no processo pai (controle supervisor). */
+/* Speculum — controle binário no processo pai (doc 18). */
 #include "SpeculumControlHandler.h"
 
+#include "SpeculumControlAbi.h"
 #include "SpeculumSupervisorLink.h"
 #include "mozilla/SystemPrincipal.h"
 #include "mozilla/dom/BrowsingContext.h"
@@ -16,11 +17,9 @@
 #include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
 #include "nsPIDOMWindowInlines.h"
-#include "nsPrintfCString.h"
 #include "nsSupportsPrimitives.h"
 #include "nsThreadUtils.h"
 #include <map>
-#include <string>
 #include <utility>
 
 using mozilla::ErrorResult;
@@ -36,29 +35,25 @@ std::map<uint32_t, RefPtr<BrowsingContext>> sContextToRootBc;
 std::map<uint64_t, uint32_t> sBcIdToContextId;
 std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> sContextToWindow;
 
-static void SendBrowserEventJson(const nsACString& aJson) {
+static void SendControlEvent(const uint8_t* aPayload, uint32_t aLength) {
   GetSpeculumSupervisorLink().SendBrowserEvent(
-      0, aJson.Data(), static_cast<uint32_t>(aJson.Length()));
+      0, reinterpret_cast<const char*>(aPayload), aLength);
 }
 
-static void SendFault(uint32_t aId, const char* aReason) {
-  nsPrintfCString json(R"({"type":"Fault","id":%u,"reason":"%s"})", aId,
-                       aReason);
-  SendBrowserEventJson(json);
-}
-
-static nsCString JsonQuoteUtf8(const nsACString& aIn) {
-  nsCString out;
-  out.Append('"');
-  for (size_t i = 0; i < aIn.Length(); ++i) {
-    const char c = aIn.CharAt(i);
-    if (c == '"' || c == '\\') {
-      out.Append('\\');
-    }
-    out.Append(c);
+static void SendFault(uint32_t aCorrelationId, uint32_t aContextId,
+                      const char* aReason) {
+  uint8_t buffer[512];
+  SpeculumControlWriter writer(buffer, sizeof(buffer),
+                             SpeculumControlOpCode::Fault, aCorrelationId);
+  if (!writer.WriteUInt32(aContextId) ||
+      !writer.WriteString(nsDependentCString(aReason)) ||
+      !writer.Ok()) {
+    fprintf(stderr,
+            "[SPECULUM-CTRL-ERR] falha ao codificar Fault correlationId=%u\n",
+            aCorrelationId);
+    return;
   }
-  out.Append('"');
-  return out;
+  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 }
 
 static void BroadcastProjectContext(uint64_t aBrowsingContextId,
@@ -74,64 +69,8 @@ static void BroadcastUnprojectContext(uint64_t aBrowsingContextId) {
   }
 }
 
-static bool JsonExtractString(const std::string& aJson, const char* aKey,
-                       nsACString& aOut) {
-  const nsAutoCString pattern(nsPrintfCString("\"%s\":\"", aKey));
-  const char* start = strstr(aJson.c_str(), pattern.get());
-  if (!start) {
-    return false;
-  }
-  start += pattern.Length();
-  const char* end = strchr(start, '"');
-  if (!end) {
-    return false;
-  }
-  aOut.Assign(Substring(start, end));
-  return true;
-}
-
-static bool JsonExtractUint(const std::string& aJson, const char* aKey,
-                     uint32_t* aOut) {
-  const nsAutoCString pattern(nsPrintfCString("\"%s\":", aKey));
-  const char* start = strstr(aJson.c_str(), pattern.get());
-  if (!start) {
-    return false;
-  }
-  start += pattern.Length();
-  while (*start == ' ') {
-    ++start;
-  }
-  char* endPtr = nullptr;
-  const unsigned long value = strtoul(start, &endPtr, 10);
-  if (endPtr == start) {
-    return false;
-  }
-  *aOut = static_cast<uint32_t>(value);
-  return true;
-}
-
-static bool JsonExtractInt(const std::string& aJson, const char* aKey,
-                           int32_t* aOut) {
-  const nsAutoCString pattern(nsPrintfCString("\"%s\":", aKey));
-  const char* start = strstr(aJson.c_str(), pattern.get());
-  if (!start) {
-    return false;
-  }
-  start += pattern.Length();
-  while (*start == ' ') {
-    ++start;
-  }
-  char* endPtr = nullptr;
-  const long value = strtol(start, &endPtr, 10);
-  if (endPtr == start) {
-    return false;
-  }
-  *aOut = static_cast<int32_t>(value);
-  return true;
-}
-
 static nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
-                                   mozIDOMWindowProxy** aOutWindow) {
+                                          mozIDOMWindowProxy** aOutWindow) {
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_NewURI(getter_AddRefs(uri), "about:blank"_ns);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -191,41 +130,42 @@ static nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
                         "_blank"_ns, features, args, aOutWindow);
 }
 
-static void HandleContextCreate(uint32_t aId, uint32_t aContextId, int32_t aWidth,
-                         int32_t aHeight) {
+static void HandleContextCreate(uint32_t aCorrelationId, uint32_t aContextId,
+                                int32_t aWidth, int32_t aHeight) {
   StaticMutexAutoLock lock(sSpeculumProjectedMutex);
   if (sContextToRootBc.find(aContextId) != sContextToRootBc.end()) {
-    SendFault(aId, "contextId already registered");
+    SendFault(aCorrelationId, aContextId, "contextId already registered");
     return;
   }
 
   nsCOMPtr<mozIDOMWindowProxy> window;
-  nsresult rv = OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
+  nsresult rv =
+      OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
   if (NS_FAILED(rv) || !window) {
-    SendFault(aId, "OpenWindow failed");
+    SendFault(aCorrelationId, aContextId, "OpenWindow failed");
     return;
   }
 
   nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window);
   if (!outer) {
-    SendFault(aId, "no outer window");
+    SendFault(aCorrelationId, aContextId, "no outer window");
     return;
   }
 
   RefPtr<BrowsingContext> bc = outer->GetBrowsingContext();
   if (!bc) {
-    SendFault(aId, "no browsing context");
+    SendFault(aCorrelationId, aContextId, "no browsing context");
     return;
   }
   bc = bc->Top();
   if (!bc) {
-    SendFault(aId, "no top browsing context");
+    SendFault(aCorrelationId, aContextId, "no top browsing context");
     return;
   }
 
   const uint64_t bcId = bc->Id();
   if (sBcIdToContextId.find(bcId) != sBcIdToContextId.end()) {
-    SendFault(aId, "browsing context already registered");
+    SendFault(aCorrelationId, aContextId, "browsing context already registered");
     return;
   }
 
@@ -235,13 +175,19 @@ static void HandleContextCreate(uint32_t aId, uint32_t aContextId, int32_t aWidt
 
   BroadcastProjectContext(bcId, aContextId);
 
-  nsPrintfCString json(
-      R"({"type":"ContextCreated","id":%u,"contextId":%u,"browsingContextId":%llu})",
-      aId, aContextId, static_cast<unsigned long long>(bcId));
-  SendBrowserEventJson(json);
+  uint8_t buffer[64];
+  SpeculumControlWriter writer(buffer, sizeof(buffer),
+                               SpeculumControlOpCode::ContextCreated,
+                               aCorrelationId);
+  if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt64(bcId) ||
+      !writer.WriteUInt32(0) || !writer.Ok()) {
+    SendFault(aCorrelationId, aContextId, "ContextCreated encode failed");
+    return;
+  }
+  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 }
 
-static void HandleContextDestroy(uint32_t aId, uint32_t aContextId) {
+static void HandleContextDestroy(uint32_t aCorrelationId, uint32_t aContextId) {
   RefPtr<BrowsingContext> bc;
   nsCOMPtr<mozIDOMWindowProxy> window;
   uint64_t bcId = 0;
@@ -250,7 +196,7 @@ static void HandleContextDestroy(uint32_t aId, uint32_t aContextId) {
     StaticMutexAutoLock lock(sSpeculumProjectedMutex);
     const auto found = sContextToRootBc.find(aContextId);
     if (found == sContextToRootBc.end()) {
-      SendFault(aId, "unknown contextId");
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
       return;
     }
     bc = found->second;
@@ -272,45 +218,51 @@ static void HandleContextDestroy(uint32_t aId, uint32_t aContextId) {
     }
   }
 
-  nsPrintfCString json(
-      R"({"type":"ContextDestroyed","id":%u,"contextId":%u})", aId, aContextId);
-  SendBrowserEventJson(json);
+  uint8_t buffer[32];
+  SpeculumControlWriter writer(buffer, sizeof(buffer),
+                               SpeculumControlOpCode::ContextDestroyed,
+                               aCorrelationId);
+  if (!writer.WriteUInt32(aContextId) || !writer.Ok()) {
+    SendFault(aCorrelationId, aContextId, "ContextDestroyed encode failed");
+    return;
+  }
+  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 }
 
-static void HandleNavigate(uint32_t aId, uint32_t aContextId,
+static void HandleNavigate(uint32_t aCorrelationId, uint32_t aContextId,
                            const nsACString& aUrl) {
   RefPtr<BrowsingContext> bc;
   {
     StaticMutexAutoLock lock(sSpeculumProjectedMutex);
     const auto found = sContextToRootBc.find(aContextId);
     if (found == sContextToRootBc.end()) {
-      SendFault(aId, "unknown contextId");
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
       return;
     }
     bc = found->second;
   }
 
   if (!bc || bc->IsDiscarded()) {
-    SendFault(aId, "browsing context unavailable");
+    SendFault(aCorrelationId, aContextId, "browsing context unavailable");
     return;
   }
 
   if (!bc->IsTargetable()) {
-    SendFault(aId, "browsing context not targetable");
+    SendFault(aCorrelationId, aContextId, "browsing context not targetable");
     return;
   }
 
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_NewURI(getter_AddRefs(uri), aUrl);
   if (NS_FAILED(rv) || !uri) {
-    SendFault(aId, "invalid url");
+    SendFault(aCorrelationId, aContextId, "invalid url");
     return;
   }
 
   nsAutoCString spec;
   rv = uri->GetSpec(spec);
   if (NS_FAILED(rv)) {
-    SendFault(aId, "url spec failed");
+    SendFault(aCorrelationId, aContextId, "url spec failed");
     return;
   }
 
@@ -318,74 +270,87 @@ static void HandleNavigate(uint32_t aId, uint32_t aContextId,
   ErrorResult error;
   bc->Navigate(uri, /* aSourceDocument */ nullptr, *systemPrincipal, error);
   if (error.Failed()) {
-    SendFault(aId, "navigate failed");
+    SendFault(aCorrelationId, aContextId, "navigate failed");
     return;
   }
 
-  const nsCString urlJson = JsonQuoteUtf8(spec);
-  nsPrintfCString json(
-      R"({"type":"Navigated","id":%u,"contextId":%u,"url":%s})", aId,
-      aContextId, urlJson.get());
-  SendBrowserEventJson(json);
+  uint8_t buffer[4096];
+  SpeculumControlWriter writer(buffer, sizeof(buffer),
+                               SpeculumControlOpCode::Navigated, aCorrelationId);
+  if (!writer.WriteUInt32(aContextId) || !writer.WriteString(spec) ||
+      !writer.Ok()) {
+    SendFault(aCorrelationId, aContextId, "Navigated encode failed");
+    return;
+  }
+  SendControlEvent(buffer, static_cast<uint32_t>(writer.Length()));
 }
 
-static void HandleControlJson(const std::string& aJson) {
-  nsAutoCString type;
-  if (!JsonExtractString(aJson, "type", type)) {
-    fprintf(stderr, "[SPECULUM-CTRL-IGNORADO] (sem type)\n");
+static void HandleControlBinary(const uint8_t* aData, size_t aLength) {
+  SpeculumControlReader reader(aData, aLength);
+  if (!reader.Ok()) {
+    fprintf(stderr, "[SPECULUM-CTRL-ERR] mensagem truncada (cabecalho)\n");
     return;
   }
 
-  uint32_t id = 0;
-  (void)JsonExtractUint(aJson, "id", &id);
+  const uint16_t op = reader.OpCode();
+  const uint32_t correlationId = reader.CorrelationId();
+  fprintf(stderr, "[SPECULUM-CTRL] opcode=0x%04x correlationId=%u\n", op,
+          correlationId);
 
-  if (type.EqualsLiteral("ContextCreate")) {
-    uint32_t contextId = 0;
-    int32_t width = 0;
-    int32_t height = 0;
-    if (!JsonExtractUint(aJson, "contextId", &contextId) ||
-        !JsonExtractInt(aJson, "width", &width) ||
-        !JsonExtractInt(aJson, "height", &height)) {
-      SendFault(id, "ContextCreate malformed");
+  switch (static_cast<SpeculumControlOpCode>(op)) {
+    case SpeculumControlOpCode::ContextCreate: {
+      uint32_t contextId = 0;
+      int32_t width = 0;
+      int32_t height = 0;
+      if (!reader.ReadUInt32(&contextId) || !reader.ReadInt32(&width) ||
+          !reader.ReadInt32(&height)) {
+        SendFault(correlationId, 0, "ContextCreate truncated");
+        return;
+      }
+      HandleContextCreate(correlationId, contextId, width, height);
       return;
     }
-    HandleContextCreate(id, contextId, width, height);
-    return;
-  }
-
-  if (type.EqualsLiteral("ContextDestroy")) {
-    uint32_t contextId = 0;
-    if (!JsonExtractUint(aJson, "contextId", &contextId)) {
-      SendFault(id, "ContextDestroy malformed");
+    case SpeculumControlOpCode::ContextDestroy: {
+      uint32_t contextId = 0;
+      if (!reader.ReadUInt32(&contextId)) {
+        SendFault(correlationId, 0, "ContextDestroy truncated");
+        return;
+      }
+      HandleContextDestroy(correlationId, contextId);
       return;
     }
-    HandleContextDestroy(id, contextId);
-    return;
-  }
-
-  if (type.EqualsLiteral("Navigate")) {
-    uint32_t contextId = 0;
-    nsAutoCString url;
-    if (!JsonExtractUint(aJson, "contextId", &contextId) ||
-        !JsonExtractString(aJson, "url", url)) {
-      SendFault(id, "Navigate malformed");
+    case SpeculumControlOpCode::Navigate: {
+      uint32_t contextId = 0;
+      nsAutoCString url;
+      if (!reader.ReadUInt32(&contextId) || !reader.ReadString(url)) {
+        SendFault(correlationId, 0, "Navigate truncated");
+        return;
+      }
+      HandleNavigate(correlationId, contextId, url);
       return;
     }
-    HandleNavigate(id, contextId, url);
-    return;
+    default:
+      fprintf(stderr,
+              "[SPECULUM-CTRL-IGNORADO] opcode=0x%04x correlationId=%u\n", op,
+              correlationId);
+      return;
   }
-
-  fprintf(stderr, "[SPECULUM-CTRL-IGNORADO] %s\n", type.get());
 }
 
-void SpeculumDispatchControlPayload(const char* aJson, size_t aLength) {
-  if (!aJson || aLength == 0) {
+void SpeculumDispatchControlPayload(const uint8_t* aPayload, size_t aLength) {
+  if (!aPayload || aLength == 0) {
     return;
   }
-  std::string json(aJson, aLength);
+  nsTArray<uint8_t> payload;
+  if (!payload.AppendElements(aPayload, aLength, mozilla::fallible)) {
+    fprintf(stderr, "[SPECULUM-CTRL-ERR] alloc falhou len=%zu\n", aLength);
+    return;
+  }
   NS_DispatchToMainThread(NS_NewRunnableFunction(
       "SpeculumHandleControl",
-      [payload = std::move(json)]() { HandleControlJson(payload); }));
+      [payload = std::move(payload)]() {
+        HandleControlBinary(payload.Elements(), payload.Length());
+      }));
 }
 
 void SpeculumReplayProjectedContexts(mozilla::dom::ContentParent* aChild) {

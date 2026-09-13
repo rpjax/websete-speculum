@@ -150,6 +150,7 @@ UNIFIED_SOURCES += [
     "SharedMap.cpp",
     "SharedMessageBody.cpp",
     "SharedStringMap.cpp",
+    "SpeculumControlAbi.cpp",
     "SpeculumControlHandler.cpp",
     "SpeculumSupervisorLink.cpp",
     "StructuredCloneData.cpp",

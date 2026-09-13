@@ -1,20 +1,27 @@
 /* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
 #include "SpeculumFrameSink.h"
 
+#include "mozilla/Mutex.h"
 #include "mozilla/UniquePtr.h"
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <thread>
 #include <unistd.h>
 
 namespace {
 
 constexpr uint8_t kKindFrame = 0x01;
+constexpr uint8_t kKindBrowserEvent = 0x02;
 constexpr uint8_t kKindHello = 0x03;
+constexpr uint8_t kKindControl = 0x04;
+
+constexpr char kReadyBrowserEvent[] = R"({"type":"Ready","id":0})";
 
 void LogSinkErr(const char* aMsg) {
   fprintf(stderr, "[SPECULUM-SINK-ERR] %s\n", aMsg);
@@ -25,6 +32,26 @@ bool WriteAll(int aFd, const void* aData, size_t aLen) {
   size_t left = aLen;
   while (left > 0) {
     const ssize_t n = send(aFd, p, left, MSG_NOSIGNAL);
+    if (n < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return false;
+    }
+    if (n == 0) {
+      return false;
+    }
+    p += static_cast<size_t>(n);
+    left -= static_cast<size_t>(n);
+  }
+  return true;
+}
+
+bool ReadAll(int aFd, void* aData, size_t aLen) {
+  uint8_t* p = static_cast<uint8_t*>(aData);
+  size_t left = aLen;
+  while (left > 0) {
+    const ssize_t n = recv(aFd, p, left, 0);
     if (n < 0) {
       if (errno == EINTR) {
         continue;
@@ -63,6 +90,13 @@ bool SendEnvelope(int aFd, uint8_t aKind, uint32_t aContextId,
   return true;
 }
 
+uint32_t ReadU32LE(const uint8_t* aBytes) {
+  return static_cast<uint32_t>(aBytes[0]) |
+         (static_cast<uint32_t>(aBytes[1]) << 8) |
+         (static_cast<uint32_t>(aBytes[2]) << 16) |
+         (static_cast<uint32_t>(aBytes[3]) << 24);
+}
+
 class NullSink final : public SpeculumFrameSink {
  public:
   void DeliverFrame(uint32_t, uint64_t, uint32_t, base::ProcessId,
@@ -71,9 +105,23 @@ class NullSink final : public SpeculumFrameSink {
 
 class SocketSink final : public SpeculumFrameSink {
  public:
-  explicit SocketSink(std::string aPath) : mPath(std::move(aPath)), mFd(-1) {}
+  explicit SocketSink(std::string aPath)
+      : mPath(std::move(aPath)), mFd(-1), mStopRead(false) {
+    mReadThread = std::thread([this]() { ReadLoop(); });
+  }
 
   ~SocketSink() override {
+    mStopRead = true;
+    {
+      mozilla::MutexAutoLock lock(mMutex);
+      if (mFd >= 0) {
+        shutdown(mFd, SHUT_RDWR);
+      }
+    }
+    if (mReadThread.joinable()) {
+      mReadThread.join();
+    }
+    mozilla::MutexAutoLock lock(mMutex);
     if (mFd >= 0) {
       close(mFd);
       mFd = -1;
@@ -82,19 +130,42 @@ class SocketSink final : public SpeculumFrameSink {
 
   void DeliverFrame(uint32_t aContextId, uint64_t, uint32_t, base::ProcessId,
                     nsTArray<uint8_t>& aFrame) override {
-    if (!EnsureConnected()) {
+    mozilla::MutexAutoLock lock(mMutex);
+    if (!EnsureConnectedUnlocked()) {
       return;
     }
     const uint32_t len = static_cast<uint32_t>(aFrame.Length());
     if (!SendEnvelope(mFd, kKindFrame, aContextId, aFrame.Elements(), len)) {
       LogSinkErr("socket write failed");
+      CloseFdUnlocked();
+    }
+  }
+
+  void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
+                        uint32_t aJsonLength) override {
+    if (!aJsonUtf8 || aJsonLength == 0) {
+      return;
+    }
+    mozilla::MutexAutoLock lock(mMutex);
+    if (!EnsureConnectedUnlocked()) {
+      return;
+    }
+    if (!SendEnvelope(mFd, kKindBrowserEvent, aContextId, aJsonUtf8,
+                      aJsonLength)) {
+      LogSinkErr("browser event send failed");
+      CloseFdUnlocked();
+    }
+  }
+
+ private:
+  void CloseFdUnlocked() {
+    if (mFd >= 0) {
       close(mFd);
       mFd = -1;
     }
   }
 
- private:
-  bool EnsureConnected() {
+  bool EnsureConnectedUnlocked() {
     if (mFd >= 0) {
       return true;
     }
@@ -111,8 +182,7 @@ class SocketSink final : public SpeculumFrameSink {
     }
     addr.sun_family = AF_UNIX;
     memcpy(addr.sun_path, mPath.c_str(), mPath.size() + 1);
-    if (connect(fd, reinterpret_cast<sockaddr*>(&addr),
-                sizeof(addr)) != 0) {
+    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
       LogSinkErr("socket connect failed");
       close(fd);
       return false;
@@ -122,12 +192,79 @@ class SocketSink final : public SpeculumFrameSink {
       close(fd);
       return false;
     }
+    if (!SendEnvelope(fd, kKindBrowserEvent, 0, kReadyBrowserEvent,
+                      static_cast<uint32_t>(sizeof(kReadyBrowserEvent) - 1))) {
+      LogSinkErr("ready send failed");
+      close(fd);
+      return false;
+    }
     mFd = fd;
     return true;
   }
 
+  void HandleControlPayload(const uint8_t* aPayload, uint32_t aLength) {
+    const std::string json(reinterpret_cast<const char*>(aPayload), aLength);
+    fprintf(stderr, "[SPECULUM-CTRL] %s\n", json.c_str());
+  }
+
+  void ReadLoop() {
+    while (!mStopRead) {
+      int fd = -1;
+      {
+        mozilla::MutexAutoLock lock(mMutex);
+        fd = mFd;
+      }
+      if (fd < 0) {
+        usleep(100 * 1000);
+        continue;
+      }
+
+      uint8_t header[9];
+      if (!ReadAll(fd, header, sizeof(header))) {
+        mozilla::MutexAutoLock lock(mMutex);
+        if (mFd == fd) {
+          LogSinkErr("socket read failed");
+          CloseFdUnlocked();
+        }
+        continue;
+      }
+
+      const uint8_t kind = header[0];
+      const uint32_t contextId = ReadU32LE(header + 1);
+      const uint32_t length = ReadU32LE(header + 5);
+      (void)contextId;
+
+      nsTArray<uint8_t> payload;
+      if (length > 0) {
+        if (!payload.SetLength(length, mozilla::fallible)) {
+          mozilla::MutexAutoLock lock(mMutex);
+          if (mFd == fd) {
+            LogSinkErr("control payload alloc failed");
+            CloseFdUnlocked();
+          }
+          continue;
+        }
+        if (!ReadAll(fd, payload.Elements(), length)) {
+          mozilla::MutexAutoLock lock(mMutex);
+          if (mFd == fd) {
+            LogSinkErr("socket read failed");
+            CloseFdUnlocked();
+          }
+          continue;
+        }
+      }
+
+      if (kind == kKindControl) {
+        HandleControlPayload(payload.Elements(), length);
+      }
+    }
+  }
+
   std::string mPath;
   int mFd;
+  mozilla::Mutex mMutex{"SpeculumFrameSink"};
+  std::atomic<bool> mStopRead;
+  std::thread mReadThread;
 };
 
 class DirectorySink final : public SpeculumFrameSink {

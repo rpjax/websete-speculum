@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Speculum.Tests</RootNamespace>
+    <AssemblyName>speculum-tests</AssemblyName>
+
+    <!-- Esta árvore (gecko-engine/tests/) fica fora do Directory.Build.props do
+         supervisor, então a mesma disciplina é declarada aqui: net9.0, C# atual,
+         nullable, e aviso é erro. Um teste que compila com aviso é um teste que
+         começou a apodrecer. -->
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Sem framework de teste: a saída é o veredito, e framework nenhum
+         imprime byte, posição, esperado e recebido do jeito que o doc 19 exige. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\supervisor\src\Speculum.Supervisor\Speculum.Supervisor.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Os vetores de ouro viajam para junto do binário: o L1 os lê em runtime,
+         sem depender do diretório de trabalho de quem invoca. -->
+    <None Include="..\control-abi.golden" Link="control-abi.golden">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

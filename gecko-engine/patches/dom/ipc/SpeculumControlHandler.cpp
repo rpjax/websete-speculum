@@ -2,8 +2,10 @@
 #include "SpeculumControlHandler.h"
 
 #include "SpeculumSupervisorLink.h"
+#include "mozilla/SystemPrincipal.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentParent.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/StaticMutex.h"
 #include "nsGlobalWindowOuter.h"
@@ -21,8 +23,10 @@
 #include <string>
 #include <utility>
 
+using mozilla::ErrorResult;
 using mozilla::StaticMutex;
 using mozilla::StaticMutexAutoLock;
+using mozilla::SystemPrincipal;
 using mozilla::dom::BrowsingContext;
 using mozilla::dom::ContentParent;
 using mozilla::NullPrincipal;
@@ -41,6 +45,20 @@ static void SendFault(uint32_t aId, const char* aReason) {
   nsPrintfCString json(R"({"type":"Fault","id":%u,"reason":"%s"})", aId,
                        aReason);
   SendBrowserEventJson(json);
+}
+
+static nsCString JsonQuoteUtf8(const nsACString& aIn) {
+  nsCString out;
+  out.Append('"');
+  for (size_t i = 0; i < aIn.Length(); ++i) {
+    const char c = aIn.CharAt(i);
+    if (c == '"' || c == '\\') {
+      out.Append('\\');
+    }
+    out.Append(c);
+  }
+  out.Append('"');
+  return out;
 }
 
 static void BroadcastProjectContext(uint64_t aBrowsingContextId,
@@ -259,6 +277,58 @@ static void HandleContextDestroy(uint32_t aId, uint32_t aContextId) {
   SendBrowserEventJson(json);
 }
 
+static void HandleNavigate(uint32_t aId, uint32_t aContextId,
+                           const nsACString& aUrl) {
+  RefPtr<BrowsingContext> bc;
+  {
+    StaticMutexAutoLock lock(sSpeculumProjectedMutex);
+    const auto found = sContextToRootBc.find(aContextId);
+    if (found == sContextToRootBc.end()) {
+      SendFault(aId, "unknown contextId");
+      return;
+    }
+    bc = found->second;
+  }
+
+  if (!bc || bc->IsDiscarded()) {
+    SendFault(aId, "browsing context unavailable");
+    return;
+  }
+
+  if (!bc->IsTargetable()) {
+    SendFault(aId, "browsing context not targetable");
+    return;
+  }
+
+  nsCOMPtr<nsIURI> uri;
+  nsresult rv = NS_NewURI(getter_AddRefs(uri), aUrl);
+  if (NS_FAILED(rv) || !uri) {
+    SendFault(aId, "invalid url");
+    return;
+  }
+
+  nsAutoCString spec;
+  rv = uri->GetSpec(spec);
+  if (NS_FAILED(rv)) {
+    SendFault(aId, "url spec failed");
+    return;
+  }
+
+  RefPtr<nsIPrincipal> systemPrincipal = SystemPrincipal::Get();
+  ErrorResult error;
+  bc->Navigate(uri, /* aSourceDocument */ nullptr, *systemPrincipal, error);
+  if (error.Failed()) {
+    SendFault(aId, "navigate failed");
+    return;
+  }
+
+  const nsCString urlJson = JsonQuoteUtf8(spec);
+  nsPrintfCString json(
+      R"({"type":"Navigated","id":%u,"contextId":%u,"url":%s})", aId,
+      aContextId, urlJson.get());
+  SendBrowserEventJson(json);
+}
+
 static void HandleControlJson(const std::string& aJson) {
   nsAutoCString type;
   if (!JsonExtractString(aJson, "type", type)) {
@@ -290,6 +360,18 @@ static void HandleControlJson(const std::string& aJson) {
       return;
     }
     HandleContextDestroy(id, contextId);
+    return;
+  }
+
+  if (type.EqualsLiteral("Navigate")) {
+    uint32_t contextId = 0;
+    nsAutoCString url;
+    if (!JsonExtractUint(aJson, "contextId", &contextId) ||
+        !JsonExtractString(aJson, "url", url)) {
+      SendFault(id, "Navigate malformed");
+      return;
+    }
+    HandleNavigate(id, contextId, url);
     return;
   }
 

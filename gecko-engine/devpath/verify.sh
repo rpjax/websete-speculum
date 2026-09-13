@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Speculum devpath — passa uma captura pelo apply ESTRITO do cliente.
-# O juiz nao e nosso: e o mesmo applyFrameToTableChecked que roda em producao.
+# Speculum devpath — passa uma captura (frames via supervisor WS) pelo apply estrito.
 #
 #   ./verify.sh <diretorio-da-captura>
 #   ./verify.sh            # usa a captura mais recente

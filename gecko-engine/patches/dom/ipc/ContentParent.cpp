@@ -3,8 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ContentParent.h"
-#include "SpeculumControlHandler.h"
-#include "SpeculumSupervisorLink.h"
+#include "SpeculumProjectionRuntime.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -673,7 +672,7 @@ void ContentParent::StartUp() {
 
   BackgroundChild::Startup();
   ClientManager::Startup();
-  InitSpeculumSupervisorLink();
+  SpeculumProjectionRuntime::Startup();
 
   Preferences::RegisterCallbackAndCall(&OnFissionBlocklistPrefChange,
                                        kFissionEnforceBlockList);
@@ -1280,8 +1279,8 @@ IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
     return IPC_OK();
   }
 
-  GetSpeculumSupervisorLink().DeliverFrame(aContextId, aDocToken, aSequence, OtherPid(),
-                                      aFrame);
+  SpeculumProjectionRuntime::Get().DeliverFrame(aContextId, aDocToken, aSequence,
+                                                OtherPid(), aFrame);
   return IPC_OK();
 }
 
@@ -3188,7 +3187,7 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
 
   MaybeEnableRemoteInputEventQueue();
 
-  SpeculumReplayProjectedContexts(this);
+  SpeculumProjectionRuntime::Get().ReplayProjectedContexts(this);
 
   return true;
 }

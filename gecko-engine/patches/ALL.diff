@@ -107,217 +107,50 @@ index 0122df8a7f..a5750f7257 100644
                               Document& aDocument) {
    if (nsPresContext* pc = aDocument.GetPresContext()) {
 diff --git a/dom/base/Document.h b/dom/base/Document.h
-index 42c105bb32..50012b4538 100644
+index 42c105bb32..2feb64d41c 100644
 --- a/dom/base/Document.h
 +++ b/dom/base/Document.h
-@@ -154,6 +154,7 @@ class nsIDocShell;
- class nsIDocShellTreeItem;
- class nsIDocumentEncoder;
- class nsIDocumentObserver;
-+#include "SpeculumMutationObserver.h"
- class nsIEventTarget;
- class nsIFrame;
- class nsIGlobalObject;
-@@ -3862,6 +3863,14 @@ class Document : public nsINode,
+@@ -3862,6 +3862,7 @@ class Document : public nsINode,
      return mDevToolsWatchingDOMMutations;
    }
    void SetDevToolsWatchingDOMMutations(bool aValue);
 +  void SetSpeculumWatchingDOMMutations(bool aValue);
-+
-+  SpeculumMutationObserver* GetSpeculumMutationObserver() const {
-+    return mSpeculumMutationObserver;
-+  }
-+  void SetSpeculumMutationObserver(SpeculumMutationObserver* aObserver) {
-+    mSpeculumMutationObserver = aObserver;
-+  }
  
    // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
    void EvaluateMediaQueriesAndReportChanges();
-@@ -5022,6 +5031,9 @@ class Document : public nsINode,
+@@ -5022,6 +5023,7 @@ class Document : public nsINode,
    bool mUpgradeInsecureRequests : 1;
    bool mUpgradeInsecurePreloads : 1;
    bool mDevToolsWatchingDOMMutations : 1;
 +  bool mSpeculumWatchingDOMMutations : 1;
-+
-+  RefPtr<SpeculumMutationObserver> mSpeculumMutationObserver;
  
    // Indicates whether this document is normal as in navigation or loaded as
    // data as in XHR or DOMParser.
 diff --git a/dom/base/SpeculumMutationObserver.cpp b/dom/base/SpeculumMutationObserver.cpp
 new file mode 100755
-index 0000000000..90cde85af3
+index 0000000000..0b32aaf3fa
 --- /dev/null
 +++ b/dom/base/SpeculumMutationObserver.cpp
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,90 @@
 +/* Speculum — minimal DOM mutation probe (producer spike). */
 +#include "SpeculumMutationObserver.h"
 +
-+#include "SpeculumNodeSource.h"
-+#include "mozilla/RefPtr.h"
-+#include "mozilla/UniquePtrExtensions.h"
-+#include "mozilla/dom/BrowsingContext.h"
-+#include "mozilla/dom/ContentChild.h"
++#include "mozilla/ClearOnShutdown.h"
++#include "mozilla/StaticPtr.h"
 +#include "mozilla/dom/Document.h"
-+#include "nsComponentManagerUtils.h"
++#include "mozilla/Assertions.h"
 +#include "nsDebug.h"
-+#include "nsReadableUtils.h"
-+#include "nsTArray.h"
++
++
++#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
 +#include "speculum/Producer.h"
-+#include "speculum/Wire.h"
 +
-+#include <cstdio>
-+#include <sys/stat.h>
-+#include <vector>
 +
-+using mozilla::dom::ContentChild;
-+using mozilla::dom::Document;
++using mozilla::StaticRefPtr;
 +
-+struct SpeculumProducerState {
-+  SpeculumNodeSource source;
-+  speculum::Producer producer;
-+  nsCOMPtr<nsITimer> frameTimer;
-+  const uint32_t contextId;
-+
-+  explicit SpeculumProducerState(uint32_t aContextId)
-+      : producer(source, aContextId, 0), contextId(aContextId) {}
-+};
-+
-+NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallback)
++NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver)
 +
 +#define SPECULUM_LOG(cb) printf_stderr("[SPECULUM] %s\n", cb)
-+
-+namespace {
-+
-+std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
-+  if (!aAtom) {
-+    return std::string();
-+  }
-+  nsAutoString tmp;
-+  aAtom->ToString(tmp);
-+  return std::string(NS_ConvertUTF16toUTF8(tmp).get());
-+}
-+
-+uint32_t NextSpeculumFrameIndex() {
-+  static uint32_t sNext = 0;
-+  return sNext++;
-+}
-+
-+void SendFrameBytes(mozilla::dom::Document* aDocument,
-+                    SpeculumProducerState& aState,
-+                    const std::vector<uint8_t>& aFrame, uint32_t aOps,
-+                    bool aBootstrap) {
-+  if (aFrame.empty() || !aDocument) {
-+    return;
-+  }
-+  const uint32_t seq = aState.producer.sequence();
-+  if (ContentChild* cc = ContentChild::GetSingleton()) {
-+    nsTArray<uint8_t> bytes;
-+    bytes.AppendElements(aFrame.data(), aFrame.size());
-+    cc->SendSpeculumFrame(aState.source.docToken(), aState.contextId, seq, bytes);
-+  }
-+  nsAutoCString uri("(null)");
-+  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
-+    uri = docUri->GetSpecOrDefault();
-+  }
-+  if (aBootstrap) {
-+    printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
-+                  static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
-+                  aFrame.size());
-+    mkdir("/tmp/speculum-frames", 0777);
-+    const uint32_t index = NextSpeculumFrameIndex();
-+    char binPath[128];
-+    (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
-+                   index);
-+    if (FILE* fp = fopen(binPath, "wb")) {
-+      (void)fwrite(aFrame.data(), 1, aFrame.size(), fp);
-+      fclose(fp);
-+    }
-+    if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
-+      char line[64];
-+      const int lineLen =
-+          snprintf(line, sizeof(line), "frame_%u.bin\n", index);
-+      if (lineLen > 0) {
-+        (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
-+      }
-+      fclose(fp);
-+    }
-+    printf_stderr(
-+        "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
-+        aFrame.size(),
-+        static_cast<unsigned long long>(aState.producer.table().tableHash()));
-+  } else {
-+    printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n",
-+                  aState.contextId, seq, aOps, aFrame.size());
-+  }
-+}
-+
-+}  // namespace
-+
-+SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
-+                                                   uint32_t aContextId)
-+    : mDocument(aDocument),
-+      mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {}
-+
-+SpeculumMutationObserver::~SpeculumMutationObserver() {
-+  CancelFrameTimer();
-+}
-+
-+void SpeculumMutationObserver::CancelFrameTimer() {
-+  if (mState && mState->frameTimer) {
-+    mState->frameTimer->Cancel();
-+    mState->frameTimer = nullptr;
-+  }
-+}
-+
-+void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
-+  if (!mState || mState->frameTimer) {
-+    return;
-+  }
-+  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mState->frameTimer), this,
-+                                        16, nsITimer::TYPE_ONE_SHOT);
-+  if (NS_FAILED(rv)) {
-+    mState->frameTimer = nullptr;
-+  }
-+}
-+
-+NS_IMETHODIMP
-+SpeculumMutationObserver::Notify(nsITimer* aTimer) {
-+  if (!mState || aTimer != mState->frameTimer) {
-+    return NS_OK;
-+  }
-+  mState->frameTimer = nullptr;
-+  EmitPendingFrame();
-+  return NS_OK;
-+}
-+
-+void SpeculumMutationObserver::EmitPendingFrame() {
-+  if (!mState) {
-+    return;
-+  }
-+  const uint32_t ops = mState->producer.pendingOps();
-+  if (ops == 0) {
-+    return;
-+  }
-+  std::vector<uint8_t> frame = mState->producer.emitFrame();
-+  if (frame.empty()) {
-+    return;
-+  }
-+  SendFrameBytes(mDocument, *mState, frame, ops, false);
-+}
-+
-+bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
-+  if (!mDocument || !mDocument->IsContentDocument() || !mState) {
-+    return false;
-+  }
-+  mState->producer.bootstrap(mDocument);
-+  const uint32_t ops = mState->producer.pendingOps();
-+  std::vector<uint8_t> frame = mState->producer.emitFrame();
-+  if (frame.empty()) {
-+    return false;
-+  }
-+  SendFrameBytes(mDocument, *mState, frame, ops, true);
-+  return true;
-+}
 +
 +void SpeculumMutationObserver::CharacterDataWillChange(
 +    nsIContent*, const CharacterDataChangeInfo&) {
@@ -325,13 +158,8 @@ index 0000000000..90cde85af3
 +}
 +
 +void SpeculumMutationObserver::CharacterDataChanged(
-+    nsIContent* aContent, const CharacterDataChangeInfo&) {
++    nsIContent*, const CharacterDataChangeInfo&) {
 +  SPECULUM_LOG("CharacterDataChanged");
-+  if (!mState) {
-+    return;
-+  }
-+  mState->producer.onTextChanged(aContent);
-+  ArmFrameTimerIfNeeded();
 +}
 +
 +void SpeculumMutationObserver::AttributeWillChange(mozilla::dom::Element*,
@@ -340,17 +168,10 @@ index 0000000000..90cde85af3
 +  SPECULUM_LOG("AttributeWillChange");
 +}
 +
-+void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element* aElement,
-+                                                int32_t, nsAtom* aAttribute,
-+                                                AttrModType,
++void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element*, int32_t,
++                                                nsAtom*, AttrModType,
 +                                                const nsAttrValue*) {
 +  SPECULUM_LOG("AttributeChanged");
-+  if (!mState) {
-+    return;
-+  }
-+  mState->producer.onAttrChanged(aElement,
-+                                 SpeculumObserverUtf8FromAtom(aAttribute));
-+  ArmFrameTimerIfNeeded();
 +}
 +
 +void SpeculumMutationObserver::AttributeSetToCurrentValue(
@@ -358,113 +179,64 @@ index 0000000000..90cde85af3
 +  SPECULUM_LOG("AttributeSetToCurrentValue");
 +}
 +
-+void SpeculumMutationObserver::ContentAppended(
-+    nsIContent* aFirstNewContent, const ContentAppendInfo&) {
++void SpeculumMutationObserver::ContentAppended(nsIContent*,
++                                               const ContentAppendInfo&) {
 +  SPECULUM_LOG("ContentAppended");
-+  if (!mState || !aFirstNewContent) {
-+    return;
-+  }
-+  nsINode* parent = aFirstNewContent->GetParentNode();
-+  for (nsIContent* child = aFirstNewContent; child;
-+       child = child->GetNextSibling()) {
-+    mState->producer.onInserted(parent, child);
-+  }
-+  ArmFrameTimerIfNeeded();
 +}
 +
-+void SpeculumMutationObserver::ContentInserted(nsIContent* aChild,
++void SpeculumMutationObserver::ContentInserted(nsIContent*,
 +                                               const ContentInsertInfo&) {
 +  printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
 +  SPECULUM_LOG("ContentInserted");
-+  if (!mState || !aChild) {
-+    return;
-+  }
-+  mState->producer.onInserted(aChild->GetParentNode(), aChild);
-+  ArmFrameTimerIfNeeded();
 +}
 +
-+void SpeculumMutationObserver::ContentWillBeRemoved(
-+    nsIContent* aChild, const ContentRemoveInfo&) {
++void SpeculumMutationObserver::ContentWillBeRemoved(nsIContent*,
++                                                    const ContentRemoveInfo&) {
 +  SPECULUM_LOG("ContentWillBeRemoved");
-+  if (!mState || !aChild) {
-+    return;
-+  }
-+  mState->producer.onRemoved(aChild->GetParentNode(), aChild);
-+  ArmFrameTimerIfNeeded();
 +}
 +
-+void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode* aNode) {
++void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode*) {
 +  SPECULUM_LOG("NodeWillBeDestroyed");
-+  if (!mState) {
-+    return;
-+  }
-+  mState->producer.onDestroyed(aNode);
-+  ArmFrameTimerIfNeeded();
 +}
 +
 +void SpeculumMutationObserver::ParentChainChanged(nsIContent*) {
 +  SPECULUM_LOG("ParentChainChanged");
 +}
 +
-+void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
-+  if (!aDocument || aDocument->GetSpeculumMutationObserver()) {
-+    return;
-+  }
-+  BrowsingContext* bc = aDocument->GetBrowsingContext();
-+  const uint64_t topId = bc ? bc->Top()->Id() : 0;
-+  uint32_t ctx = 0;
-+  if (!ContentChild::SpeculumContextIdFor(topId, &ctx)) {
-+    return;
-+  }
-+  RefPtr<SpeculumMutationObserver> obs =
-+      new SpeculumMutationObserver(aDocument, ctx);
-+  aDocument->SetSpeculumMutationObserver(obs.get());
-+  aDocument->AddMutationObserver(obs);
-+}
++static StaticRefPtr<SpeculumMutationObserver> sSpeculumMutationObserver;
 +
-+void SpeculumDetachMutationObserverFromDocument(Document* aDocument) {
++void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
 +  if (!aDocument) {
 +    return;
 +  }
-+  RefPtr<SpeculumMutationObserver> obs = aDocument->GetSpeculumMutationObserver();
-+  if (!obs) {
++  if (MOZ_UNLIKELY(!sSpeculumMutationObserver)) {
++    sSpeculumMutationObserver = new SpeculumMutationObserver();
++    ClearOnShutdown(&sSpeculumMutationObserver);
++  }
++  aDocument->AddMutationObserver(sSpeculumMutationObserver);
++}
++
++void SpeculumDetachMutationObserverFromDocument(Document* aDocument) {
++  if (!aDocument || !sSpeculumMutationObserver) {
 +    return;
 +  }
-+  obs->CancelFrameTimer();
-+  aDocument->RemoveMutationObserver(obs);
-+  aDocument->SetSpeculumMutationObserver(nullptr);
++  aDocument->RemoveMutationObserver(sSpeculumMutationObserver);
 +}
 diff --git a/dom/base/SpeculumMutationObserver.h b/dom/base/SpeculumMutationObserver.h
 new file mode 100755
-index 0000000000..20fc7d79c6
+index 0000000000..8d05ad07d2
 --- /dev/null
 +++ b/dom/base/SpeculumMutationObserver.h
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,43 @@
 +/* Speculum — minimal DOM mutation probe (producer spike). */
 +#ifndef dom_base_SpeculumMutationObserver_h
 +#define dom_base_SpeculumMutationObserver_h
 +
-+#include "mozilla/UniquePtr.h"
 +#include "nsStubMutationObserver.h"
-+#include "nsITimer.h"
 +
-+struct SpeculumProducerState;
-+
-+namespace mozilla::dom {
-+class Document;
-+}
-+
-+class SpeculumMutationObserver final : public nsStubMutationObserver,
-+                                       public nsITimerCallback {
++class SpeculumMutationObserver final : public nsStubMutationObserver {
 + public:
 +  NS_DECL_ISUPPORTS
-+  NS_DECL_NSITIMERCALLBACK
-+
-+  SpeculumMutationObserver(mozilla::dom::Document* aDocument, uint32_t aContextId);
-+
-+  bool TryWriteBootstrapFrame();
-+
-+  void CancelFrameTimer();
 +
 +  void CharacterDataWillChange(nsIContent* aContent,
 +                               const CharacterDataChangeInfo&) override;
@@ -488,14 +260,12 @@ index 0000000000..20fc7d79c6
 +  void ParentChainChanged(nsIContent* aContent) override;
 +
 + private:
-+  ~SpeculumMutationObserver();
-+
-+  void ArmFrameTimerIfNeeded();
-+  void EmitPendingFrame();
-+
-+  mozilla::dom::Document* mDocument;
-+  mozilla::UniquePtr<SpeculumProducerState> mState;
++  ~SpeculumMutationObserver() = default;
 +};
++
++namespace mozilla::dom {
++class Document;
++}
 +
 +void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
 +void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
@@ -503,10 +273,10 @@ index 0000000000..20fc7d79c6
 +#endif
 diff --git a/dom/base/SpeculumNodeSource.cpp b/dom/base/SpeculumNodeSource.cpp
 new file mode 100644
-index 0000000000..b77b9ec62f
+index 0000000000..b1d2278fc6
 --- /dev/null
 +++ b/dom/base/SpeculumNodeSource.cpp
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,276 @@
 +/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
 +#include "mozilla/Assertions.h"
 +#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
@@ -517,12 +287,10 @@ index 0000000000..b77b9ec62f
 +#include "Element.h"
 +#include "NameSpaceConstants.h"
 +#include "mozilla/dom/CharacterData.h"
-+#include "SpeculumMutationObserver.h"
 +#include "nsAttrName.h"
 +#include "nsAttrValue.h"
 +#include "nsIContent.h"
 +#include "nsINode.h"
-+#include "nsTArray.h"
 +#include "nsReadableUtils.h"
 +#include "mozilla/dom/Document.h"
 +#include "mozilla/dom/BrowsingContext.h"
@@ -559,11 +327,6 @@ index 0000000000..b77b9ec62f
 +}
 +
 +}  // namespace
-+
-+SpeculumNodeSource::SpeculumNodeSource() {
-+  static uint64_t sNextDocToken = 1;
-+  mDocToken = sNextDocToken++;
-+}
 +
 +speculum::NodeKind SpeculumNodeSource::kindOf(const void* node) const {
 +  nsINode* n = AsNode(node);
@@ -674,6 +437,47 @@ index 0000000000..b77b9ec62f
 +
 +namespace {
 +
++uint32_t NextSpeculumFrameIndex() {
++  static uint32_t sNext = 0;
++  return sNext++;
++}
++
++std::string Base64Encode(const uint8_t* aData, size_t aLen) {
++  static const char kAlphabet[] =
++      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++  std::string out;
++  out.reserve(((aLen + 2) / 3) * 4);
++  for (size_t i = 0; i < aLen; i += 3) {
++    const uint32_t b0 = aData[i];
++    const uint32_t b1 = (i + 1 < aLen) ? aData[i + 1] : 0;
++    const uint32_t b2 = (i + 2 < aLen) ? aData[i + 2] : 0;
++    const uint32_t n = (b0 << 16) | (b1 << 8) | b2;
++    out.push_back(kAlphabet[(n >> 18) & 0x3f]);
++    out.push_back(kAlphabet[(n >> 12) & 0x3f]);
++    out.push_back((i + 1 < aLen) ? kAlphabet[(n >> 6) & 0x3f] : '=');
++    out.push_back((i + 2 < aLen) ? kAlphabet[n & 0x3f] : '=');
++  }
++  return out;
++}
++
++void EmitFrameToStderr(uint32_t aSeq, const std::vector<uint8_t>& aFrame) {
++  // stderr write is only atomic up to ~4 KiB; keep each line under 3000 bytes.
++  constexpr size_t kMaxB64PerPart = 2048;
++  const std::string b64 = Base64Encode(aFrame.data(), aFrame.size());
++  if (b64.empty()) {
++    return;
++  }
++  const uint32_t partCount = static_cast<uint32_t>(
++      (b64.size() + kMaxB64PerPart - 1) / kMaxB64PerPart);
++  for (uint32_t idx = 0; idx < partCount; ++idx) {
++    const size_t start = static_cast<size_t>(idx) * kMaxB64PerPart;
++    const size_t chunkLen = std::min(kMaxB64PerPart, b64.size() - start);
++    const std::string part = b64.substr(start, chunkLen);
++    printf_stderr("[SPECULUM-FRAME-PART] seq=%u idx=%u de=%u %s\n", aSeq, idx,
++                  partCount, part.c_str());
++  }
++}
++
 +bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
 +  if (!aDocument || aDocument->IsInChromeDocShell()) {
 +    return true;
@@ -694,11 +498,45 @@ index 0000000000..b77b9ec62f
 +      !aDocument->IsContentDocument()) {
 +    return false;
 +  }
-+  SpeculumMutationObserver* obs = aDocument->GetSpeculumMutationObserver();
-+  if (!obs) {
++  SpeculumNodeSource source;
++  speculum::Producer producer(source);
++  producer.bootstrap(aDocument);
++  const uint32_t ops = producer.pendingOps();
++  std::vector<uint8_t> frame = producer.emitFrame();
++  if (frame.empty()) {
 +    return false;
 +  }
-+  return obs->TryWriteBootstrapFrame();
++  nsAutoCString uri("(null)");
++  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
++    uri = docUri->GetSpecOrDefault();
++  }
++  printf_stderr("[SPECULUM-BOOT] pid=%d uri=%s ops=%u bytes=%zu\n",
++                static_cast<int>(getpid()), uri.get(), ops, frame.size());
++  mkdir("/tmp/speculum-frames", 0777);
++  const uint32_t index = NextSpeculumFrameIndex();
++  char binPath[128];
++  (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
++                 index);
++  if (FILE* fp = fopen(binPath, "wb")) {
++    (void)fwrite(frame.data(), 1, frame.size(), fp);
++    fclose(fp);
++  }
++  if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
++    char line[64];
++    const int lineLen =
++        snprintf(line, sizeof(line), "frame_%u.bin\n", index);
++    if (lineLen > 0) {
++      (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
++    }
++    fclose(fp);
++  }
++  const uint32_t seq = producer.sequence();
++  EmitFrameToStderr(seq, frame);
++  printf_stderr(
++      "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
++      frame.size(),
++      static_cast<unsigned long long>(producer.table().tableHash()));
++  return true;
 +}
 +
 +}  // namespace
@@ -717,10 +555,10 @@ index 0000000000..b77b9ec62f
 +}
 diff --git a/dom/base/SpeculumNodeSource.h b/dom/base/SpeculumNodeSource.h
 new file mode 100644
-index 0000000000..66d49a380f
+index 0000000000..f2191709e1
 --- /dev/null
 +++ b/dom/base/SpeculumNodeSource.h
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,31 @@
 +/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
 +#ifndef dom_base_SpeculumNodeSource_h
 +#define dom_base_SpeculumNodeSource_h
@@ -737,13 +575,10 @@ index 0000000000..66d49a380f
 +class Document;
 +}
 +
-+void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument);
++void SpeculumScheduleBootstrapFrame(mozilla::dom::Document* aDocument);
 +
 +class SpeculumNodeSource final : public speculum::NodeSource {
 + public:
-+  SpeculumNodeSource();
-+  uint64_t docToken() const { return mDocToken; }
-+
 +  speculum::NodeKind kindOf(const void* node) const override;
 +  speculum::ElementNs nsOf(const void* node) const override;
 +  std::string uriOf(const void* node) const override;
@@ -752,25 +587,14 @@ index 0000000000..66d49a380f
 +  std::vector<speculum::AttrPair> attrsOf(const void* node) const override;
 +  std::vector<const void*> childrenOf(const void* node) const override;
 +  bool isUaOwned(const void* node) const override;
-+
-+ private:
-+  uint64_t mDocToken;
 +};
 +
 +#endif
 diff --git a/dom/base/moz.build b/dom/base/moz.build
-index 06e0efa0d9..ba195e3968 100644
+index 06e0efa0d9..1a9b8d5c6c 100644
 --- a/dom/base/moz.build
 +++ b/dom/base/moz.build
-@@ -109,6 +109,7 @@ EXPORTS += [
-     "nsWrapperCache.h",
-     "nsWrapperCacheInlines.h",
-     "SharedLcpMarkerState.h",
-+    "SpeculumMutationObserver.h",
-     "XPathGenerator.h",
- ]
- 
-@@ -357,7 +358,6 @@ UNIFIED_SOURCES += [
+@@ -357,7 +357,6 @@ UNIFIED_SOURCES += [
      "CustomElementRegistry.cpp",
      "DirectionalityUtils.cpp",
      "DocGroup.cpp",
@@ -778,7 +602,7 @@ index 06e0efa0d9..ba195e3968 100644
      "DocumentFragment.cpp",
      "DocumentOrShadowRoot.cpp",
      "DocumentType.cpp",
-@@ -472,6 +472,8 @@ UNIFIED_SOURCES += [
+@@ -472,6 +471,8 @@ UNIFIED_SOURCES += [
      "SerializedStackHolder.cpp",
      "ShadowRoot.cpp",
      "SourceLocation.cpp",
@@ -787,7 +611,7 @@ index 06e0efa0d9..ba195e3968 100644
      "StaticRange.cpp",
      "StorageAccessPermissionRequest.cpp",
      "StructuredCloneBlob.cpp",
-@@ -519,6 +521,7 @@ if CONFIG["MOZ_PLACES"]:
+@@ -519,6 +520,7 @@ if CONFIG["MOZ_PLACES"]:
  # these files couldn't be in UNIFIED_SOURCES for now for reasons given below:
  SOURCES += [
      # Several conflicts with other bindings.
@@ -795,7 +619,7 @@ index 06e0efa0d9..ba195e3968 100644
      "DOMIntersectionObserver.cpp",
      # Because of OS X headers.
      "nsContentUtils.cpp",
-@@ -593,6 +596,7 @@ LOCAL_INCLUDES += [
+@@ -593,6 +595,7 @@ LOCAL_INCLUDES += [
      "/netwerk/url-classifier",
      "/parser/htmlparser",
      "/security/manager/ssl",
@@ -803,110 +627,29 @@ index 06e0efa0d9..ba195e3968 100644
      "/third_party/xsimd/include",
      "/widget",
      "/xpcom/build",
-diff --git a/dom/ipc/ContentChild.cpp b/dom/ipc/ContentChild.cpp
-index d77bf2ae52..ecd3bc30db 100644
---- a/dom/ipc/ContentChild.cpp
-+++ b/dom/ipc/ContentChild.cpp
-@@ -40,6 +40,7 @@
- #include "mozilla/SimpleEnumerator.h"
- #include "mozilla/SpinEventLoopUntil.h"
- #include "mozilla/StaticMutex.h"
-+#include <map>
- #include "mozilla/StaticPrefs_browser.h"
- #include "mozilla/StaticPrefs_dom.h"
- #include "mozilla/StaticPrefs_fission.h"
-@@ -1485,6 +1486,42 @@ mozilla::ipc::IPCResult ContentChild::RecvUnblockUntrustedModulesThread() {
- }
- #endif  // defined(XP_WIN)
- 
-+namespace {
-+
-+StaticMutex sSpeculumProjectedContextsMutex;
-+using SpeculumProjectedContextMap = std::map<uint64_t, uint32_t>;
-+SpeculumProjectedContextMap sSpeculumProjectedContexts;
-+
-+}  // namespace
-+
-+/* static */ bool ContentChild::SpeculumContextIdFor(uint64_t aBrowsingContextId,
-+                                                     uint32_t* aOut) {
-+  if (!aOut) {
-+    return false;
-+  }
-+  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-+  const auto it = sSpeculumProjectedContexts.find(aBrowsingContextId);
-+  if (it == sSpeculumProjectedContexts.end()) {
-+    return false;
-+  }
-+  *aOut = it->second;
-+  return true;
-+}
-+
-+mozilla::ipc::IPCResult ContentChild::RecvSpeculumProjectContext(
-+    const uint64_t& aBrowsingContextId, const uint32_t& aContextId) {
-+  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-+  sSpeculumProjectedContexts[aBrowsingContextId] = aContextId;
-+  return IPC_OK();
-+}
-+
-+mozilla::ipc::IPCResult ContentChild::RecvSpeculumUnprojectContext(
-+    const uint64_t& aBrowsingContextId) {
-+  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-+  sSpeculumProjectedContexts.erase(aBrowsingContextId);
-+  return IPC_OK();
-+}
-+
- PCycleCollectWithLogsChild* ContentChild::AllocPCycleCollectWithLogsChild(
-     const bool& aDumpAllTraces, const FileDescriptor& aGCLog,
-     const FileDescriptor& aCCLog) {
-diff --git a/dom/ipc/ContentChild.h b/dom/ipc/ContentChild.h
-index 1de5f331b0..180c3f659e 100644
---- a/dom/ipc/ContentChild.h
-+++ b/dom/ipc/ContentChild.h
-@@ -123,6 +123,8 @@ class ContentChild final : public PContentChild,
- 
-   static ContentChild* GetSingleton() { return sSingleton; }
- 
-+  static bool SpeculumContextIdFor(uint64_t aBrowsingContextId, uint32_t* aOut);
-+
-   const AppInfo& GetAppInfo() { return mAppInfo; }
- 
-   void SetProcessName(const nsACString& aName,
-@@ -498,6 +500,11 @@ class ContentChild final : public PContentChild,
-   mozilla::ipc::IPCResult RecvUnblockUntrustedModulesThread();
- #endif  // defined(XP_WIN)
- 
-+  mozilla::ipc::IPCResult RecvSpeculumProjectContext(
-+      const uint64_t& aBrowsingContextId, const uint32_t& aContextId);
-+  mozilla::ipc::IPCResult RecvSpeculumUnprojectContext(
-+      const uint64_t& aBrowsingContextId);
-+
-   mozilla::ipc::IPCResult RecvSetXPCOMProcessAttributes(
-       XPCOMInitData&& aXPCOMInit, NotNull<StructuredCloneData*> aInitialData,
-       FullLookAndFeel&& aLookAndFeelData, SystemFontList&& aFontList,
 diff --git a/dom/ipc/ContentParent.cpp b/dom/ipc/ContentParent.cpp
-index 9ae86e6114..fb31772fa7 100644
+index 9ae86e6114..a725f5ef07 100644
 --- a/dom/ipc/ContentParent.cpp
 +++ b/dom/ipc/ContentParent.cpp
-@@ -3,6 +3,10 @@
+@@ -3,6 +3,9 @@
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
  
  #include "ContentParent.h"
-+#include "SpeculumControlHandler.h"
-+#include "SpeculumSupervisorLink.h"
++#include "SpeculumProjectionRuntime.h"
 +#include <cstdio>
 +#include <cstdlib>
  
  #include <map>
  #include <utility>
-@@ -669,6 +673,7 @@ void ContentParent::StartUp() {
+@@ -669,6 +672,7 @@ void ContentParent::StartUp() {
  
    BackgroundChild::Startup();
    ClientManager::Startup();
-+  InitSpeculumSupervisorLink();
++  SpeculumProjectionRuntime::Startup();
  
    Preferences::RegisterCallbackAndCall(&OnFissionBlocklistPrefChange,
                                         kFissionEnforceBlockList);
-@@ -1265,6 +1270,21 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateGMPService() {
+@@ -1265,6 +1269,21 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateGMPService() {
    return IPC_OK();
  }
  
@@ -920,88 +663,33 @@ index 9ae86e6114..fb31772fa7 100644
 +    return IPC_OK();
 +  }
 +
-+  GetSpeculumSupervisorLink().DeliverFrame(aContextId, aDocToken, aSequence, OtherPid(),
-+                                      aFrame);
++  SpeculumProjectionRuntime::Get().DeliverFrame(aContextId, aDocToken, aSequence,
++                                                OtherPid(), aFrame);
 +  return IPC_OK();
 +}
 +
  IPCResult ContentParent::RecvAttributionEvent(
      const nsACString& aHost, PrivateAttributionImpressionType aType,
      uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost) {
-@@ -3168,6 +3188,8 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
+@@ -3168,6 +3187,8 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
  
    MaybeEnableRemoteInputEventQueue();
  
-+  SpeculumReplayProjectedContexts(this);
++  SpeculumProjectionRuntime::Get().ReplayProjectedContexts(this);
 +
    return true;
  }
  
-diff --git a/dom/ipc/ContentParent.h b/dom/ipc/ContentParent.h
-index 4e7694702d..98c47dcee4 100644
---- a/dom/ipc/ContentParent.h
-+++ b/dom/ipc/ContentParent.h
-@@ -518,6 +518,11 @@ class ContentParent final : public PContentParent,
-     return PContentParent::RecvPHalConstructor(aActor);
-   }
- 
-+  mozilla::ipc::IPCResult RecvSpeculumFrame(const uint64_t& aDocToken,
-+                                              const uint32_t& aContextId,
-+                                              const uint32_t& aSequence,
-+                                              nsTArray<uint8_t>&& aFrame);
-+
-   mozilla::ipc::IPCResult RecvAttributionEvent(
-       const nsACString& aHost, PrivateAttributionImpressionType aType,
-       uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost);
-diff --git a/dom/ipc/PContent.ipdl b/dom/ipc/PContent.ipdl
-index 23fb648516..ce3e415fbe 100644
---- a/dom/ipc/PContent.ipdl
-+++ b/dom/ipc/PContent.ipdl
-@@ -1984,16 +1984,24 @@ parent:
-     async KillGPUProcess();
- #endif
- 
--  async AttributionEvent(nsCString aSourceHost,
--                         PrivateAttributionImpressionType aType,
--                         uint32_t aIndex, nsString aAd, nsCString aTargetHost);
--
--  async AttributionConversion(nsCString aTargetHost, nsString aTask,
--                              uint32_t aHistogramSize,
--                              uint32_t? aLookbackDays,
--                              PrivateAttributionImpressionType? aImpressionType,
--                              nsString[] aAds,
--                              nsCString[] aImpressionSourceHosts);
-+parent:
-+    async SpeculumFrame(uint64_t aDocToken, uint32_t aContextId,
-+                        uint32_t aSequence, uint8_t[] aFrame);
-+
-+    async AttributionEvent(nsCString aSourceHost,
-+                           PrivateAttributionImpressionType aType,
-+                           uint32_t aIndex, nsString aAd, nsCString aTargetHost);
-+
-+    async AttributionConversion(nsCString aTargetHost, nsString aTask,
-+                                uint32_t aHistogramSize,
-+                                uint32_t? aLookbackDays,
-+                                PrivateAttributionImpressionType? aImpressionType,
-+                                nsString[] aAds,
-+                                nsCString[] aImpressionSourceHosts);
-+
-+child:
-+    async SpeculumProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId);
-+    async SpeculumUnprojectContext(uint64_t aBrowsingContextId);
- };
- 
- }
 diff --git a/dom/ipc/SpeculumControlAbi.cpp b/dom/ipc/SpeculumControlAbi.cpp
 new file mode 100755
-index 0000000000..f72c33bba4
+index 0000000000..0e7ee1ea2e
 --- /dev/null
 +++ b/dom/ipc/SpeculumControlAbi.cpp
 @@ -0,0 +1,181 @@
 +/* Speculum — codec binário do plano de controle (doc 18). */
 +#include "SpeculumControlAbi.h"
 +
-+#include "mozilla/EndianUtils.h"
++#include "mozilla/LittleEndian.h"
 +
 +#include <cstring>
 +
@@ -1179,3 +867,2252 @@ index 0000000000..f72c33bba4
 +  mPos += byteCount;
 +  return true;
 +}
+diff --git a/dom/ipc/SpeculumControlAbi.h b/dom/ipc/SpeculumControlAbi.h
+new file mode 100755
+index 0000000000..d01fa30e9b
+--- /dev/null
++++ b/dom/ipc/SpeculumControlAbi.h
+@@ -0,0 +1,91 @@
++/* Speculum — codec binário do plano de controle (doc 18). */
++#ifndef dom_ipc_SpeculumControlAbi_h
++#define dom_ipc_SpeculumControlAbi_h
++
++#include "nsStringFwd.h"
++
++#include <stddef.h>
++#include <stdint.h>
++
++enum class SpeculumControlOpCode : uint16_t {
++  // supervisor -> browser
++  ContextCreate = 0x0101,
++  ContextDestroy = 0x0102,
++  Navigate = 0x0103,
++  Reload = 0x0104,
++  Stop = 0x0105,
++  HistoryGo = 0x0106,
++  ViewportSet = 0x0107,
++  Input = 0x0108,
++  Resync = 0x0109,
++  DialogRespond = 0x010a,
++  PermissionRespond = 0x010b,
++  DownloadRespond = 0x010c,
++  Shutdown = 0x01ff,
++
++  // browser -> supervisor
++  Ready = 0x0201,
++  Heartbeat = 0x0202,
++  ContextCreated = 0x0203,
++  ContextDestroyed = 0x0204,
++  Navigated = 0x0205,
++  LoadStateChanged = 0x0206,
++  DialogRequested = 0x0207,
++  PermissionRequested = 0x0208,
++  DownloadRequested = 0x0209,
++  Fault = 0x02ff,
++};
++
++constexpr size_t kSpeculumControlHeaderBytes = sizeof(uint16_t) + sizeof(uint32_t);
++
++class SpeculumControlReader {
++ public:
++  SpeculumControlReader(const uint8_t* aData, size_t aLength);
++
++  bool Ok() const { return mOk; }
++  uint16_t OpCode() const { return mOpCode; }
++  uint32_t CorrelationId() const { return mCorrelationId; }
++
++  bool ReadUInt8(uint8_t* aOut);
++  bool ReadUInt16(uint16_t* aOut);
++  bool ReadInt32(int32_t* aOut);
++  bool ReadUInt32(uint32_t* aOut);
++  bool ReadUInt64(uint64_t* aOut);
++  bool ReadString(nsACString& aOut);
++
++ private:
++  bool Require(size_t aBytes);
++
++  const uint8_t* mData;
++  size_t mLength;
++  size_t mPos;
++  bool mOk;
++  uint16_t mOpCode;
++  uint32_t mCorrelationId;
++};
++
++class SpeculumControlWriter {
++ public:
++  SpeculumControlWriter(uint8_t* aBuffer, size_t aCapacity,
++                        SpeculumControlOpCode aOpCode, uint32_t aCorrelationId);
++
++  bool Ok() const { return mOk; }
++  size_t Length() const { return mPos; }
++
++  bool WriteUInt8(uint8_t aValue);
++  bool WriteUInt16(uint16_t aValue);
++  bool WriteInt32(int32_t aValue);
++  bool WriteUInt32(uint32_t aValue);
++  bool WriteUInt64(uint64_t aValue);
++  bool WriteString(const nsACString& aValue);
++
++ private:
++  bool Ensure(size_t aBytes);
++
++  uint8_t* mBuffer;
++  size_t mCapacity;
++  size_t mPos;
++  bool mOk;
++};
++
++#endif
+diff --git a/dom/ipc/SpeculumFrameSink.cpp b/dom/ipc/SpeculumFrameSink.cpp
+new file mode 100755
+index 0000000000..e83e21c731
+--- /dev/null
++++ b/dom/ipc/SpeculumFrameSink.cpp
+@@ -0,0 +1,328 @@
++/* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
++#include "SpeculumFrameSink.h"
++
++#include "mozilla/Mutex.h"
++#include "mozilla/UniquePtr.h"
++
++#include <atomic>
++#include <cerrno>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <thread>
++#include <unistd.h>
++
++namespace {
++
++constexpr uint8_t kKindFrame = 0x01;
++constexpr uint8_t kKindBrowserEvent = 0x02;
++constexpr uint8_t kKindHello = 0x03;
++constexpr uint8_t kKindControl = 0x04;
++
++constexpr char kReadyBrowserEvent[] = R"({"type":"Ready","id":0})";
++
++void LogSinkErr(const char* aMsg) {
++  fprintf(stderr, "[SPECULUM-SINK-ERR] %s\n", aMsg);
++}
++
++bool WriteAll(int aFd, const void* aData, size_t aLen) {
++  const uint8_t* p = static_cast<const uint8_t*>(aData);
++  size_t left = aLen;
++  while (left > 0) {
++    const ssize_t n = send(aFd, p, left, MSG_NOSIGNAL);
++    if (n < 0) {
++      if (errno == EINTR) {
++        continue;
++      }
++      return false;
++    }
++    if (n == 0) {
++      return false;
++    }
++    p += static_cast<size_t>(n);
++    left -= static_cast<size_t>(n);
++  }
++  return true;
++}
++
++bool ReadAll(int aFd, void* aData, size_t aLen) {
++  uint8_t* p = static_cast<uint8_t*>(aData);
++  size_t left = aLen;
++  while (left > 0) {
++    const ssize_t n = recv(aFd, p, left, 0);
++    if (n < 0) {
++      if (errno == EINTR) {
++        continue;
++      }
++      return false;
++    }
++    if (n == 0) {
++      return false;
++    }
++    p += static_cast<size_t>(n);
++    left -= static_cast<size_t>(n);
++  }
++  return true;
++}
++
++bool SendEnvelope(int aFd, uint8_t aKind, uint32_t aContextId,
++                  const void* aPayload, uint32_t aLength) {
++  uint8_t header[9];
++  header[0] = aKind;
++  header[1] = static_cast<uint8_t>(aContextId & 0xffu);
++  header[2] = static_cast<uint8_t>((aContextId >> 8) & 0xffu);
++  header[3] = static_cast<uint8_t>((aContextId >> 16) & 0xffu);
++  header[4] = static_cast<uint8_t>((aContextId >> 24) & 0xffu);
++  header[5] = static_cast<uint8_t>(aLength & 0xffu);
++  header[6] = static_cast<uint8_t>((aLength >> 8) & 0xffu);
++  header[7] = static_cast<uint8_t>((aLength >> 16) & 0xffu);
++  header[8] = static_cast<uint8_t>((aLength >> 24) & 0xffu);
++  if (!WriteAll(aFd, header, sizeof(header))) {
++    return false;
++  }
++  if (aLength > 0 && aPayload) {
++    if (!WriteAll(aFd, aPayload, aLength)) {
++      return false;
++    }
++  }
++  return true;
++}
++
++uint32_t ReadU32LE(const uint8_t* aBytes) {
++  return static_cast<uint32_t>(aBytes[0]) |
++         (static_cast<uint32_t>(aBytes[1]) << 8) |
++         (static_cast<uint32_t>(aBytes[2]) << 16) |
++         (static_cast<uint32_t>(aBytes[3]) << 24);
++}
++
++class NullSink final : public SpeculumFrameSink {
++ public:
++  void DeliverFrame(uint32_t, uint64_t, uint32_t, base::ProcessId,
++                    nsTArray<uint8_t>&) override {}
++};
++
++class SocketSink final : public SpeculumFrameSink {
++ public:
++  explicit SocketSink(std::string aPath)
++      : mPath(std::move(aPath)), mFd(-1), mStopRead(false) {
++    mReadThread = std::thread([this]() { ReadLoop(); });
++  }
++
++  ~SocketSink() override {
++    mStopRead = true;
++    {
++      mozilla::MutexAutoLock lock(mMutex);
++      if (mFd >= 0) {
++        shutdown(mFd, SHUT_RDWR);
++      }
++    }
++    if (mReadThread.joinable()) {
++      mReadThread.join();
++    }
++    mozilla::MutexAutoLock lock(mMutex);
++    if (mFd >= 0) {
++      close(mFd);
++      mFd = -1;
++    }
++  }
++
++  void DeliverFrame(uint32_t aContextId, uint64_t, uint32_t, base::ProcessId,
++                    nsTArray<uint8_t>& aFrame) override {
++    mozilla::MutexAutoLock lock(mMutex);
++    if (!EnsureConnectedUnlocked()) {
++      return;
++    }
++    const uint32_t len = static_cast<uint32_t>(aFrame.Length());
++    if (!SendEnvelope(mFd, kKindFrame, aContextId, aFrame.Elements(), len)) {
++      LogSinkErr("socket write failed");
++      CloseFdUnlocked();
++    }
++  }
++
++  void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
++                        uint32_t aJsonLength) override {
++    if (!aJsonUtf8 || aJsonLength == 0) {
++      return;
++    }
++    mozilla::MutexAutoLock lock(mMutex);
++    if (!EnsureConnectedUnlocked()) {
++      return;
++    }
++    if (!SendEnvelope(mFd, kKindBrowserEvent, aContextId, aJsonUtf8,
++                      aJsonLength)) {
++      LogSinkErr("browser event send failed");
++      CloseFdUnlocked();
++    }
++  }
++
++ private:
++  void CloseFdUnlocked() {
++    if (mFd >= 0) {
++      close(mFd);
++      mFd = -1;
++    }
++  }
++
++  bool EnsureConnectedUnlocked() {
++    if (mFd >= 0) {
++      return true;
++    }
++    const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
++    if (fd < 0) {
++      LogSinkErr("socket create failed");
++      return false;
++    }
++    sockaddr_un addr {};
++    if (mPath.size() >= sizeof(addr.sun_path)) {
++      LogSinkErr("socket path too long");
++      close(fd);
++      return false;
++    }
++    addr.sun_family = AF_UNIX;
++    memcpy(addr.sun_path, mPath.c_str(), mPath.size() + 1);
++    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
++      LogSinkErr("socket connect failed");
++      close(fd);
++      return false;
++    }
++    if (!SendEnvelope(fd, kKindHello, 0, nullptr, 0)) {
++      LogSinkErr("hello send failed");
++      close(fd);
++      return false;
++    }
++    if (!SendEnvelope(fd, kKindBrowserEvent, 0, kReadyBrowserEvent,
++                      static_cast<uint32_t>(sizeof(kReadyBrowserEvent) - 1))) {
++      LogSinkErr("ready send failed");
++      close(fd);
++      return false;
++    }
++    mFd = fd;
++    return true;
++  }
++
++  void HandleControlPayload(const uint8_t* aPayload, uint32_t aLength) {
++    const std::string json(reinterpret_cast<const char*>(aPayload), aLength);
++    fprintf(stderr, "[SPECULUM-CTRL] %s\n", json.c_str());
++  }
++
++  void ReadLoop() {
++    while (!mStopRead) {
++      int fd = -1;
++      {
++        mozilla::MutexAutoLock lock(mMutex);
++        fd = mFd;
++      }
++      if (fd < 0) {
++        usleep(100 * 1000);
++        continue;
++      }
++
++      uint8_t header[9];
++      if (!ReadAll(fd, header, sizeof(header))) {
++        mozilla::MutexAutoLock lock(mMutex);
++        if (mFd == fd) {
++          LogSinkErr("socket read failed");
++          CloseFdUnlocked();
++        }
++        continue;
++      }
++
++      const uint8_t kind = header[0];
++      const uint32_t contextId = ReadU32LE(header + 1);
++      const uint32_t length = ReadU32LE(header + 5);
++      (void)contextId;
++
++      nsTArray<uint8_t> payload;
++      if (length > 0) {
++        if (!payload.SetLength(length, mozilla::fallible)) {
++          mozilla::MutexAutoLock lock(mMutex);
++          if (mFd == fd) {
++            LogSinkErr("control payload alloc failed");
++            CloseFdUnlocked();
++          }
++          continue;
++        }
++        if (!ReadAll(fd, payload.Elements(), length)) {
++          mozilla::MutexAutoLock lock(mMutex);
++          if (mFd == fd) {
++            LogSinkErr("socket read failed");
++            CloseFdUnlocked();
++          }
++          continue;
++        }
++      }
++
++      if (kind == kKindControl) {
++        HandleControlPayload(payload.Elements(), length);
++      }
++    }
++  }
++
++  std::string mPath;
++  int mFd;
++  mozilla::Mutex mMutex{"SpeculumFrameSink"};
++  std::atomic<bool> mStopRead;
++  std::thread mReadThread;
++};
++
++class DirectorySink final : public SpeculumFrameSink {
++ public:
++  explicit DirectorySink(std::string aDir) : mDir(std::move(aDir)) {}
++
++  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken,
++                    uint32_t aSequence, base::ProcessId aChildPid,
++                    nsTArray<uint8_t>& aFrame) override {
++    const uint32_t ordem = ++mOrder;
++    char name[128];
++    snprintf(name, sizeof(name), "f-%04u-ctx%u-seq%u.bin", ordem, aContextId,
++             aSequence);
++    char path[512];
++    snprintf(path, sizeof(path), "%s/%s", mDir.c_str(), name);
++    if (FILE* fp = fopen(path, "wb")) {
++      (void)fwrite(aFrame.Elements(), 1, aFrame.Length(), fp);
++      fclose(fp);
++    }
++
++    char ndpath[512];
++    snprintf(ndpath, sizeof(ndpath), "%s/frames.ndjson", mDir.c_str());
++    if (FILE* nd = fopen(ndpath, "a")) {
++      fprintf(nd,
++              "{\"ordem\":%u,\"childPid\":%u,\"docToken\":%llu,\"contextId\":%u,"
++              "\"sequence\":%u,\"bytes\":%zu}\n",
++              ordem, static_cast<unsigned>(aChildPid),
++              static_cast<unsigned long long>(aDocToken), aContextId, aSequence,
++              static_cast<size_t>(aFrame.Length()));
++      fclose(nd);
++    }
++  }
++
++ private:
++  std::string mDir;
++  uint32_t mOrder = 0;
++};
++
++SpeculumFrameSink* CreateSink() {
++  const char* sockEnv = getenv("SPECULUM_BROWSER_SOCKET");
++  if (sockEnv && sockEnv[0]) {
++    return new SocketSink(std::string(sockEnv));
++  }
++  const char* dirEnv = getenv("SPECULUM_FRAME_DIR");
++  if (dirEnv && dirEnv[0]) {
++    return new DirectorySink(std::string(dirEnv));
++  }
++  return new NullSink();
++}
++
++}  // namespace
++
++SpeculumFrameSink& GetSpeculumFrameSink() {
++  static mozilla::UniquePtr<SpeculumFrameSink> sSink;
++  static bool sInitialized = false;
++  if (!sInitialized) {
++    sSink.reset(CreateSink());
++    sInitialized = true;
++  }
++  return *sSink;
++}
+diff --git a/dom/ipc/SpeculumFrameSink.h b/dom/ipc/SpeculumFrameSink.h
+new file mode 100755
+index 0000000000..045a8cd737
+--- /dev/null
++++ b/dom/ipc/SpeculumFrameSink.h
+@@ -0,0 +1,24 @@
++/* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
++#ifndef dom_ipc_SpeculumFrameSink_h
++#define dom_ipc_SpeculumFrameSink_h
++
++#include "base/process_util.h"
++#include "nsTArray.h"
++
++class SpeculumFrameSink {
++ public:
++  virtual ~SpeculumFrameSink() = default;
++
++  virtual void DeliverFrame(uint32_t aContextId, uint64_t aDocToken,
++                            uint32_t aSequence, base::ProcessId aChildPid,
++                            nsTArray<uint8_t>& aFrame) = 0;
++
++  // Envelope kind 0x02 (BrowserEvent), payload JSON UTF-8. No-op for sinks
++  // que não falam com o supervisor.
++  virtual void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
++                                uint32_t aJsonLength) {}
++};
++
++SpeculumFrameSink& GetSpeculumFrameSink();
++
++#endif
+diff --git a/dom/ipc/SpeculumProjectionRuntime.cpp b/dom/ipc/SpeculumProjectionRuntime.cpp
+new file mode 100755
+index 0000000000..5ab55fe677
+--- /dev/null
++++ b/dom/ipc/SpeculumProjectionRuntime.cpp
+@@ -0,0 +1,649 @@
++/* Speculum — runtime de projeção no processo base (doc 17). */
++#include "SpeculumProjectionRuntime.h"
++
++#include "SpeculumControlAbi.h"
++#include "mozilla/SystemPrincipal.h"
++#include "mozilla/dom/BrowsingContext.h"
++#include "mozilla/dom/ContentParent.h"
++#include "mozilla/ErrorResult.h"
++#include "mozilla/Mutex.h"
++#include "mozilla/NullPrincipal.h"
++#include "mozilla/StaticMutex.h"
++#include "mozilla/UniquePtr.h"
++#include "nsAppRunner.h"
++#include "nsComponentManagerUtils.h"
++#include "nsGlobalWindowOuter.h"
++#include "nsIMutableArray.h"
++#include "nsIURI.h"
++#include "nsIWindowWatcher.h"
++#include "nsNetUtil.h"
++#include "nsPIDOMWindow.h"
++#include "nsPIDOMWindowInlines.h"
++#include "nsSupportsPrimitives.h"
++#include "nsThreadUtils.h"
++
++#include <atomic>
++#include <cerrno>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <map>
++#include <string>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <thread>
++#include <unistd.h>
++#include <utility>
++
++using mozilla::ErrorResult;
++using mozilla::StaticMutex;
++using mozilla::StaticMutexAutoLock;
++using mozilla::SystemPrincipal;
++using mozilla::UniquePtr;
++using mozilla::dom::BrowsingContext;
++using mozilla::dom::ContentParent;
++using mozilla::NullPrincipal;
++
++namespace {
++
++constexpr uint8_t kKindFrame = 0x01;
++constexpr uint8_t kKindEvent = 0x02;
++constexpr uint8_t kKindHello = 0x03;
++constexpr uint8_t kKindCommand = 0x04;
++
++void LogBridgeErr(const char* aMsg) {
++  fprintf(stderr, "[SPECULUM-RUNTIME-ERR] %s\n", aMsg);
++}
++
++[[noreturn]] void FatalRuntime(const char* aMsg) {
++  fprintf(stderr, "[SPECULUM-RUNTIME-FATAL] %s\n", aMsg);
++  _exit(1);
++}
++
++bool WriteAll(int aFd, const void* aData, size_t aLen) {
++  const uint8_t* p = static_cast<const uint8_t*>(aData);
++  size_t left = aLen;
++  while (left > 0) {
++    const ssize_t n = send(aFd, p, left, MSG_NOSIGNAL);
++    if (n < 0) {
++      if (errno == EINTR) {
++        continue;
++      }
++      return false;
++    }
++    if (n == 0) {
++      return false;
++    }
++    p += static_cast<size_t>(n);
++    left -= static_cast<size_t>(n);
++  }
++  return true;
++}
++
++bool ReadAll(int aFd, void* aData, size_t aLen) {
++  uint8_t* p = static_cast<uint8_t*>(aData);
++  size_t left = aLen;
++  while (left > 0) {
++    const ssize_t n = recv(aFd, p, left, 0);
++    if (n < 0) {
++      if (errno == EINTR) {
++        continue;
++      }
++      return false;
++    }
++    if (n == 0) {
++      return false;
++    }
++    p += static_cast<size_t>(n);
++    left -= static_cast<size_t>(n);
++  }
++  return true;
++}
++
++bool SendEnvelope(int aFd, uint8_t aKind, uint32_t aContextId,
++                  const void* aPayload, uint32_t aLength) {
++  uint8_t header[9];
++  header[0] = aKind;
++  header[1] = static_cast<uint8_t>(aContextId & 0xffu);
++  header[2] = static_cast<uint8_t>((aContextId >> 8) & 0xffu);
++  header[3] = static_cast<uint8_t>((aContextId >> 16) & 0xffu);
++  header[4] = static_cast<uint8_t>((aContextId >> 24) & 0xffu);
++  header[5] = static_cast<uint8_t>(aLength & 0xffu);
++  header[6] = static_cast<uint8_t>((aLength >> 8) & 0xffu);
++  header[7] = static_cast<uint8_t>((aLength >> 16) & 0xffu);
++  header[8] = static_cast<uint8_t>((aLength >> 24) & 0xffu);
++  if (!WriteAll(aFd, header, sizeof(header))) {
++    return false;
++  }
++  if (aLength > 0 && aPayload) {
++    if (!WriteAll(aFd, aPayload, aLength)) {
++      return false;
++    }
++  }
++  return true;
++}
++
++uint32_t ReadU32LE(const uint8_t* aBytes) {
++  return static_cast<uint32_t>(aBytes[0]) |
++         (static_cast<uint32_t>(aBytes[1]) << 8) |
++         (static_cast<uint32_t>(aBytes[2]) << 16) |
++         (static_cast<uint32_t>(aBytes[3]) << 24);
++}
++
++nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
++                                   mozIDOMWindowProxy** aOutWindow) {
++  nsCOMPtr<nsIURI> uri;
++  nsresult rv = NS_NewURI(getter_AddRefs(uri), "about:blank"_ns);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  nsAutoCString uriToLoad;
++  rv = uri->GetSpec(uriToLoad);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  nsCOMPtr<nsISupportsCString> nsUriToLoad =
++      do_CreateInstance(NS_SUPPORTS_CSTRING_CONTRACTID, &rv);
++  NS_ENSURE_SUCCESS(rv, rv);
++  rv = nsUriToLoad->SetData(uriToLoad);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  nsCOMPtr<nsISupportsPRBool> nsFalse =
++      do_CreateInstance(NS_SUPPORTS_PRBOOL_CONTRACTID, &rv);
++  NS_ENSURE_SUCCESS(rv, rv);
++  rv = nsFalse->SetData(false);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  nsCOMPtr<nsISupportsPRUint32> userContextId =
++      do_CreateInstance(NS_SUPPORTS_PRUINT32_CONTRACTID, &rv);
++  NS_ENSURE_SUCCESS(rv, rv);
++  rv = userContextId->SetData(0);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  nsCOMPtr<nsIPrincipal> principal =
++      NullPrincipal::CreateWithoutOriginAttributes();
++
++  nsCOMPtr<nsIMutableArray> args = do_CreateInstance(NS_ARRAY_CONTRACTID);
++  NS_ENSURE_TRUE(args, NS_ERROR_FAILURE);
++  args->AppendElement(nsUriToLoad);
++  args->AppendElement(nullptr);
++  args->AppendElement(nullptr);
++  args->AppendElement(nullptr);
++  args->AppendElement(nsFalse);
++  args->AppendElement(userContextId);
++  args->AppendElement(nullptr);
++  args->AppendElement(nullptr);
++  args->AppendElement(principal);
++  args->AppendElement(nsFalse);
++  args->AppendElement(nullptr);
++  args->AppendElement(nullptr);
++
++  nsCOMPtr<nsIWindowWatcher> ww = do_GetService(NS_WINDOWWATCHER_CONTRACTID);
++  NS_ENSURE_TRUE(ww, NS_ERROR_FAILURE);
++
++  nsAutoCString features("chrome,all,dialog=no"_ns);
++  if (aWidth > 0) {
++    features.AppendPrintf(",width=%d", aWidth);
++  }
++  if (aHeight > 0) {
++    features.AppendPrintf(",height=%d", aHeight);
++  }
++
++  return ww->OpenWindow(nullptr, nsDependentCString(BROWSER_CHROME_URL_QUOTED),
++                        "_blank"_ns, features, args, aOutWindow);
++}
++
++}  // namespace
++
++struct SpeculumProjectionRuntime::Impl {
++  StaticMutex projectedMutex;
++  std::map<uint32_t, RefPtr<BrowsingContext>> contextToRootBc;
++  std::map<uint64_t, uint32_t> bcIdToContextId;
++  std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> contextToWindow;
++
++  std::string socketPath;
++  int fd = -1;
++  mozilla::Mutex sendMutex{"SpeculumProjectionRuntime"};
++  std::atomic<bool> stopRead{false};
++  std::thread readThread;
++
++  explicit Impl(std::string aPath) : socketPath(std::move(aPath)) {
++    ConnectOrDie();
++    readThread = std::thread([this]() { ReadLoop(); });
++  }
++
++  ~Impl() {
++    stopRead = true;
++    {
++      mozilla::MutexAutoLock lock(sendMutex);
++      if (fd >= 0) {
++        shutdown(fd, SHUT_RDWR);
++      }
++    }
++    if (readThread.joinable()) {
++      readThread.join();
++    }
++    mozilla::MutexAutoLock lock(sendMutex);
++    if (fd >= 0) {
++      close(fd);
++      fd = -1;
++    }
++  }
++
++  void CloseFdUnlocked() {
++    if (fd >= 0) {
++      close(fd);
++      fd = -1;
++    }
++  }
++
++  void ConnectOrDie() {
++    const int sock = socket(AF_UNIX, SOCK_STREAM, 0);
++    if (sock < 0) {
++      FatalRuntime("socket create failed");
++    }
++    sockaddr_un addr {};
++    if (socketPath.size() >= sizeof(addr.sun_path)) {
++      close(sock);
++      FatalRuntime("socket path too long");
++    }
++    addr.sun_family = AF_UNIX;
++    memcpy(addr.sun_path, socketPath.c_str(), socketPath.size() + 1);
++    if (connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
++      close(sock);
++      FatalRuntime("socket connect failed");
++    }
++    if (!SendEnvelope(sock, kKindHello, 0, nullptr, 0)) {
++      close(sock);
++      FatalRuntime("hello send failed");
++    }
++    uint8_t readyPayload[kSpeculumControlHeaderBytes];
++    SpeculumControlWriter readyWriter(
++        readyPayload, sizeof(readyPayload), SpeculumControlOpCode::Ready, 0);
++    if (!readyWriter.Ok()) {
++      close(sock);
++      FatalRuntime("ready encode failed");
++    }
++    if (!SendEnvelope(sock, kKindEvent, 0, readyPayload,
++                      static_cast<uint32_t>(readyWriter.Length()))) {
++      close(sock);
++      FatalRuntime("ready send failed");
++    }
++    fd = sock;
++    fprintf(stderr, "[SPECULUM-RUNTIME] ponte conectada em %s\n",
++            socketPath.c_str());
++  }
++
++  bool SendEvent(const uint8_t* aPayload, uint32_t aLength) {
++    mozilla::MutexAutoLock lock(sendMutex);
++    if (fd < 0) {
++      return false;
++    }
++    if (!SendEnvelope(fd, kKindEvent, 0, aPayload, aLength)) {
++      LogBridgeErr("event send failed");
++      CloseFdUnlocked();
++      return false;
++    }
++    return true;
++  }
++
++  void SendFault(uint32_t aCorrelationId, uint32_t aContextId,
++                 const char* aReason) {
++    uint8_t buffer[512];
++    SpeculumControlWriter writer(buffer, sizeof(buffer),
++                                 SpeculumControlOpCode::Fault, aCorrelationId);
++    if (!writer.WriteUInt32(aContextId) ||
++        !writer.WriteString(nsDependentCString(aReason)) || !writer.Ok()) {
++      LogBridgeErr("Fault encode failed");
++      return;
++    }
++    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
++  }
++
++  void BroadcastProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId) {
++    for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
++      (void)cp->SendSpeculumProjectContext(aBrowsingContextId, aContextId);
++    }
++  }
++
++  void BroadcastUnprojectContext(uint64_t aBrowsingContextId) {
++    for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
++      (void)cp->SendSpeculumUnprojectContext(aBrowsingContextId);
++    }
++  }
++
++  void HandleContextCreate(uint32_t aCorrelationId, uint32_t aContextId,
++                           int32_t aWidth, int32_t aHeight) {
++    StaticMutexAutoLock lock(projectedMutex);
++    if (contextToRootBc.find(aContextId) != contextToRootBc.end()) {
++      SendFault(aCorrelationId, aContextId, "contextId already registered");
++      return;
++    }
++
++    nsCOMPtr<mozIDOMWindowProxy> window;
++    nsresult rv =
++        OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
++    if (NS_FAILED(rv) || !window) {
++      SendFault(aCorrelationId, aContextId, "OpenWindow failed");
++      return;
++    }
++
++    nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window);
++    if (!outer) {
++      SendFault(aCorrelationId, aContextId, "no outer window");
++      return;
++    }
++
++    RefPtr<BrowsingContext> bc = outer->GetBrowsingContext();
++    if (!bc) {
++      SendFault(aCorrelationId, aContextId, "no browsing context");
++      return;
++    }
++    bc = bc->Top();
++    if (!bc) {
++      SendFault(aCorrelationId, aContextId, "no top browsing context");
++      return;
++    }
++
++    const uint64_t bcId = bc->Id();
++    if (bcIdToContextId.find(bcId) != bcIdToContextId.end()) {
++      SendFault(aCorrelationId, aContextId, "browsing context already registered");
++      return;
++    }
++
++    contextToRootBc.emplace(aContextId, bc);
++    bcIdToContextId.emplace(bcId, aContextId);
++    contextToWindow.emplace(aContextId, window);
++
++    BroadcastProjectContext(bcId, aContextId);
++
++    uint8_t buffer[64];
++    SpeculumControlWriter writer(buffer, sizeof(buffer),
++                                 SpeculumControlOpCode::ContextCreated,
++                                 aCorrelationId);
++    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt64(bcId) ||
++        !writer.WriteUInt32(0) || !writer.Ok()) {
++      SendFault(aCorrelationId, aContextId, "ContextCreated encode failed");
++      return;
++    }
++    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
++  }
++
++  void HandleContextDestroy(uint32_t aCorrelationId, uint32_t aContextId) {
++    RefPtr<BrowsingContext> bc;
++    nsCOMPtr<mozIDOMWindowProxy> window;
++    uint64_t bcId = 0;
++
++    {
++      StaticMutexAutoLock lock(projectedMutex);
++      const auto found = contextToRootBc.find(aContextId);
++      if (found == contextToRootBc.end()) {
++        SendFault(aCorrelationId, aContextId, "unknown contextId");
++        return;
++      }
++      bc = found->second;
++      bcId = bc->Id();
++      const auto winIt = contextToWindow.find(aContextId);
++      if (winIt != contextToWindow.end()) {
++        window = winIt->second;
++      }
++      contextToRootBc.erase(found);
++      bcIdToContextId.erase(bcId);
++      contextToWindow.erase(aContextId);
++    }
++
++    BroadcastUnprojectContext(bcId);
++
++    if (window) {
++      if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window)) {
++        outer->ForceClose();
++      }
++    }
++
++    uint8_t buffer[32];
++    SpeculumControlWriter writer(buffer, sizeof(buffer),
++                                 SpeculumControlOpCode::ContextDestroyed,
++                                 aCorrelationId);
++    if (!writer.WriteUInt32(aContextId) || !writer.Ok()) {
++      SendFault(aCorrelationId, aContextId, "ContextDestroyed encode failed");
++      return;
++    }
++    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
++  }
++
++  void HandleNavigate(uint32_t aCorrelationId, uint32_t aContextId,
++                      const nsACString& aUrl) {
++    RefPtr<BrowsingContext> bc;
++    {
++      StaticMutexAutoLock lock(projectedMutex);
++      const auto found = contextToRootBc.find(aContextId);
++      if (found == contextToRootBc.end()) {
++        SendFault(aCorrelationId, aContextId, "unknown contextId");
++        return;
++      }
++      bc = found->second;
++    }
++
++    if (!bc || bc->IsDiscarded()) {
++      SendFault(aCorrelationId, aContextId, "browsing context unavailable");
++      return;
++    }
++
++    if (!bc->IsTargetable()) {
++      SendFault(aCorrelationId, aContextId, "browsing context not targetable");
++      return;
++    }
++
++    nsCOMPtr<nsIURI> uri;
++    nsresult rv = NS_NewURI(getter_AddRefs(uri), aUrl);
++    if (NS_FAILED(rv) || !uri) {
++      SendFault(aCorrelationId, aContextId, "invalid url");
++      return;
++    }
++
++    nsAutoCString spec;
++    rv = uri->GetSpec(spec);
++    if (NS_FAILED(rv)) {
++      SendFault(aCorrelationId, aContextId, "url spec failed");
++      return;
++    }
++
++    RefPtr<nsIPrincipal> systemPrincipal = SystemPrincipal::Get();
++    ErrorResult error;
++    bc->Navigate(uri, /* aSourceDocument */ nullptr, *systemPrincipal, error);
++    if (error.Failed()) {
++      SendFault(aCorrelationId, aContextId, "navigate failed");
++      return;
++    }
++
++    uint8_t buffer[4096];
++    SpeculumControlWriter writer(buffer, sizeof(buffer),
++                                 SpeculumControlOpCode::Navigated, aCorrelationId);
++    if (!writer.WriteUInt32(aContextId) || !writer.WriteString(spec) ||
++        !writer.Ok()) {
++      SendFault(aCorrelationId, aContextId, "Navigated encode failed");
++      return;
++    }
++    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
++  }
++
++  void HandleControlBinary(const uint8_t* aData, size_t aLength) {
++    SpeculumControlReader reader(aData, aLength);
++    if (!reader.Ok()) {
++      fprintf(stderr, "[SPECULUM-CTRL-ERR] mensagem truncada (cabecalho)\n");
++      return;
++    }
++
++    const uint16_t op = reader.OpCode();
++    const uint32_t correlationId = reader.CorrelationId();
++    fprintf(stderr, "[SPECULUM-CTRL] opcode=0x%04x correlationId=%u\n", op,
++            correlationId);
++
++    switch (static_cast<SpeculumControlOpCode>(op)) {
++      case SpeculumControlOpCode::ContextCreate: {
++        uint32_t contextId = 0;
++        int32_t width = 0;
++        int32_t height = 0;
++        if (!reader.ReadUInt32(&contextId) || !reader.ReadInt32(&width) ||
++            !reader.ReadInt32(&height)) {
++          SendFault(correlationId, 0, "ContextCreate truncated");
++          return;
++        }
++        HandleContextCreate(correlationId, contextId, width, height);
++        return;
++      }
++      case SpeculumControlOpCode::ContextDestroy: {
++        uint32_t contextId = 0;
++        if (!reader.ReadUInt32(&contextId)) {
++          SendFault(correlationId, 0, "ContextDestroy truncated");
++          return;
++        }
++        HandleContextDestroy(correlationId, contextId);
++        return;
++      }
++      case SpeculumControlOpCode::Navigate: {
++        uint32_t contextId = 0;
++        nsAutoCString url;
++        if (!reader.ReadUInt32(&contextId) || !reader.ReadString(url)) {
++          SendFault(correlationId, 0, "Navigate truncated");
++          return;
++        }
++        HandleNavigate(correlationId, contextId, url);
++        return;
++      }
++      default:
++        fprintf(stderr,
++                "[SPECULUM-CTRL-IGNORADO] opcode=0x%04x correlationId=%u\n",
++                op, correlationId);
++        return;
++    }
++  }
++
++  void DispatchControlPayload(const uint8_t* aPayload, size_t aLength) {
++    if (!aPayload || aLength == 0) {
++      return;
++    }
++    nsTArray<uint8_t> payload;
++    if (!payload.AppendElements(aPayload, aLength, mozilla::fallible)) {
++      fprintf(stderr, "[SPECULUM-CTRL-ERR] alloc falhou len=%zu\n", aLength);
++      return;
++    }
++    NS_DispatchToMainThread(NS_NewRunnableFunction(
++        "SpeculumHandleControl",
++        [this, payload = std::move(payload)]() mutable {
++          HandleControlBinary(payload.Elements(), payload.Length());
++        }));
++  }
++
++  void ReadLoop() {
++    while (!stopRead) {
++      int localFd = -1;
++      {
++        mozilla::MutexAutoLock lock(sendMutex);
++        localFd = fd;
++      }
++      if (localFd < 0) {
++        usleep(100 * 1000);
++        continue;
++      }
++
++      uint8_t header[9];
++      if (!ReadAll(localFd, header, sizeof(header))) {
++        mozilla::MutexAutoLock lock(sendMutex);
++        if (fd == localFd) {
++          LogBridgeErr("socket read failed");
++          CloseFdUnlocked();
++        }
++        continue;
++      }
++
++      const uint8_t kind = header[0];
++      const uint32_t length = ReadU32LE(header + 5);
++
++      nsTArray<uint8_t> payload;
++      if (length > 0) {
++        if (!payload.SetLength(length, mozilla::fallible)) {
++          mozilla::MutexAutoLock lock(sendMutex);
++          if (fd == localFd) {
++            LogBridgeErr("control payload alloc failed");
++            CloseFdUnlocked();
++          }
++          continue;
++        }
++        if (!ReadAll(localFd, payload.Elements(), length)) {
++          mozilla::MutexAutoLock lock(sendMutex);
++          if (fd == localFd) {
++            LogBridgeErr("socket read failed");
++            CloseFdUnlocked();
++          }
++          continue;
++        }
++      }
++
++      if (kind == kKindCommand) {
++        DispatchControlPayload(payload.Elements(), length);
++      }
++    }
++  }
++
++  void DeliverFrame(uint32_t aContextId, uint64_t, uint32_t, base::ProcessId,
++                    nsTArray<uint8_t>& aFrame) {
++    mozilla::MutexAutoLock lock(sendMutex);
++    if (fd < 0) {
++      return;
++    }
++    const uint32_t len = static_cast<uint32_t>(aFrame.Length());
++    if (!SendEnvelope(fd, kKindFrame, aContextId, aFrame.Elements(), len)) {
++      LogBridgeErr("frame send failed");
++      CloseFdUnlocked();
++    }
++  }
++
++  void ReplayProjectedContexts(ContentParent* aChild) {
++    if (!aChild) {
++      return;
++    }
++    StaticMutexAutoLock lock(projectedMutex);
++    for (const auto& entry : contextToRootBc) {
++      if (RefPtr<BrowsingContext> bc = entry.second) {
++        (void)aChild->SendSpeculumProjectContext(bc->Id(), entry.first);
++      }
++    }
++  }
++};
++
++UniquePtr<SpeculumProjectionRuntime> sRuntime;
++
++SpeculumProjectionRuntime::SpeculumProjectionRuntime() {
++  const char* sockEnv = getenv("SPECULUM_BROWSER_SOCKET");
++  if (!sockEnv || !sockEnv[0]) {
++    FatalRuntime("SPECULUM_BROWSER_SOCKET ausente");
++  }
++  mImpl = MakeUnique<Impl>(std::string(sockEnv));
++}
++
++SpeculumProjectionRuntime::~SpeculumProjectionRuntime() = default;
++
++void SpeculumProjectionRuntime::Startup() {
++  if (!XRE_IsParentProcess()) {
++    return;
++  }
++  if (sRuntime) {
++    return;
++  }
++  sRuntime = MakeUnique<SpeculumProjectionRuntime>();
++}
++
++SpeculumProjectionRuntime& SpeculumProjectionRuntime::Get() {
++  MOZ_RELEASE_ASSERT(sRuntime);
++  return *sRuntime;
++}
++
++void SpeculumProjectionRuntime::DeliverFrame(
++    uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
++    base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame) {
++  mImpl->DeliverFrame(aContextId, aDocToken, aSequence, aChildPid, aFrame);
++}
++
++void SpeculumProjectionRuntime::ReplayProjectedContexts(
++    ContentParent* aChild) {
++  mImpl->ReplayProjectedContexts(aChild);
++}
+diff --git a/dom/ipc/SpeculumProjectionRuntime.h b/dom/ipc/SpeculumProjectionRuntime.h
+new file mode 100755
+index 0000000000..552ab49168
+--- /dev/null
++++ b/dom/ipc/SpeculumProjectionRuntime.h
+@@ -0,0 +1,33 @@
++/* Speculum — runtime de projeção no processo base (doc 17). */
++#ifndef dom_ipc_SpeculumProjectionRuntime_h
++#define dom_ipc_SpeculumProjectionRuntime_h
++
++#include "base/process_util.h"
++#include "mozilla/UniquePtr.h"
++#include "nsTArray.h"
++
++namespace mozilla::dom {
++class ContentParent;
++}
++
++class SpeculumProjectionRuntime {
++ public:
++  static void Startup();
++  static SpeculumProjectionRuntime& Get();
++
++  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
++                    base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame);
++  void ReplayProjectedContexts(mozilla::dom::ContentParent* aChild);
++
++ private:
++  SpeculumProjectionRuntime();
++  ~SpeculumProjectionRuntime();
++
++  SpeculumProjectionRuntime(const SpeculumProjectionRuntime&) = delete;
++  SpeculumProjectionRuntime& operator=(const SpeculumProjectionRuntime&) = delete;
++
++  struct Impl;
++  mozilla::UniquePtr<Impl> mImpl;
++};
++
++#endif
+diff --git a/dom/ipc/moz.build b/dom/ipc/moz.build
+index 40382ea499..49b4745124 100644
+--- a/dom/ipc/moz.build
++++ b/dom/ipc/moz.build
+@@ -150,6 +150,8 @@ UNIFIED_SOURCES += [
+     "SharedMap.cpp",
+     "SharedMessageBody.cpp",
+     "SharedStringMap.cpp",
++    "SpeculumControlAbi.cpp",
++    "SpeculumProjectionRuntime.cpp",
+     "StructuredCloneData.cpp",
+     "TabContext.cpp",
+     "UniqueContentParentKeepAlive.cpp",
+diff --git a/dom/base/Document.h b/dom/base/Document.h
+index 2feb64d41c..50012b4538 100644
+--- a/dom/base/Document.h
++++ b/dom/base/Document.h
+@@ -154,6 +154,7 @@ class nsIDocShell;
+ class nsIDocShellTreeItem;
+ class nsIDocumentEncoder;
+ class nsIDocumentObserver;
++#include "SpeculumMutationObserver.h"
+ class nsIEventTarget;
+ class nsIFrame;
+ class nsIGlobalObject;
+@@ -3864,6 +3865,13 @@ class Document : public nsINode,
+   void SetDevToolsWatchingDOMMutations(bool aValue);
+   void SetSpeculumWatchingDOMMutations(bool aValue);
+ 
++  SpeculumMutationObserver* GetSpeculumMutationObserver() const {
++    return mSpeculumMutationObserver;
++  }
++  void SetSpeculumMutationObserver(SpeculumMutationObserver* aObserver) {
++    mSpeculumMutationObserver = aObserver;
++  }
++
+   // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
+   void EvaluateMediaQueriesAndReportChanges();
+ 
+@@ -5025,6 +5033,8 @@ class Document : public nsINode,
+   bool mDevToolsWatchingDOMMutations : 1;
+   bool mSpeculumWatchingDOMMutations : 1;
+ 
++  RefPtr<SpeculumMutationObserver> mSpeculumMutationObserver;
++
+   // Indicates whether this document is normal as in navigation or loaded as
+   // data as in XHR or DOMParser.
+   bool mLoadedAsData : 1;
+diff --git a/dom/base/SpeculumMutationObserver.cpp b/dom/base/SpeculumMutationObserver.cpp
+index 0b32aaf3fa..90cde85af3 100755
+--- a/dom/base/SpeculumMutationObserver.cpp
++++ b/dom/base/SpeculumMutationObserver.cpp
+@@ -1,31 +1,186 @@
+ /* Speculum — minimal DOM mutation probe (producer spike). */
+ #include "SpeculumMutationObserver.h"
+ 
+-#include "mozilla/ClearOnShutdown.h"
+-#include "mozilla/StaticPtr.h"
++#include "SpeculumNodeSource.h"
++#include "mozilla/RefPtr.h"
++#include "mozilla/UniquePtrExtensions.h"
++#include "mozilla/dom/BrowsingContext.h"
++#include "mozilla/dom/ContentChild.h"
+ #include "mozilla/dom/Document.h"
+-#include "mozilla/Assertions.h"
++#include "nsComponentManagerUtils.h"
+ #include "nsDebug.h"
++#include "nsReadableUtils.h"
++#include "nsTArray.h"
++#include "speculum/Producer.h"
++#include "speculum/Wire.h"
+ 
++#include <cstdio>
++#include <sys/stat.h>
++#include <vector>
+ 
+-#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
+-#include "speculum/Producer.h"
++using mozilla::dom::ContentChild;
++using mozilla::dom::Document;
+ 
++struct SpeculumProducerState {
++  SpeculumNodeSource source;
++  speculum::Producer producer;
++  nsCOMPtr<nsITimer> frameTimer;
++  const uint32_t contextId;
+ 
+-using mozilla::StaticRefPtr;
++  explicit SpeculumProducerState(uint32_t aContextId)
++      : producer(source, aContextId, 0), contextId(aContextId) {}
++};
+ 
+-NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver)
++NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallback)
+ 
+ #define SPECULUM_LOG(cb) printf_stderr("[SPECULUM] %s\n", cb)
+ 
++namespace {
++
++std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
++  if (!aAtom) {
++    return std::string();
++  }
++  nsAutoString tmp;
++  aAtom->ToString(tmp);
++  return std::string(NS_ConvertUTF16toUTF8(tmp).get());
++}
++
++uint32_t NextSpeculumFrameIndex() {
++  static uint32_t sNext = 0;
++  return sNext++;
++}
++
++void SendFrameBytes(mozilla::dom::Document* aDocument,
++                    SpeculumProducerState& aState,
++                    const std::vector<uint8_t>& aFrame, uint32_t aOps,
++                    bool aBootstrap) {
++  if (aFrame.empty() || !aDocument) {
++    return;
++  }
++  const uint32_t seq = aState.producer.sequence();
++  if (ContentChild* cc = ContentChild::GetSingleton()) {
++    nsTArray<uint8_t> bytes;
++    bytes.AppendElements(aFrame.data(), aFrame.size());
++    cc->SendSpeculumFrame(aState.source.docToken(), aState.contextId, seq, bytes);
++  }
++  nsAutoCString uri("(null)");
++  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
++    uri = docUri->GetSpecOrDefault();
++  }
++  if (aBootstrap) {
++    printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
++                  static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
++                  aFrame.size());
++    mkdir("/tmp/speculum-frames", 0777);
++    const uint32_t index = NextSpeculumFrameIndex();
++    char binPath[128];
++    (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
++                   index);
++    if (FILE* fp = fopen(binPath, "wb")) {
++      (void)fwrite(aFrame.data(), 1, aFrame.size(), fp);
++      fclose(fp);
++    }
++    if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
++      char line[64];
++      const int lineLen =
++          snprintf(line, sizeof(line), "frame_%u.bin\n", index);
++      if (lineLen > 0) {
++        (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
++      }
++      fclose(fp);
++    }
++    printf_stderr(
++        "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
++        aFrame.size(),
++        static_cast<unsigned long long>(aState.producer.table().tableHash()));
++  } else {
++    printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n",
++                  aState.contextId, seq, aOps, aFrame.size());
++  }
++}
++
++}  // namespace
++
++SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
++                                                   uint32_t aContextId)
++    : mDocument(aDocument),
++      mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {}
++
++SpeculumMutationObserver::~SpeculumMutationObserver() {
++  CancelFrameTimer();
++}
++
++void SpeculumMutationObserver::CancelFrameTimer() {
++  if (mState && mState->frameTimer) {
++    mState->frameTimer->Cancel();
++    mState->frameTimer = nullptr;
++  }
++}
++
++void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
++  if (!mState || mState->frameTimer) {
++    return;
++  }
++  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mState->frameTimer), this,
++                                        16, nsITimer::TYPE_ONE_SHOT);
++  if (NS_FAILED(rv)) {
++    mState->frameTimer = nullptr;
++  }
++}
++
++NS_IMETHODIMP
++SpeculumMutationObserver::Notify(nsITimer* aTimer) {
++  if (!mState || aTimer != mState->frameTimer) {
++    return NS_OK;
++  }
++  mState->frameTimer = nullptr;
++  EmitPendingFrame();
++  return NS_OK;
++}
++
++void SpeculumMutationObserver::EmitPendingFrame() {
++  if (!mState) {
++    return;
++  }
++  const uint32_t ops = mState->producer.pendingOps();
++  if (ops == 0) {
++    return;
++  }
++  std::vector<uint8_t> frame = mState->producer.emitFrame();
++  if (frame.empty()) {
++    return;
++  }
++  SendFrameBytes(mDocument, *mState, frame, ops, false);
++}
++
++bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
++  if (!mDocument || !mDocument->IsContentDocument() || !mState) {
++    return false;
++  }
++  mState->producer.bootstrap(mDocument);
++  const uint32_t ops = mState->producer.pendingOps();
++  std::vector<uint8_t> frame = mState->producer.emitFrame();
++  if (frame.empty()) {
++    return false;
++  }
++  SendFrameBytes(mDocument, *mState, frame, ops, true);
++  return true;
++}
++
+ void SpeculumMutationObserver::CharacterDataWillChange(
+     nsIContent*, const CharacterDataChangeInfo&) {
+   SPECULUM_LOG("CharacterDataWillChange");
+ }
+ 
+ void SpeculumMutationObserver::CharacterDataChanged(
+-    nsIContent*, const CharacterDataChangeInfo&) {
++    nsIContent* aContent, const CharacterDataChangeInfo&) {
+   SPECULUM_LOG("CharacterDataChanged");
++  if (!mState) {
++    return;
++  }
++  mState->producer.onTextChanged(aContent);
++  ArmFrameTimerIfNeeded();
+ }
+ 
+ void SpeculumMutationObserver::AttributeWillChange(mozilla::dom::Element*,
+@@ -34,10 +189,17 @@ void SpeculumMutationObserver::AttributeWillChange(mozilla::dom::Element*,
+   SPECULUM_LOG("AttributeWillChange");
+ }
+ 
+-void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element*, int32_t,
+-                                                nsAtom*, AttrModType,
++void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element* aElement,
++                                                int32_t, nsAtom* aAttribute,
++                                                AttrModType,
+                                                 const nsAttrValue*) {
+   SPECULUM_LOG("AttributeChanged");
++  if (!mState) {
++    return;
++  }
++  mState->producer.onAttrChanged(aElement,
++                                 SpeculumObserverUtf8FromAtom(aAttribute));
++  ArmFrameTimerIfNeeded();
+ }
+ 
+ void SpeculumMutationObserver::AttributeSetToCurrentValue(
+@@ -45,46 +207,79 @@ void SpeculumMutationObserver::AttributeSetToCurrentValue(
+   SPECULUM_LOG("AttributeSetToCurrentValue");
+ }
+ 
+-void SpeculumMutationObserver::ContentAppended(nsIContent*,
+-                                               const ContentAppendInfo&) {
++void SpeculumMutationObserver::ContentAppended(
++    nsIContent* aFirstNewContent, const ContentAppendInfo&) {
+   SPECULUM_LOG("ContentAppended");
++  if (!mState || !aFirstNewContent) {
++    return;
++  }
++  nsINode* parent = aFirstNewContent->GetParentNode();
++  for (nsIContent* child = aFirstNewContent; child;
++       child = child->GetNextSibling()) {
++    mState->producer.onInserted(parent, child);
++  }
++  ArmFrameTimerIfNeeded();
+ }
+ 
+-void SpeculumMutationObserver::ContentInserted(nsIContent*,
++void SpeculumMutationObserver::ContentInserted(nsIContent* aChild,
+                                                const ContentInsertInfo&) {
+   printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
+   SPECULUM_LOG("ContentInserted");
++  if (!mState || !aChild) {
++    return;
++  }
++  mState->producer.onInserted(aChild->GetParentNode(), aChild);
++  ArmFrameTimerIfNeeded();
+ }
+ 
+-void SpeculumMutationObserver::ContentWillBeRemoved(nsIContent*,
+-                                                    const ContentRemoveInfo&) {
++void SpeculumMutationObserver::ContentWillBeRemoved(
++    nsIContent* aChild, const ContentRemoveInfo&) {
+   SPECULUM_LOG("ContentWillBeRemoved");
++  if (!mState || !aChild) {
++    return;
++  }
++  mState->producer.onRemoved(aChild->GetParentNode(), aChild);
++  ArmFrameTimerIfNeeded();
+ }
+ 
+-void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode*) {
++void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode* aNode) {
+   SPECULUM_LOG("NodeWillBeDestroyed");
++  if (!mState) {
++    return;
++  }
++  mState->producer.onDestroyed(aNode);
++  ArmFrameTimerIfNeeded();
+ }
+ 
+ void SpeculumMutationObserver::ParentChainChanged(nsIContent*) {
+   SPECULUM_LOG("ParentChainChanged");
+ }
+ 
+-static StaticRefPtr<SpeculumMutationObserver> sSpeculumMutationObserver;
+-
+ void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
+-  if (!aDocument) {
++  if (!aDocument || aDocument->GetSpeculumMutationObserver()) {
+     return;
+   }
+-  if (MOZ_UNLIKELY(!sSpeculumMutationObserver)) {
+-    sSpeculumMutationObserver = new SpeculumMutationObserver();
+-    ClearOnShutdown(&sSpeculumMutationObserver);
++  BrowsingContext* bc = aDocument->GetBrowsingContext();
++  const uint64_t topId = bc ? bc->Top()->Id() : 0;
++  uint32_t ctx = 0;
++  if (!ContentChild::SpeculumContextIdFor(topId, &ctx)) {
++    return;
+   }
+-  aDocument->AddMutationObserver(sSpeculumMutationObserver);
++  RefPtr<SpeculumMutationObserver> obs =
++      new SpeculumMutationObserver(aDocument, ctx);
++  aDocument->SetSpeculumMutationObserver(obs.get());
++  aDocument->AddMutationObserver(obs);
+ }
+ 
+ void SpeculumDetachMutationObserverFromDocument(Document* aDocument) {
+-  if (!aDocument || !sSpeculumMutationObserver) {
++  if (!aDocument) {
++    return;
++  }
++  RefPtr<SpeculumMutationObserver> obs = aDocument->GetSpeculumMutationObserver();
++  if (!obs) {
+     return;
+   }
+-  aDocument->RemoveMutationObserver(sSpeculumMutationObserver);
++  obs->CancelFrameTimer();
++  aDocument->RemoveMutationObserver(obs);
++  aDocument->SetSpeculumMutationObserver(nullptr);
+ }
+diff --git a/dom/base/SpeculumMutationObserver.h b/dom/base/SpeculumMutationObserver.h
+index 8d05ad07d2..20fc7d79c6 100755
+--- a/dom/base/SpeculumMutationObserver.h
++++ b/dom/base/SpeculumMutationObserver.h
+@@ -2,11 +2,27 @@
+ #ifndef dom_base_SpeculumMutationObserver_h
+ #define dom_base_SpeculumMutationObserver_h
+ 
++#include "mozilla/UniquePtr.h"
+ #include "nsStubMutationObserver.h"
++#include "nsITimer.h"
+ 
+-class SpeculumMutationObserver final : public nsStubMutationObserver {
++struct SpeculumProducerState;
++
++namespace mozilla::dom {
++class Document;
++}
++
++class SpeculumMutationObserver final : public nsStubMutationObserver,
++                                       public nsITimerCallback {
+  public:
+   NS_DECL_ISUPPORTS
++  NS_DECL_NSITIMERCALLBACK
++
++  SpeculumMutationObserver(mozilla::dom::Document* aDocument, uint32_t aContextId);
++
++  bool TryWriteBootstrapFrame();
++
++  void CancelFrameTimer();
+ 
+   void CharacterDataWillChange(nsIContent* aContent,
+                                const CharacterDataChangeInfo&) override;
+@@ -30,12 +46,14 @@ class SpeculumMutationObserver final : public nsStubMutationObserver {
+   void ParentChainChanged(nsIContent* aContent) override;
+ 
+  private:
+-  ~SpeculumMutationObserver() = default;
+-};
++  ~SpeculumMutationObserver();
+ 
+-namespace mozilla::dom {
+-class Document;
+-}
++  void ArmFrameTimerIfNeeded();
++  void EmitPendingFrame();
++
++  mozilla::dom::Document* mDocument;
++  mozilla::UniquePtr<SpeculumProducerState> mState;
++};
+ 
+ void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
+ void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
+diff --git a/dom/base/SpeculumNodeSource.cpp b/dom/base/SpeculumNodeSource.cpp
+index b1d2278fc6..b77b9ec62f 100644
+--- a/dom/base/SpeculumNodeSource.cpp
++++ b/dom/base/SpeculumNodeSource.cpp
+@@ -8,10 +8,12 @@
+ #include "Element.h"
+ #include "NameSpaceConstants.h"
+ #include "mozilla/dom/CharacterData.h"
++#include "SpeculumMutationObserver.h"
+ #include "nsAttrName.h"
+ #include "nsAttrValue.h"
+ #include "nsIContent.h"
+ #include "nsINode.h"
++#include "nsTArray.h"
+ #include "nsReadableUtils.h"
+ #include "mozilla/dom/Document.h"
+ #include "mozilla/dom/BrowsingContext.h"
+@@ -49,6 +51,11 @@ std::string Utf8FromAtom(const nsAtom* aAtom) {
+ 
+ }  // namespace
+ 
++SpeculumNodeSource::SpeculumNodeSource() {
++  static uint64_t sNextDocToken = 1;
++  mDocToken = sNextDocToken++;
++}
++
+ speculum::NodeKind SpeculumNodeSource::kindOf(const void* node) const {
+   nsINode* n = AsNode(node);
+   if (n->IsElement()) {
+@@ -158,47 +165,6 @@ bool SpeculumNodeSource::isUaOwned(const void* node) const {
+ 
+ namespace {
+ 
+-uint32_t NextSpeculumFrameIndex() {
+-  static uint32_t sNext = 0;
+-  return sNext++;
+-}
+-
+-std::string Base64Encode(const uint8_t* aData, size_t aLen) {
+-  static const char kAlphabet[] =
+-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+-  std::string out;
+-  out.reserve(((aLen + 2) / 3) * 4);
+-  for (size_t i = 0; i < aLen; i += 3) {
+-    const uint32_t b0 = aData[i];
+-    const uint32_t b1 = (i + 1 < aLen) ? aData[i + 1] : 0;
+-    const uint32_t b2 = (i + 2 < aLen) ? aData[i + 2] : 0;
+-    const uint32_t n = (b0 << 16) | (b1 << 8) | b2;
+-    out.push_back(kAlphabet[(n >> 18) & 0x3f]);
+-    out.push_back(kAlphabet[(n >> 12) & 0x3f]);
+-    out.push_back((i + 1 < aLen) ? kAlphabet[(n >> 6) & 0x3f] : '=');
+-    out.push_back((i + 2 < aLen) ? kAlphabet[n & 0x3f] : '=');
+-  }
+-  return out;
+-}
+-
+-void EmitFrameToStderr(uint32_t aSeq, const std::vector<uint8_t>& aFrame) {
+-  // stderr write is only atomic up to ~4 KiB; keep each line under 3000 bytes.
+-  constexpr size_t kMaxB64PerPart = 2048;
+-  const std::string b64 = Base64Encode(aFrame.data(), aFrame.size());
+-  if (b64.empty()) {
+-    return;
+-  }
+-  const uint32_t partCount = static_cast<uint32_t>(
+-      (b64.size() + kMaxB64PerPart - 1) / kMaxB64PerPart);
+-  for (uint32_t idx = 0; idx < partCount; ++idx) {
+-    const size_t start = static_cast<size_t>(idx) * kMaxB64PerPart;
+-    const size_t chunkLen = std::min(kMaxB64PerPart, b64.size() - start);
+-    const std::string part = b64.substr(start, chunkLen);
+-    printf_stderr("[SPECULUM-FRAME-PART] seq=%u idx=%u de=%u %s\n", aSeq, idx,
+-                  partCount, part.c_str());
+-  }
+-}
+-
+ bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
+   if (!aDocument || aDocument->IsInChromeDocShell()) {
+     return true;
+@@ -219,45 +185,11 @@ bool WriteBootstrapFrame(mozilla::dom::Document* aDocument) {
+       !aDocument->IsContentDocument()) {
+     return false;
+   }
+-  SpeculumNodeSource source;
+-  speculum::Producer producer(source);
+-  producer.bootstrap(aDocument);
+-  const uint32_t ops = producer.pendingOps();
+-  std::vector<uint8_t> frame = producer.emitFrame();
+-  if (frame.empty()) {
++  SpeculumMutationObserver* obs = aDocument->GetSpeculumMutationObserver();
++  if (!obs) {
+     return false;
+   }
+-  nsAutoCString uri("(null)");
+-  if (nsIURI* docUri = aDocument->GetDocumentURI()) {
+-    uri = docUri->GetSpecOrDefault();
+-  }
+-  printf_stderr("[SPECULUM-BOOT] pid=%d uri=%s ops=%u bytes=%zu\n",
+-                static_cast<int>(getpid()), uri.get(), ops, frame.size());
+-  mkdir("/tmp/speculum-frames", 0777);
+-  const uint32_t index = NextSpeculumFrameIndex();
+-  char binPath[128];
+-  (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
+-                 index);
+-  if (FILE* fp = fopen(binPath, "wb")) {
+-    (void)fwrite(frame.data(), 1, frame.size(), fp);
+-    fclose(fp);
+-  }
+-  if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
+-    char line[64];
+-    const int lineLen =
+-        snprintf(line, sizeof(line), "frame_%u.bin\n", index);
+-    if (lineLen > 0) {
+-      (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
+-    }
+-    fclose(fp);
+-  }
+-  const uint32_t seq = producer.sequence();
+-  EmitFrameToStderr(seq, frame);
+-  printf_stderr(
+-      "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
+-      frame.size(),
+-      static_cast<unsigned long long>(producer.table().tableHash()));
+-  return true;
++  return obs->TryWriteBootstrapFrame();
+ }
+ 
+ }  // namespace
+diff --git a/dom/base/SpeculumNodeSource.h b/dom/base/SpeculumNodeSource.h
+index f2191709e1..66d49a380f 100644
+--- a/dom/base/SpeculumNodeSource.h
++++ b/dom/base/SpeculumNodeSource.h
+@@ -14,10 +14,13 @@ namespace mozilla::dom {
+ class Document;
+ }
+ 
+-void SpeculumScheduleBootstrapFrame(mozilla::dom::Document* aDocument);
++void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument);
+ 
+ class SpeculumNodeSource final : public speculum::NodeSource {
+  public:
++  SpeculumNodeSource();
++  uint64_t docToken() const { return mDocToken; }
++
+   speculum::NodeKind kindOf(const void* node) const override;
+   speculum::ElementNs nsOf(const void* node) const override;
+   std::string uriOf(const void* node) const override;
+@@ -26,6 +29,9 @@ class SpeculumNodeSource final : public speculum::NodeSource {
+   std::vector<speculum::AttrPair> attrsOf(const void* node) const override;
+   std::vector<const void*> childrenOf(const void* node) const override;
+   bool isUaOwned(const void* node) const override;
++
++ private:
++  uint64_t mDocToken;
+ };
+ 
+ #endif
+diff --git a/dom/base/moz.build b/dom/base/moz.build
+index 1a9b8d5c6c..ba195e3968 100644
+--- a/dom/base/moz.build
++++ b/dom/base/moz.build
+@@ -109,6 +109,7 @@ EXPORTS += [
+     "nsWrapperCache.h",
+     "nsWrapperCacheInlines.h",
+     "SharedLcpMarkerState.h",
++    "SpeculumMutationObserver.h",
+     "XPathGenerator.h",
+ ]
+ 
+diff --git a/dom/ipc/ContentChild.cpp b/dom/ipc/ContentChild.cpp
+index d77bf2ae52..ecd3bc30db 100644
+--- a/dom/ipc/ContentChild.cpp
++++ b/dom/ipc/ContentChild.cpp
+@@ -40,6 +40,7 @@
+ #include "mozilla/SimpleEnumerator.h"
+ #include "mozilla/SpinEventLoopUntil.h"
+ #include "mozilla/StaticMutex.h"
++#include <map>
+ #include "mozilla/StaticPrefs_browser.h"
+ #include "mozilla/StaticPrefs_dom.h"
+ #include "mozilla/StaticPrefs_fission.h"
+@@ -1485,6 +1486,42 @@ mozilla::ipc::IPCResult ContentChild::RecvUnblockUntrustedModulesThread() {
+ }
+ #endif  // defined(XP_WIN)
+ 
++namespace {
++
++StaticMutex sSpeculumProjectedContextsMutex;
++using SpeculumProjectedContextMap = std::map<uint64_t, uint32_t>;
++SpeculumProjectedContextMap sSpeculumProjectedContexts;
++
++}  // namespace
++
++/* static */ bool ContentChild::SpeculumContextIdFor(uint64_t aBrowsingContextId,
++                                                     uint32_t* aOut) {
++  if (!aOut) {
++    return false;
++  }
++  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
++  const auto it = sSpeculumProjectedContexts.find(aBrowsingContextId);
++  if (it == sSpeculumProjectedContexts.end()) {
++    return false;
++  }
++  *aOut = it->second;
++  return true;
++}
++
++mozilla::ipc::IPCResult ContentChild::RecvSpeculumProjectContext(
++    const uint64_t& aBrowsingContextId, const uint32_t& aContextId) {
++  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
++  sSpeculumProjectedContexts[aBrowsingContextId] = aContextId;
++  return IPC_OK();
++}
++
++mozilla::ipc::IPCResult ContentChild::RecvSpeculumUnprojectContext(
++    const uint64_t& aBrowsingContextId) {
++  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
++  sSpeculumProjectedContexts.erase(aBrowsingContextId);
++  return IPC_OK();
++}
++
+ PCycleCollectWithLogsChild* ContentChild::AllocPCycleCollectWithLogsChild(
+     const bool& aDumpAllTraces, const FileDescriptor& aGCLog,
+     const FileDescriptor& aCCLog) {
+diff --git a/dom/ipc/ContentChild.h b/dom/ipc/ContentChild.h
+index 1de5f331b0..180c3f659e 100644
+--- a/dom/ipc/ContentChild.h
++++ b/dom/ipc/ContentChild.h
+@@ -123,6 +123,8 @@ class ContentChild final : public PContentChild,
+ 
+   static ContentChild* GetSingleton() { return sSingleton; }
+ 
++  static bool SpeculumContextIdFor(uint64_t aBrowsingContextId, uint32_t* aOut);
++
+   const AppInfo& GetAppInfo() { return mAppInfo; }
+ 
+   void SetProcessName(const nsACString& aName,
+@@ -498,6 +500,11 @@ class ContentChild final : public PContentChild,
+   mozilla::ipc::IPCResult RecvUnblockUntrustedModulesThread();
+ #endif  // defined(XP_WIN)
+ 
++  mozilla::ipc::IPCResult RecvSpeculumProjectContext(
++      const uint64_t& aBrowsingContextId, const uint32_t& aContextId);
++  mozilla::ipc::IPCResult RecvSpeculumUnprojectContext(
++      const uint64_t& aBrowsingContextId);
++
+   mozilla::ipc::IPCResult RecvSetXPCOMProcessAttributes(
+       XPCOMInitData&& aXPCOMInit, NotNull<StructuredCloneData*> aInitialData,
+       FullLookAndFeel&& aLookAndFeelData, SystemFontList&& aFontList,
+diff --git a/dom/ipc/ContentParent.h b/dom/ipc/ContentParent.h
+index 4e7694702d..98c47dcee4 100644
+--- a/dom/ipc/ContentParent.h
++++ b/dom/ipc/ContentParent.h
+@@ -518,6 +518,11 @@ class ContentParent final : public PContentParent,
+     return PContentParent::RecvPHalConstructor(aActor);
+   }
+ 
++  mozilla::ipc::IPCResult RecvSpeculumFrame(const uint64_t& aDocToken,
++                                              const uint32_t& aContextId,
++                                              const uint32_t& aSequence,
++                                              nsTArray<uint8_t>&& aFrame);
++
+   mozilla::ipc::IPCResult RecvAttributionEvent(
+       const nsACString& aHost, PrivateAttributionImpressionType aType,
+       uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost);
+diff --git a/dom/ipc/PContent.ipdl b/dom/ipc/PContent.ipdl
+index 23fb648516..ce3e415fbe 100644
+--- a/dom/ipc/PContent.ipdl
++++ b/dom/ipc/PContent.ipdl
+@@ -1984,16 +1984,24 @@ parent:
+     async KillGPUProcess();
+ #endif
+ 
+-  async AttributionEvent(nsCString aSourceHost,
+-                         PrivateAttributionImpressionType aType,
+-                         uint32_t aIndex, nsString aAd, nsCString aTargetHost);
+-
+-  async AttributionConversion(nsCString aTargetHost, nsString aTask,
+-                              uint32_t aHistogramSize,
+-                              uint32_t? aLookbackDays,
+-                              PrivateAttributionImpressionType? aImpressionType,
+-                              nsString[] aAds,
+-                              nsCString[] aImpressionSourceHosts);
++parent:
++    async SpeculumFrame(uint64_t aDocToken, uint32_t aContextId,
++                        uint32_t aSequence, uint8_t[] aFrame);
++
++    async AttributionEvent(nsCString aSourceHost,
++                           PrivateAttributionImpressionType aType,
++                           uint32_t aIndex, nsString aAd, nsCString aTargetHost);
++
++    async AttributionConversion(nsCString aTargetHost, nsString aTask,
++                                uint32_t aHistogramSize,
++                                uint32_t? aLookbackDays,
++                                PrivateAttributionImpressionType? aImpressionType,
++                                nsString[] aAds,
++                                nsCString[] aImpressionSourceHosts);
++
++child:
++    async SpeculumProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId);
++    async SpeculumUnprojectContext(uint64_t aBrowsingContextId);
+ };
+ 
+ }
+diff --git a/dom/ipc/SpeculumControlAbi.cpp b/dom/ipc/SpeculumControlAbi.cpp
+index 0e7ee1ea2e..f72c33bba4 100755
+--- a/dom/ipc/SpeculumControlAbi.cpp
++++ b/dom/ipc/SpeculumControlAbi.cpp
+@@ -1,7 +1,7 @@
+ /* Speculum — codec binário do plano de controle (doc 18). */
+ #include "SpeculumControlAbi.h"
+ 
+-#include "mozilla/LittleEndian.h"
++#include "mozilla/EndianUtils.h"
+ 
+ #include <cstring>
+ 
+diff --git a/dom/ipc/SpeculumFrameSink.cpp b/dom/ipc/SpeculumFrameSink.cpp
+deleted file mode 100755
+index e83e21c731..0000000000
+--- a/dom/ipc/SpeculumFrameSink.cpp
++++ /dev/null
+@@ -1,328 +0,0 @@
+-/* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
+-#include "SpeculumFrameSink.h"
+-
+-#include "mozilla/Mutex.h"
+-#include "mozilla/UniquePtr.h"
+-
+-#include <atomic>
+-#include <cerrno>
+-#include <cstdio>
+-#include <cstring>
+-#include <string>
+-#include <sys/socket.h>
+-#include <sys/un.h>
+-#include <thread>
+-#include <unistd.h>
+-
+-namespace {
+-
+-constexpr uint8_t kKindFrame = 0x01;
+-constexpr uint8_t kKindBrowserEvent = 0x02;
+-constexpr uint8_t kKindHello = 0x03;
+-constexpr uint8_t kKindControl = 0x04;
+-
+-constexpr char kReadyBrowserEvent[] = R"({"type":"Ready","id":0})";
+-
+-void LogSinkErr(const char* aMsg) {
+-  fprintf(stderr, "[SPECULUM-SINK-ERR] %s\n", aMsg);
+-}
+-
+-bool WriteAll(int aFd, const void* aData, size_t aLen) {
+-  const uint8_t* p = static_cast<const uint8_t*>(aData);
+-  size_t left = aLen;
+-  while (left > 0) {
+-    const ssize_t n = send(aFd, p, left, MSG_NOSIGNAL);
+-    if (n < 0) {
+-      if (errno == EINTR) {
+-        continue;
+-      }
+-      return false;
+-    }
+-    if (n == 0) {
+-      return false;
+-    }
+-    p += static_cast<size_t>(n);
+-    left -= static_cast<size_t>(n);
+-  }
+-  return true;
+-}
+-
+-bool ReadAll(int aFd, void* aData, size_t aLen) {
+-  uint8_t* p = static_cast<uint8_t*>(aData);
+-  size_t left = aLen;
+-  while (left > 0) {
+-    const ssize_t n = recv(aFd, p, left, 0);
+-    if (n < 0) {
+-      if (errno == EINTR) {
+-        continue;
+-      }
+-      return false;
+-    }
+-    if (n == 0) {
+-      return false;
+-    }
+-    p += static_cast<size_t>(n);
+-    left -= static_cast<size_t>(n);
+-  }
+-  return true;
+-}
+-
+-bool SendEnvelope(int aFd, uint8_t aKind, uint32_t aContextId,
+-                  const void* aPayload, uint32_t aLength) {
+-  uint8_t header[9];
+-  header[0] = aKind;
+-  header[1] = static_cast<uint8_t>(aContextId & 0xffu);
+-  header[2] = static_cast<uint8_t>((aContextId >> 8) & 0xffu);
+-  header[3] = static_cast<uint8_t>((aContextId >> 16) & 0xffu);
+-  header[4] = static_cast<uint8_t>((aContextId >> 24) & 0xffu);
+-  header[5] = static_cast<uint8_t>(aLength & 0xffu);
+-  header[6] = static_cast<uint8_t>((aLength >> 8) & 0xffu);
+-  header[7] = static_cast<uint8_t>((aLength >> 16) & 0xffu);
+-  header[8] = static_cast<uint8_t>((aLength >> 24) & 0xffu);
+-  if (!WriteAll(aFd, header, sizeof(header))) {
+-    return false;
+-  }
+-  if (aLength > 0 && aPayload) {
+-    if (!WriteAll(aFd, aPayload, aLength)) {
+-      return false;
+-    }
+-  }
+-  return true;
+-}
+-
+-uint32_t ReadU32LE(const uint8_t* aBytes) {
+-  return static_cast<uint32_t>(aBytes[0]) |
+-         (static_cast<uint32_t>(aBytes[1]) << 8) |
+-         (static_cast<uint32_t>(aBytes[2]) << 16) |
+-         (static_cast<uint32_t>(aBytes[3]) << 24);
+-}
+-
+-class NullSink final : public SpeculumFrameSink {
+- public:
+-  void DeliverFrame(uint32_t, uint64_t, uint32_t, base::ProcessId,
+-                    nsTArray<uint8_t>&) override {}
+-};
+-
+-class SocketSink final : public SpeculumFrameSink {
+- public:
+-  explicit SocketSink(std::string aPath)
+-      : mPath(std::move(aPath)), mFd(-1), mStopRead(false) {
+-    mReadThread = std::thread([this]() { ReadLoop(); });
+-  }
+-
+-  ~SocketSink() override {
+-    mStopRead = true;
+-    {
+-      mozilla::MutexAutoLock lock(mMutex);
+-      if (mFd >= 0) {
+-        shutdown(mFd, SHUT_RDWR);
+-      }
+-    }
+-    if (mReadThread.joinable()) {
+-      mReadThread.join();
+-    }
+-    mozilla::MutexAutoLock lock(mMutex);
+-    if (mFd >= 0) {
+-      close(mFd);
+-      mFd = -1;
+-    }
+-  }
+-
+-  void DeliverFrame(uint32_t aContextId, uint64_t, uint32_t, base::ProcessId,
+-                    nsTArray<uint8_t>& aFrame) override {
+-    mozilla::MutexAutoLock lock(mMutex);
+-    if (!EnsureConnectedUnlocked()) {
+-      return;
+-    }
+-    const uint32_t len = static_cast<uint32_t>(aFrame.Length());
+-    if (!SendEnvelope(mFd, kKindFrame, aContextId, aFrame.Elements(), len)) {
+-      LogSinkErr("socket write failed");
+-      CloseFdUnlocked();
+-    }
+-  }
+-
+-  void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
+-                        uint32_t aJsonLength) override {
+-    if (!aJsonUtf8 || aJsonLength == 0) {
+-      return;
+-    }
+-    mozilla::MutexAutoLock lock(mMutex);
+-    if (!EnsureConnectedUnlocked()) {
+-      return;
+-    }
+-    if (!SendEnvelope(mFd, kKindBrowserEvent, aContextId, aJsonUtf8,
+-                      aJsonLength)) {
+-      LogSinkErr("browser event send failed");
+-      CloseFdUnlocked();
+-    }
+-  }
+-
+- private:
+-  void CloseFdUnlocked() {
+-    if (mFd >= 0) {
+-      close(mFd);
+-      mFd = -1;
+-    }
+-  }
+-
+-  bool EnsureConnectedUnlocked() {
+-    if (mFd >= 0) {
+-      return true;
+-    }
+-    const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+-    if (fd < 0) {
+-      LogSinkErr("socket create failed");
+-      return false;
+-    }
+-    sockaddr_un addr {};
+-    if (mPath.size() >= sizeof(addr.sun_path)) {
+-      LogSinkErr("socket path too long");
+-      close(fd);
+-      return false;
+-    }
+-    addr.sun_family = AF_UNIX;
+-    memcpy(addr.sun_path, mPath.c_str(), mPath.size() + 1);
+-    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+-      LogSinkErr("socket connect failed");
+-      close(fd);
+-      return false;
+-    }
+-    if (!SendEnvelope(fd, kKindHello, 0, nullptr, 0)) {
+-      LogSinkErr("hello send failed");
+-      close(fd);
+-      return false;
+-    }
+-    if (!SendEnvelope(fd, kKindBrowserEvent, 0, kReadyBrowserEvent,
+-                      static_cast<uint32_t>(sizeof(kReadyBrowserEvent) - 1))) {
+-      LogSinkErr("ready send failed");
+-      close(fd);
+-      return false;
+-    }
+-    mFd = fd;
+-    return true;
+-  }
+-
+-  void HandleControlPayload(const uint8_t* aPayload, uint32_t aLength) {
+-    const std::string json(reinterpret_cast<const char*>(aPayload), aLength);
+-    fprintf(stderr, "[SPECULUM-CTRL] %s\n", json.c_str());
+-  }
+-
+-  void ReadLoop() {
+-    while (!mStopRead) {
+-      int fd = -1;
+-      {
+-        mozilla::MutexAutoLock lock(mMutex);
+-        fd = mFd;
+-      }
+-      if (fd < 0) {
+-        usleep(100 * 1000);
+-        continue;
+-      }
+-
+-      uint8_t header[9];
+-      if (!ReadAll(fd, header, sizeof(header))) {
+-        mozilla::MutexAutoLock lock(mMutex);
+-        if (mFd == fd) {
+-          LogSinkErr("socket read failed");
+-          CloseFdUnlocked();
+-        }
+-        continue;
+-      }
+-
+-      const uint8_t kind = header[0];
+-      const uint32_t contextId = ReadU32LE(header + 1);
+-      const uint32_t length = ReadU32LE(header + 5);
+-      (void)contextId;
+-
+-      nsTArray<uint8_t> payload;
+-      if (length > 0) {
+-        if (!payload.SetLength(length, mozilla::fallible)) {
+-          mozilla::MutexAutoLock lock(mMutex);
+-          if (mFd == fd) {
+-            LogSinkErr("control payload alloc failed");
+-            CloseFdUnlocked();
+-          }
+-          continue;
+-        }
+-        if (!ReadAll(fd, payload.Elements(), length)) {
+-          mozilla::MutexAutoLock lock(mMutex);
+-          if (mFd == fd) {
+-            LogSinkErr("socket read failed");
+-            CloseFdUnlocked();
+-          }
+-          continue;
+-        }
+-      }
+-
+-      if (kind == kKindControl) {
+-        HandleControlPayload(payload.Elements(), length);
+-      }
+-    }
+-  }
+-
+-  std::string mPath;
+-  int mFd;
+-  mozilla::Mutex mMutex{"SpeculumFrameSink"};
+-  std::atomic<bool> mStopRead;
+-  std::thread mReadThread;
+-};
+-
+-class DirectorySink final : public SpeculumFrameSink {
+- public:
+-  explicit DirectorySink(std::string aDir) : mDir(std::move(aDir)) {}
+-
+-  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken,
+-                    uint32_t aSequence, base::ProcessId aChildPid,
+-                    nsTArray<uint8_t>& aFrame) override {
+-    const uint32_t ordem = ++mOrder;
+-    char name[128];
+-    snprintf(name, sizeof(name), "f-%04u-ctx%u-seq%u.bin", ordem, aContextId,
+-             aSequence);
+-    char path[512];
+-    snprintf(path, sizeof(path), "%s/%s", mDir.c_str(), name);
+-    if (FILE* fp = fopen(path, "wb")) {
+-      (void)fwrite(aFrame.Elements(), 1, aFrame.Length(), fp);
+-      fclose(fp);
+-    }
+-
+-    char ndpath[512];
+-    snprintf(ndpath, sizeof(ndpath), "%s/frames.ndjson", mDir.c_str());
+-    if (FILE* nd = fopen(ndpath, "a")) {
+-      fprintf(nd,
+-              "{\"ordem\":%u,\"childPid\":%u,\"docToken\":%llu,\"contextId\":%u,"
+-              "\"sequence\":%u,\"bytes\":%zu}\n",
+-              ordem, static_cast<unsigned>(aChildPid),
+-              static_cast<unsigned long long>(aDocToken), aContextId, aSequence,
+-              static_cast<size_t>(aFrame.Length()));
+-      fclose(nd);
+-    }
+-  }
+-
+- private:
+-  std::string mDir;
+-  uint32_t mOrder = 0;
+-};
+-
+-SpeculumFrameSink* CreateSink() {
+-  const char* sockEnv = getenv("SPECULUM_BROWSER_SOCKET");
+-  if (sockEnv && sockEnv[0]) {
+-    return new SocketSink(std::string(sockEnv));
+-  }
+-  const char* dirEnv = getenv("SPECULUM_FRAME_DIR");
+-  if (dirEnv && dirEnv[0]) {
+-    return new DirectorySink(std::string(dirEnv));
+-  }
+-  return new NullSink();
+-}
+-
+-}  // namespace
+-
+-SpeculumFrameSink& GetSpeculumFrameSink() {
+-  static mozilla::UniquePtr<SpeculumFrameSink> sSink;
+-  static bool sInitialized = false;
+-  if (!sInitialized) {
+-    sSink.reset(CreateSink());
+-    sInitialized = true;
+-  }
+-  return *sSink;
+-}
+diff --git a/dom/ipc/SpeculumFrameSink.h b/dom/ipc/SpeculumFrameSink.h
+deleted file mode 100755
+index 045a8cd737..0000000000
+--- a/dom/ipc/SpeculumFrameSink.h
++++ /dev/null
+@@ -1,24 +0,0 @@
+-/* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
+-#ifndef dom_ipc_SpeculumFrameSink_h
+-#define dom_ipc_SpeculumFrameSink_h
+-
+-#include "base/process_util.h"
+-#include "nsTArray.h"
+-
+-class SpeculumFrameSink {
+- public:
+-  virtual ~SpeculumFrameSink() = default;
+-
+-  virtual void DeliverFrame(uint32_t aContextId, uint64_t aDocToken,
+-                            uint32_t aSequence, base::ProcessId aChildPid,
+-                            nsTArray<uint8_t>& aFrame) = 0;
+-
+-  // Envelope kind 0x02 (BrowserEvent), payload JSON UTF-8. No-op for sinks
+-  // que não falam com o supervisor.
+-  virtual void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
+-                                uint32_t aJsonLength) {}
+-};
+-
+-SpeculumFrameSink& GetSpeculumFrameSink();
+-
+-#endif

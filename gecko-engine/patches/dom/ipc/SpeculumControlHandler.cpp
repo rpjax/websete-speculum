@@ -7,14 +7,14 @@
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/StaticMutex.h"
 #include "nsGlobalWindowOuter.h"
-#include "nsIArray.h"
+#include "nsComponentManagerUtils.h"
+#include "nsIMutableArray.h"
 #include "nsIURI.h"
 #include "nsIWindowWatcher.h"
 #include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
+#include "nsPIDOMWindowInlines.h"
 #include "nsPrintfCString.h"
-#include "nsServiceManagerUtils.h"
-#include "nsSupportsImpl.h"
 #include "nsSupportsPrimitives.h"
 #include "nsThreadUtils.h"
 #include <map>
@@ -306,7 +306,7 @@ void SpeculumDispatchControlPayload(const char* aJson, size_t aLength) {
       [payload = std::move(json)]() { HandleControlJson(payload); }));
 }
 
-void SpeculumReplayProjectedContexts(ContentParent* aChild) {
+void SpeculumReplayProjectedContexts(mozilla::dom::ContentParent* aChild) {
   if (!aChild) {
     return;
   }

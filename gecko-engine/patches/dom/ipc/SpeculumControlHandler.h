@@ -5,9 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+namespace mozilla::dom {
 class ContentParent;
+}
 
 void SpeculumDispatchControlPayload(const char* aJson, size_t aLength);
-void SpeculumReplayProjectedContexts(ContentParent* aChild);
+void SpeculumReplayProjectedContexts(mozilla::dom::ContentParent* aChild);
 
 #endif

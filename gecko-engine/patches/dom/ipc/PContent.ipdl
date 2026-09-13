@@ -1985,23 +1985,23 @@ parent:
 #endif
 
 parent:
-    async SpeculumProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId);
-    async SpeculumUnprojectContext(uint64_t aBrowsingContextId);
-
-child:
     async SpeculumFrame(uint64_t aDocToken, uint32_t aContextId,
                         uint32_t aSequence, uint8_t[] aFrame);
 
-  async AttributionEvent(nsCString aSourceHost,
-                         PrivateAttributionImpressionType aType,
-                         uint32_t aIndex, nsString aAd, nsCString aTargetHost);
+    async AttributionEvent(nsCString aSourceHost,
+                           PrivateAttributionImpressionType aType,
+                           uint32_t aIndex, nsString aAd, nsCString aTargetHost);
 
-  async AttributionConversion(nsCString aTargetHost, nsString aTask,
-                              uint32_t aHistogramSize,
-                              uint32_t? aLookbackDays,
-                              PrivateAttributionImpressionType? aImpressionType,
-                              nsString[] aAds,
-                              nsCString[] aImpressionSourceHosts);
+    async AttributionConversion(nsCString aTargetHost, nsString aTask,
+                                uint32_t aHistogramSize,
+                                uint32_t? aLookbackDays,
+                                PrivateAttributionImpressionType? aImpressionType,
+                                nsString[] aAds,
+                                nsCString[] aImpressionSourceHosts);
+
+child:
+    async SpeculumProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId);
+    async SpeculumUnprojectContext(uint64_t aBrowsingContextId);
 };
 
 }

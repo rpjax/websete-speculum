@@ -1477,6 +1477,14 @@ mozilla::ipc::IPCResult ContentChild::RecvGetUntrustedModulesData(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvUnblockUntrustedModulesThread() {
+  if (nsCOMPtr<nsIObserverService> obs =
+          mozilla::services::GetObserverService()) {
+    obs->NotifyObservers(nullptr, "unblock-untrusted-modules-thread", nullptr);
+  }
+  return IPC_OK();
+}
+#endif  // defined(XP_WIN)
 
 namespace {
 
@@ -1513,15 +1521,6 @@ mozilla::ipc::IPCResult ContentChild::RecvSpeculumUnprojectContext(
   sSpeculumProjectedContexts.erase(aBrowsingContextId);
   return IPC_OK();
 }
-
-mozilla::ipc::IPCResult ContentChild::RecvUnblockUntrustedModulesThread() {
-  if (nsCOMPtr<nsIObserverService> obs =
-          mozilla::services::GetObserverService()) {
-    obs->NotifyObservers(nullptr, "unblock-untrusted-modules-thread", nullptr);
-  }
-  return IPC_OK();
-}
-#endif  // defined(XP_WIN)
 
 PCycleCollectWithLogsChild* ContentChild::AllocPCycleCollectWithLogsChild(
     const bool& aDumpAllTraces, const FileDescriptor& aGCLog,

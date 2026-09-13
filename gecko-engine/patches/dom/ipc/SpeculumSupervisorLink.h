@@ -1,24 +1,24 @@
-/* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
-#ifndef dom_ipc_SpeculumFrameSink_h
-#define dom_ipc_SpeculumFrameSink_h
+/* Speculum — ponte de controle com o supervisor (doc 12); frames trafegam aqui. */
+#ifndef dom_ipc_SpeculumSupervisorLink_h
+#define dom_ipc_SpeculumSupervisorLink_h
 
 #include "base/process_util.h"
 #include "nsTArray.h"
 
-class SpeculumFrameSink {
+class SpeculumSupervisorLink {
  public:
-  virtual ~SpeculumFrameSink() = default;
+  virtual ~SpeculumSupervisorLink() = default;
 
   virtual void DeliverFrame(uint32_t aContextId, uint64_t aDocToken,
                             uint32_t aSequence, base::ProcessId aChildPid,
                             nsTArray<uint8_t>& aFrame) = 0;
 
-  // Envelope kind 0x02 (BrowserEvent), payload JSON UTF-8. No-op for sinks
-  // que não falam com o supervisor.
+  // Envelope kind 0x02 (BrowserEvent), payload JSON UTF-8.
   virtual void SendBrowserEvent(uint32_t aContextId, const char* aJsonUtf8,
                                 uint32_t aJsonLength) {}
 };
 
-SpeculumFrameSink& GetSpeculumFrameSink();
+void InitSpeculumSupervisorLink();
+SpeculumSupervisorLink& GetSpeculumSupervisorLink();
 
 #endif

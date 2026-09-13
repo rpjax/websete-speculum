@@ -1,7 +1,7 @@
 /* Speculum — ContextCreate/Destroy no processo pai (controle supervisor). */
 #include "SpeculumControlHandler.h"
 
-#include "SpeculumFrameSink.h"
+#include "SpeculumSupervisorLink.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/NullPrincipal.h"
@@ -33,7 +33,7 @@ std::map<uint64_t, uint32_t> sBcIdToContextId;
 std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> sContextToWindow;
 
 static void SendBrowserEventJson(const nsACString& aJson) {
-  GetSpeculumFrameSink().SendBrowserEvent(
+  GetSpeculumSupervisorLink().SendBrowserEvent(
       0, aJson.Data(), static_cast<uint32_t>(aJson.Length()));
 }
 

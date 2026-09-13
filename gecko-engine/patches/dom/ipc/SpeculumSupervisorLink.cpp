@@ -1,13 +1,15 @@
-/* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
-#include "SpeculumFrameSink.h"
+/* Speculum — ponte de controle com o supervisor (doc 12); frames trafegam aqui. */
+#include "SpeculumSupervisorLink.h"
 #include "SpeculumControlHandler.h"
 
 #include "mozilla/Mutex.h"
 #include "mozilla/UniquePtr.h"
+#include "nsAppRunner.h"
 
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <sys/socket.h>
@@ -24,8 +26,13 @@ constexpr uint8_t kKindControl = 0x04;
 
 constexpr char kReadyBrowserEvent[] = R"({"type":"Ready","id":0})";
 
-void LogSinkErr(const char* aMsg) {
-  fprintf(stderr, "[SPECULUM-SINK-ERR] %s\n", aMsg);
+void LogLinkErr(const char* aMsg) {
+  fprintf(stderr, "[SPECULUM-LINK-ERR] %s\n", aMsg);
+}
+
+[[noreturn]] void FatalSupervisorLink(const char* aMsg) {
+  fprintf(stderr, "[SPECULUM-LINK-FATAL] %s\n", aMsg);
+  _exit(1);
 }
 
 bool WriteAll(int aFd, const void* aData, size_t aLen) {
@@ -98,20 +105,20 @@ uint32_t ReadU32LE(const uint8_t* aBytes) {
          (static_cast<uint32_t>(aBytes[3]) << 24);
 }
 
-class NullSink final : public SpeculumFrameSink {
+class NullLink final : public SpeculumSupervisorLink {
  public:
   void DeliverFrame(uint32_t, uint64_t, uint32_t, base::ProcessId,
                     nsTArray<uint8_t>&) override {}
 };
 
-class SocketSink final : public SpeculumFrameSink {
+class SocketLink final : public SpeculumSupervisorLink {
  public:
-  explicit SocketSink(std::string aPath)
-      : mPath(std::move(aPath)), mFd(-1), mStopRead(false) {
+  explicit SocketLink(std::string aPath) : mPath(std::move(aPath)), mFd(-1) {
+    ConnectOrDie();
     mReadThread = std::thread([this]() { ReadLoop(); });
   }
 
-  ~SocketSink() override {
+  ~SocketLink() override {
     mStopRead = true;
     {
       mozilla::MutexAutoLock lock(mMutex);
@@ -132,12 +139,12 @@ class SocketSink final : public SpeculumFrameSink {
   void DeliverFrame(uint32_t aContextId, uint64_t, uint32_t, base::ProcessId,
                     nsTArray<uint8_t>& aFrame) override {
     mozilla::MutexAutoLock lock(mMutex);
-    if (!EnsureConnectedUnlocked()) {
+    if (mFd < 0) {
       return;
     }
     const uint32_t len = static_cast<uint32_t>(aFrame.Length());
     if (!SendEnvelope(mFd, kKindFrame, aContextId, aFrame.Elements(), len)) {
-      LogSinkErr("socket write failed");
+      LogLinkErr("frame send failed");
       CloseFdUnlocked();
     }
   }
@@ -148,12 +155,12 @@ class SocketSink final : public SpeculumFrameSink {
       return;
     }
     mozilla::MutexAutoLock lock(mMutex);
-    if (!EnsureConnectedUnlocked()) {
+    if (mFd < 0) {
       return;
     }
     if (!SendEnvelope(mFd, kKindBrowserEvent, aContextId, aJsonUtf8,
                       aJsonLength)) {
-      LogSinkErr("browser event send failed");
+      LogLinkErr("browser event send failed");
       CloseFdUnlocked();
     }
   }
@@ -166,41 +173,33 @@ class SocketSink final : public SpeculumFrameSink {
     }
   }
 
-  bool EnsureConnectedUnlocked() {
-    if (mFd >= 0) {
-      return true;
-    }
+  void ConnectOrDie() {
     const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
-      LogSinkErr("socket create failed");
-      return false;
+      FatalSupervisorLink("socket create failed");
     }
     sockaddr_un addr {};
     if (mPath.size() >= sizeof(addr.sun_path)) {
-      LogSinkErr("socket path too long");
       close(fd);
-      return false;
+      FatalSupervisorLink("socket path too long");
     }
     addr.sun_family = AF_UNIX;
     memcpy(addr.sun_path, mPath.c_str(), mPath.size() + 1);
     if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-      LogSinkErr("socket connect failed");
       close(fd);
-      return false;
+      FatalSupervisorLink("socket connect failed");
     }
     if (!SendEnvelope(fd, kKindHello, 0, nullptr, 0)) {
-      LogSinkErr("hello send failed");
       close(fd);
-      return false;
+      FatalSupervisorLink("hello send failed");
     }
     if (!SendEnvelope(fd, kKindBrowserEvent, 0, kReadyBrowserEvent,
                       static_cast<uint32_t>(sizeof(kReadyBrowserEvent) - 1))) {
-      LogSinkErr("ready send failed");
       close(fd);
-      return false;
+      FatalSupervisorLink("ready send failed");
     }
     mFd = fd;
-    return true;
+    fprintf(stderr, "[SPECULUM-LINK] conectado em %s\n", mPath.c_str());
   }
 
   void HandleControlPayload(const uint8_t* aPayload, uint32_t aLength) {
@@ -229,7 +228,7 @@ class SocketSink final : public SpeculumFrameSink {
       if (!ReadAll(fd, header, sizeof(header))) {
         mozilla::MutexAutoLock lock(mMutex);
         if (mFd == fd) {
-          LogSinkErr("socket read failed");
+          LogLinkErr("socket read failed");
           CloseFdUnlocked();
         }
         continue;
@@ -245,7 +244,7 @@ class SocketSink final : public SpeculumFrameSink {
         if (!payload.SetLength(length, mozilla::fallible)) {
           mozilla::MutexAutoLock lock(mMutex);
           if (mFd == fd) {
-            LogSinkErr("control payload alloc failed");
+            LogLinkErr("control payload alloc failed");
             CloseFdUnlocked();
           }
           continue;
@@ -253,7 +252,7 @@ class SocketSink final : public SpeculumFrameSink {
         if (!ReadAll(fd, payload.Elements(), length)) {
           mozilla::MutexAutoLock lock(mMutex);
           if (mFd == fd) {
-            LogSinkErr("socket read failed");
+            LogLinkErr("socket read failed");
             CloseFdUnlocked();
           }
           continue;
@@ -268,14 +267,14 @@ class SocketSink final : public SpeculumFrameSink {
 
   std::string mPath;
   int mFd;
-  mozilla::Mutex mMutex{"SpeculumFrameSink"};
-  std::atomic<bool> mStopRead;
+  mozilla::Mutex mMutex{"SpeculumSupervisorLink"};
+  std::atomic<bool> mStopRead{false};
   std::thread mReadThread;
 };
 
-class DirectorySink final : public SpeculumFrameSink {
+class DirectoryLink final : public SpeculumSupervisorLink {
  public:
-  explicit DirectorySink(std::string aDir) : mDir(std::move(aDir)) {}
+  explicit DirectoryLink(std::string aDir) : mDir(std::move(aDir)) {}
 
   void DeliverFrame(uint32_t aContextId, uint64_t aDocToken,
                     uint32_t aSequence, base::ProcessId aChildPid,
@@ -309,26 +308,37 @@ class DirectorySink final : public SpeculumFrameSink {
   uint32_t mOrder = 0;
 };
 
-SpeculumFrameSink* CreateSink() {
+SpeculumSupervisorLink* CreateLink() {
   const char* sockEnv = getenv("SPECULUM_BROWSER_SOCKET");
   if (sockEnv && sockEnv[0]) {
-    return new SocketSink(std::string(sockEnv));
+    return new SocketLink(std::string(sockEnv));
   }
   const char* dirEnv = getenv("SPECULUM_FRAME_DIR");
   if (dirEnv && dirEnv[0]) {
-    return new DirectorySink(std::string(dirEnv));
+    return new DirectoryLink(std::string(dirEnv));
   }
-  return new NullSink();
+  return new NullLink();
 }
+
+mozilla::UniquePtr<SpeculumSupervisorLink> sLink;
+bool sInitialized = false;
 
 }  // namespace
 
-SpeculumFrameSink& GetSpeculumFrameSink() {
-  static mozilla::UniquePtr<SpeculumFrameSink> sSink;
-  static bool sInitialized = false;
-  if (!sInitialized) {
-    sSink.reset(CreateSink());
-    sInitialized = true;
+void InitSpeculumSupervisorLink() {
+  if (!XRE_IsParentProcess()) {
+    return;
   }
-  return *sSink;
+  if (sInitialized) {
+    return;
+  }
+  sLink.reset(CreateLink());
+  sInitialized = true;
+}
+
+SpeculumSupervisorLink& GetSpeculumSupervisorLink() {
+  if (!sInitialized) {
+    InitSpeculumSupervisorLink();
+  }
+  return *sLink;
 }

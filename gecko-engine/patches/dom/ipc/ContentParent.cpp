@@ -4,7 +4,7 @@
 
 #include "ContentParent.h"
 #include "SpeculumControlHandler.h"
-#include "SpeculumFrameSink.h"
+#include "SpeculumSupervisorLink.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -673,6 +673,7 @@ void ContentParent::StartUp() {
 
   BackgroundChild::Startup();
   ClientManager::Startup();
+  InitSpeculumSupervisorLink();
 
   Preferences::RegisterCallbackAndCall(&OnFissionBlocklistPrefChange,
                                        kFissionEnforceBlockList);
@@ -1279,7 +1280,7 @@ IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
     return IPC_OK();
   }
 
-  GetSpeculumFrameSink().DeliverFrame(aContextId, aDocToken, aSequence, OtherPid(),
+  GetSpeculumSupervisorLink().DeliverFrame(aContextId, aDocToken, aSequence, OtherPid(),
                                       aFrame);
   return IPC_OK();
 }

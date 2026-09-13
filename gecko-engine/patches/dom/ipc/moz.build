@@ -151,7 +151,7 @@ UNIFIED_SOURCES += [
     "SharedMessageBody.cpp",
     "SharedStringMap.cpp",
     "SpeculumControlHandler.cpp",
-    "SpeculumFrameSink.cpp",
+    "SpeculumSupervisorLink.cpp",
     "StructuredCloneData.cpp",
     "TabContext.cpp",
     "UniqueContentParentKeepAlive.cpp",

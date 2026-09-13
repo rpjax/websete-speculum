@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ContentParent.h"
+#include "SpeculumControlHandler.h"
 #include "SpeculumFrameSink.h"
 #include <cstdio>
 #include <cstdlib>
@@ -3185,6 +3186,8 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
   }
 
   MaybeEnableRemoteInputEventQueue();
+
+  SpeculumReplayProjectedContexts(this);
 
   return true;
 }

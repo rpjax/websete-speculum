@@ -1,5 +1,6 @@
 /* Speculum — destino de frames no processo pai (socket supervisor ou devpath). */
 #include "SpeculumFrameSink.h"
+#include "SpeculumControlHandler.h"
 
 #include "mozilla/Mutex.h"
 #include "mozilla/UniquePtr.h"
@@ -203,8 +204,13 @@ class SocketSink final : public SpeculumFrameSink {
   }
 
   void HandleControlPayload(const uint8_t* aPayload, uint32_t aLength) {
-    const std::string json(reinterpret_cast<const char*>(aPayload), aLength);
-    fprintf(stderr, "[SPECULUM-CTRL] %s\n", json.c_str());
+    if (!aPayload || aLength == 0) {
+      return;
+    }
+    fprintf(stderr, "[SPECULUM-CTRL] %.*s\n", static_cast<int>(aLength),
+            reinterpret_cast<const char*>(aPayload));
+    SpeculumDispatchControlPayload(reinterpret_cast<const char*>(aPayload),
+                                   aLength);
   }
 
   void ReadLoop() {

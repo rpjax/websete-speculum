@@ -518,18 +518,15 @@ struct SpeculumProjectionRuntime::Impl {
   }
 
   void DispatchControlPayload(const uint8_t* aPayload, size_t aLength) {
-    if (!aPayload || aLength == 0) {
+    if (!aPayload || aLength < kSpeculumControlHeaderBytes) {
       return;
     }
-    nsTArray<uint8_t> payload;
-    if (!payload.AppendElements(aPayload, aLength, mozilla::fallible)) {
-      fprintf(stderr, "[SPECULUM-CTRL-ERR] alloc falhou len=%zu\n", aLength);
-      return;
-    }
+    auto bytes = MakeUnique<uint8_t[]>(aLength);
+    memcpy(bytes.get(), aPayload, aLength);
     NS_DispatchToMainThread(NS_NewRunnableFunction(
         "SpeculumHandleControl",
-        [this, payload = std::move(payload)]() mutable {
-          HandleControlBinary(payload.Elements(), payload.Length());
+        [this, bytes = std::move(bytes), len = aLength]() mutable {
+          HandleControlBinary(bytes.get(), len);
         }));
   }
 
@@ -556,11 +553,12 @@ struct SpeculumProjectionRuntime::Impl {
       }
 
       const uint8_t kind = header[0];
-      const uint32_t length = ReadU32LE(header + 5);
+      const uint32_t contextId = ReadU32LE(header + 1);
+      const uint32_t payloadLen = ReadU32LE(header + 5);
 
       nsTArray<uint8_t> payload;
-      if (length > 0) {
-        if (!payload.SetLength(length, mozilla::fallible)) {
+      if (payloadLen > 0) {
+        if (!payload.SetLength(payloadLen, mozilla::fallible)) {
           mozilla::MutexAutoLock lock(sendMutex);
           if (fd == localFd) {
             LogBridgeErr("control payload alloc failed");
@@ -568,7 +566,7 @@ struct SpeculumProjectionRuntime::Impl {
           }
           continue;
         }
-        if (!ReadAll(localFd, payload.Elements(), length)) {
+        if (!ReadAll(localFd, payload.Elements(), payloadLen)) {
           mozilla::MutexAutoLock lock(sendMutex);
           if (fd == localFd) {
             LogBridgeErr("socket read failed");
@@ -579,7 +577,15 @@ struct SpeculumProjectionRuntime::Impl {
       }
 
       if (kind == kKindCommand) {
-        DispatchControlPayload(payload.Elements(), length);
+        const size_t got = payload.Length();
+        if (got < kSpeculumControlHeaderBytes) {
+          fprintf(stderr,
+                  "[SPECULUM-CTRL-ERR] comando curto ctx=%u declarado=%u "
+                  "lido=%zu\n",
+                  contextId, payloadLen, got);
+          continue;
+        }
+        DispatchControlPayload(payload.Elements(), got);
       }
     }
   }
@@ -610,7 +616,7 @@ struct SpeculumProjectionRuntime::Impl {
   }
 };
 
-UniquePtr<SpeculumProjectionRuntime> sRuntime;
+SpeculumProjectionRuntime* sRuntime = nullptr;
 
 SpeculumProjectionRuntime::SpeculumProjectionRuntime() {
   const char* sockEnv = getenv("SPECULUM_BROWSER_SOCKET");
@@ -629,7 +635,8 @@ void SpeculumProjectionRuntime::Startup() {
   if (sRuntime) {
     return;
   }
-  sRuntime = MakeUnique<SpeculumProjectionRuntime>();
+  // Singleton de vida do processo — não destruído no shutdown do browser.
+  sRuntime = new SpeculumProjectionRuntime();
 }
 
 SpeculumProjectionRuntime& SpeculumProjectionRuntime::Get() {

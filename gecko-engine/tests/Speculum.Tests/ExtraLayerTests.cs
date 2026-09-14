@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
@@ -37,6 +38,19 @@ public static class ExtraLayerTests
 
         tee.Apply(2, AssetPayload.PhaseDenied, 0, "text/html"u8.ToArray());
         report.Equal("tee denied HTML", true, tee.Denied(2));
+
+        var hole = new StreamTee();
+        hole.Apply(3, AssetPayload.PhaseChunk, 10, png);
+        var threw = false;
+        try
+        {
+            hole.Assemble(3);
+        }
+        catch (InvalidDataException)
+        {
+            threw = true;
+        }
+        report.Equal("tee buraco no offset lanca", true, threw);
     }
 
     private static async Task PpAsync(Report report, Session s)

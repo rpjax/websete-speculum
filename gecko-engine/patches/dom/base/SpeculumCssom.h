@@ -1,5 +1,6 @@
-/* Speculum — ganchos CSSOM. Chamados de StyleSheet::RuleAdded/Removed/Changed
- * (02-costura §4). Sem poll. Sem símbolo inventado. */
+/* Speculum — ganchos CSSOM. Chamados de Document::RuleAdded/Removed/Changed,
+ * InsertSheetAt e PostStyleSheetRemovedEvent (StyleSheet já notifica o
+ * Document). Sem poll. Sem símbolo inventado. */
 #ifndef DOM_BASE_SPECULUMCSSOM_H_
 #define DOM_BASE_SPECULUMCSSOM_H_
 

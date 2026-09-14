@@ -10,6 +10,7 @@
 #include "SpeculumMutationObserver.h"
 #include "SpeculumLog.h"
 #include "SpeculumNodeSource.h"
+#include "SpeculumCssom.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "nsDocShell.h"
 
@@ -7917,6 +7918,7 @@ void Document::RemoveStyleSheetFromStyleSets(StyleSheet& aSheet) {
 
 void Document::InsertSheetAt(size_t aIndex, StyleSheet& aSheet) {
   DocumentOrShadowRoot::InsertSheetAt(aIndex, aSheet);
+  SpeculumNotifySheetAdded(this, &aSheet);
 
   if (aSheet.IsApplicable()) {
     AddStyleSheetToStyleSets(aSheet);
@@ -7956,6 +7958,7 @@ void Document::PostStyleSheetApplicableStateChangeEvent(StyleSheet& aSheet) {
 }
 
 void Document::PostStyleSheetRemovedEvent(StyleSheet& aSheet) {
+  SpeculumNotifySheetRemoved(this, &aSheet);
   if (!StyleSheetChangeEventsEnabled()) {
     return;
   }
@@ -8801,8 +8804,9 @@ void Document::ElementStateChanged(Element* aElement, ElementState aStateMask) {
                                (this, aElement, aStateMask));
 }
 
-void Document::RuleChanged(StyleSheet& aSheet, css::Rule*,
+void Document::RuleChanged(StyleSheet& aSheet, css::Rule* aRule,
                            const StyleRuleChange&) {
+  SpeculumNotifyRuleChanged(this, aRule);
   if (aSheet.IsApplicable()) {
     ApplicableStylesChanged();
   }
@@ -8812,6 +8816,8 @@ void Document::RuleAdded(StyleSheet& aSheet, css::Rule& aRule) {
   if (aRule.IsIncompleteImportRule()) {
     return;
   }
+
+  SpeculumNotifyRuleAdded(this, &aSheet, aRule);
 
   if (aSheet.IsApplicable()) {
     ApplicableStylesChanged();
@@ -8825,6 +8831,7 @@ void Document::ImportRuleLoaded(StyleSheet& aSheet) {
 }
 
 void Document::RuleRemoved(StyleSheet& aSheet, css::Rule& aRule) {
+  SpeculumNotifyRuleRemoved(this, &aSheet, aRule);
   if (aSheet.IsApplicable()) {
     ApplicableStylesChanged();
   }

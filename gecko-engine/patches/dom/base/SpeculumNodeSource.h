@@ -43,6 +43,7 @@ class SpeculumNodeSource final : public speculum::NodeSource {
   std::vector<speculum::FormProp> formPropsOf(const void* node) const override;
 
   void BindDocument(mozilla::dom::Document* aDocument);
+  void CaptureLiveCssom();
   void NoteSheet(const void* aSheet);
   void DropSheet(const void* aSheet);
   void NoteRule(const void* aSheet, const void* aRule, const std::string& aText);

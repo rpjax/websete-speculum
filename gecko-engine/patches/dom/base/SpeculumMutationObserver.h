@@ -7,6 +7,7 @@
 #include "nsITimer.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 struct SpeculumProducerState;
@@ -35,9 +36,9 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
 
   void OnSheetAdded(void* aSheet);
   void OnSheetRemoved(void* aSheet);
-  void OnRuleAdded(void* aSheet, void* aRule);
+  void OnRuleAdded(void* aSheet, void* aRule, const std::string& aText);
   void OnRuleRemoved(void* aSheet, void* aRule);
-  void OnRuleChanged(void* aRule);
+  void OnRuleChanged(void* aRule, const std::string& aText);
 
   void CancelFrameTimer();
 

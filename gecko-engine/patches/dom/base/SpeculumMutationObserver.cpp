@@ -170,11 +170,12 @@ void SpeculumMutationObserver::OnSheetRemoved(void* aSheet) {
   ArmFrameTimerIfNeeded();
 }
 
-void SpeculumMutationObserver::OnRuleAdded(void* aSheet, void* aRule) {
+void SpeculumMutationObserver::OnRuleAdded(void* aSheet, void* aRule,
+                                           const std::string& aText) {
   if (!mState || !aRule) {
     return;
   }
-  mState->source.NoteRule(aSheet, aRule, std::string());
+  mState->source.NoteRule(aSheet, aRule, aText);
   mState->producer.onRuleAdded(aSheet, aRule);
   ArmFrameTimerIfNeeded();
 }
@@ -188,10 +189,11 @@ void SpeculumMutationObserver::OnRuleRemoved(void* aSheet, void* aRule) {
   ArmFrameTimerIfNeeded();
 }
 
-void SpeculumMutationObserver::OnRuleChanged(void* aRule) {
+void SpeculumMutationObserver::OnRuleChanged(void* aRule, const std::string& aText) {
   if (!mState || !aRule) {
     return;
   }
+  mState->source.SetRuleText(aRule, aText);
   mState->producer.onRuleChanged(aRule);
   ArmFrameTimerIfNeeded();
 }
@@ -247,18 +249,20 @@ void SpeculumMutationObserver::EmitPendingFrame() {
   if (frame.empty()) {
     return;
   }
-  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), false);
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(),
+                 false);
 }
 
 bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
   if (!mDocument || !mDocument->IsContentDocument() || !mState) {
     return false;
   }
+  mState->source.CaptureLiveCssom();
   std::vector<uint8_t> frame = mState->producer.resyncVirtual(mDocument);
   if (frame.empty()) {
     return false;
   }
-  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), true);
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(), true);
   return true;
 }
 
@@ -270,6 +274,7 @@ void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
   mState->producer.discardPending();
   std::vector<uint8_t> frame;
   if (aForce == 1) {
+    mState->source.CaptureLiveCssom();
     frame = mState->producer.resyncVirtual(mDocument);
   } else {
     frame = mState->producer.emitResyncFrame();
@@ -279,7 +284,7 @@ void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
                  aForce);
     return;
   }
-  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), true);
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(), true);
   SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u force=%u seq=%u bytes=%zu",
                mState->contextId, aForce, mState->producer.sequence(),
                frame.size());

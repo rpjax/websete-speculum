@@ -77,6 +77,12 @@ Nao precisa de referencia forte segurando viva coisa que a pagina removeu.
 
 Isso e' notificacao **por regra**, com ponteiro da regra e o tipo da mudanca.
 
+O gancho Speculum entra em `Document::RuleAdded` / `RuleRemoved` / `RuleChanged`
+(e `InsertSheetAt` / `PostStyleSheetRemovedEvent`). `StyleSheet` ja notifica o
+`Document` — nao e preciso um segundo patch em `StyleSheet.cpp`. Texto da regra
+e `css::Rule::GetCssText`. Sem rebuild do Firefox, estes ganchos nao estao no
+binario.
+
 **Correcao registrada:** `docs/gecko-engine/00-viabilidade.md` pontuou este
 criterio como vitoria do WebKit. Esta errado. O `didChangeStyleSheetContents()`
 do WebKit diz apenas "mudou neste escopo"; o Gecko diz **qual regra e qual
@@ -115,6 +121,10 @@ de-riscado pelo acumulador de conjunto sujo.
 
 Touch — que e' o caminho de input do nosso produto — esta la, no widget headless,
 sem Marionette e sem WebDriver.
+
+Apply Speculum ainda nao ha: o envelope `Input` chega; `SpeculumSynthesizeInput`
+e no-op ate existir decoder da intencao. Inventar mouse em (1,1) e workaround e
+esta proibido.
 
 ## 8. Fission — complicacao real, mas e' pref
 

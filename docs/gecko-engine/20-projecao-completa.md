@@ -264,7 +264,7 @@ Coberta por L5. Sem plano paralelo. Teste obrigatório: churn sem `onDestroyed` 
 | Cliente | CSSOM owned + id Map. Sem recarregar URL viva. |
 | Prova | L0 fonte falsa; L4 regra visível; iso = tabela×tabela (+ opcional tabela×`StyleSheet` vivo no halt). Paint 1:1 não é este probe. |
 | Proibido | poll/idle; ler computed style; emitir no commit de paint; copiar `cssRules` em fatia e “commitar” depois (o pass in-flight do Chromium). |
-| Estado | **núcleo há** (drain no `emitFrame`, L24 de regra/sheet). Cola `StyleSheet` no fork; Firefox precisa rebuild. |
+| Estado | **núcleo há** (drain no `emitFrame`, L24 de regra/sheet, texto da fonte no drain). Cola: `Document::RuleAdded/Removed/Changed`, `InsertSheetAt` e `PostStyleSheetRemovedEvent` chamam `SpeculumNotify*`. Texto = `css::Rule::GetCssText`. Bootstrap/resync força captura das sheets vivas (`SheetAt` + `AdoptedStyleSheets`). **Firefox precisa rebuild.** Sem rebuild o CSSOM no fio não existe. Sheets de ShadowRoot ainda não. |
 
 Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo é o poll JS (copia a lista, cede, hasheia depois — pass **uncommitted**). Aqui o motor avisa **depois** da mutação no objeto. O conjunto sujo espera o tick; o frame leva o CSSOM que ainda está vivo no drain, como o DOM. Restyle do Servo pode estar sujo — a gente **não lê** isso.
 
@@ -314,7 +314,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Cliente | captura esparsa no Projected (JS nosso). K5 intacto. |
 | Prova | efeito no Virtual. Clique nested no `C` filho. Challenge: token no Virtual. |
 | Proibido | CDP, uinput, inject, `Runtime.evaluate`. |
-| Estado | **ABI tem o envelope; apply nativo não há.** |
+| Estado | **ABI tem o envelope. Apply nativo não há** — `SpeculumSynthesizeInput` é no-op (não inventa mouse). Decoder da intenção UnifiedIntent falta. |
 
 ### 2.9 Ativos (imagem, fonte, mídia) — V1 completo, doc 13 inteiro
 
@@ -402,9 +402,9 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | | |
 |--|--|
 | Lei | L12, L23, L24. Timer 16 ms; vazio não emite. Probe pode flush agora. Halt impede S+1 até o cliente aplicar S. |
-| Gancho | `nsITimer` já existe. Faltam comandos ABI. |
+| Gancho | `nsITimer` já existe. Halt/Flush/Snapshot na ABI e no IPDL. |
 | Proibido | descrever no callback e chamar isso de drain. |
-| Estado | timer há; halt/flush/PP-FR-1 **não**. |
+| Estado | **timer, halt, flush e Snapshot há.** Halt para o relógio; a fila continua; Flush chama `emitFrame`. |
 
 ### 2.20 Diálogo, permissão, download
 
@@ -479,18 +479,18 @@ Leitura honesta do fork (`gecko-engine/patches` + `speculum-wire`), não do side
 | Sessão / Navigate / `C` | n/a | sim | quase (L4 contínuo) |
 | DOM + hash + apply | sim | sim (DROP no header) | depois do binário novo + stress |
 | Identidade / GC | sim (lifecycle) | `onRemoved` há | idem |
-| PP-FR-1 (efêmero do tick) | **não** (op no callback) | **não** | não |
-| CSSOM | opcodes | **não** | não |
-| Shadow | tabela/wire | **não** (só luz) | não |
-| Nested | hold `C` | mint + frames | DOM nested há; CSSOM do filho não |
-| PROP_SET | API | **não amostra** | não |
-| Input nativo | n/a | envelope só | não |
+| PP-FR-1 (efêmero do tick) | sim (drain no `emitFrame`) | tick do observer | depois do binário novo |
+| CSSOM | opcodes + drain ordem viva | `Document::Rule*` + `GetCssText` + captura no resync | depois do rebuild |
+| Shadow | tabela/wire | `MaybeObserveShadow`; luz em `childrenOf` | depois do rebuild |
+| Nested | hold `C` | mint + frames; hold desliga se o host sai | DOM nested há; CSSOM do filho = 2.4 na instância filha |
+| PROP_SET | sim | `formPropsOf` amostra no drain | depois do rebuild |
+| Input nativo | n/a | envelope; apply é no-op | não |
 | Viewport | n/a | opcode só | não |
 | Ativos / SW / proxy | n/a | **não (entra neste V1, doc 13 inteiro)** | não ainda |
 | Dialog/perm/download | ABI | **não** | não |
 | Upload | não | não | não |
 | Canvas / print | — | — | **1.1** |
-| Halt / snapshot / `frameNewNodes` | não | não | não |
+| Halt / snapshot / `frameNewNodes` | sim | IPDL Halt/Flush/Snapshot | depois do rebuild |
 | Telemetria catalogada | não | `MOZ_LOG` por mutação | não |
 | Métrica P/E (O3) | não | não | não |
 | Backpressure (drop oldest) | n/a | próximo incremento | não |

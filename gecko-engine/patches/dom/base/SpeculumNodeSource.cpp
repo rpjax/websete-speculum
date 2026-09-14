@@ -17,13 +17,19 @@
 #include "nsReadableUtils.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/CSSRuleList.h"
 #include "mozilla/dom/HTMLInputElement.h"
 #include "mozilla/dom/HTMLOptionElement.h"
 #include "mozilla/dom/HTMLTextAreaElement.h"
 #include "mozilla/dom/ShadowRoot.h"
+#include "mozilla/css/Rule.h"
+#include "mozilla/ErrorResult.h"
+#include "mozilla/StyleSheet.h"
 #include "nsCOMPtr.h"
 #include "nsFrameLoaderOwner.h"
 #include "nsIDocShell.h"
+#include "nsIPrincipal.h"
+#include "nsString.h"
 
 #include <cstdio>
 #include <sys/stat.h>
@@ -264,6 +270,49 @@ std::vector<speculum::FormProp> SpeculumNodeSource::formPropsOf(
 
 void SpeculumNodeSource::BindDocument(mozilla::dom::Document* aDocument) {
   mDocument = aDocument;
+}
+
+void SpeculumNodeSource::CaptureLiveCssom() {
+  mSheets.clear();
+  mRules.clear();
+  mRuleText.clear();
+  mRuleSheet.clear();
+  if (!mDocument) {
+    return;
+  }
+
+  auto noteSheet = [this](mozilla::StyleSheet& aSheet) {
+    NoteSheet(&aSheet);
+    mozilla::ErrorResult rv;
+    mozilla::dom::CSSRuleList* list =
+        aSheet.GetCssRules(*mDocument->NodePrincipal(), rv);
+    if (rv.Failed() || !list) {
+      rv.SuppressException();
+      return;
+    }
+    const uint32_t n = list->Length();
+    for (uint32_t i = 0; i < n; ++i) {
+      mozilla::css::Rule* rule = list->Item(i);
+      if (!rule) {
+        continue;
+      }
+      nsAutoCString text;
+      rule->GetCssText(text);
+      NoteRule(&aSheet, rule, std::string(text.get()));
+    }
+  };
+
+  const size_t n = mDocument->SheetCount();
+  for (size_t i = 0; i < n; ++i) {
+    if (mozilla::StyleSheet* sheet = mDocument->SheetAt(i)) {
+      noteSheet(*sheet);
+    }
+  }
+  for (mozilla::StyleSheet* sheet : mDocument->AdoptedStyleSheets()) {
+    if (sheet) {
+      noteSheet(*sheet);
+    }
+  }
 }
 
 void SpeculumNodeSource::NoteSheet(const void* aSheet) {

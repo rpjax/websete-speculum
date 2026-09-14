@@ -65,6 +65,7 @@ class Producer {
   uint32_t pendingOps() const { return builder_.opCount(); }
   uint32_t generation() const { return generation_; }
   uint32_t lastFrameNewNodes() const { return lastFrameNewNodes_; }
+  uint32_t lastEmittedOps() const { return lastEmittedOps_; }
   bool halted() const { return halted_; }
 
   // Halt para o relógio. A fila continua; Flush chama emitFrame. Não é discard.
@@ -139,6 +140,7 @@ class Producer {
     pendingNewNodes_ = 0;
 
     builder_.check(kCheckScopeTable, 0, 0, table_.tableHash());
+    lastEmittedOps_ = builder_.opCount();
 
     PartHeader h;
     h.contextId = contextId_;
@@ -160,7 +162,7 @@ class Producer {
   void onInserted(const void* parent, const void* node) {
     if (source_.isUaOwned(node)) return;
     if (awaitingChildScope(node)) {
-      pendingHosts_.push_back(PendingHost{parent, node});
+      notePendingHost(parent, node);
       return;
     }
     uint32_t parentId = idFor(parent);
@@ -175,6 +177,7 @@ class Producer {
   }
 
   void onRemoved(const void* parent, const void* node) {
+    cancelPendingHost(node);
     uint32_t id = ids_.idOf(node);
     if (id == kNone) return;
     if (cancelPendingInsert(node)) {
@@ -344,6 +347,7 @@ class Producer {
     pendingNewNodes_ = 0;
     const uint64_t pre = preTableHash_;
     builder_.check(kCheckScopeTable, 0, 0, table_.tableHash());
+    lastEmittedOps_ = builder_.opCount();
 
     PartHeader h;
     h.contextId = contextId_;
@@ -413,6 +417,20 @@ class Producer {
       pendingInserts_[w++] = pendingInserts_[i];
     }
     pendingInserts_.resize(w);
+    return found;
+  }
+
+  bool cancelPendingHost(const void* node) {
+    size_t w = 0;
+    bool found = false;
+    for (size_t i = 0; i < pendingHosts_.size(); ++i) {
+      if (pendingHosts_[i].node == node) {
+        found = true;
+        continue;
+      }
+      pendingHosts_[w++] = pendingHosts_[i];
+    }
+    pendingHosts_.resize(w);
     return found;
   }
 
@@ -611,6 +629,9 @@ class Producer {
     std::vector<PendingHost> still;
     still.reserve(pendingHosts_.size());
     for (const auto& pending : pendingHosts_) {
+      if (!source_.isConnected(pending.node) || source_.isUaOwned(pending.node)) {
+        continue;
+      }
       if (awaitingChildScope(pending.node)) {
         still.push_back(pending);
         continue;
@@ -624,6 +645,9 @@ class Producer {
     std::vector<PendingHost> still;
     still.reserve(pendingHosts_.size());
     for (const auto& pending : pendingHosts_) {
+      if (!source_.isConnected(pending.node) || source_.isUaOwned(pending.node)) {
+        continue;
+      }
       if (awaitingChildScope(pending.node)) {
         still.push_back(pending);
         continue;
@@ -778,6 +802,7 @@ class Producer {
   uint64_t preTableHash_ = 0;
   bool halted_ = false;
   uint32_t lastFrameNewNodes_ = 0;
+  uint32_t lastEmittedOps_ = 0;
   uint32_t pendingNewNodes_ = 0;
 };
 

@@ -50,6 +50,17 @@ class FakeDom : public NodeSource {
     child->parent = parent;
   }
 
+  void detach(FakeNode* child) {
+    if (!child->parent) return;
+    auto& kids = child->parent->children;
+    std::vector<FakeNode*> kept;
+    for (FakeNode* k : kids) {
+      if (k != child) kept.push_back(k);
+    }
+    kids.swap(kept);
+    child->parent = nullptr;
+  }
+
   NodeKind kindOf(const void* n) const override { return at(n)->kind; }
   ElementNs nsOf(const void* n) const override { return at(n)->ns; }
   std::string uriOf(const void* n) const override { return at(n)->uri; }
@@ -183,6 +194,7 @@ int main() {
     auto scopes = ChildScopes(frame);
     if (scopes.size() != 1) return Fail("esperava um childScopeId no NODE_NEW");
     if (scopes[0] != 2) return Fail("childScopeId nao e 2");
+    if (p.lastEmittedOps() == 0) return Fail("resync zerou lastEmittedOps");
     std::cout << "ok: NODE_NEW host C=2\n";
   }
 
@@ -235,6 +247,33 @@ int main() {
       return Fail("C=1 no host classificou nested");
     }
     std::cout << "ok: C=1 no host nao e nested\n";
+  }
+
+  {
+    FakeDom dom;
+    FakeNode* document = dom.makeElement("#document");
+    FakeNode* html = dom.makeElement("html");
+    FakeNode* body = dom.makeElement("body");
+    FakeNode* iframe = dom.makeElement("iframe", true, 0);
+    dom.setDocument(document);
+    dom.append(document, html);
+    dom.append(html, body);
+    dom.append(body, iframe);
+
+    Producer p(dom, kContextIdRoot, 0);
+    auto held = p.resyncVirtual(document);
+    if (!held.empty() && !ChildScopes(held).empty()) {
+      return Fail("host sem C emitiu NODE_NEW nested");
+    }
+
+    dom.detach(iframe);
+    p.onRemoved(body, iframe);
+    FakeDom::at(iframe)->childScopeId = 2;
+    auto ready = p.emitFrame();
+    if (!ready.empty() && !ChildScopes(ready).empty()) {
+      return Fail("host desligado depois do hold emitiu NODE_NEW");
+    }
+    std::cout << "ok: hold desligado nao emite\n";
   }
 
   std::cout << "produtor nested: ok\n";

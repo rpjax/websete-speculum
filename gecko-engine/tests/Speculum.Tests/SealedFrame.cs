@@ -29,6 +29,7 @@ public static class SealedFrame
 {
     public const ushort Magic = 0x5050;
     public const byte WireVersion = 2;
+    public const byte ResyncFlag = 0b10;
     public const int PrefixBytes = 28;
 
     public readonly record struct Header(

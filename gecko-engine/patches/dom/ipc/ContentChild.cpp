@@ -8,6 +8,7 @@
 
 #include "BrowserChild.h"
 #include "ContentChild.h"
+#include "SpeculumMutationObserver.h"
 #include "GMPServiceChild.h"
 #include "GeckoProfiler.h"
 #include "Geolocation.h"
@@ -2140,6 +2141,12 @@ mozilla::ipc::IPCResult ContentChild::RecvSetOffline(const bool& offline) {
 
   io->SetOffline(offline);
 
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumResync(
+    const uint32_t& aContextId, const uint8_t& aForce) {
+  SpeculumRequestResync(aContextId, aForce);
   return IPC_OK();
 }
 

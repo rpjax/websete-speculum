@@ -544,7 +544,11 @@ sidecar/scripts/lab-scroll-*.js
 
 # Local ad-hoc debug / smoke / agent artifacts (large or ephemeral)
 debug-ad4d6c-pending/
+debug-ad4d6c.log
 debug-*/
 smoke.png
 *.tgz
 Claude outputs/
+
+# SDK .NET vazou pra raiz (C: virou pasta com dois-pontos unicode)
+/C*Usersrodri/

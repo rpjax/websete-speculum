@@ -17,6 +17,7 @@ namespace Speculum.Tests;
 ///   u8[4]  magic  = "SPKF"
 ///   u32    contextId   — o contexto que o supervisor alocou; provado ponta a ponta
 ///   u64    sequence    — estritamente crescente; prova ordem preservada
+///   u8     flags       — bit 1 = resync (mesmo bit do frame real)
 ///   u32    blobLength = 32
 ///   u8[32] blob        — bytes fixos; prova integridade byte a byte
 /// </code>
@@ -24,8 +25,9 @@ namespace Speculum.Tests;
 public static class FakeFrame
 {
     public static readonly byte[] Magic = "SPKF"u8.ToArray();
+    public const byte ResyncFlag = 0b10;
     public const int BlobLength = 32;
-    public const int TotalBytes = 4 + sizeof(uint) + sizeof(ulong) + sizeof(uint) + BlobLength;
+    public const int TotalBytes = 4 + sizeof(uint) + sizeof(ulong) + sizeof(byte) + sizeof(uint) + BlobLength;
 
     /// <summary>Blob determinístico: 0x00..0x1f. Igual em todo frame.</summary>
     public static byte[] Blob()
@@ -39,40 +41,42 @@ public static class FakeFrame
         return blob;
     }
 
-    public static byte[] Build(uint contextId, ulong sequence)
+    public static byte[] Build(uint contextId, ulong sequence, byte flags = 0)
     {
         var buffer = new byte[TotalBytes];
         var span = buffer.AsSpan();
         Magic.CopyTo(span);
         BinaryPrimitives.WriteUInt32LittleEndian(span[4..], contextId);
         BinaryPrimitives.WriteUInt64LittleEndian(span[8..], sequence);
-        BinaryPrimitives.WriteUInt32LittleEndian(span[16..], BlobLength);
-        Blob().CopyTo(span[20..]);
+        span[16] = flags;
+        BinaryPrimitives.WriteUInt32LittleEndian(span[17..], BlobLength);
+        Blob().CopyTo(span[21..]);
         return buffer;
     }
 
-    public readonly record struct Parsed(bool Ok, uint ContextId, ulong Sequence, byte[] Blob, string? Problem);
+    public readonly record struct Parsed(bool Ok, uint ContextId, ulong Sequence, byte Flags, byte[] Blob, string? Problem);
 
     public static Parsed Parse(ReadOnlySpan<byte> frame)
     {
         if (frame.Length != TotalBytes)
         {
-            return new Parsed(false, 0, 0, [], $"tamanho {frame.Length}, esperado {TotalBytes}");
+            return new Parsed(false, 0, 0, 0, [], $"tamanho {frame.Length}, esperado {TotalBytes}");
         }
 
         if (!frame[..4].SequenceEqual(Magic))
         {
-            return new Parsed(false, 0, 0, [], $"magic {Report.Hex(frame[..4])}, esperado {Report.Hex(Magic)}");
+            return new Parsed(false, 0, 0, 0, [], $"magic {Report.Hex(frame[..4])}, esperado {Report.Hex(Magic)}");
         }
 
         var contextId = BinaryPrimitives.ReadUInt32LittleEndian(frame[4..]);
         var sequence = BinaryPrimitives.ReadUInt64LittleEndian(frame[8..]);
-        var blobLength = BinaryPrimitives.ReadUInt32LittleEndian(frame[16..]);
+        var flags = frame[16];
+        var blobLength = BinaryPrimitives.ReadUInt32LittleEndian(frame[17..]);
         if (blobLength != BlobLength)
         {
-            return new Parsed(false, contextId, sequence, [], $"blobLength {blobLength}, esperado {BlobLength}");
+            return new Parsed(false, contextId, sequence, flags, [], $"blobLength {blobLength}, esperado {BlobLength}");
         }
 
-        return new Parsed(true, contextId, sequence, frame.Slice(20, BlobLength).ToArray(), null);
+        return new Parsed(true, contextId, sequence, flags, frame.Slice(21, BlobLength).ToArray(), null);
     }
 }

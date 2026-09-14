@@ -102,4 +102,14 @@ public static class ControlCommand
         _ = new ControlWriter(buffer, ControlOpCode.Shutdown, correlationId);
         return buffer;
     }
+
+    /// <summary>força: 0 = emitResyncFrame (mapa), 1 = resyncVirtual.</summary>
+    public static byte[] Resync(uint correlationId, uint contextId, byte force)
+    {
+        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + sizeof(byte)];
+        var writer = new ControlWriter(buffer, ControlOpCode.Resync, correlationId);
+        writer.WriteUInt32(contextId);
+        writer.WriteUInt8(force);
+        return buffer;
+    }
 }

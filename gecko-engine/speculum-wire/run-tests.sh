@@ -17,6 +17,14 @@ mkdir -p "$OUT"
   "$HERE/test/producer_loop.cpp" -o "$OUT/producer_test"
 "$OUT/producer_test" "$OUT"
 
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/producer_nested.cpp" -o "$OUT/producer_nested"
+"$OUT/producer_nested"
+
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/producer_resync.cpp" -o "$OUT/producer_resync"
+"$OUT/producer_resync"
+
 cd "$HERE/test"
 SPECULUM_OUT="$OUT" npx --yes tsx verify.ts
 SPECULUM_OUT="$OUT" npx --yes tsx table_parity.ts

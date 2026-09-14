@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Threading;
 using Speculum.Supervisor.Control;
 using Speculum.Supervisor.Wire;
 
@@ -166,6 +167,21 @@ public static class FakeBrowser
                 await life.CancelAsync().ConfigureAwait(false);
                 break;
 
+            case ControlOpCode.Resync:
+            {
+                uint contextId;
+                byte force;
+                {
+                    var reader = new ControlReader(payload);
+                    contextId = reader.ReadUInt32();
+                    force = reader.ReadUInt8();
+                }
+
+                journal.Write("resync", $"ctx={contextId} force={force}");
+                await emitter.EmitResyncAsync(contextId, life.Token).ConfigureAwait(false);
+                break;
+            }
+
             default:
                 journal.Write("control-ignored", opCode.ToString());
                 break;
@@ -230,28 +246,39 @@ public static class FakeBrowser
     {
         private Task _loop = Task.CompletedTask;
         private CancellationTokenSource? _own;
+        private uint _contextId;
+        private long _sequence;
 
         public void Start(uint contextId, CancellationToken outer)
         {
             _own = CancellationTokenSource.CreateLinkedTokenSource(outer);
+            _contextId = contextId;
             _loop = LoopAsync(contextId, _own.Token);
+        }
+
+        public async Task EmitResyncAsync(uint contextId, CancellationToken token)
+        {
+            var target = contextId == 0 ? _contextId : contextId;
+            var seq = (ulong)Interlocked.Increment(ref _sequence);
+            var frame = FakeFrame.Build(target, seq, FakeFrame.ResyncFlag);
+            await writer.WriteAsync(EnvelopeKind.Frame, target, frame, token).ConfigureAwait(false);
+            journal.Write("resync-frame", $"ctx={target} seq={seq}");
         }
 
         private async Task LoopAsync(uint contextId, CancellationToken token)
         {
-            ulong sequence = 1;
             try
             {
                 while (!token.IsCancellationRequested)
                 {
-                    var frame = FakeFrame.Build(contextId, sequence);
+                    var seq = (ulong)Interlocked.Increment(ref _sequence);
+                    var frame = FakeFrame.Build(contextId, seq);
                     await writer.WriteAsync(EnvelopeKind.Frame, contextId, frame, token).ConfigureAwait(false);
-                    if (sequence == 1)
+                    if (seq == 1)
                     {
                         journal.Write("frames-started", $"ctx={contextId}");
                     }
 
-                    sequence++;
                     await Task.Delay(25, token).ConfigureAwait(false);
                 }
             }
@@ -265,7 +292,7 @@ public static class FakeBrowser
             }
             finally
             {
-                journal.Write("frames-stopped", $"ctx={contextId} emitidos={sequence - 1}");
+                journal.Write("frames-stopped", $"ctx={contextId} emitidos={Volatile.Read(ref _sequence)}");
             }
         }
 

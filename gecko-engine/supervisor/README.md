@@ -109,15 +109,12 @@ carrega a restrição de AOT.
 
 Implementado: F1 — o supervisor conduz a sessão e o frame chega ao cliente projetado.
 
-Ainda não: controle (`ContextCreate` / `Navigate`), honestidade (`requestSnapshot` /
-resync), input, runner de blueprints. O `LabSessionConnection` aceita em silêncio as
-mensagens do protocolo v1 dessas fases em vez de responder erro — para não ensinar o
-cliente a desconfiar de mensagem correta.
+Ainda não: `requestSnapshot`, input, runner de blueprints. O `LabSessionConnection`
+aceita em silêncio as mensagens do protocolo v1 dessas fases em vez de responder
+erro — para não ensinar o cliente a desconfiar de mensagem correta.
 
 ## Limitação conhecida
 
 O supervisor não guarda frame. Um consumidor que conecta depois do bootstrap não
-recebe o que já passou, e sem o bootstrap o cliente não tem sobre o que aplicar.
-O mecanismo para isso é o **resync** (`resyncVirtual`) — não adiar o lançamento da
-sessão, que seria remendo. Enquanto o resync não existe, abra o lab antes de dar
-Start.
+recebe o que já passou. A cura é `Resync(mapa)` no bind do consumidor e
+`client.requestResync` — não adiar o lançamento da sessão.

@@ -29,6 +29,12 @@ class NodeSource {
   // `true` quando o nó é do UA, não do autor (item F): o elemento é o contrato, o interior
   // é trabalho do navegador — dos dois lados. Nada criado pelo navegador é projetado.
   virtual bool isUaOwned(const void* /*node*/) const { return false; }
+  // Host de contexto aninhado (iframe / frame / object / embed). Sem C ainda:
+  // o produtor segura o NODE_NEW. Fonte do C é o runtime, não este mapa.
+  virtual bool isNestedHost(const void* /*node*/) const { return false; }
+  virtual uint32_t childScopeIdOf(const void* /*node*/) const { return 0; }
+  // Passo 1 de emitResyncFrame: id cujo nó não está mais ligado some do mapa, sem NODE_DROP.
+  virtual bool isConnected(const void* /*node*/) const { return true; }
 };
 
 class Producer {
@@ -42,19 +48,82 @@ class Producer {
   const IdentityMap& identity() const { return ids_; }
   uint32_t sequence() const { return sequence_; }
   uint32_t pendingOps() const { return builder_.opCount(); }
+  uint32_t generation() const { return generation_; }
 
-  // O Document é a linha 1 implícita: nunca descrito, nunca com rowHash próprio.
-  // Descreve tudo que já está pendurado nele.
-  void bootstrap(const void* documentNode) {
+  // Halt do tick: ops não emitidas caem. O resync descreve o DOM vivo.
+  void discardPending() { builder_.begin(); }
+
+  // §5.8 resyncVirtual: zera o mapa (geração intacta), aloca o que está ligado, emite
+  // o frame de resync. Attach do documento é isto — não um caminho paralelo.
+  std::vector<uint8_t> resyncVirtual(const void* documentNode) {
+    ids_.clear();
+    pendingHosts_.clear();
     documentNode_ = documentNode;
-    table_.setSequence(sequence_);
-    describeAndInsertChildren(documentNode, kDocumentId);
+    discardPending();
+    allocateConnected(documentNode);
+    return emitResyncFrame();
+  }
+
+  // §5.8 emitResyncFrame: duas passagens no mapa, tabela reconstruída, flag de resync.
+  // preTableHash viaja 0 — o cliente não tem estado prévio a conferir (wholesale replace).
+  std::vector<uint8_t> emitResyncFrame() {
+    discardPending();
+    adoptReadyPendingHosts();
+
+    const uint32_t seq = sequence_ + 1;
+    table_.reset();
+    table_.setSequence(seq);
+    builder_.begin();
+
+    const std::vector<uint32_t> snapshot = ids_.allIds();
+    std::vector<uint32_t> drop;
+    std::vector<uint32_t> live;
+    drop.reserve(snapshot.size());
+    live.reserve(snapshot.size());
+    for (uint32_t id : snapshot) {
+      const void* key = ids_.keyOf(id);
+      if (!key || !source_.isConnected(key) || source_.isUaOwned(key) ||
+          awaitingChildScope(key)) {
+        drop.push_back(id);
+        continue;
+      }
+      live.push_back(id);
+      emitNodeNew(key, id);
+    }
+    for (uint32_t id : drop) ids_.releaseId(id);
+
+    insertLiveChildren(documentNode_, kDocumentId);
+    for (uint32_t id : live) {
+      const void* key = ids_.keyOf(id);
+      if (!key) continue;
+      insertLiveChildren(key, id);
+    }
+
+    builder_.check(kCheckScopeTable, 0, 0, table_.tableHash());
+
+    PartHeader h;
+    h.contextId = contextId_;
+    h.generation = generation_;
+    h.sequence = seq;
+    h.flags = kFrameFlagResync;
+    h.preTableHash = 0;
+    auto bytes = builder_.finish(h);
+
+    sequence_ = seq;
+    preTableHash_ = table_.tableHash();
+    builder_.begin();
+    table_.setSequence(sequence_ + 1);
+    return bytes;
   }
 
   // ---- registros do motor ----
 
   void onInserted(const void* parent, const void* node) {
     if (source_.isUaOwned(node)) return;
+    if (awaitingChildScope(node)) {
+      pendingHosts_.push_back(PendingHost{parent, node});
+      return;
+    }
     uint32_t parentId = idFor(parent);
     if (parentId == kNone) return;  // pai fora da projeção: nada a dizer
     uint32_t before = beforeIdOf(parent, node);
@@ -116,23 +185,26 @@ class Producer {
     for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
   }
 
-  // ---- frame ----
+  // ---- frame ordinário ----
 
-  // Fecha o frame com CHECK(scope=Table) sobre o tableHash — é isso que deixa o cliente
-  // recusar uma réplica divergente em vez de seguir aplicando em cima de estado errado.
+  // Fecha o frame com CHECK(scope=Table) sobre o tableHash. preTableHash é o hash da
+  // tabela no começo deste tick (depois do emit anterior), não o hash já mutado.
   // Devolve vazio quando não houve op: frame vazio não é emitido e não consome `sequence`.
-  std::vector<uint8_t> emitFrame(bool resync = false) {
+  std::vector<uint8_t> emitFrame() {
+    flushPendingHosts();
     if (builder_.opCount() == 0) return {};
+    const uint64_t pre = preTableHash_;
     builder_.check(kCheckScopeTable, 0, 0, table_.tableHash());
 
     PartHeader h;
     h.contextId = contextId_;
     h.generation = generation_;
     h.sequence = ++sequence_;
-    h.flags = resync ? kFrameFlagResync : 0;
-    h.preTableHash = 0;  // v0: não conferido no fio (igual ao produtor TS)
+    h.flags = 0;
+    h.preTableHash = pre;
     auto bytes = builder_.finish(h);
 
+    preTableHash_ = table_.tableHash();
     builder_.begin();
     table_.setSequence(sequence_ + 1);
     return bytes;
@@ -166,9 +238,64 @@ class Producer {
     describeAndInsertChildren(node, ids_.idOf(node));
   }
 
-  // NODE_NEW sempre cria linha destacada; a topologia vem por INSERT.
-  void describe(const void* node) {
-    const uint32_t id = ids_.assign(node);
+  bool awaitingChildScope(const void* node) const {
+    return source_.isNestedHost(node) && source_.childScopeIdOf(node) < 2;
+  }
+
+  void notePendingHost(const void* parent, const void* node) {
+    for (const auto& pending : pendingHosts_) {
+      if (pending.node == node) return;
+    }
+    pendingHosts_.push_back(PendingHost{parent, node});
+  }
+
+  void adoptReadyPendingHosts() {
+    std::vector<PendingHost> still;
+    still.reserve(pendingHosts_.size());
+    for (const auto& pending : pendingHosts_) {
+      if (awaitingChildScope(pending.node)) {
+        still.push_back(pending);
+        continue;
+      }
+      ids_.assign(pending.node);
+    }
+    pendingHosts_.swap(still);
+  }
+
+  void flushPendingHosts() {
+    std::vector<PendingHost> still;
+    still.reserve(pendingHosts_.size());
+    for (const auto& pending : pendingHosts_) {
+      if (awaitingChildScope(pending.node)) {
+        still.push_back(pending);
+        continue;
+      }
+      uint32_t parentId = idFor(pending.parent);
+      if (parentId == kNone) continue;
+      uint32_t before = beforeIdOf(pending.parent, pending.node);
+      ensureDescribed(pending.node);
+      builder_.insert(parentId, before, {ids_.idOf(pending.node)});
+      table_.insertBatch(parentId, before, {ids_.idOf(pending.node)});
+    }
+    pendingHosts_.swap(still);
+  }
+
+  void allocateConnected(const void* node) {
+    if (node != documentNode_) {
+      if (source_.isUaOwned(node) || awaitingChildScope(node)) return;
+      ids_.assign(node);
+    }
+    for (const void* child : source_.childrenOf(node)) {
+      if (source_.isUaOwned(child)) continue;
+      if (awaitingChildScope(child)) {
+        notePendingHost(node, child);
+        continue;
+      }
+      allocateConnected(child);
+    }
+  }
+
+  void emitNodeNew(const void* node, uint32_t id) {
     const NodeKind kind = source_.kindOf(node);
     switch (kind) {
       case NodeKind::Element: {
@@ -176,7 +303,9 @@ class Producer {
         const auto name = source_.nameOf(node);
         const auto attrs = source_.attrsOf(node);
         const auto uri = ns == ElementNs::Custom ? source_.uriOf(node) : std::string();
-        builder_.nodeNewElement(id, ns, name, attrs, uri);
+        const bool nestedHost = source_.isNestedHost(node);
+        const uint32_t childScope = nestedHost ? source_.childScopeIdOf(node) : 0;
+        builder_.nodeNewElement(id, ns, name, attrs, uri, nestedHost, childScope);
         table_.createElementRow(id, name, attrs, ns, uri);
         break;
       }
@@ -199,15 +328,40 @@ class Producer {
         break;
       }
       default:
-        // Shadow root entra por caminho próprio (admissão), não por este.
         break;
     }
+  }
+
+  void describe(const void* node) {
+    emitNodeNew(node, ids_.assign(node));
+  }
+
+  void insertLiveChildren(const void* parent, uint32_t parentId) {
+    if (!parent || parentId == kNone) return;
+    std::vector<uint32_t> batch;
+    for (const void* child : source_.childrenOf(parent)) {
+      if (source_.isUaOwned(child)) continue;
+      if (awaitingChildScope(child)) {
+        notePendingHost(parent, child);
+        continue;
+      }
+      uint32_t id = ids_.idOf(child);
+      if (id == kNone) continue;
+      batch.push_back(id);
+    }
+    if (batch.empty()) return;
+    builder_.insert(parentId, kInsertAtEnd, batch);
+    table_.insertBatch(parentId, kInsertAtEnd, batch);
   }
 
   void describeAndInsertChildren(const void* parent, uint32_t parentId) {
     std::vector<uint32_t> batch;
     for (const void* child : source_.childrenOf(parent)) {
       if (source_.isUaOwned(child)) continue;
+      if (awaitingChildScope(child)) {
+        notePendingHost(parent, child);
+        continue;
+      }
       if (!ids_.known(child)) {
         describe(child);
         describeAndInsertChildren(child, ids_.idOf(child));
@@ -219,14 +373,21 @@ class Producer {
     table_.insertBatch(parentId, kInsertAtEnd, batch);
   }
 
+  struct PendingHost {
+    const void* parent;
+    const void* node;
+  };
+
   NodeSource& source_;
   IdentityMap ids_;
   ReplicatedTable table_;
   FramePartBuilder builder_;
+  std::vector<PendingHost> pendingHosts_;
   const void* documentNode_ = nullptr;
   uint32_t contextId_;
   uint32_t generation_;
   uint32_t sequence_ = 0;
+  uint64_t preTableHash_ = 0;
 };
 
 }  // namespace speculum

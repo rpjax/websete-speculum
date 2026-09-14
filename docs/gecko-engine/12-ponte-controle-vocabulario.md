@@ -52,9 +52,11 @@ paralelismo e sem engasgo.** Simplicidade continua valendo, mas não à custa di
 
 ### 3.3 Identidade
 
-`contextId` é **o mesmo** do ABI de frame (`CONTEXT_ID_ROOT = 1`, `0` inválido).
-Controle e dados falam dos mesmos objetos com os mesmos nomes. Não existe segundo
-espaço de ids.
+Um espaço `u32` (`0` inválido, `1` raiz da aba, `≥2` iframe mintado no browser).
+
+`ContextCreate` / `ContextCreated` / `ContextDestroy` / `Navigate` falam **só da aba** (`1`). Nested **não** ganha opcode no supervisor — `parentContextId` no `ContextCreated` fica `0`.
+
+Frame, `Resync` e `Input` podem nomear qualquer `C` mintado. Não são dois espaços: o mint aninhado é interno ao runtime do browser, no nascimento da BrowsingContext.
 
 ## 4. Diálogo, permissão e download — dia 0, explícito
 
@@ -100,8 +102,14 @@ A projeção está **sempre ligada em todo contexto**. Se um contexto existe, é
 a página o criou; ou a gente replica, ou o cliente está errado. Não há estado útil
 "contexto existe mas não é projetado".
 
-Cliente novo anexando é, pela própria §5.8, o mesmo mecanismo com tabela vazia —
-ou seja, `Resync(virtual)`. Não é caso especial e não ganha mensagem própria.
+Cliente novo anexando é o mesmo opcode, não uma mensagem `ProjectionAttach`.
+O mapa do **produtor** já está povoado (o attach fez `resyncVirtual`): a força
+certa é **mapa** (`emitResyncFrame`, força 0). `Resync(virtual)` é para mapa
+corrupto ou ainda vazio — não para tabela vazia no cliente.
+
+O supervisor dispara `Resync(raiz, 0)` quando um consumidor atou e o contexto
+já existe; o lab encaminha `client.requestResync` no mesmo opcode. Sem buffer
+de frame, sem atrasar o lançamento do browser.
 
 **Motivo real do corte:** dois caminhos que fazem a mesma coisa divergem com o
 tempo. Alguém conserta um bug no resync e não no attach, e passa a existir sessão

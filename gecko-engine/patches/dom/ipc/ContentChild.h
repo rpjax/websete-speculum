@@ -264,6 +264,9 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvSetOffline(const bool& offline);
 
+  mozilla::ipc::IPCResult RecvSpeculumResync(const uint32_t& aContextId,
+                                             const uint8_t& aForce);
+
   mozilla::ipc::IPCResult RecvSetConnectivity(const bool& connectivity);
   mozilla::ipc::IPCResult RecvSetCaptivePortalState(const int32_t& state);
   mozilla::ipc::IPCResult RecvSetTRRMode(

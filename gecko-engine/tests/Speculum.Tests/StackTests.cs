@@ -39,7 +39,13 @@ public static class StackTests
         var pages = PageFixtures.Start();
         try
         {
-            return await RunWithPagesAsync(report, pages);
+            await RunRootNavAsync(report, pages);
+            if (!report.Failed)
+            {
+                await RunMultiplexAsync(report, pages);
+            }
+
+            return report.Finish();
         }
         finally
         {
@@ -47,7 +53,7 @@ public static class StackTests
         }
     }
 
-    private static async Task<int> RunWithPagesAsync(Report report, PageFixtures pages)
+    private static async Task RunRootNavAsync(Report report, PageFixtures pages)
     {
         var browserBin = Environment.GetEnvironmentVariable("SPECULUM_STACK_BROWSER_BIN");
         var url = Environment.GetEnvironmentVariable("SPECULUM_STACK_URL") ?? pages.FirstUrl;
@@ -56,20 +62,20 @@ public static class StackTests
         if (!Harness.TryDotnet(out var dotnet, out var pDot))
         {
             report.Fail("dotnet", "SPECULUM_DOTNET válido", pDot, "rode pelo run.sh");
-            return report.Finish();
+            return;
         }
 
         if (!Harness.TryDll("SPECULUM_SUPERVISOR_DLL", out var supervisorDll, out var pSup))
         {
             report.Fail("dll do supervisor", "SPECULUM_SUPERVISOR_DLL construída", pSup, "rode pelo run.sh");
-            return report.Finish();
+            return;
         }
 
         if (string.IsNullOrWhiteSpace(browserBin) || !File.Exists(browserBin))
         {
             report.Fail("binário do Gecko", "SPECULUM_STACK_BROWSER_BIN apontando para o firefox construído",
                 browserBin ?? "não definida", "L4 exige a stack real; rode run.sh --stack com o objdir construído");
-            return report.Finish();
+            return;
         }
 
         var port = FreeTcpPort();
@@ -109,6 +115,10 @@ public static class StackTests
                 {
                     rootContext = h.ContextId;
                 }
+
+                report.Equal($"frame {i} é resync", true, (h.Flags & SealedFrame.ResyncFlag) != 0);
+                report.Equal($"frame {i} geração inicial 1", 1u, h.Generation);
+                report.Equal($"frame {i} fecha com CHECK", true, FrameStrings.HasClosingCheck(first[i]));
             }
 
             // (4): um contexto só no bootstrap. Vários = o pai carimbou contextos
@@ -119,6 +129,41 @@ public static class StackTests
             if (first.Count >= 1)
             {
                 AssertPageText(report, first[0], "alpha", "bootstrap (página /a)");
+            }
+
+            var mutated = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(30), seen =>
+                seen.Any(f =>
+                {
+                    var h = SealedFrame.Parse(f);
+                    return h.Ok && (h.Flags & SealedFrame.ResyncFlag) == 0 && h.PreTableHash != 0;
+                }));
+            SealedFrame.Header ordinary = default;
+            foreach (var frame in mutated)
+            {
+                var h = SealedFrame.Parse(frame);
+                if (h.Ok && (h.Flags & SealedFrame.ResyncFlag) == 0)
+                {
+                    ordinary = h;
+                    break;
+                }
+            }
+            report.Equal("frame ordinário depois da mutação", true, ordinary.Ok);
+            if (ordinary.Ok)
+            {
+                report.Equal("preTableHash ordinário ≠ 0", true, ordinary.PreTableHash != 0);
+                report.Equal("mutação: geração intacta", 1u, ordinary.Generation);
+            }
+
+            await SendConsumerResyncAsync(client);
+            var recovered = await ReceiveFramesAsync(client, count: 1, TimeSpan.FromSeconds(60));
+            report.Equal("frames após resync do consumidor", true, recovered.Count >= 1);
+            if (recovered.Count >= 1)
+            {
+                var rh = SealedFrame.Parse(recovered[^1]);
+                report.Equal("resync: prefixo selado", true, rh.Ok);
+                report.Equal("resync: flag no fio", true, rh.Ok && (rh.Flags & SealedFrame.ResyncFlag) != 0);
+                report.Equal("resync: geração intacta", 1u, rh.Generation);
+                report.Equal("resync: fecha com CHECK", true, recovered.Count >= 1 && FrameStrings.HasClosingCheck(recovered[^1]));
             }
 
             // (5): o comando do consumidor chega ao browser real E a página nova é
@@ -159,7 +204,116 @@ public static class StackTests
         }
 
         File.Delete(socketPath);
-        return report.Finish();
+    }
+
+    private static async Task RunMultiplexAsync(Report report, PageFixtures pages)
+    {
+        if (!Harness.TryDotnet(out var dotnet, out _) ||
+            !Harness.TryDll("SPECULUM_SUPERVISOR_DLL", out var supervisorDll, out _))
+        {
+            return;
+        }
+
+        var browserBin = Environment.GetEnvironmentVariable("SPECULUM_STACK_BROWSER_BIN");
+        if (string.IsNullOrWhiteSpace(browserBin) || !File.Exists(browserBin))
+        {
+            return;
+        }
+
+        Console.WriteLine("L4 — multiplex (iframe → contextId)");
+        var port = FreeTcpPort();
+        var socketPath = $"/tmp/spec-l4m-{Guid.NewGuid():n}"[..24] + ".sock";
+        File.Delete(socketPath);
+
+        var log = new StringBuilder();
+        var supervisor = StartSupervisor(dotnet, supervisorDll, browserBin, pages.HostUrl, port, socketPath, log);
+
+        try
+        {
+            using var client = await ConnectConsumerAsync(port, supervisor, TimeSpan.FromSeconds(60));
+            var frames = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(60), seen =>
+                HasChildScope(seen, 1, 2) && HasTextOnContext(seen, 2, "inner-alpha"));
+
+            report.Equal("host NODE_NEW com childScopeId=2", true, HasChildScope(frames, 1, 2));
+            report.Equal("frame C=2 com inner-alpha", true, HasTextOnContext(frames, 2, "inner-alpha"));
+
+            uint? firstInnerGen = FirstGeneration(frames, 2, "inner-alpha");
+            var afterInnerNav = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(60), seen =>
+            {
+                var all = frames.Concat(seen).ToList();
+                return HasTextOnContext(all, 2, "inner-bravo") &&
+                       firstInnerGen is uint g &&
+                       all.Any(f =>
+                       {
+                           var h = SealedFrame.Parse(f);
+                           return h.Ok && h.ContextId == 2 && h.Generation > g &&
+                                  FrameStrings.TryReadLocal(f, out var s, out _) &&
+                                  FrameStrings.Contains(s, "inner-bravo");
+                       });
+            });
+            frames.AddRange(afterInnerNav);
+
+            report.Equal("nav do iframe: mesmo C=2", true, HasTextOnContext(frames, 2, "inner-bravo"));
+            report.Equal("nav do iframe: generation subiu", true,
+                firstInnerGen is uint g0 &&
+                frames.Any(f =>
+                {
+                    var h = SealedFrame.Parse(f);
+                    return h.Ok && h.ContextId == 2 && h.Generation > g0 &&
+                           FrameStrings.TryReadLocal(f, out var s, out _) &&
+                           FrameStrings.Contains(s, "inner-bravo");
+                }));
+            report.Equal("nav do iframe nao mintou C=3", false, frames.Any(f =>
+            {
+                var h = SealedFrame.Parse(f);
+                return h.Ok && h.ContextId == 3;
+            }));
+
+            await SendConsumerNavigateAsync(client, pages.Host2Url);
+            var afterSwap = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(60), seen =>
+                HasChildScope(seen, 1, 3) || HasTextOnContext(seen, 3, "inner-alpha"));
+            frames.AddRange(afterSwap);
+
+            report.Equal("novo host mintou C=3", true,
+                HasChildScope(afterSwap, 1, 3) || HasTextOnContext(afterSwap, 3, "inner-alpha"));
+
+            var created = CountLog(log.ToString(), "contexto 1 criado");
+            var createdNested = CountLog(log.ToString(), "contexto 2 criado");
+            report.Equal("um ContextCreated da aba", 1, created);
+            report.Equal("nenhum ContextCreated de iframe", 0, createdNested);
+
+            foreach (var frame in frames)
+            {
+                var h = SealedFrame.Parse(frame);
+                if (!h.Ok || (h.Flags & SealedFrame.ResyncFlag) != 0)
+                {
+                    continue;
+                }
+
+                report.Equal($"ctx={h.ContextId} seq={h.Sequence} preTableHash ordinário", true,
+                    h.PreTableHash != 0);
+            }
+
+            await CloseAsync(client);
+        }
+        catch (Exception ex)
+        {
+            report.Fail("multiplex", "iframe C + generation + remint", ex.Message);
+        }
+        finally
+        {
+            StopSupervisor(supervisor);
+        }
+
+        if (report.Failed)
+        {
+            Console.WriteLine();
+            Console.WriteLine("---- log do supervisor (multiplex) ----");
+            Console.WriteLine(log.ToString().TrimEnd());
+            Console.WriteLine("----------------------------------------");
+        }
+
+        File.Delete(socketPath);
     }
 
     private static Process StartSupervisor(
@@ -254,6 +408,117 @@ public static class StackTests
         return frames;
     }
 
+    private static async Task<List<byte[]>> ReceiveUntilAsync(
+        ClientWebSocket client, TimeSpan timeout, Func<List<byte[]>, bool> done)
+    {
+        var frames = new List<byte[]>();
+        var buffer = new byte[256 * 1024];
+        using var deadline = new CancellationTokenSource(timeout);
+
+        try
+        {
+            while (!done(frames))
+            {
+                using var assembled = new MemoryStream();
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await client.ReceiveAsync(buffer, deadline.Token);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        return frames;
+                    }
+
+                    assembled.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
+                frames.Add(assembled.ToArray());
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        return frames;
+    }
+
+    private static bool HasChildScope(IReadOnlyList<byte[]> frames, uint parentContext, uint childScope)
+    {
+        foreach (var frame in frames)
+        {
+            var h = SealedFrame.Parse(frame);
+            if (!h.Ok || h.ContextId != parentContext)
+            {
+                continue;
+            }
+
+            if (FrameNested.HasChildScope(frame, childScope))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasTextOnContext(IReadOnlyList<byte[]> frames, uint contextId, string needle)
+    {
+        foreach (var frame in frames)
+        {
+            var h = SealedFrame.Parse(frame);
+            if (!h.Ok || h.ContextId != contextId)
+            {
+                continue;
+            }
+
+            if (FrameStrings.TryReadLocal(frame, out var strings, out _) &&
+                FrameStrings.Contains(strings, needle))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static uint? FirstGeneration(IReadOnlyList<byte[]> frames, uint contextId, string needle)
+    {
+        foreach (var frame in frames)
+        {
+            var h = SealedFrame.Parse(frame);
+            if (!h.Ok || h.ContextId != contextId)
+            {
+                continue;
+            }
+
+            if (FrameStrings.TryReadLocal(frame, out var strings, out _) &&
+                FrameStrings.Contains(strings, needle))
+            {
+                return h.Generation;
+            }
+        }
+
+        return null;
+    }
+
+    private static int CountLog(string log, string needle)
+    {
+        var n = 0;
+        var start = 0;
+        while (true)
+        {
+            var i = log.IndexOf(needle, start, StringComparison.Ordinal);
+            if (i < 0)
+            {
+                return n;
+            }
+
+            n++;
+            start = i + needle.Length;
+        }
+    }
+
     private static void AssertPageText(Report report, byte[] frame, string needle, string where)
     {
         if (!FrameStrings.TryReadLocal(frame, out var strings, out var problem))
@@ -269,6 +534,12 @@ public static class StackTests
     {
         // contextId 0 = "o contexto raiz"; o supervisor resolve. Mesmo ABI do doc 18.
         var command = ControlCommand.Navigate(0, 0, url);
+        await client.SendAsync(command, WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+    }
+
+    private static async Task SendConsumerResyncAsync(ClientWebSocket client)
+    {
+        var command = ControlCommand.Resync(0, 0, 0);
         await client.SendAsync(command, WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
     }
 
@@ -347,12 +618,17 @@ public static class StackTests
 
         public string FirstUrl { get; }
         public string SecondUrl { get; }
+        public string HostUrl { get; }
+        public string Host2Url { get; }
 
-        private PageFixtures(HttpListener listener, string firstUrl, string secondUrl)
+        private PageFixtures(HttpListener listener, string firstUrl, string secondUrl,
+            string hostUrl, string host2Url)
         {
             _listener = listener;
             FirstUrl = firstUrl;
             SecondUrl = secondUrl;
+            HostUrl = hostUrl;
+            Host2Url = host2Url;
             _ = ServeAsync(_cancel.Token);
         }
 
@@ -367,7 +643,7 @@ public static class StackTests
             var listener = new HttpListener();
             listener.Prefixes.Add(prefix);
             listener.Start();
-            return new PageFixtures(listener, prefix + "a", prefix + "b");
+            return new PageFixtures(listener, prefix + "a", prefix + "b", prefix + "host", prefix + "host2");
         }
 
         public void Dispose()
@@ -392,9 +668,27 @@ public static class StackTests
                 {
                     var ctx = await _listener.GetContextAsync().WaitAsync(cancel);
                     var path = ctx.Request.Url?.AbsolutePath ?? "/";
-                    var body = path.EndsWith("/b", StringComparison.Ordinal)
-                        ? "<!doctype html><html><head><title>spec-b</title></head><body><h1 id=\"spec-page-b\">bravo</h1></body></html>"
-                        : "<!doctype html><html><head><title>spec-a</title></head><body><h1 id=\"spec-page-a\">alpha</h1></body></html>";
+                    var body = path switch
+                    {
+                        var p when p.EndsWith("/b", StringComparison.Ordinal) =>
+                            "<!doctype html><html><head><title>spec-b</title></head><body><h1 id=\"spec-page-b\">bravo</h1></body></html>",
+                        var p when p.EndsWith("/inner2", StringComparison.Ordinal) =>
+                            "<!doctype html><html><head><title>inner-b</title></head><body><p id=\"spec-inner-b\">inner-bravo</p></body></html>",
+                        var p when p.EndsWith("/inner", StringComparison.Ordinal) =>
+                            "<!doctype html><html><head><title>inner-a</title></head><body><p id=\"spec-inner-a\">inner-alpha</p></body></html>",
+                        var p when p.EndsWith("/host2", StringComparison.Ordinal) =>
+                            "<!doctype html><html><head><title>host2</title></head><body><iframe id=\"spec-frame-2\" src=\"/inner\"></iframe></body></html>",
+                        var p when p.EndsWith("/host", StringComparison.Ordinal) =>
+                            "<!doctype html><html><head><title>host</title></head><body>" +
+                            "<iframe id=\"spec-frame\" src=\"/inner\"></iframe>" +
+                            "<script>document.getElementById('spec-frame').addEventListener('load',function onFirst(){" +
+                            "this.removeEventListener('load',onFirst);this.src='/inner2';});</script>" +
+                            "</body></html>",
+                        _ =>
+                            "<!doctype html><html><head><title>spec-a</title></head><body><h1 id=\"spec-page-a\">alpha</h1>" +
+                            "<script>requestAnimationFrame(function(){document.getElementById('spec-page-a').textContent='alpha-tick';});</script>" +
+                            "</body></html>",
+                    };
                     var bytes = Encoding.UTF8.GetBytes(body);
                     ctx.Response.ContentType = "text/html; charset=utf-8";
                     ctx.Response.ContentLength64 = bytes.Length;

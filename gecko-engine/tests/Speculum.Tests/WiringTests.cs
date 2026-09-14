@@ -96,6 +96,16 @@ public static class WiringTests
                 journalPath, "navigate", ConsumerUrl, TimeSpan.FromSeconds(10));
             report.Equal("navegação do consumidor chega ao browser", true, delivered);
 
+            await SendConsumerResyncAsync(clientA);
+            var resyncDelivered = await WaitForJournalContainsAsync(
+                journalPath, "resync", "force=0", TimeSpan.FromSeconds(10));
+            report.Equal("resync do consumidor chega ao browser", true, resyncDelivered);
+            var resyncFrameLogged = await WaitForJournalContainsAsync(
+                journalPath, "resync-frame", "ctx=", TimeSpan.FromSeconds(10));
+            report.Equal("resync emitiu frame", true, resyncFrameLogged);
+            var flagged = await ReceiveUntilFlagAsync(clientA, FakeFrame.ResyncFlag, TimeSpan.FromSeconds(10));
+            report.Equal("frame de resync com flag no fio", true, flagged);
+
             await CloseAsync(clientA);
             await CloseAsync(clientB);
 
@@ -214,6 +224,41 @@ public static class WiringTests
         return frames;
     }
 
+    private static async Task<bool> ReceiveUntilFlagAsync(ClientWebSocket client, byte flag, TimeSpan timeout)
+    {
+        var buffer = new byte[64 * 1024];
+        using var deadline = new CancellationTokenSource(timeout);
+        try
+        {
+            while (true)
+            {
+                using var assembled = new MemoryStream();
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await client.ReceiveAsync(buffer, deadline.Token);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        return false;
+                    }
+
+                    assembled.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
+                var parsed = FakeFrame.Parse(assembled.ToArray());
+                if (parsed.Ok && (parsed.Flags & flag) != 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
     private static void AssertFrames(Report report, string who, List<byte[]> frames)
     {
         report.Equal($"[{who}] frames recebidos", FramesToCollect, frames.Count);
@@ -317,6 +362,31 @@ public static class WiringTests
         // do doc 18 que um consumidor de produção usaria.
         var command = ControlCommand.Navigate(0, 0, url);
         await client.SendAsync(command, WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+    }
+
+    private static async Task SendConsumerResyncAsync(ClientWebSocket client)
+    {
+        var command = ControlCommand.Resync(0, 0, 0);
+        await client.SendAsync(command, WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+    }
+
+    private static async Task<bool> WaitForJournalContainsAsync(
+        string journalPath, string key, string contains, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var entries = ReadJournal(journalPath);
+            if (entries.TryGetValue(key, out var detail) &&
+                detail.Contains(contains, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            await Task.Delay(100);
+        }
+
+        return false;
     }
 
     private static async Task<bool> WaitForJournalAsync(string journalPath, string key, string expectedDetail, TimeSpan timeout)

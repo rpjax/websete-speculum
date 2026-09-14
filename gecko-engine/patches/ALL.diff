@@ -1,31 +1,53 @@
+diff --git a/docshell/base/BrowsingContext.cpp b/docshell/base/BrowsingContext.cpp
+index 595cb05fbf..fd4cc36e6e 100644
+--- a/docshell/base/BrowsingContext.cpp
++++ b/docshell/base/BrowsingContext.cpp
+@@ -26,6 +26,7 @@
+ #include "mozilla/dom/BrowsingContextBinding.h"
+ #include "mozilla/dom/ContentChild.h"
+ #include "mozilla/dom/ContentParent.h"
++#include "mozilla/dom/SpeculumMint.h"
+ #include "mozilla/dom/Document.h"
+ #include "mozilla/dom/DocumentPictureInPicture.h"
+ #include "mozilla/dom/Element.h"
+@@ -526,6 +527,11 @@ already_AddRefed<BrowsingContext> BrowsingContext::CreateDetached(
+ 
+   fields.Get<IDX_AnimationsPlayBackRateMultiplier>() = 1.0;
+ 
++  // Speculum: C no snapshot de nascimento. Sem pai / chrome / print / Top
++  // sem projeção → 0. CreateFromIPC só herda. Não Set depois.
++  fields.Get<IDX_SpeculumContextId>() = SpeculumMintNestedIfProjected(
++      parentBC.get(), aType == Type::Content, aOptions.isForPrinting);
++
+   RefPtr<BrowsingContext> context;
+   if (XRE_IsParentProcess()) {
+     context = new CanonicalBrowsingContext(parentWC, group, id,
 diff --git a/docshell/base/BrowsingContext.h b/docshell/base/BrowsingContext.h
-index 6f7f58bba3..573b5cf8f5 100644
+index 6f7f58bba3..ccefa5ee10 100644
 --- a/docshell/base/BrowsingContext.h
 +++ b/docshell/base/BrowsingContext.h
-@@ -300,7 +300,13 @@ struct EmbedderColorSchemes {
+@@ -300,7 +300,11 @@ struct EmbedderColorSchemes {
    FIELD(IsDocumentPiP, bool)                                                  \
    /* True if this is a content browsing context whose page has an open        \
       Document Picture-in-Picture window */                                    \
 -  FIELD(ControlsDocumentPiP, bool)
 +  FIELD(ControlsDocumentPiP, bool)                                            \
-+  /* Speculum: o contexto projetado ao qual esta aba pertence, atribuído      \
-+   * pelo processo pai no ContextCreate. Zero quando não é projetada. Mora    \
-+   * aqui, e não num mapa por processo, porque todo processo que vier a       \
-+   * hospedar a aba — inclusive o que nasce numa troca de processo — precisa  \
-+   * da mesma resposta sem depender de difusão. Só no topo. */                \
++  /* Speculum: contextId desta janela (0 off, 1 raiz da aba, ≥2 iframe).      \
++   * Nested é gravado no CreateDetached. A raiz recebe 1 no ContextCreate.    \
++   * ReplacedBy copia — não reminta. Mora aqui, não num mapa por processo. */ \
 +  FIELD(SpeculumContextId, uint32_t)
  
  #define NS_DOM_BROWSINGCONTEXT_IID \
    {0x5059a6aa, 0xf09, 0x415c, {0x89, 0xbd, 0x63, 0xfd, 0xe5, 0xab, 0x1a, 0x66}};
-@@ -1547,6 +1553,13 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
+@@ -1547,6 +1551,13 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
      return IsTop() && XRE_IsParentProcess();
    }
  
 +  bool CanSet(FieldIndex<IDX_SpeculumContextId>, const uint32_t& aValue,
 +              ContentParent* aSource) {
-+    // Só o pai, e só no topo. Conteúdo que tentasse se declarar projetado
-+    // estaria pedindo frames de uma aba que ninguém pediu.
-+    return IsTop() && XRE_IsParentProcess() && !aSource;
++    // Só o pai. Conteúdo que tentasse se declarar projetado estaria pedindo
++    // frames de uma aba que ninguém pediu. Nested e raiz usam o mesmo campo.
++    return XRE_IsParentProcess() && !aSource;
 +  }
 +
    // TODO(emilio): Maybe handle the flag being set dynamically without
@@ -198,10 +220,10 @@ index 42c105bb32..40085d8da6 100644
    // data as in XHR or DOMParser.
 diff --git a/dom/base/SpeculumMutationObserver.cpp b/dom/base/SpeculumMutationObserver.cpp
 new file mode 100755
-index 0000000000..66a0d0f1a6
+index 0000000000..935935cad8
 --- /dev/null
 +++ b/dom/base/SpeculumMutationObserver.cpp
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,331 @@
 +/* Speculum — minimal DOM mutation probe (producer spike). */
 +#include "SpeculumMutationObserver.h"
 +
@@ -219,6 +241,7 @@ index 0000000000..66a0d0f1a6
 +#include "speculum/Producer.h"
 +#include "speculum/Wire.h"
 +
++#include <map>
 +#include <unistd.h>
 +#include <vector>
 +
@@ -279,13 +302,39 @@ index 0000000000..66a0d0f1a6
 +
 +}  // namespace
 +
++namespace {
++
++std::map<uint32_t, SpeculumMutationObserver*> gObserversByContext;
++
++void RegisterObserver(uint32_t aContextId, SpeculumMutationObserver* aObserver) {
++  gObserversByContext[aContextId] = aObserver;
++}
++
++void UnregisterObserver(uint32_t aContextId, SpeculumMutationObserver* aObserver) {
++  auto it = gObserversByContext.find(aContextId);
++  if (it != gObserversByContext.end() && it->second == aObserver) {
++    gObserversByContext.erase(it);
++  }
++}
++
++}  // namespace
++
 +SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
 +                                                   uint32_t aContextId)
 +    : mDocument(aDocument),
-+      mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {}
++      mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {
++  RegisterObserver(aContextId, this);
++}
 +
 +SpeculumMutationObserver::~SpeculumMutationObserver() {
++  if (mState) {
++    UnregisterObserver(mState->contextId, this);
++  }
 +  CancelFrameTimer();
++}
++
++uint32_t SpeculumMutationObserver::ContextId() const {
++  return mState ? mState->contextId : 0;
 +}
 +
 +void SpeculumMutationObserver::CancelFrameTimer() {
@@ -335,14 +384,44 @@ index 0000000000..66a0d0f1a6
 +  if (!mDocument || !mDocument->IsContentDocument() || !mState) {
 +    return false;
 +  }
-+  mState->producer.bootstrap(mDocument);
-+  const uint32_t ops = mState->producer.pendingOps();
-+  std::vector<uint8_t> frame = mState->producer.emitFrame();
++  std::vector<uint8_t> frame = mState->producer.resyncVirtual(mDocument);
 +  if (frame.empty()) {
 +    return false;
 +  }
-+  SendFrameBytes(mDocument, *mState, frame, ops, true);
++  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), true);
 +  return true;
++}
++
++void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
++  if (!mDocument || !mState) {
++    return;
++  }
++  CancelFrameTimer();
++  mState->producer.discardPending();
++  std::vector<uint8_t> frame;
++  if (aForce == 1) {
++    frame = mState->producer.resyncVirtual(mDocument);
++  } else {
++    frame = mState->producer.emitResyncFrame();
++  }
++  if (frame.empty()) {
++    SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u force=%u vazio", mState->contextId,
++                 aForce);
++    return;
++  }
++  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), true);
++  SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u force=%u seq=%u bytes=%zu",
++               mState->contextId, aForce, mState->producer.sequence(),
++               frame.size());
++}
++
++void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce) {
++  auto it = gObserversByContext.find(aContextId);
++  if (it == gObserversByContext.end() || !it->second) {
++    SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u sem observer — no-op", aContextId);
++    return;
++  }
++  it->second->RequestResync(aForce);
 +}
 +
 +void SpeculumMutationObserver::CharacterDataWillChange(
@@ -435,13 +514,12 @@ index 0000000000..66a0d0f1a6
 +  if (!aDocument || aDocument->GetSpeculumMutationObserver()) {
 +    return;
 +  }
-+  // O registro do contexto projetado vem da própria BrowsingContext (campo
-+  // sincronizado, carimbado pelo pai no ContextCreate). O produtor não julga
-+  // documento: ele lê a aba em que o documento está.
++  // C desta janela, não do Top(). Iframe mintado no CreateDetached traz o
++  // próprio id; chrome / não projetado fica 0 e some.
 +  mozilla::dom::BrowsingContext* bc = aDocument->GetBrowsingContext();
 +  mozilla::dom::BrowsingContext* top = bc ? bc->Top() : nullptr;
 +  const uint64_t topId = top ? top->Id() : 0;
-+  const uint32_t ctx = top ? top->GetSpeculumContextId() : 0;
++  const uint32_t ctx = bc ? bc->GetSpeculumContextId() : 0;
 +
 +  // Um documento que não anexa é um documento que não projeta. A decisão é
 +  // observável: sem isto, "a página não subiu" não distingue registro ausente
@@ -479,10 +557,10 @@ index 0000000000..66a0d0f1a6
 +}
 diff --git a/dom/base/SpeculumMutationObserver.h b/dom/base/SpeculumMutationObserver.h
 new file mode 100755
-index 0000000000..20fc7d79c6
+index 0000000000..7efceba888
 --- /dev/null
 +++ b/dom/base/SpeculumMutationObserver.h
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,64 @@
 +/* Speculum — minimal DOM mutation probe (producer spike). */
 +#ifndef dom_base_SpeculumMutationObserver_h
 +#define dom_base_SpeculumMutationObserver_h
@@ -506,6 +584,8 @@ index 0000000000..20fc7d79c6
 +  SpeculumMutationObserver(mozilla::dom::Document* aDocument, uint32_t aContextId);
 +
 +  bool TryWriteBootstrapFrame();
++  void RequestResync(uint8_t aForce);
++  uint32_t ContextId() const;
 +
 +  void CancelFrameTimer();
 +
@@ -542,14 +622,15 @@ index 0000000000..20fc7d79c6
 +
 +void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
 +void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
++void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce);
 +
 +#endif
 diff --git a/dom/base/SpeculumNodeSource.cpp b/dom/base/SpeculumNodeSource.cpp
 new file mode 100644
-index 0000000000..24942e1528
+index 0000000000..a1cf4413ee
 --- /dev/null
 +++ b/dom/base/SpeculumNodeSource.cpp
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,245 @@
 +/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
 +#include "mozilla/Assertions.h"
 +#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
@@ -569,6 +650,8 @@ index 0000000000..24942e1528
 +#include "nsReadableUtils.h"
 +#include "mozilla/dom/Document.h"
 +#include "mozilla/dom/BrowsingContext.h"
++#include "nsCOMPtr.h"
++#include "nsFrameLoaderOwner.h"
 +#include "nsIDocShell.h"
 +
 +#include <cstdio>
@@ -715,6 +798,39 @@ index 0000000000..24942e1528
 +  return AsNode(node)->IsInNativeAnonymousSubtree();
 +}
 +
++bool SpeculumNodeSource::isNestedHost(const void* node) const {
++  Element* el = Element::FromNode(AsNode(node));
++  if (!el || !el->IsInComposedDoc()) {
++    return false;
++  }
++  nsCOMPtr<nsFrameLoaderOwner> owner = do_QueryInterface(el);
++  return owner != nullptr;
++}
++
++uint32_t SpeculumNodeSource::childScopeIdOf(const void* node) const {
++  Element* el = Element::FromNode(AsNode(node));
++  if (!el) {
++    return 0;
++  }
++  nsCOMPtr<nsFrameLoaderOwner> owner = do_QueryInterface(el);
++  if (!owner) {
++    return 0;
++  }
++  mozilla::dom::BrowsingContext* bc = owner->GetBrowsingContext();
++  if (!bc) {
++    return 0;
++  }
++  const uint32_t c = bc->GetSpeculumContextId();
++  if (c == 1) {
++    MOZ_CRASH("Speculum: iframe BrowsingContext stamped as root contextId");
++  }
++  return c >= 2 ? c : 0;
++}
++
++bool SpeculumNodeSource::isConnected(const void* node) const {
++  return AsNode(node)->IsInComposedDoc();
++}
++
 +namespace {
 +
 +bool IsSpeculumChromeOrNonContent(mozilla::dom::Document* aDocument) {
@@ -762,10 +878,10 @@ index 0000000000..24942e1528
 +}
 diff --git a/dom/base/SpeculumNodeSource.h b/dom/base/SpeculumNodeSource.h
 new file mode 100644
-index 0000000000..66d49a380f
+index 0000000000..bdf77fe6aa
 --- /dev/null
 +++ b/dom/base/SpeculumNodeSource.h
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,40 @@
 +/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
 +#ifndef dom_base_SpeculumNodeSource_h
 +#define dom_base_SpeculumNodeSource_h
@@ -797,6 +913,9 @@ index 0000000000..66d49a380f
 +  std::vector<speculum::AttrPair> attrsOf(const void* node) const override;
 +  std::vector<const void*> childrenOf(const void* node) const override;
 +  bool isUaOwned(const void* node) const override;
++  bool isNestedHost(const void* node) const override;
++  uint32_t childScopeIdOf(const void* node) const override;
++  bool isConnected(const void* node) const override;
 +
 + private:
 +  uint64_t mDocToken;
@@ -850,10 +969,18 @@ index 06e0efa0d9..e6a353504d 100644
      "/widget",
      "/xpcom/build",
 diff --git a/dom/ipc/ContentChild.cpp b/dom/ipc/ContentChild.cpp
-index d77bf2ae52..97448c23e3 100644
+index d77bf2ae52..0ca5d079c4 100644
 --- a/dom/ipc/ContentChild.cpp
 +++ b/dom/ipc/ContentChild.cpp
-@@ -40,6 +40,7 @@
+@@ -8,6 +8,7 @@
+ 
+ #include "BrowserChild.h"
+ #include "ContentChild.h"
++#include "SpeculumMutationObserver.h"
+ #include "GMPServiceChild.h"
+ #include "GeckoProfiler.h"
+ #include "Geolocation.h"
+@@ -40,6 +41,7 @@
  #include "mozilla/SimpleEnumerator.h"
  #include "mozilla/SpinEventLoopUntil.h"
  #include "mozilla/StaticMutex.h"
@@ -861,8 +988,35 @@ index d77bf2ae52..97448c23e3 100644
  #include "mozilla/StaticPrefs_browser.h"
  #include "mozilla/StaticPrefs_dom.h"
  #include "mozilla/StaticPrefs_fission.h"
+@@ -2142,6 +2144,12 @@ mozilla::ipc::IPCResult ContentChild::RecvSetOffline(const bool& offline) {
+   return IPC_OK();
+ }
+ 
++mozilla::ipc::IPCResult ContentChild::RecvSpeculumResync(
++    const uint32_t& aContextId, const uint8_t& aForce) {
++  SpeculumRequestResync(aContextId, aForce);
++  return IPC_OK();
++}
++
+ mozilla::ipc::IPCResult ContentChild::RecvSetConnectivity(
+     const bool& connectivity) {
+   nsCOMPtr<nsIIOService> io(do_GetIOService());
+diff --git a/dom/ipc/ContentChild.h b/dom/ipc/ContentChild.h
+index 1de5f331b0..a7b874e325 100644
+--- a/dom/ipc/ContentChild.h
++++ b/dom/ipc/ContentChild.h
+@@ -264,6 +264,9 @@ class ContentChild final : public PContentChild,
+ 
+   mozilla::ipc::IPCResult RecvSetOffline(const bool& offline);
+ 
++  mozilla::ipc::IPCResult RecvSpeculumResync(const uint32_t& aContextId,
++                                             const uint8_t& aForce);
++
+   mozilla::ipc::IPCResult RecvSetConnectivity(const bool& connectivity);
+   mozilla::ipc::IPCResult RecvSetCaptivePortalState(const int32_t& state);
+   mozilla::ipc::IPCResult RecvSetTRRMode(
 diff --git a/dom/ipc/ContentParent.cpp b/dom/ipc/ContentParent.cpp
-index 9ae86e6114..de0905f023 100644
+index 9ae86e6114..eac8cd81d7 100644
 --- a/dom/ipc/ContentParent.cpp
 +++ b/dom/ipc/ContentParent.cpp
 @@ -3,6 +3,9 @@
@@ -883,10 +1037,15 @@ index 9ae86e6114..de0905f023 100644
  
    Preferences::RegisterCallbackAndCall(&OnFissionBlocklistPrefChange,
                                         kFissionEnforceBlockList);
-@@ -1265,6 +1269,21 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateGMPService() {
+@@ -1265,6 +1269,26 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateGMPService() {
    return IPC_OK();
  }
  
++
++IPCResult ContentParent::RecvSpeculumMintContextId(uint32_t* aContextId) {
++  *aContextId = SpeculumProjectionRuntime::MintNestedContextId();
++  return IPC_OK();
++}
 +
 +IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
 +                                           const uint32_t& aContextId,
@@ -906,13 +1065,15 @@ index 9ae86e6114..de0905f023 100644
      const nsACString& aHost, PrivateAttributionImpressionType aType,
      uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost) {
 diff --git a/dom/ipc/ContentParent.h b/dom/ipc/ContentParent.h
-index 4e7694702d..98c47dcee4 100644
+index 4e7694702d..2bc18ad52e 100644
 --- a/dom/ipc/ContentParent.h
 +++ b/dom/ipc/ContentParent.h
-@@ -518,6 +518,11 @@ class ContentParent final : public PContentParent,
+@@ -518,6 +518,13 @@ class ContentParent final : public PContentParent,
      return PContentParent::RecvPHalConstructor(aActor);
    }
  
++  mozilla::ipc::IPCResult RecvSpeculumMintContextId(uint32_t* aContextId);
++
 +  mozilla::ipc::IPCResult RecvSpeculumFrame(const uint64_t& aDocToken,
 +                                              const uint32_t& aContextId,
 +                                              const uint32_t& aSequence,
@@ -922,10 +1083,10 @@ index 4e7694702d..98c47dcee4 100644
        const nsACString& aHost, PrivateAttributionImpressionType aType,
        uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost);
 diff --git a/dom/ipc/PContent.ipdl b/dom/ipc/PContent.ipdl
-index 23fb648516..531c920a63 100644
+index 23fb648516..37d57b209b 100644
 --- a/dom/ipc/PContent.ipdl
 +++ b/dom/ipc/PContent.ipdl
-@@ -1984,16 +1984,21 @@ parent:
+@@ -1984,16 +1984,29 @@ parent:
      async KillGPUProcess();
  #endif
  
@@ -940,9 +1101,17 @@ index 23fb648516..531c920a63 100644
 -                              nsString[] aAds,
 -                              nsCString[] aImpressionSourceHosts);
 +parent:
++    // Mint de contextId aninhado no nascimento da BC. Uma vez na vida da BC,
++    // não por frame. 0 = fecha sem inventar.
++    sync SpeculumMintContextId() returns (uint32_t aContextId);
++
 +    async SpeculumFrame(uint64_t aDocToken, uint32_t aContextId,
 +                        uint32_t aSequence, uint8_t[] aFrame);
 +
++child:
++    async SpeculumResync(uint32_t aContextId, uint8_t aForce);
++
++parent:
 +    async AttributionEvent(nsCString aSourceHost,
 +                           PrivateAttributionImpressionType aType,
 +                           uint32_t aIndex, nsString aAd, nsCString aTargetHost);
@@ -1144,12 +1313,90 @@ index 0000000000..c7029fb75d
 +  mPos += byteCount;
 +  return true;
 +}
+diff --git a/dom/ipc/SpeculumMint.cpp b/dom/ipc/SpeculumMint.cpp
+new file mode 100755
+index 0000000000..78bade7beb
+--- /dev/null
++++ b/dom/ipc/SpeculumMint.cpp
+@@ -0,0 +1,45 @@
++/* Speculum — mint do contextId aninhado no nascimento da BrowsingContext. */
++#include "SpeculumMint.h"
++
++#include "SpeculumLog.h"
++#include "SpeculumProjectionRuntime.h"
++#include "mozilla/dom/BrowsingContext.h"
++#include "mozilla/dom/ContentChild.h"
++#include "nsXULAppAPI.h"
++
++namespace mozilla::dom {
++
++uint32_t SpeculumMintNestedContextId() {
++  return SpeculumProjectionRuntime::MintNestedContextId();
++}
++
++uint32_t SpeculumMintNestedIfProjected(BrowsingContext* aParentBc,
++                                       bool aIsContent, bool aIsForPrinting) {
++  if (!aParentBc || !aIsContent || aIsForPrinting) {
++    return 0;
++  }
++  BrowsingContext* top = aParentBc->Top();
++  if (!top || top->GetSpeculumContextId() == 0) {
++    return 0;
++  }
++
++  if (XRE_IsParentProcess()) {
++    return SpeculumMintNestedContextId();
++  }
++
++  ContentChild* cc = ContentChild::GetSingleton();
++  if (!cc) {
++    return 0;
++  }
++  uint32_t minted = 0;
++  if (!cc->SendSpeculumMintContextId(&minted) || minted < 2) {
++    SPECULUM_LOG("[SPECULUM-MINT] IPDL falhou ou devolveu %u — fecha sem inventar",
++                 minted);
++    return 0;
++  }
++  SPECULUM_LOG("[SPECULUM-MINT] nested=%u top=%u", minted,
++               top->GetSpeculumContextId());
++  return minted;
++}
++
++}  // namespace mozilla::dom
+diff --git a/dom/ipc/SpeculumMint.h b/dom/ipc/SpeculumMint.h
+new file mode 100755
+index 0000000000..64ea1b0e55
+--- /dev/null
++++ b/dom/ipc/SpeculumMint.h
+@@ -0,0 +1,21 @@
++/* Speculum — mint do contextId aninhado no nascimento da BrowsingContext. */
++#ifndef mozilla_dom_SpeculumMint_h
++#define mozilla_dom_SpeculumMint_h
++
++#include <stdint.h>
++
++namespace mozilla::dom {
++
++class BrowsingContext;
++
++// Próximo C ≥ 2. Só o processo pai. Nunca reusa. 0 se o runtime ainda não subiu.
++uint32_t SpeculumMintNestedContextId();
++
++// C no snapshot de nascimento. 0 se não for nested projetado.
++// CreateFromIPC não chama isto — só herda o campo.
++uint32_t SpeculumMintNestedIfProjected(BrowsingContext* aParentBc,
++                                       bool aIsContent, bool aIsForPrinting);
++
++}  // namespace mozilla::dom
++
++#endif
 diff --git a/dom/ipc/SpeculumProjectionRuntime.cpp b/dom/ipc/SpeculumProjectionRuntime.cpp
 new file mode 100755
-index 0000000000..e450d13360
+index 0000000000..f6bd8c40ed
 --- /dev/null
 +++ b/dom/ipc/SpeculumProjectionRuntime.cpp
-@@ -0,0 +1,1064 @@
+@@ -0,0 +1,1168 @@
 +/* Speculum — runtime de projeção no processo base (doc 17). */
 +#include "SpeculumProjectionRuntime.h"
 +
@@ -1158,6 +1405,7 @@ index 0000000000..e450d13360
 +#include "mozilla/SystemPrincipal.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "mozilla/dom/CanonicalBrowsingContext.h"
++#include "mozilla/dom/ContentParent.h"
 +#include "mozilla/ErrorResult.h"
 +#include "mozilla/Mutex.h"
 +#include "mozilla/NullPrincipal.h"
@@ -1191,6 +1439,7 @@ index 0000000000..e450d13360
 +#include <cstring>
 +#include <map>
 +#include <string>
++#include <vector>
 +#include <sys/socket.h>
 +#include <sys/un.h>
 +#include <thread>
@@ -1204,6 +1453,7 @@ index 0000000000..e450d13360
 +using mozilla::UniquePtr;
 +using mozilla::dom::BrowsingContext;
 +using mozilla::dom::CanonicalBrowsingContext;
++using mozilla::dom::ContentParent;
 +using mozilla::NullPrincipal;
 +
 +namespace {
@@ -1392,6 +1642,17 @@ index 0000000000..e450d13360
 +    uint64_t docToken;
 +    uint32_t generation;
 +  };
++
++  mozilla::Mutex mintMutex{"SpeculumMint"};
++  uint32_t nextNestedContextId = 2;
++
++  uint32_t MintNestedContextId() {
++    mozilla::MutexAutoLock lock(mintMutex);
++    if (nextNestedContextId < 2) {
++      nextNestedContextId = 2;
++    }
++    return nextNestedContextId++;
++  }
 +
 +  StaticMutex projectedMutex;
 +  std::map<uint32_t, RefPtr<BrowsingContext>> contextToRootBc;
@@ -1885,6 +2146,80 @@ index 0000000000..e450d13360
 +    }
 +  }
 +
++  BrowsingContext* FindBySpeculumContextId(BrowsingContext* aRoot,
++                                           uint32_t aContextId) {
++    if (!aRoot) {
++      return nullptr;
++    }
++    if (aRoot->GetSpeculumContextId() == aContextId) {
++      return aRoot;
++    }
++    for (BrowsingContext* child : aRoot->Children()) {
++      if (BrowsingContext* found =
++              FindBySpeculumContextId(child, aContextId)) {
++        return found;
++      }
++    }
++    return nullptr;
++  }
++
++  already_AddRefed<BrowsingContext> ResolveProjected(uint32_t aContextId) {
++    RefPtr<BrowsingContext> direct = ResolveLiveRoot(aContextId);
++    if (direct) {
++      return direct.forget();
++    }
++
++    std::vector<uint32_t> roots;
++    {
++      StaticMutexAutoLock lock(projectedMutex);
++      roots.reserve(contextToRootBc.size());
++      for (const auto& kv : contextToRootBc) {
++        roots.push_back(kv.first);
++      }
++    }
++    for (uint32_t rootId : roots) {
++      RefPtr<BrowsingContext> root = ResolveLiveRoot(rootId);
++      if (!root) {
++        continue;
++      }
++      if (BrowsingContext* found = FindBySpeculumContextId(root, aContextId)) {
++        RefPtr<BrowsingContext> keep = found;
++        return keep.forget();
++      }
++    }
++    return nullptr;
++  }
++
++  void HandleResync(uint32_t aCorrelationId, uint32_t aContextId,
++                    uint8_t aForce) {
++    if (aForce > 1) {
++      SendFault(aCorrelationId, aContextId, "invalid resync force");
++      return;
++    }
++
++    RefPtr<BrowsingContext> bc = ResolveProjected(aContextId);
++    if (!bc || bc->IsDiscarded()) {
++      SendFault(aCorrelationId, aContextId, "unknown contextId");
++      return;
++    }
++
++    CanonicalBrowsingContext* canonical = bc->Canonical();
++    if (!canonical) {
++      SendFault(aCorrelationId, aContextId, "no canonical browsing context");
++      return;
++    }
++
++    ContentParent* cp = canonical->GetContentParent();
++    if (!cp) {
++      SendFault(aCorrelationId, aContextId, "no content process");
++      return;
++    }
++
++    if (!cp->SendSpeculumResync(aContextId, aForce)) {
++      SendFault(aCorrelationId, aContextId, "SpeculumResync send failed");
++    }
++  }
++
 +  void HandleControlBinary(const uint8_t* aData, size_t aLength) {
 +    SpeculumControlReader reader(aData, aLength);
 +    if (!reader.Ok()) {
@@ -1927,6 +2262,16 @@ index 0000000000..e450d13360
 +          return;
 +        }
 +        HandleNavigate(correlationId, contextId, url);
++        return;
++      }
++      case SpeculumControlOpCode::Resync: {
++        uint32_t contextId = 0;
++        uint8_t force = 0;
++        if (!reader.ReadUInt32(&contextId) || !reader.ReadUInt8(&force)) {
++          SendFault(correlationId, 0, "Resync truncated");
++          return;
++        }
++        HandleResync(correlationId, contextId, force);
 +        return;
 +      }
 +      default:
@@ -2008,11 +2353,10 @@ index 0000000000..e450d13360
 +    }
 +  }
 +
-+  // Época do contexto: cada documento de topo é uma geração, e a sequência
-+  // reinicia dentro dela (docs/page-projection/spec/cssom.md C1). O processo de
++  // Época por contextId: cada Document daquele C é uma geração. O processo de
 +  // conteúdo nasce com o documento e não sabe quantos vieram antes; quem vê
-+  // todos os frames do contexto é o runtime. Sem isto, a página nova chega ao
-+  // cliente como continuação da anterior — mesma geração, sequência do zero.
++  // todos os frames do contexto é o runtime. Iframe e aba têm relógios
++  // independentes. Sem isto, a página nova chega como continuação da anterior.
 +  void StampGenerationLocked(uint32_t aContextId, uint64_t aDocToken,
 +                             nsTArray<uint8_t>& aFrame) {
 +    constexpr size_t kGenerationOffset = 8;
@@ -2022,7 +2366,7 @@ index 0000000000..e450d13360
 +
 +    auto found = epochs.find(aContextId);
 +    if (found == epochs.end()) {
-+      found = epochs.emplace(aContextId, Epoch{aDocToken, 0}).first;
++      found = epochs.emplace(aContextId, Epoch{aDocToken, 1}).first;
 +    } else if (found->second.docToken != aDocToken) {
 +      found->second.docToken = aDocToken;
 +      found->second.generation++;
@@ -2214,12 +2558,19 @@ index 0000000000..e450d13360
 +    base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame) {
 +  mImpl->DeliverFrame(aContextId, aDocToken, aSequence, aChildPid, aFrame);
 +}
++
++uint32_t SpeculumProjectionRuntime::MintNestedContextId() {
++  if (!sRuntime) {
++    return 0;
++  }
++  return sRuntime->mImpl->MintNestedContextId();
++}
 diff --git a/dom/ipc/SpeculumProjectionRuntime.h b/dom/ipc/SpeculumProjectionRuntime.h
 new file mode 100755
-index 0000000000..6ed2062c31
+index 0000000000..92139d66f6
 --- /dev/null
 +++ b/dom/ipc/SpeculumProjectionRuntime.h
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,32 @@
 +/* Speculum — runtime de projeção no processo base (doc 17). */
 +#ifndef dom_ipc_SpeculumProjectionRuntime_h
 +#define dom_ipc_SpeculumProjectionRuntime_h
@@ -2236,6 +2587,10 @@ index 0000000000..6ed2062c31
 +  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
 +                    base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame);
 +
++  // Próximo contextId aninhado (≥ 2). Sessão-global, nunca reusa. 0 se o
++  // runtime ainda não subiu. Só o processo pai.
++  static uint32_t MintNestedContextId();
++
 + private:
 +  SpeculumProjectionRuntime();
 +  ~SpeculumProjectionRuntime();
@@ -2248,3 +2603,38 @@ index 0000000000..6ed2062c31
 +};
 +
 +#endif
+diff --git a/dom/ipc/moz.build b/dom/ipc/moz.build
+index 40382ea499..c3fe5566c2 100644
+--- a/dom/ipc/moz.build
++++ b/dom/ipc/moz.build
+@@ -83,6 +83,7 @@ EXPORTS.mozilla.dom += [
+     "RemoteType.h",
+     "RemoteWebProgressRequest.h",
+     "SharedMessageBody.h",
++    "SpeculumMint.h",
+     "TabContext.h",
+     "TabMessageTypes.h",
+     "TabMessageUtils.h",
+@@ -150,6 +151,9 @@ UNIFIED_SOURCES += [
+     "SharedMap.cpp",
+     "SharedMessageBody.cpp",
+     "SharedStringMap.cpp",
++    "SpeculumControlAbi.cpp",
++    "SpeculumMint.cpp",
++    "SpeculumProjectionRuntime.cpp",
+     "StructuredCloneData.cpp",
+     "TabContext.cpp",
+     "UniqueContentParentKeepAlive.cpp",
+diff --git a/ipc/ipdl/sync-messages.ini b/ipc/ipdl/sync-messages.ini
+index d562255670..5699be6784 100644
+--- a/ipc/ipdl/sync-messages.ini
++++ b/ipc/ipdl/sync-messages.ini
+@@ -160,6 +160,8 @@ description = for bug 1514869 - layout is blocked on needing sync access to a sp
+ description = for bug 1514869 - layout is blocked on font lookup, needs complete family-name information - not used after loading is complete
+ [PContent::GetHyphDict]
+ description = for bug 1487212 - layout requires hyphenation data from a given omnijar resource - only called once per locale by a given content process
++[PContent::SpeculumMintContextId]
++description = Speculum nested contextId must exist in the BrowsingContext birth snapshot before StartDocumentLoad; one sync hop per iframe lifetime, never per frame
+ [PGMP::StartPlugin]
+ description = legacy sync IPC - please add detailed description
+ [PRemoteMediaManager::Readback]

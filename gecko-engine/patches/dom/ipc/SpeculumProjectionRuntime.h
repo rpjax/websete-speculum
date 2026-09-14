@@ -14,6 +14,10 @@ class SpeculumProjectionRuntime {
   void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
                     base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame);
 
+  // Próximo contextId aninhado (≥ 2). Sessão-global, nunca reusa. 0 se o
+  // runtime ainda não subiu. Só o processo pai.
+  static uint32_t MintNestedContextId();
+
  private:
   SpeculumProjectionRuntime();
   ~SpeculumProjectionRuntime();

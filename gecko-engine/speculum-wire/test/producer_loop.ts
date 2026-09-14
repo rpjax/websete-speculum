@@ -22,9 +22,17 @@ for (const name of names) {
     break;
   }
   const part = res.part;
+  if (!part.resync && part.preTableHash !== table.tableHash) {
+    failed = `${name}: preTableHash ${part.preTableHash} != table ${table.tableHash} (antes de aplicar)`;
+    break;
+  }
+  if (name === names[0] && !part.resync) {
+    failed = `${name}: primeiro frame sem flag de resync`;
+    break;
+  }
   const applied = applyFrameToTableChecked(
     table,
-    part.flags?.resync ?? false,
+    part.resync,
     part.ops,
     part.sequence,
   );

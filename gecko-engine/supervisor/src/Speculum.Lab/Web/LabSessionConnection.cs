@@ -189,7 +189,6 @@ public sealed class LabSessionConnection
             case "client.resize":
             case "client.snapshot":
             case "client.validateSnaps":
-            case "client.requestResync":
             case "surface.clear":
             case "run.start":
             case "run.abort":
@@ -197,6 +196,15 @@ public sealed class LabSessionConnection
                 // seguintes. Aceitas em silêncio — nunca respondidas com erro, para
                 // não ensinar o cliente a desconfiar de mensagens corretas.
                 break;
+
+            case "client.requestResync":
+            {
+                var contextId = message.ContextId ?? 0;
+                _logger.LogInformation("{Id} client.requestResync ctx={ContextId}", Id, contextId);
+                var command = ControlCommand.Resync(correlationId: 0, contextId: contextId, force: 0);
+                _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                break;
+            }
 
             default:
                 _logger.LogDebug("{Id} tipo de controle desconhecido: {Type}", Id, type);

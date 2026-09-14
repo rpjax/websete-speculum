@@ -103,10 +103,15 @@ class FakeDom : public NodeSource {
     return out;
   }
   bool isUaOwned(const void* n) const override { return at(n)->uaOwned; }
+  bool isConnected(const void* n) const override {
+    return at(n)->parent != nullptr || n == document_;
+  }
+  void setDocument(FakeNode* n) { document_ = n; }
 
  private:
   static const FakeNode* at(const void* n) { return static_cast<const FakeNode*>(n); }
   std::vector<std::unique_ptr<FakeNode>> owned_;
+  FakeNode* document_ = nullptr;
 };
 
 int main(int argc, char** argv) {
@@ -114,6 +119,7 @@ int main(int argc, char** argv) {
 
   FakeDom dom;
   FakeNode* document = dom.makeElement("#document");
+  dom.setDocument(document);
 
   Producer p(dom, kContextIdRoot, /*generation=*/3);
 
@@ -132,9 +138,16 @@ int main(int argc, char** argv) {
   uaThumb->uaOwned = true;
   dom.append(body, uaThumb);
 
-  p.bootstrap(document);
-
   std::vector<std::vector<uint8_t>> frames;
+  auto boot = p.resyncVirtual(document);
+  if (boot.empty()) {
+    std::cerr << "FALHOU: resyncVirtual nao emitiu\n";
+    return 1;
+  }
+  frames.push_back(boot);
+  std::cout << "frame 1 (resyncVirtual): " << boot.size()
+            << " bytes, tableHash=" << p.table().tableHash() << "\n";
+
   auto flush = [&](const char* what) {
     auto f = p.emitFrame();
     if (!f.empty()) {
@@ -143,7 +156,6 @@ int main(int argc, char** argv) {
                 << " bytes, tableHash=" << p.table().tableHash() << "\n";
     }
   };
-  flush("bootstrap");
 
   // --- mutacoes ---
   FakeNode* d1 = dom.makeElement("div", {{"id", "a"}});

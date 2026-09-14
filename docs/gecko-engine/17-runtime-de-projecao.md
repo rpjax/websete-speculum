@@ -99,22 +99,23 @@ sabe.
 `SpeculumProjectionRuntime`, singleton do processo base:
 
 - a ponte com o supervisor (transporte + codec)
-- o registro de contextos: `contextId ->` janela chrome + BrowsingContext de
-  conteúdo viva. O `contextId` da aba projetada **mora no campo sincronizado
-  `SpeculumContextId` da BrowsingContext**, carimbado no `ContextCreate`. Não há
-  mapa paralelo por processo nem replay IPDL: qualquer processo que hospedar a
-  aba — inclusive o que nasce numa troca, e a BrowsingContext **nova** que o
-  Gecko cria no `ReplacedBy` (bfcache, remoteness, COOP) — lê o mesmo campo.
+- o registro da **aba**: `contextId da sessão →` janela chrome + BrowsingContext de
+  conteúdo viva. Só a aba entra aqui (`ContextCreate` carimba `1` no Top). Iframe
+  **não** vira entrada — o `C` nested mora no campo sincronizado
+  `SpeculumContextId` **daquela** BrowsingContext, gravado no `CreateDetached`.
+  `CreateFromIPC` herda o campo. `ReplacedBy` copia (não reminta). Não há mapa
+  paralelo por processo nem replay IPDL.
 - a escuta de progresso da aba (`nsIWebProgress` da Canonical): `ContextCreated`
   quando a aba está quieta, `Navigated` no commit da carga pedida (START+STOP,
   não o STOP da carga anterior), `LoadStateChanged` no vai-e-vem da rede
 - a entrada de frames vindos dos processos de conteúdo
 - o vocabulário de controle nos dois sentidos (`12-ponte-controle-vocabulario.md`)
 - o ciclo de vida da sessão
+- o contador de mint aninhado (`2, 3, …`), sessão-global, nunca reusa
 
 Tudo o mais é chamador fino: `ContentParent::RecvSpeculumFrame` entrega ao runtime
-e nada mais. O produtor, no processo de conteúdo, lê `GetSpeculumContextId()` no
-topo da aba e não julga documento nenhum.
+e nada mais. O produtor, no processo de conteúdo, lê `GetSpeculumContextId()`
+**nesta** BrowsingContext (`0` = some). Iframe mintado anexa com o próprio `C`.
 
 ### Identidade
 
@@ -122,7 +123,8 @@ O `contextId` aparece no envelope e no prefixo do frame. Não são duas verdades
 o runtime é a fonte única e carimba as duas cópias. O envelope existe porque o
 supervisor precisa rotear sem abrir o frame (`11-supervisor-linguagem.md` §9); o
 prefixo existe porque o cliente precisa do id. Resolve-se por posse, não por
-deleção.
+deleção. Nested usa o mesmo carimbo — o supervisor **não** exige o id na tabela
+da aba.
 
 ---
 
@@ -167,7 +169,7 @@ Registradas para não serem reabertas nem repetidas.
 |---|---------|----------|
 | 1 | Controle em JSON UTF-8 | **Revertida.** Alta vazão com input no mesmo canal exige binário. Ver `18-abi-controle.md`. |
 | 2 | Supervisor sobe o browser | **Mantida.** É o modelo. Quando o orquestrador existir, ele sobe o par; o supervisor continua sendo pai do browser. |
-| 3 | Supervisor espera um consumidor atado antes de lançar o browser | **Revertida.** O supervisor espera a **ponte de controle**, não consumidor. A corrida de bootstrap se resolve com resync, não atrasando o lançamento. |
+| 3 | Supervisor espera um consumidor atado antes de lançar o browser | **Revertida.** O supervisor espera a **ponte de controle**, não consumidor. A corrida de bootstrap se resolve com `Resync(mapa)` no bind do consumidor, não atrasando o lançamento. |
 | 4 | `contextId` no envelope além do prefixo | **Mantida.** §6 — posse, não duplicação. |
 | 5 | Bandeira `SPECULUM_SUPERVISOR_KEEPALIVE` | **Removida.** §8.5. |
 | 6 | Conectar a ponte na primeira emissão de frame | **Revertida.** §3. |

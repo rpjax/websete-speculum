@@ -44,6 +44,9 @@ public sealed record LabClientEnvelope
 
     [JsonPropertyName("reason")]
     public string? Reason { get; init; }
+
+    [JsonPropertyName("contextId")]
+    public uint? ContextId { get; init; }
 }
 
 public sealed record SessionHello(string SessionId, string SessionToken)

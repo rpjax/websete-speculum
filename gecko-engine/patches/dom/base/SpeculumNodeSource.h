@@ -29,6 +29,9 @@ class SpeculumNodeSource final : public speculum::NodeSource {
   std::vector<speculum::AttrPair> attrsOf(const void* node) const override;
   std::vector<const void*> childrenOf(const void* node) const override;
   bool isUaOwned(const void* node) const override;
+  bool isNestedHost(const void* node) const override;
+  uint32_t childScopeIdOf(const void* node) const override;
+  bool isConnected(const void* node) const override;
 
  private:
   uint64_t mDocToken;

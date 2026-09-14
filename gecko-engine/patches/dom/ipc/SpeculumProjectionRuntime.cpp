@@ -6,6 +6,7 @@
 #include "mozilla/SystemPrincipal.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/ContentParent.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/NullPrincipal.h"
@@ -39,6 +40,7 @@
 #include <cstring>
 #include <map>
 #include <string>
+#include <vector>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <thread>
@@ -52,6 +54,7 @@ using mozilla::SystemPrincipal;
 using mozilla::UniquePtr;
 using mozilla::dom::BrowsingContext;
 using mozilla::dom::CanonicalBrowsingContext;
+using mozilla::dom::ContentParent;
 using mozilla::NullPrincipal;
 
 namespace {
@@ -240,6 +243,17 @@ struct SpeculumProjectionRuntime::Impl {
     uint64_t docToken;
     uint32_t generation;
   };
+
+  mozilla::Mutex mintMutex{"SpeculumMint"};
+  uint32_t nextNestedContextId = 2;
+
+  uint32_t MintNestedContextId() {
+    mozilla::MutexAutoLock lock(mintMutex);
+    if (nextNestedContextId < 2) {
+      nextNestedContextId = 2;
+    }
+    return nextNestedContextId++;
+  }
 
   StaticMutex projectedMutex;
   std::map<uint32_t, RefPtr<BrowsingContext>> contextToRootBc;
@@ -733,6 +747,80 @@ struct SpeculumProjectionRuntime::Impl {
     }
   }
 
+  BrowsingContext* FindBySpeculumContextId(BrowsingContext* aRoot,
+                                           uint32_t aContextId) {
+    if (!aRoot) {
+      return nullptr;
+    }
+    if (aRoot->GetSpeculumContextId() == aContextId) {
+      return aRoot;
+    }
+    for (BrowsingContext* child : aRoot->Children()) {
+      if (BrowsingContext* found =
+              FindBySpeculumContextId(child, aContextId)) {
+        return found;
+      }
+    }
+    return nullptr;
+  }
+
+  already_AddRefed<BrowsingContext> ResolveProjected(uint32_t aContextId) {
+    RefPtr<BrowsingContext> direct = ResolveLiveRoot(aContextId);
+    if (direct) {
+      return direct.forget();
+    }
+
+    std::vector<uint32_t> roots;
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      roots.reserve(contextToRootBc.size());
+      for (const auto& kv : contextToRootBc) {
+        roots.push_back(kv.first);
+      }
+    }
+    for (uint32_t rootId : roots) {
+      RefPtr<BrowsingContext> root = ResolveLiveRoot(rootId);
+      if (!root) {
+        continue;
+      }
+      if (BrowsingContext* found = FindBySpeculumContextId(root, aContextId)) {
+        RefPtr<BrowsingContext> keep = found;
+        return keep.forget();
+      }
+    }
+    return nullptr;
+  }
+
+  void HandleResync(uint32_t aCorrelationId, uint32_t aContextId,
+                    uint8_t aForce) {
+    if (aForce > 1) {
+      SendFault(aCorrelationId, aContextId, "invalid resync force");
+      return;
+    }
+
+    RefPtr<BrowsingContext> bc = ResolveProjected(aContextId);
+    if (!bc || bc->IsDiscarded()) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical) {
+      SendFault(aCorrelationId, aContextId, "no canonical browsing context");
+      return;
+    }
+
+    ContentParent* cp = canonical->GetContentParent();
+    if (!cp) {
+      SendFault(aCorrelationId, aContextId, "no content process");
+      return;
+    }
+
+    if (!cp->SendSpeculumResync(aContextId, aForce)) {
+      SendFault(aCorrelationId, aContextId, "SpeculumResync send failed");
+    }
+  }
+
   void HandleControlBinary(const uint8_t* aData, size_t aLength) {
     SpeculumControlReader reader(aData, aLength);
     if (!reader.Ok()) {
@@ -775,6 +863,16 @@ struct SpeculumProjectionRuntime::Impl {
           return;
         }
         HandleNavigate(correlationId, contextId, url);
+        return;
+      }
+      case SpeculumControlOpCode::Resync: {
+        uint32_t contextId = 0;
+        uint8_t force = 0;
+        if (!reader.ReadUInt32(&contextId) || !reader.ReadUInt8(&force)) {
+          SendFault(correlationId, 0, "Resync truncated");
+          return;
+        }
+        HandleResync(correlationId, contextId, force);
         return;
       }
       default:
@@ -856,11 +954,10 @@ struct SpeculumProjectionRuntime::Impl {
     }
   }
 
-  // Época do contexto: cada documento de topo é uma geração, e a sequência
-  // reinicia dentro dela (docs/page-projection/spec/cssom.md C1). O processo de
+  // Época por contextId: cada Document daquele C é uma geração. O processo de
   // conteúdo nasce com o documento e não sabe quantos vieram antes; quem vê
-  // todos os frames do contexto é o runtime. Sem isto, a página nova chega ao
-  // cliente como continuação da anterior — mesma geração, sequência do zero.
+  // todos os frames do contexto é o runtime. Iframe e aba têm relógios
+  // independentes. Sem isto, a página nova chega como continuação da anterior.
   void StampGenerationLocked(uint32_t aContextId, uint64_t aDocToken,
                              nsTArray<uint8_t>& aFrame) {
     constexpr size_t kGenerationOffset = 8;
@@ -870,7 +967,7 @@ struct SpeculumProjectionRuntime::Impl {
 
     auto found = epochs.find(aContextId);
     if (found == epochs.end()) {
-      found = epochs.emplace(aContextId, Epoch{aDocToken, 0}).first;
+      found = epochs.emplace(aContextId, Epoch{aDocToken, 1}).first;
     } else if (found->second.docToken != aDocToken) {
       found->second.docToken = aDocToken;
       found->second.generation++;
@@ -1061,4 +1158,11 @@ void SpeculumProjectionRuntime::DeliverFrame(
     uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
     base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame) {
   mImpl->DeliverFrame(aContextId, aDocToken, aSequence, aChildPid, aFrame);
+}
+
+uint32_t SpeculumProjectionRuntime::MintNestedContextId() {
+  if (!sRuntime) {
+    return 0;
+  }
+  return sRuntime->mImpl->MintNestedContextId();
 }

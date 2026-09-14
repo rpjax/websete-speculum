@@ -51,8 +51,9 @@ Morte de content process vem de graça: o Gecko já reporta ao pai, e isso vira
 ## 4. Identidade não colide
 
 Cada contexto tem espaço de id próprio, e `contextId` já está no prefixo do frame
-(`CONTEXT_ID_ROOT = 1`, `0` inválido). Contexto 5 do processo A e contexto 5 do
-processo B nunca se cruzam. Multiprocesso não exige nada novo do ABI.
+(`1` = aba, `≥2` = iframe mintado no nascimento da BrowsingContext, `0` inválido).
+Iframe noutro processo lê o mesmo campo no `CreateFromIPC` — sem replay, sem
+ramo COOP. Contexto 5 do processo A e contexto 5 do processo B nunca se cruzam.
 
 ## 5. Custo, e onde ele é medido
 

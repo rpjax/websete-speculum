@@ -86,6 +86,7 @@ public sealed class BrowserLink(
         _sessionToken = cancellationToken;
         control.EventReceived += OnBrowserEvent;
         consumers.CommandReceived += OnConsumerCommand;
+        consumers.ConsumerAttached += OnConsumerAttached;
 
         var frames = 0L;
         var bytes = 0L;
@@ -139,6 +140,7 @@ public sealed class BrowserLink(
         {
             control.EventReceived -= OnBrowserEvent;
             consumers.CommandReceived -= OnConsumerCommand;
+            consumers.ConsumerAttached -= OnConsumerAttached;
             _control = null;
             logger.LogInformation("{Frames} frames, {Bytes} bytes", frames, bytes);
         }
@@ -165,6 +167,11 @@ public sealed class BrowserLink(
                     ? entry.Url
                     : options.BrowserUrl;
                 _ = NavigateAsync(message.ContextId, url);
+                if (consumers.Count > 0)
+                {
+                    _ = ResyncAsync(message.ContextId);
+                }
+
                 break;
             }
 
@@ -230,6 +237,26 @@ public sealed class BrowserLink(
                 break;
             }
 
+            case ControlOpCode.Resync:
+            {
+                var requested = reader.ReadUInt32();
+                var force = reader.ReadUInt8();
+                if (requested == 0 && _contexts.TryGetRoot(out var root))
+                {
+                    requested = root.ContextId;
+                }
+
+                if (requested == 0)
+                {
+                    logger.LogWarning("resync pedido sem contexto existente; ignorado");
+                    break;
+                }
+
+                logger.LogInformation("consumidor pediu resync do contexto {ContextId} força={Force}", requested, force);
+                _ = ResyncAsync(requested, force);
+                break;
+            }
+
             default:
                 logger.LogInformation("comando de consumidor ignorado: {OpCode}", reader.OpCode);
                 break;
@@ -273,6 +300,33 @@ public sealed class BrowserLink(
         catch (Exception ex)
         {
             logger.LogError("falha ao navegar: {Reason}", ex.Message);
+        }
+    }
+
+    private void OnConsumerAttached()
+    {
+        if (_contexts.TryGetRoot(out var root) && root.BrowsingContextId != 0)
+        {
+            _ = ResyncAsync(root.ContextId);
+        }
+    }
+
+    private async Task ResyncAsync(uint contextId, byte force = 0)
+    {
+        var channel = _control;
+        if (channel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var command = ControlCommand.Resync(channel.NextId(), contextId, force);
+            await channel.SendAsync(command, contextId, _sessionToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("falha ao pedir resync: {Reason}", ex.Message);
         }
     }
 

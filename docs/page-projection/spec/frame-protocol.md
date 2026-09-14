@@ -314,7 +314,7 @@ header; the client rebuilds its applier ([runtime-redesign.md](runtime-redesign.
 
 **`0x20 NODE_NEW`** — `id: u32, kind: u8, descriptor` · phase 1 · idempotent¹
 `descriptor` by `kind`:
-- `ELEMENT`: `ns: u8` (low nibble `ElementNs`; bit 7 `ELEMENT_NS_NESTED_HOST_BIT` ⇒ nested-context host; bits 4–6 reserved 0), if `ns === 4` then `uri: StrRef`, then `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`, then if bit 7 set `childScopeId: u32` (`≥ 2`). Ordinary elements omit the u32 (decode: `nestedHost=false`, `childScopeId=null`). Same omit pattern as custom `uri`. Not hashed. Lab same-origin host: producer sets the bit; Projected creates a blank iframe and skips `src`/`srcdoc`.
+- `ELEMENT`: `ns: u8` (low nibble `ElementNs`; bit 7 `ELEMENT_NS_NESTED_HOST_BIT` ⇒ nested-context host; bits 4–6 reserved 0), if `ns === 4` then `uri: StrRef`, then `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`, then if bit 7 set `childScopeId: u32` (`≥ 2`). Ordinary elements omit the u32 (decode: `nestedHost=false`, `childScopeId=null`). Same omit pattern as custom `uri`. Not hashed. Lab same-origin host: producer sets the bit; Projected creates a blank iframe and skips `src`/`srcdoc`. Gecko: `C` comes from this window’s `BrowsingContext` field (minted at BC create); the producer holds `NODE_NEW` until `C ≥ 2`.
 - `TEXT` | `COMMENT`: `value: StrRef`
 - `SHEET`: `flags: u16`
 - `RULE`: `value: StrRef`

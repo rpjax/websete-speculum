@@ -1985,9 +1985,17 @@ parent:
 #endif
 
 parent:
+    // Mint de contextId aninhado no nascimento da BC. Uma vez na vida da BC,
+    // não por frame. 0 = fecha sem inventar.
+    sync SpeculumMintContextId() returns (uint32_t aContextId);
+
     async SpeculumFrame(uint64_t aDocToken, uint32_t aContextId,
                         uint32_t aSequence, uint8_t[] aFrame);
 
+child:
+    async SpeculumResync(uint32_t aContextId, uint8_t aForce);
+
+parent:
     async AttributionEvent(nsCString aSourceHost,
                            PrivateAttributionImpressionType aType,
                            uint32_t aIndex, nsString aAd, nsCString aTargetHost);

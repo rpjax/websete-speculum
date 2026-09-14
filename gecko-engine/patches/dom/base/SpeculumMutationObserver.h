@@ -21,6 +21,8 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   SpeculumMutationObserver(mozilla::dom::Document* aDocument, uint32_t aContextId);
 
   bool TryWriteBootstrapFrame();
+  void RequestResync(uint8_t aForce);
+  uint32_t ContextId() const;
 
   void CancelFrameTimer();
 
@@ -57,5 +59,6 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
 
 void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
 void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
+void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce);
 
 #endif

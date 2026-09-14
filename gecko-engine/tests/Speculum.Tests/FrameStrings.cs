@@ -70,6 +70,22 @@ public static class FrameStrings
     public static bool Contains(string[] strings, string needle) =>
         Array.Exists(strings, s => s.Contains(needle, StringComparison.Ordinal));
 
+    /// <summary>
+    /// Última op do frame é CHECK(scope=table). O produtor fecha todo frame assim;
+    /// o L4 usa isto para o resync, sem reimplementar o decoder inteiro.
+    /// </summary>
+    public static bool HasClosingCheck(ReadOnlySpan<byte> frame)
+    {
+        const int checkBytes = 1 + 1 + 4 + 4 + 8;
+        if (frame.Length < SealedFrame.PrefixBytes + checkBytes)
+        {
+            return false;
+        }
+
+        var tail = frame[^checkBytes..];
+        return tail[0] == 0x01 && tail[1] == 0x00;
+    }
+
     private static bool TryU32(ReadOnlySpan<byte> frame, ref int offset, out uint value)
     {
         if (offset + 4 > frame.Length)

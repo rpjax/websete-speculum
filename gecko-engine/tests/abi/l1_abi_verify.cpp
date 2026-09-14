@@ -183,6 +183,14 @@ Bytes BuildShutdown(uint32_t corr) {
   return Bytes(buf, buf + wtr.Length());
 }
 
+Bytes BuildResync(uint32_t corr, uint32_t ctx, uint8_t force) {
+  uint8_t buf[16];
+  SpeculumControlWriter wtr(buf, sizeof(buf), SpeculumControlOpCode::Resync, corr);
+  wtr.WriteUInt32(ctx);
+  wtr.WriteUInt8(force);
+  return Bytes(buf, buf + wtr.Length());
+}
+
 void CheckCommand(std::map<std::string, Bytes>& vectors, const std::string& name,
                   const Bytes& produced) {
   auto it = vectors.find(name);
@@ -205,7 +213,7 @@ int main(int argc, char** argv) {
     printf("\nL1 (C++): 1 de 1 FALHARAM\n");
     return 1;
   }
-  Equal<int>("vetores carregados", 11, static_cast<int>(vectors.size()));
+  Equal<int>("vetores carregados", 12, static_cast<int>(vectors.size()));
 
   // ---- codificacao ----
   CheckCommand(vectors, "ContextCreate", BuildContextCreate(1, 1, 1280, 800));
@@ -214,6 +222,7 @@ int main(int argc, char** argv) {
   CheckCommand(vectors, "Navigate-utf8",
                BuildNavigate(3, 1, "https://pt.wikipedia.org/wiki/A\xc3\xa7\xc3\xa3o"));
   CheckCommand(vectors, "Shutdown", BuildShutdown(9));
+  CheckCommand(vectors, "Resync", BuildResync(4, 1, 0));
 
   // ---- decodificacao ----
   {

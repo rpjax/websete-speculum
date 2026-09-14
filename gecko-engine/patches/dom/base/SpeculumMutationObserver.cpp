@@ -15,6 +15,7 @@
 #include "speculum/Producer.h"
 #include "speculum/Wire.h"
 
+#include <map>
 #include <unistd.h>
 #include <vector>
 
@@ -75,13 +76,39 @@ void SendFrameBytes(mozilla::dom::Document* aDocument,
 
 }  // namespace
 
+namespace {
+
+std::map<uint32_t, SpeculumMutationObserver*> gObserversByContext;
+
+void RegisterObserver(uint32_t aContextId, SpeculumMutationObserver* aObserver) {
+  gObserversByContext[aContextId] = aObserver;
+}
+
+void UnregisterObserver(uint32_t aContextId, SpeculumMutationObserver* aObserver) {
+  auto it = gObserversByContext.find(aContextId);
+  if (it != gObserversByContext.end() && it->second == aObserver) {
+    gObserversByContext.erase(it);
+  }
+}
+
+}  // namespace
+
 SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
                                                    uint32_t aContextId)
     : mDocument(aDocument),
-      mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {}
+      mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {
+  RegisterObserver(aContextId, this);
+}
 
 SpeculumMutationObserver::~SpeculumMutationObserver() {
+  if (mState) {
+    UnregisterObserver(mState->contextId, this);
+  }
   CancelFrameTimer();
+}
+
+uint32_t SpeculumMutationObserver::ContextId() const {
+  return mState ? mState->contextId : 0;
 }
 
 void SpeculumMutationObserver::CancelFrameTimer() {
@@ -131,14 +158,44 @@ bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
   if (!mDocument || !mDocument->IsContentDocument() || !mState) {
     return false;
   }
-  mState->producer.bootstrap(mDocument);
-  const uint32_t ops = mState->producer.pendingOps();
-  std::vector<uint8_t> frame = mState->producer.emitFrame();
+  std::vector<uint8_t> frame = mState->producer.resyncVirtual(mDocument);
   if (frame.empty()) {
     return false;
   }
-  SendFrameBytes(mDocument, *mState, frame, ops, true);
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), true);
   return true;
+}
+
+void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
+  if (!mDocument || !mState) {
+    return;
+  }
+  CancelFrameTimer();
+  mState->producer.discardPending();
+  std::vector<uint8_t> frame;
+  if (aForce == 1) {
+    frame = mState->producer.resyncVirtual(mDocument);
+  } else {
+    frame = mState->producer.emitResyncFrame();
+  }
+  if (frame.empty()) {
+    SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u force=%u vazio", mState->contextId,
+                 aForce);
+    return;
+  }
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), true);
+  SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u force=%u seq=%u bytes=%zu",
+               mState->contextId, aForce, mState->producer.sequence(),
+               frame.size());
+}
+
+void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce) {
+  auto it = gObserversByContext.find(aContextId);
+  if (it == gObserversByContext.end() || !it->second) {
+    SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u sem observer — no-op", aContextId);
+    return;
+  }
+  it->second->RequestResync(aForce);
 }
 
 void SpeculumMutationObserver::CharacterDataWillChange(
@@ -231,13 +288,12 @@ void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
   if (!aDocument || aDocument->GetSpeculumMutationObserver()) {
     return;
   }
-  // O registro do contexto projetado vem da própria BrowsingContext (campo
-  // sincronizado, carimbado pelo pai no ContextCreate). O produtor não julga
-  // documento: ele lê a aba em que o documento está.
+  // C desta janela, não do Top(). Iframe mintado no CreateDetached traz o
+  // próprio id; chrome / não projetado fica 0 e some.
   mozilla::dom::BrowsingContext* bc = aDocument->GetBrowsingContext();
   mozilla::dom::BrowsingContext* top = bc ? bc->Top() : nullptr;
   const uint64_t topId = top ? top->Id() : 0;
-  const uint32_t ctx = top ? top->GetSpeculumContextId() : 0;
+  const uint32_t ctx = bc ? bc->GetSpeculumContextId() : 0;
 
   // Um documento que não anexa é um documento que não projeta. A decisão é
   // observável: sem isto, "a página não subiu" não distingue registro ausente

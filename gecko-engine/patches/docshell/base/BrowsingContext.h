@@ -301,11 +301,9 @@ struct EmbedderColorSchemes {
   /* True if this is a content browsing context whose page has an open        \
      Document Picture-in-Picture window */                                    \
   FIELD(ControlsDocumentPiP, bool)                                            \
-  /* Speculum: o contexto projetado ao qual esta aba pertence, atribuído      \
-   * pelo processo pai no ContextCreate. Zero quando não é projetada. Mora    \
-   * aqui, e não num mapa por processo, porque todo processo que vier a       \
-   * hospedar a aba — inclusive o que nasce numa troca de processo — precisa  \
-   * da mesma resposta sem depender de difusão. Só no topo. */                \
+  /* Speculum: contextId desta janela (0 off, 1 raiz da aba, ≥2 iframe).      \
+   * Nested é gravado no CreateDetached. A raiz recebe 1 no ContextCreate.    \
+   * ReplacedBy copia — não reminta. Mora aqui, não num mapa por processo. */ \
   FIELD(SpeculumContextId, uint32_t)
 
 #define NS_DOM_BROWSINGCONTEXT_IID \
@@ -1555,9 +1553,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   bool CanSet(FieldIndex<IDX_SpeculumContextId>, const uint32_t& aValue,
               ContentParent* aSource) {
-    // Só o pai, e só no topo. Conteúdo que tentasse se declarar projetado
-    // estaria pedindo frames de uma aba que ninguém pediu.
-    return IsTop() && XRE_IsParentProcess() && !aSource;
+    // Só o pai. Conteúdo que tentasse se declarar projetado estaria pedindo
+    // frames de uma aba que ninguém pediu. Nested e raiz usam o mesmo campo.
+    return XRE_IsParentProcess() && !aSource;
   }
 
   // TODO(emilio): Maybe handle the flag being set dynamically without

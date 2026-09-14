@@ -98,7 +98,7 @@ acima.
 |--------|------|--------|
 | 0x0201 | Ready | — |
 | 0x0202 | Heartbeat | `u64` monotonicMs |
-| 0x0203 | ContextCreated | `u32` contextId, `u64` browsingContextId, `u32` parentContextId (0 = raiz) |
+| 0x0203 | ContextCreated | `u32` contextId, `u64` browsingContextId, `u32` parentContextId (sempre `0`) |
 | 0x0204 | ContextDestroyed | `u32` contextId |
 | 0x0205 | Navigated | `u32` contextId, `str` url |
 | 0x0206 | LoadStateChanged | `u32` contextId, `u8` estado |
@@ -114,6 +114,8 @@ supervisor.
 `Navigated` é o commit da carga **pedida** — START e depois STOP dessa carga,
 não o STOP de um about:blank ou da página anterior. `ContextCreated` só sai
 quando a aba está quieta; se ainda está carregando, espera o STOP.
+`parentContextId` é resto do ABI: nested não emite `ContextCreated`. O `C` do
+iframe viaja no frame e no `NODE_NEW` do host.
 
 ---
 

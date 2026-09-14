@@ -54,8 +54,9 @@ de um prepend) — que é exatamente onde um `lastChildOf` mal consertado passa 
 até a projeção mostrar um filho só.
 
 Se qualquer um desses passos falhar, produtor e cliente discordam — e é exatamente esse
-desacordo que o `preTableHash`/`CHECK` existe para detectar em produção. Aqui ele é
-detectado no commit.
+desacordo que o `preTableHash`/`CHECK` existe para detectar em produção. O produtor
+carimba o `preTableHash` de verdade (hash da tabela **antes** das ops deste frame);
+frame de resync leva a flag e `preTableHash = 0`.
 
 ## Rodar
 

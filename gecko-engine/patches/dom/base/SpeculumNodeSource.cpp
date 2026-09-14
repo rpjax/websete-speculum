@@ -17,6 +17,8 @@
 #include "nsReadableUtils.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "nsCOMPtr.h"
+#include "nsFrameLoaderOwner.h"
 #include "nsIDocShell.h"
 
 #include <cstdio>
@@ -161,6 +163,39 @@ std::vector<const void*> SpeculumNodeSource::childrenOf(const void* node) const 
 
 bool SpeculumNodeSource::isUaOwned(const void* node) const {
   return AsNode(node)->IsInNativeAnonymousSubtree();
+}
+
+bool SpeculumNodeSource::isNestedHost(const void* node) const {
+  Element* el = Element::FromNode(AsNode(node));
+  if (!el || !el->IsInComposedDoc()) {
+    return false;
+  }
+  nsCOMPtr<nsFrameLoaderOwner> owner = do_QueryInterface(el);
+  return owner != nullptr;
+}
+
+uint32_t SpeculumNodeSource::childScopeIdOf(const void* node) const {
+  Element* el = Element::FromNode(AsNode(node));
+  if (!el) {
+    return 0;
+  }
+  nsCOMPtr<nsFrameLoaderOwner> owner = do_QueryInterface(el);
+  if (!owner) {
+    return 0;
+  }
+  mozilla::dom::BrowsingContext* bc = owner->GetBrowsingContext();
+  if (!bc) {
+    return 0;
+  }
+  const uint32_t c = bc->GetSpeculumContextId();
+  if (c == 1) {
+    MOZ_CRASH("Speculum: iframe BrowsingContext stamped as root contextId");
+  }
+  return c >= 2 ? c : 0;
+}
+
+bool SpeculumNodeSource::isConnected(const void* node) const {
+  return AsNode(node)->IsInComposedDoc();
 }
 
 namespace {

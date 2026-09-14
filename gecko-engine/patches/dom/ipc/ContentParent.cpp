@@ -1270,6 +1270,11 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateGMPService() {
 }
 
 
+IPCResult ContentParent::RecvSpeculumMintContextId(uint32_t* aContextId) {
+  *aContextId = SpeculumProjectionRuntime::MintNestedContextId();
+  return IPC_OK();
+}
+
 IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
                                            const uint32_t& aContextId,
                                            const uint32_t& aSequence,

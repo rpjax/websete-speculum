@@ -141,6 +141,14 @@ Roteiro:
    para achar `alpha` no primeiro e `bravo` no segundo. Bytes iguais ou texto
    da página velha = falha, mesmo que o `Navigated` tenha saído.
 
+Roteiro multiplex (segunda sessão, `/host`):
+
+6. página com iframe same-origin: frame `C=1` traz `NODE_NEW` do host com
+   `childScopeId=2`; chega frame `C=2` com o texto do filho
+7. o iframe navega: mesmo `2`, `generation` sobe; não nasce `3`
+8. aba navega para outro host: `C` novo (`3`)
+9. um `ContextCreated` só (`1`) — iframe não emite evento de controle
+
 A procedência do frame é lida direto do fio (`SealedFrame`): o `contextId` vem
 do prefixo, carimbado pelo pai. É esse carimbo que está sob suspeita — se o pai
 registrar a janela **chrome** em vez do contexto do **conteúdo**, ou nenhum frame

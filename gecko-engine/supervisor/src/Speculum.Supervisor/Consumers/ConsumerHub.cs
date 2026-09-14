@@ -24,6 +24,11 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
     public event Action<byte[]>? CommandReceived;
 
     /// <summary>
+    /// Um consumidor acabou de atar. Cliente novo = Resync no mapa, não buffer de frame.
+    /// </summary>
+    public event Action? ConsumerAttached;
+
+    /// <summary>
     /// Serve um consumidor até que ele desconecte. O <see cref="WebSocket"/> pertence
     /// ao chamador (o pipeline do Kestrel) e é fechado por ele.
     /// </summary>
@@ -32,6 +37,7 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
         var consumer = new ConsumerConnection(socket, payload => CommandReceived?.Invoke(payload));
         _consumers[consumer.Id] = consumer;
         logger.LogInformation("consumidor {ConsumerId} conectado ({Count} no total)", consumer.Id, _consumers.Count);
+        ConsumerAttached?.Invoke();
 
         try
         {

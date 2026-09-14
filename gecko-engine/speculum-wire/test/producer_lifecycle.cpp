@@ -23,6 +23,7 @@ struct FakeNode {
   FakeNode* shadowHost = nullptr;
   uint8_t shadowMode = 0;
   std::vector<FormProp> formProps;
+  bool uaOwned = false;
 };
 
 class FakeDom : public NodeSource {
@@ -76,6 +77,7 @@ class FakeDom : public NodeSource {
   const void* shadowHostOf(const void* n) const override { return at(n)->shadowHost; }
   uint8_t shadowModeOf(const void* n) const override { return at(n)->shadowMode; }
   std::vector<FormProp> formPropsOf(const void* n) const override { return at(n)->formProps; }
+  bool isUaOwned(const void* n) const override { return at(n)->uaOwned; }
   bool isConnected(const void* n) const override {
     const FakeNode* x = at(n);
     while (x) {
@@ -239,6 +241,41 @@ int main() {
     }
   }
   std::cout << "ok: dois inserts no mesmo tick na ordem do DOM\n";
+
+  // --- L24: filho novo some com o pai no mesmo tick. ---
+  {
+    FakeNode* wrap = dom.makeElement("wrap");
+    dom.append(body, wrap);
+    p.onInserted(body, wrap);
+    if (p.emitFrame().empty()) return Fail("wrap inicial nao emitiu");
+    const size_t rows = p.table().size();
+    const size_t ids = p.identity().size();
+    FakeNode* inner = dom.makeElement("inner");
+    dom.append(wrap, inner);
+    p.onInserted(wrap, inner);
+    dom.detach(wrap);
+    p.onRemoved(body, wrap);
+    auto f = p.emitFrame();
+    if (f.empty()) return Fail("remove do wrap nao emitiu");
+    if (p.identity().idOf(inner) != kNone) return Fail("L24 filho vazou no mapa");
+    if (p.table().size() != rows - 1) return Fail("L24 wrap nao saiu da tabela");
+    if (p.identity().size() != ids - 1) return Fail("L24 identidade do wrap ficou");
+  }
+  std::cout << "ok: L24 filho do tick nao viaja com o pai\n";
+
+  // --- UA nao entra na tabela. ---
+  {
+    const size_t rows = p.table().size();
+    FakeNode* ua = dom.makeElement("inner-ua");
+    ua->uaOwned = true;
+    dom.append(body, ua);
+    p.onInserted(body, ua);
+    auto f = p.emitFrame();
+    if (!f.empty()) return Fail("UA emitiu frame");
+    if (p.table().size() != rows) return Fail("UA entrou na tabela");
+    if (p.identity().idOf(ua) != kNone) return Fail("UA ganhou id");
+  }
+  std::cout << "ok: UA nao e projetado\n";
 
   // --- Halt nao descarta a fila; Flush emite. ---
   {

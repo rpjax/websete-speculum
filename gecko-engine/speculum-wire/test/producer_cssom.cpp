@@ -146,6 +146,34 @@ int main() {
   }
   if (ruleRow->parent != sheetId) return Fail("rule parent != sheet");
 
+  FakeNode* sheetB = dom.makeSheet("second");
+  FakeNode* sheetC = dom.makeSheet("third");
+  p.onSheetAdded(sheetC);
+  p.onSheetAdded(sheetB);
+  if (p.emitFrame().empty()) return Fail("sheets extra nao emitiram");
+  auto docKids = p.table().orderedChildIds(kDocumentId);
+  const uint32_t idB = p.identity().idOf(sheetB);
+  const uint32_t idC = p.identity().idOf(sheetC);
+  bool sawOrder = false;
+  for (size_t i = 0; i + 2 < docKids.size(); ++i) {
+    if (docKids[i] == sheetId && docKids[i + 1] == idB && docKids[i + 2] == idC) {
+      sawOrder = true;
+      break;
+    }
+  }
+  if (!sawOrder) return Fail("CSSOM nao drena na ordem viva das sheets");
+
+  FakeNode* liveRule = dom.makeRule(sheet, "old { color: red; }");
+  p.onRuleAdded(sheet, liveRule);
+  liveRule->value = "new { color: blue; }";
+  p.onRuleChanged(liveRule);
+  if (p.emitFrame().empty()) return Fail("rule text no tick nao emitiu");
+  const Row* liveRow = p.table().getRow(p.identity().idOf(liveRule));
+  if (!liveRow) return Fail("rule nova ausente");
+  if (liveRow->contentHash != hashValue(std::string("new { color: blue; }"))) {
+    return Fail("rule usou texto do callback, nao o da fonte no drain");
+  }
+
   FakeNode* span = dom.makeElement("span");
   dom.append(html, span);
   p.onInserted(html, span);

@@ -353,7 +353,7 @@ void SpeculumMutationObserver::CharacterDataWillChange(
 
 void SpeculumMutationObserver::CharacterDataChanged(
     nsIContent* aContent, const CharacterDataChangeInfo&) {
-  if (!mState) {
+  if (!mState || !aContent || mState->source.isUaOwned(aContent)) {
     return;
   }
   mState->producer.onTextChanged(aContent);
@@ -368,7 +368,7 @@ void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element* aElement,
                                                 int32_t, nsAtom* aAttribute,
                                                 AttrModType,
                                                 const nsAttrValue*) {
-  if (!mState) {
+  if (!mState || !aElement || mState->source.isUaOwned(aElement)) {
     return;
   }
   mState->producer.onAttrChanged(aElement,
@@ -387,6 +387,9 @@ void SpeculumMutationObserver::ContentAppended(
   nsINode* parent = aFirstNewContent->GetParentNode();
   for (nsIContent* child = aFirstNewContent; child;
        child = child->GetNextSibling()) {
+    if (mState->source.isUaOwned(child)) {
+      continue;
+    }
     mState->producer.onInserted(parent, child);
     MaybeObserveShadow(child);
   }
@@ -395,7 +398,7 @@ void SpeculumMutationObserver::ContentAppended(
 
 void SpeculumMutationObserver::ContentInserted(nsIContent* aChild,
                                                const ContentInsertInfo&) {
-  if (!mState || !aChild) {
+  if (!mState || !aChild || mState->source.isUaOwned(aChild)) {
     return;
   }
   mState->producer.onInserted(aChild->GetParentNode(), aChild);

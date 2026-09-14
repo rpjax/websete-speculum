@@ -270,9 +270,9 @@ class Producer {
     std::vector<uint32_t> ids;
     for (const void* sheet : source_.cssomSheets()) {
       uint32_t id = ids_.idOf(sheet);
-      if (id != kNone) ids.push_back(id);
+      if (id != kNone && table_.getRow(id)) ids.push_back(id);
     }
-    if (ids.empty()) return;
+    if (ids.size() < 2) return;
     builder_.sheetOrder(ids);
     const Row* first = table_.getRow(ids[0]);
     const uint32_t parent = first && first->parent != kNone ? first->parent : kDocumentId;
@@ -301,6 +301,7 @@ class Producer {
   void onRuleChanged(const void* rule) {
     uint32_t id = ids_.idOf(rule);
     if (id == kNone) return;
+    if (!table_.getRow(id)) return;
     const std::string text = source_.cssomRuleTextOf(rule);
     builder_.ruleSet(id, text);
     table_.setValue(id, text);
@@ -419,10 +420,17 @@ class Producer {
     const std::vector<PendingInsert> pending = pendingInserts_;
     pendingInserts_.clear();
     for (const auto& item : pending) {
-      uint32_t parentId = idFor(item.parent);
-      if (parentId == kNone) continue;
       uint32_t id = ids_.idOf(item.node);
       if (id == kNone) continue;
+      if (!source_.isConnected(item.node) || source_.isUaOwned(item.node)) {
+        if (!table_.getRow(id)) ids_.release(item.node);
+        continue;
+      }
+      uint32_t parentId = idFor(item.parent);
+      if (parentId == kNone) {
+        if (!table_.getRow(id)) ids_.release(item.node);
+        continue;
+      }
       if (!table_.getRow(id)) {
         ensureDescribed(item.node);
         id = ids_.idOf(item.node);
@@ -475,42 +483,31 @@ class Producer {
     pendingRules_.resize(w);
   }
 
-  bool cssomSheetLive(const void* sheet) const {
-    for (const void* s : source_.cssomSheets()) {
-      if (s == sheet) return true;
-    }
-    return false;
-  }
-
-  bool cssomRuleLive(const void* sheet, const void* rule) const {
-    for (const void* r : source_.cssomRulesOf(sheet)) {
-      if (r == rule) return true;
-    }
-    return false;
-  }
-
   void drainCssom() {
-    const std::vector<const void*> sheets = pendingSheets_;
+    const std::vector<const void*> queuedSheets = pendingSheets_;
     pendingSheets_.clear();
-    for (const void* sheet : sheets) {
+    const std::vector<PendingRule> queuedRules = pendingRules_;
+    pendingRules_.clear();
+
+    for (const void* sheet : source_.cssomSheets()) {
       uint32_t id = ids_.idOf(sheet);
       if (id == kNone) continue;
-      if (!cssomSheetLive(sheet)) {
-        if (!table_.getRow(id)) ids_.release(sheet);
-        continue;
-      }
       if (!table_.getRow(id)) emitSheetNew(sheet, id);
     }
-    const std::vector<PendingRule> rules = pendingRules_;
-    pendingRules_.clear();
-    for (const auto& item : rules) {
-      uint32_t id = ids_.idOf(item.rule);
-      if (id == kNone) continue;
-      if (!cssomRuleLive(item.sheet, item.rule)) {
-        if (!table_.getRow(id)) ids_.release(item.rule);
-        continue;
+    for (const void* sheet : source_.cssomSheets()) {
+      for (const void* rule : source_.cssomRulesOf(sheet)) {
+        uint32_t id = ids_.idOf(rule);
+        if (id == kNone) continue;
+        if (!table_.getRow(id)) emitRuleNew(sheet, rule, id);
       }
-      if (!table_.getRow(id)) emitRuleNew(item.sheet, item.rule, id);
+    }
+    for (const void* sheet : queuedSheets) {
+      uint32_t id = ids_.idOf(sheet);
+      if (id != kNone && !table_.getRow(id)) ids_.release(sheet);
+    }
+    for (const auto& item : queuedRules) {
+      uint32_t id = ids_.idOf(item.rule);
+      if (id != kNone && !table_.getRow(id)) ids_.release(item.rule);
     }
   }
 

@@ -278,7 +278,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Cliente | `attachShadow` na fase 2 (open ou closed). Mapa de root fechado **no Projected**, não no Virtual. |
 | Prova | L0 fake shadow + L4 open, named e closed programático. |
 | Proibido | MutationObserver JS; `closedShadowCapture`; achatar slot; misturar light+shadow. |
-| Estado | **núcleo sabe**; `NodeSource::childrenOf` só luz. Observer de root **não há**. |
+| Estado | **núcleo sabe**; `MaybeObserveShadow` pende o observer no root. `childrenOf` é só luz. |
 
 ### 2.6 Nested browsing context (tipo 2)
 

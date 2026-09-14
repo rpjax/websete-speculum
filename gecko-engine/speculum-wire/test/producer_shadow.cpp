@@ -131,6 +131,15 @@ int main() {
     return Fail("closed shadow ausente");
   }
 
+  FakeNode* later = dom.makeText("depois");
+  dom.append(sr, later);
+  p.onInserted(sr, later);
+  if (p.emitFrame().empty()) return Fail("filho do shadow depois do boot nao emitiu");
+  auto after = p.table().orderedChildIds(srId);
+  if (after.size() != 2 || after[1] != p.identity().idOf(later)) {
+    return Fail("insert no shadow fora da ordem");
+  }
+
   std::cout << "ok: shadow mode 0/1 fora da cadeia de luz\n";
   return 0;
 }

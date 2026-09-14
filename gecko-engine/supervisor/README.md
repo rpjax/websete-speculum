@@ -47,10 +47,10 @@ espera. Referência: `sidecar/browser/mirror/projection/lab/host/protocol.ts`.
 Unix domain socket. Cabeçalho de 9 bytes, little-endian, seguido do payload:
 
 ```
-u8   Kind        0x01 Frame · 0x02 BrowserEvent(JSON) · 0x03 Hello · 0x04 Control(JSON)
+u8   Kind        0x01 Frame · 0x02 Event (ABI binária) · 0x03 Hello · 0x04 Command (ABI binária) · 0x05 Telemetry · 0x06 Asset
 u32  ContextId   roteamento; 0 quando não se aplica
-u32  Length      bytes de payload
-...  Payload     opaco para o supervisor
+u32  Length      bytes do payload
+...  Payload     opaco para o supervisor (frame, telemetria e ativo)
 ```
 
 O `ContextId` viaja **no envelope**, não é lido de dentro do frame. É isso que permite

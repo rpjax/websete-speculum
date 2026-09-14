@@ -25,6 +25,21 @@ mkdir -p "$OUT"
   "$HERE/test/producer_resync.cpp" -o "$OUT/producer_resync"
 "$OUT/producer_resync"
 
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/producer_lifecycle.cpp" -o "$OUT/producer_lifecycle"
+"$OUT/producer_lifecycle"
+
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/producer_shadow.cpp" -o "$OUT/producer_shadow"
+"$OUT/producer_shadow"
+
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/producer_cssom.cpp" -o "$OUT/producer_cssom"
+"$OUT/producer_cssom"
+
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/producer_cli.cpp" -o "$OUT/producer_cli"
+
 cd "$HERE/test"
 SPECULUM_OUT="$OUT" npx --yes tsx verify.ts
 SPECULUM_OUT="$OUT" npx --yes tsx table_parity.ts

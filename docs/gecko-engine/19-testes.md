@@ -32,14 +32,16 @@ sempre no degrau mais baixo que falhou, nunca no sintoma.
 
 | Nível | Natureza | O que prova | Precisa de Gecko? | Tempo |
 |---|---|---|---|---|
-| **L0 — núcleo** | unidade | Algoritmo: hash, tabela, ops, frames. Paridade C++ ↔ TypeScript. | não | segundos |
+| **L0 — núcleo** | unidade | ISA: hash, tabela, ops, frames, apply. Paridade C++ ↔ TypeScript **do apply**, não tradução do produtor JS. | não | segundos |
 | **L1 — ABI** | unidade | Contrato binário: os dois lados produzem e aceitam os mesmos bytes. | não | segundos |
 | **L2 — transporte** | unidade | Enquadramento, leitura curta, desconhecido, queda. | não | segundos |
 | **L3 — amarração** | integração | Supervisor + lab + cliente real, com browser **falso**: a costura entre os componentes. | não | segundos |
 | **L4 — pilha** | ponta a ponta | A stack real de produção: supervisor + Gecko de verdade. | binário já construído | ~1 min |
 | **L5 — regressão viva** | regressão | Capturas congeladas de execuções reais que já passaram. | não | segundos |
 
-L0 e L5 já existem (`speculum-wire/run-tests.sh`). L1 a L4 são o que falta.
+L0 e L5 já existem (`speculum-wire/run-tests.sh`). L1–L3 existem neste repo. L3 tem **dois** testes: WiringTests (SPKF) e L3-PP (CLI do Producer + frames no disco + apply `core` no `run.sh`). L4 continua Firefox real. L5 recongela a partir do **CLI L0**, não do `capture.ts`.
+
+Upload **não** entra nesta leva — está fora na matriz deste fork, sem copiar silêncio da support-matrix Chromium.
 
 O **L3 é o degrau que não existia no desenho anterior** e é o que prova a
 amarração: um browser falso que fala a ABI corretamente, um supervisor real, o
@@ -108,6 +110,17 @@ Prova, sem Gecko e em segundos:
 - o leque entrega os mesmos frames a mais de um consumidor
 - browser morto → o supervisor encerra sozinho (doc 15): a ponte é o link vital
 
+**Dois papéis do browser falso** (`SPECULUM_FAKE_MODE` no arnês, nunca no produto):
+
+| Modo | O que prova |
+|------|-------------|
+| `wiring` (default) | Loop SPKF 25 ms. WiringTests. **Não some.** |
+| `pp` | Um `C`. Halt/Flush/Snapshot falam com o CLI do Producer. C# grava frames; `run.sh` aplica `core` via `tsx` (`producer_loop.ts`). C# **não** spawna Node. |
+| `marionette` | DialogRequested espera Respond. Silêncio ≠ ok. |
+| `assets` | Kind `0x06` chunk/denied. Sem loop SPKF. |
+
+Input esparso (sem pointermove), ViewportSet, HistoryGo/Reload/Stop: diário admit/reject no L3. Hit-test real = L4.
+
 Um browser falso que responde certo é também a especificação executável da ABI:
 divergiu dele, divergiu do contrato.
 
@@ -156,7 +169,8 @@ chega, ou chega com `contextId` errado, e a saída do L4 diz qual dos dois. Por
 isso o L4 é também o instrumento que resolve essa hipótese, não só um teste.
 
 A paridade byte a byte com o *apply estrito* de produção é provada no L0 e
-congelada no L5, sobre o MESMO núcleo do produtor; o L4 prova liveness, ciclo de
+congelada no L5, sobre o mesmo núcleo C++ (tabela/encode — não o `virtual.js`);
+o L4 prova liveness, ciclo de
 vida, procedência do frame **e** que o segundo documento (não um eco do
 primeiro) é o que sobe no fio. Não re-executa o applier em C#. O passo de
 `ContextDestroy` disparado pelo consumidor entra quando existir esse opcode no
@@ -200,11 +214,14 @@ gecko-engine/
       Report.cs            instrumentação: byte, posição, esperado, recebido
       AbiTests.cs          L1 — vetores de ouro, C#
       TransportTests.cs    L2 — enquadramento
-      WiringTests.cs       L3 — amarração
+      WiringTests.cs       L3 — amarração SPKF
+      ExtraLayerTests.cs   L3-PP, input, marionete, ativos, tee
+      ProducerCli.cs       CLI do Producer (mesmo binário do L0)
       StackTests.cs        L4 — pilha real
-      FakeBrowser.cs       o browser falso do L3
-      FakeFrame.cs         frame sintético do L3
+      FakeBrowser.cs       o browser falso do L3 (wiring / pp / marionette / assets)
+      FakeFrame.cs         frame sintético do L3 (só wiring)
       SealedFrame.cs       leitor do prefixo do frame REAL (L4)
+    projected-sw/          K5 unit: ready + token em header
 ```
 
 **Um binário de teste, não quatro projetos.** O browser falso do L3 é lançado
@@ -245,10 +262,22 @@ programa sem degrau é parte que pode trair.
 | Paridade do núcleo C++ ↔ cliente TypeScript | L0 |
 | `NodeSource` sobre `nsINode` (tradução Gecko → núcleo) | L4 |
 | Relógio do frame: timer sob demanda, frame vazio não emitido | L0 (produtor) + L4 (real) |
+| Drain L24, shadow, PROP no tick, CSSOM no mesmo sequence | L0 |
+| CLI do Producer (fixture do L3-PP) | L0 |
 | Codec da ABI de controle, dos dois lados | L1 |
+| Halt / Flush / Snapshot / Kind 0x05 e 0x06 | L1 + L2 |
 | Enquadramento do envelope, leitura curta, limites | L2 |
-| Supervisor: tabela de contextos, atribuição de id | L3 |
-| Supervisor: comando de consumidor → comando de browser | L3 |
+| Supervisor: tabela de contextos, atribuição de id | L3 wiring |
+| Supervisor: comando de consumidor → comando de browser | L3 wiring |
+| Frames PP do Producer pelo supervisor + apply `core` | L3-PP (`run.sh` tsx; sem `frames.txt` = falha) |
+| Halt→Flush: `SNAP.tableHash` × apply `core` | L0 CLI iso |
+| Input / Viewport / History / DialogRespond (codec) | L1 roundtrip |
+| Input esparso / viewport / histórico (diário) | L3 |
+| Dialog pede e espera; `DialogRequested` no WS | L3 marionette |
+| `SnapshotServed` no WS do consumidor | L3-PP |
+| Tee por offset + relay Kind 0x05/0x06; HTML/JS/CSS = denied | L0 tee + L3 assets |
+| SW projected: `ready` + token em header | unit tsx (K5) |
+| Upload | **fora** desta leva |
 | Lab: conformidade com lab protocol v1 | L3 — próximo incremento (§5) |
 | Cliente projetado aplicando frames sem desync | L0 + L5 |
 | Leque de consumidores (fan-out) | L3 |

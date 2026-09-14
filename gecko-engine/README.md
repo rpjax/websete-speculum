@@ -8,9 +8,14 @@ O codigo do Gecko **nao** vive neste repo. Este diretorio guarda apenas:
 - `mozconfig` — flags de build Speculum (sem artifact builds).
 - `scripts/fork-init.sh` — materializa `checkout/` na tag pinada e cria o branch do fork.
 - `scripts/build.sh` — wrapper `./mach build` / `./mach build binaries`.
-- `patches/` — patches do Speculum, quando existirem (ainda nao existe).
+- `patches/` — patches Speculum no fork (observer, runtime, ABI). O produtor
+  é C++ nativo; não se porta `packages/page-projection/virtual`.
 
-Docs: `docs/gecko-engine/`.
+Docs: `docs/gecko-engine/`. Constituicao da projecao completa (leis + planos +
+o que falta): [`docs/gecko-engine/20-projecao-completa.md`](../docs/gecko-engine/20-projecao-completa.md).
+
+Gate sem Gecko: `gecko-engine/tests/run.sh` (sem `--stack`). L0–L3-PP + L5.
+Isto **nao** e o V1 prod-ready — falta Firefox real, widget, proxy e aceite visual.
 
 ## Uso
 

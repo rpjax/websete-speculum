@@ -266,6 +266,16 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvSpeculumResync(const uint32_t& aContextId,
                                              const uint8_t& aForce);
+  mozilla::ipc::IPCResult RecvSpeculumHaltClocks();
+  mozilla::ipc::IPCResult RecvSpeculumResumeClocks();
+  mozilla::ipc::IPCResult RecvSpeculumFlushFrame(const uint32_t& aContextId);
+  mozilla::ipc::IPCResult RecvSpeculumSnapshot(const uint32_t& aContextId,
+                                               const uint32_t& aCorrelationId);
+  mozilla::ipc::IPCResult RecvSpeculumInput(const uint32_t& aContextId,
+                                            nsTArray<uint8_t>&& aEvent);
+  mozilla::ipc::IPCResult RecvSpeculumDialogRespond(const uint32_t& aContextId,
+                                                    const uint32_t& aRequestId,
+                                                    const nsACString& aAnswer);
 
   mozilla::ipc::IPCResult RecvSetConnectivity(const bool& connectivity);
   mozilla::ipc::IPCResult RecvSetCaptivePortalState(const int32_t& state);

@@ -17,6 +17,10 @@
 #include "nsReadableUtils.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/HTMLInputElement.h"
+#include "mozilla/dom/HTMLOptionElement.h"
+#include "mozilla/dom/HTMLTextAreaElement.h"
+#include "mozilla/dom/ShadowRoot.h"
 #include "nsCOMPtr.h"
 #include "nsFrameLoaderOwner.h"
 #include "nsIDocShell.h"
@@ -60,6 +64,9 @@ SpeculumNodeSource::SpeculumNodeSource() {
 
 speculum::NodeKind SpeculumNodeSource::kindOf(const void* node) const {
   nsINode* n = AsNode(node);
+  if (n->IsShadowRoot()) {
+    return speculum::NodeKind::ShadowRoot;
+  }
   if (n->IsElement()) {
     return speculum::NodeKind::Element;
   }
@@ -194,8 +201,184 @@ uint32_t SpeculumNodeSource::childScopeIdOf(const void* node) const {
   return c >= 2 ? c : 0;
 }
 
+bool SpeculumNodeSource::isNestedHost(const void* node) const {
+  Element* el = Element::FromNode(AsNode(node));
+  if (!el || !el->IsInComposedDoc()) {
+    return false;
+  }
+  nsCOMPtr<nsFrameLoaderOwner> owner = do_QueryInterface(el);
+  return owner != nullptr;
+}
+
+uint32_t SpeculumNodeSource::childScopeIdOf(const void* node) const {
+  Element* el = Element::FromNode(AsNode(node));
+  if (!el) {
+    return 0;
+  }
+  nsCOMPtr<nsFrameLoaderOwner> owner = do_QueryInterface(el);
+  if (!owner) {
+    return 0;
+  }
+  mozilla::dom::BrowsingContext* bc = owner->GetBrowsingContext();
+  if (!bc) {
+    return 0;
+  }
+  const uint32_t c = bc->GetSpeculumContextId();
+  if (c == 1) {
+    MOZ_CRASH("Speculum: iframe BrowsingContext stamped as root contextId");
+  }
+  return c >= 2 ? c : 0;
+}
+
 bool SpeculumNodeSource::isConnected(const void* node) const {
   return AsNode(node)->IsInComposedDoc();
+}
+
+const void* SpeculumNodeSource::shadowRootOf(const void* host) const {
+  Element* el = Element::FromNode(AsNode(host));
+  return el ? el->GetShadowRoot() : nullptr;
+}
+
+const void* SpeculumNodeSource::shadowHostOf(const void* shadowRoot) const {
+  mozilla::dom::ShadowRoot* sr =
+      mozilla::dom::ShadowRoot::FromNode(AsNode(shadowRoot));
+  return sr ? sr->GetHost() : nullptr;
+}
+
+uint8_t SpeculumNodeSource::shadowModeOf(const void* shadowRoot) const {
+  mozilla::dom::ShadowRoot* sr =
+      mozilla::dom::ShadowRoot::FromNode(AsNode(shadowRoot));
+  if (!sr) {
+    return 0;
+  }
+  return sr->IsClosed() ? 1 : 0;
+}
+
+std::vector<speculum::FormProp> SpeculumNodeSource::formPropsOf(
+    const void* node) const {
+  std::vector<speculum::FormProp> out;
+  nsINode* n = AsNode(node);
+  if (auto* input = mozilla::dom::HTMLInputElement::FromNode(n)) {
+    nsAutoString type;
+    input->GetType(type);
+    if (type.LowerCaseEqualsLiteral("checkbox") ||
+        type.LowerCaseEqualsLiteral("radio")) {
+      out.push_back(speculum::FormProp{
+          0x02, speculum::PropValue::boolean(input->Checked())});
+    } else if (!type.LowerCaseEqualsLiteral("file") &&
+               !type.LowerCaseEqualsLiteral("button") &&
+               !type.LowerCaseEqualsLiteral("submit") &&
+               !type.LowerCaseEqualsLiteral("reset") &&
+               !type.LowerCaseEqualsLiteral("image")) {
+      nsAutoString value;
+      input->GetValue(value);
+      out.push_back(speculum::FormProp{
+          0x01, speculum::PropValue::str(Utf8FromUtf16(value))});
+    }
+    return out;
+  }
+  if (auto* area = mozilla::dom::HTMLTextAreaElement::FromNode(n)) {
+    nsAutoString value;
+    area->GetValue(value);
+    out.push_back(speculum::FormProp{
+        0x01, speculum::PropValue::str(Utf8FromUtf16(value))});
+    return out;
+  }
+  if (auto* option = mozilla::dom::HTMLOptionElement::FromNode(n)) {
+    out.push_back(speculum::FormProp{
+        0x03, speculum::PropValue::boolean(option->Selected())});
+  }
+  return out;
+}
+
+void SpeculumNodeSource::BindDocument(mozilla::dom::Document* aDocument) {
+  mDocument = aDocument;
+}
+
+void SpeculumNodeSource::NoteSheet(const void* aSheet) {
+  if (!aSheet) {
+    return;
+  }
+  for (const void* s : mSheets) {
+    if (s == aSheet) {
+      return;
+    }
+  }
+  mSheets.push_back(aSheet);
+}
+
+void SpeculumNodeSource::DropSheet(const void* aSheet) {
+  std::vector<const void*> kept;
+  for (const void* s : mSheets) {
+    if (s != aSheet) {
+      kept.push_back(s);
+    }
+  }
+  mSheets.swap(kept);
+  auto it = mRules.find(aSheet);
+  if (it != mRules.end()) {
+    for (const void* r : it->second) {
+      mRuleText.erase(r);
+      mRuleSheet.erase(r);
+    }
+    mRules.erase(it);
+  }
+}
+
+void SpeculumNodeSource::NoteRule(const void* aSheet, const void* aRule,
+                                  const std::string& aText) {
+  if (!aRule) {
+    return;
+  }
+  mRuleSheet[aRule] = aSheet;
+  mRuleText[aRule] = aText;
+  auto& list = mRules[aSheet];
+  for (const void* r : list) {
+    if (r == aRule) {
+      return;
+    }
+  }
+  list.push_back(aRule);
+}
+
+void SpeculumNodeSource::DropRule(const void* aRule) {
+  auto sheetIt = mRuleSheet.find(aRule);
+  if (sheetIt != mRuleSheet.end()) {
+    auto& list = mRules[sheetIt->second];
+    std::vector<const void*> kept;
+    for (const void* r : list) {
+      if (r != aRule) {
+        kept.push_back(r);
+      }
+    }
+    list.swap(kept);
+    mRuleSheet.erase(sheetIt);
+  }
+  mRuleText.erase(aRule);
+}
+
+void SpeculumNodeSource::SetRuleText(const void* aRule, const std::string& aText) {
+  mRuleText[aRule] = aText;
+}
+
+std::vector<const void*> SpeculumNodeSource::cssomSheets() const {
+  return mSheets;
+}
+
+std::vector<const void*> SpeculumNodeSource::cssomRulesOf(
+    const void* sheet) const {
+  auto it = mRules.find(sheet);
+  return it == mRules.end() ? std::vector<const void*>{} : it->second;
+}
+
+std::string SpeculumNodeSource::cssomRuleTextOf(const void* rule) const {
+  auto it = mRuleText.find(rule);
+  return it == mRuleText.end() ? std::string() : it->second;
+}
+
+const void* SpeculumNodeSource::cssomSheetOf(const void* rule) const {
+  auto it = mRuleSheet.find(rule);
+  return it == mRuleSheet.end() ? nullptr : it->second;
 }
 
 namespace {

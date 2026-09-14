@@ -8,6 +8,8 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/Element.h"
+#include "mozilla/dom/ShadowRoot.h"
 #include "nsComponentManagerUtils.h"
 #include "nsDebug.h"
 #include "nsReadableUtils.h"
@@ -98,6 +100,9 @@ SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
     : mDocument(aDocument),
       mState(mozilla::MakeUnique<SpeculumProducerState>(aContextId)) {
   RegisterObserver(aContextId, this);
+  if (mState) {
+    mState->source.BindDocument(aDocument);
+  }
 }
 
 SpeculumMutationObserver::~SpeculumMutationObserver() {
@@ -111,6 +116,86 @@ uint32_t SpeculumMutationObserver::ContextId() const {
   return mState ? mState->contextId : 0;
 }
 
+uint32_t SpeculumMutationObserver::Sequence() const {
+  return mState ? mState->producer.sequence() : 0;
+}
+
+uint32_t SpeculumMutationObserver::Generation() const {
+  return mState ? mState->producer.generation() : 0;
+}
+
+uint64_t SpeculumMutationObserver::TableHash() const {
+  return mState ? mState->producer.table().tableHash() : 0;
+}
+
+void SpeculumMutationObserver::SetHalted(bool aHalted) {
+  if (!mState) {
+    return;
+  }
+  mState->producer.setHalted(aHalted);
+  if (aHalted) {
+    CancelFrameTimer();
+  } else {
+    ArmFrameTimerIfNeeded();
+  }
+}
+
+void SpeculumMutationObserver::FlushNow() {
+  EmitPendingFrame();
+}
+
+bool SpeculumMutationObserver::SnapshotDump(std::vector<uint8_t>& aOut) const {
+  if (!mState) {
+    return false;
+  }
+  aOut = mState->producer.snapshotDump();
+  return true;
+}
+
+void SpeculumMutationObserver::OnSheetAdded(void* aSheet) {
+  if (!mState || !aSheet) {
+    return;
+  }
+  mState->source.NoteSheet(aSheet);
+  mState->producer.onSheetAdded(aSheet);
+  ArmFrameTimerIfNeeded();
+}
+
+void SpeculumMutationObserver::OnSheetRemoved(void* aSheet) {
+  if (!mState || !aSheet) {
+    return;
+  }
+  mState->source.DropSheet(aSheet);
+  mState->producer.onSheetRemoved(aSheet);
+  ArmFrameTimerIfNeeded();
+}
+
+void SpeculumMutationObserver::OnRuleAdded(void* aSheet, void* aRule) {
+  if (!mState || !aRule) {
+    return;
+  }
+  mState->source.NoteRule(aSheet, aRule, std::string());
+  mState->producer.onRuleAdded(aSheet, aRule);
+  ArmFrameTimerIfNeeded();
+}
+
+void SpeculumMutationObserver::OnRuleRemoved(void* aSheet, void* aRule) {
+  if (!mState || !aRule) {
+    return;
+  }
+  mState->source.DropRule(aRule);
+  mState->producer.onRuleRemoved(aSheet, aRule);
+  ArmFrameTimerIfNeeded();
+}
+
+void SpeculumMutationObserver::OnRuleChanged(void* aRule) {
+  if (!mState || !aRule) {
+    return;
+  }
+  mState->producer.onRuleChanged(aRule);
+  ArmFrameTimerIfNeeded();
+}
+
 void SpeculumMutationObserver::CancelFrameTimer() {
   if (mState && mState->frameTimer) {
     mState->frameTimer->Cancel();
@@ -118,8 +203,23 @@ void SpeculumMutationObserver::CancelFrameTimer() {
   }
 }
 
+void SpeculumMutationObserver::MaybeObserveShadow(nsIContent* aChild) {
+  mozilla::dom::Element* el = mozilla::dom::Element::FromNode(aChild);
+  if (!el) {
+    return;
+  }
+  mozilla::dom::ShadowRoot* sr = el->GetShadowRoot();
+  if (!sr) {
+    return;
+  }
+  sr->AddMutationObserver(this);
+}
+
 void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
   if (!mState || mState->frameTimer) {
+    return;
+  }
+  if (mState->producer.halted()) {
     return;
   }
   nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mState->frameTimer), this,
@@ -143,15 +243,11 @@ void SpeculumMutationObserver::EmitPendingFrame() {
   if (!mState) {
     return;
   }
-  const uint32_t ops = mState->producer.pendingOps();
-  if (ops == 0) {
-    return;
-  }
   std::vector<uint8_t> frame = mState->producer.emitFrame();
   if (frame.empty()) {
     return;
   }
-  SendFrameBytes(mDocument, *mState, frame, ops, false);
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.pendingOps(), false);
 }
 
 bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
@@ -198,14 +294,65 @@ void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce) {
   it->second->RequestResync(aForce);
 }
 
-void SpeculumMutationObserver::CharacterDataWillChange(
-    nsIContent*, const CharacterDataChangeInfo&) {
-  SPECULUM_LOG("CharacterDataWillChange");
+void SpeculumHaltClocks() {
+  for (auto& kv : gObserversByContext) {
+    if (kv.second) {
+      kv.second->SetHalted(true);
+    }
+  }
 }
+
+void SpeculumResumeClocks() {
+  for (auto& kv : gObserversByContext) {
+    if (kv.second) {
+      kv.second->SetHalted(false);
+    }
+  }
+}
+
+void SpeculumFlushFrame(uint32_t aContextId) {
+  auto it = gObserversByContext.find(aContextId);
+  if (it == gObserversByContext.end() || !it->second) {
+    return;
+  }
+  it->second->FlushNow();
+}
+
+bool SpeculumSnapshotDump(uint32_t aContextId, std::vector<uint8_t>& aOut,
+                          uint32_t* aSequence, uint32_t* aGeneration,
+                          uint64_t* aTableHash) {
+  auto it = gObserversByContext.find(aContextId);
+  if (it == gObserversByContext.end() || !it->second) {
+    return false;
+  }
+  if (!it->second->SnapshotDump(aOut)) {
+    return false;
+  }
+  if (aSequence) {
+    *aSequence = it->second->Sequence();
+  }
+  if (aGeneration) {
+    *aGeneration = it->second->Generation();
+  }
+  if (aTableHash) {
+    *aTableHash = it->second->TableHash();
+  }
+  return true;
+}
+
+mozilla::dom::Document* SpeculumDocumentForContext(uint32_t aContextId) {
+  auto it = gObserversByContext.find(aContextId);
+  if (it == gObserversByContext.end() || !it->second) {
+    return nullptr;
+  }
+  return it->second->GetDocument();
+}
+
+void SpeculumMutationObserver::CharacterDataWillChange(
+    nsIContent*, const CharacterDataChangeInfo&) {}
 
 void SpeculumMutationObserver::CharacterDataChanged(
     nsIContent* aContent, const CharacterDataChangeInfo&) {
-  SPECULUM_LOG("CharacterDataChanged");
   if (!mState) {
     return;
   }
@@ -215,15 +362,12 @@ void SpeculumMutationObserver::CharacterDataChanged(
 
 void SpeculumMutationObserver::AttributeWillChange(mozilla::dom::Element*,
                                                    int32_t, nsAtom*,
-                                                   AttrModType) {
-  SPECULUM_LOG("AttributeWillChange");
-}
+                                                   AttrModType) {}
 
 void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element* aElement,
                                                 int32_t, nsAtom* aAttribute,
                                                 AttrModType,
                                                 const nsAttrValue*) {
-  SPECULUM_LOG("AttributeChanged");
   if (!mState) {
     return;
   }
@@ -233,13 +377,10 @@ void SpeculumMutationObserver::AttributeChanged(mozilla::dom::Element* aElement,
 }
 
 void SpeculumMutationObserver::AttributeSetToCurrentValue(
-    mozilla::dom::Element*, int32_t, nsAtom*) {
-  SPECULUM_LOG("AttributeSetToCurrentValue");
-}
+    mozilla::dom::Element*, int32_t, nsAtom*) {}
 
 void SpeculumMutationObserver::ContentAppended(
     nsIContent* aFirstNewContent, const ContentAppendInfo&) {
-  SPECULUM_LOG("ContentAppended");
   if (!mState || !aFirstNewContent) {
     return;
   }
@@ -247,23 +388,23 @@ void SpeculumMutationObserver::ContentAppended(
   for (nsIContent* child = aFirstNewContent; child;
        child = child->GetNextSibling()) {
     mState->producer.onInserted(parent, child);
+    MaybeObserveShadow(child);
   }
   ArmFrameTimerIfNeeded();
 }
 
 void SpeculumMutationObserver::ContentInserted(nsIContent* aChild,
                                                const ContentInsertInfo&) {
-  SPECULUM_LOG("ContentInserted");
   if (!mState || !aChild) {
     return;
   }
   mState->producer.onInserted(aChild->GetParentNode(), aChild);
+  MaybeObserveShadow(aChild);
   ArmFrameTimerIfNeeded();
 }
 
 void SpeculumMutationObserver::ContentWillBeRemoved(
     nsIContent* aChild, const ContentRemoveInfo&) {
-  SPECULUM_LOG("ContentWillBeRemoved");
   if (!mState || !aChild) {
     return;
   }
@@ -272,7 +413,6 @@ void SpeculumMutationObserver::ContentWillBeRemoved(
 }
 
 void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode* aNode) {
-  SPECULUM_LOG("NodeWillBeDestroyed");
   if (!mState) {
     return;
   }
@@ -280,9 +420,7 @@ void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode* aNode) {
   ArmFrameTimerIfNeeded();
 }
 
-void SpeculumMutationObserver::ParentChainChanged(nsIContent*) {
-  SPECULUM_LOG("ParentChainChanged");
-}
+void SpeculumMutationObserver::ParentChainChanged(nsIContent*) {}
 
 void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
   if (!aDocument || aDocument->GetSpeculumMutationObserver()) {

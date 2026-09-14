@@ -56,11 +56,15 @@ atual, e um dos motivos originais do port — **nao e' necessario**. Le-se do C+
 Nao existe id estavel nativo em `nsINode` (nada apareceu nas buscas). Entao a
 **tabela paralela continua** — igual ao WebKit.
 
-**Mas existe `NodeWillBeDestroyed(nsINode*)`.** O motor avisa antes do no morrer.
+**Mas existe `NodeWillBeDestroyed(nsINode*)`.** O motor avisa antes do no morrer —
+**no observer daquele no.** O observer pendurado no **Document nao dispara por
+filho.** Pendurar o GC nisso vaza linha e cola id quando o alocador reusa o
+ponteiro.
 
-Isso resolve o risco levantado em `docs/webkit-engine/08-costura.md` §"Risco:
-referencia pendurada": o acumulador guarda identidade, e o motor diz quando
-despejar. **Nao precisa de referencia forte segurando viva coisa que a pagina removeu.**
+Identidade no Gecko: `REMOVE` no `onRemoved`; `NODE_DROP` + soltar o mapa no
+`emitFrame` se o no nao reinseriu neste tick. Destroy e reserva, nao o caminho.
+Lei: [`20-projecao-completa.md`](20-projecao-completa.md) L5.
+Nao precisa de referencia forte segurando viva coisa que a pagina removeu.
 
 ## 4. CSSOM — mais fino que no WebKit
 

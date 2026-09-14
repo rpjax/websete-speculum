@@ -1289,6 +1289,15 @@ IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
   return IPC_OK();
 }
 
+IPCResult ContentParent::RecvSpeculumSnapshotDump(
+    const uint32_t& aContextId, const uint32_t& aCorrelationId,
+    const uint32_t& aSequence, const uint32_t& aGeneration,
+    const uint64_t& aTableHash, nsTArray<uint8_t>&& aDump) {
+  SpeculumProjectionRuntime::Get().DeliverSnapshot(
+      aContextId, aCorrelationId, aSequence, aGeneration, aTableHash, aDump);
+  return IPC_OK();
+}
+
 IPCResult ContentParent::RecvAttributionEvent(
     const nsACString& aHost, PrivateAttributionImpressionType aType,
     uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost) {

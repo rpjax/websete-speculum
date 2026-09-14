@@ -1994,6 +1994,18 @@ parent:
 
 child:
     async SpeculumResync(uint32_t aContextId, uint8_t aForce);
+    async SpeculumHaltClocks();
+    async SpeculumResumeClocks();
+    async SpeculumFlushFrame(uint32_t aContextId);
+    async SpeculumSnapshot(uint32_t aContextId, uint32_t aCorrelationId);
+    async SpeculumInput(uint32_t aContextId, uint8_t[] aEvent);
+    async SpeculumDialogRespond(uint32_t aContextId, uint32_t aRequestId,
+                                nsCString aAnswer);
+
+parent:
+    async SpeculumSnapshotDump(uint32_t aContextId, uint32_t aCorrelationId,
+                               uint32_t aSequence, uint32_t aGeneration,
+                               uint64_t aTableHash, uint8_t[] aDump);
 
 parent:
     async AttributionEvent(nsCString aSourceHost,

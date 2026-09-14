@@ -287,6 +287,47 @@ class FramePartBuilder {
     w_.u8(value ? 1 : 0);
   }
 
+  void sheetNew(uint32_t id, uint8_t scope, uint32_t hostNode, uint32_t before) {
+    op(Op::SheetNew);
+    w_.u32(id);
+    w_.u8(scope);
+    w_.u32(hostNode);
+    w_.u32(before);
+  }
+
+  void sheetDrop(const std::vector<uint32_t>& ids) {
+    op(Op::SheetDrop);
+    w_.u16(static_cast<uint16_t>(ids.size()));
+    for (uint32_t id : ids) w_.u32(id);
+  }
+
+  void sheetOrder(const std::vector<uint32_t>& ids) {
+    op(Op::SheetOrder);
+    w_.u16(static_cast<uint16_t>(ids.size()));
+    for (uint32_t id : ids) w_.u32(id);
+  }
+
+  void ruleNew(uint32_t sheet, uint32_t id, uint32_t before, const std::string& text) {
+    op(Op::RuleNew);
+    w_.u32(sheet);
+    w_.u32(id);
+    w_.u32(before);
+    w_.strRef(text);
+  }
+
+  void ruleDrop(uint32_t sheet, const std::vector<uint32_t>& ids) {
+    op(Op::RuleDrop);
+    w_.u32(sheet);
+    w_.u16(static_cast<uint16_t>(ids.size()));
+    for (uint32_t id : ids) w_.u32(id);
+  }
+
+  void ruleSet(uint32_t id, const std::string& text) {
+    op(Op::RuleSet);
+    w_.u32(id);
+    w_.strRef(text);
+  }
+
   uint32_t opCount() const { return opCount_; }
 
   // Monta a parte. O corpo de ops é precedido por opCount (§2).

@@ -24,7 +24,7 @@ public static class AbiTests
         }
 
         var vectors = Load(goldenPath);
-        report.Equal("vetores carregados", 12, vectors.Count);
+        report.Equal("vetores carregados", 17, vectors.Count);
 
         // ---- codificação: os comandos que o supervisor emite ----
         Check(report, vectors, "ContextCreate", ControlCommand.ContextCreate(1, 1, 1280, 800));
@@ -33,6 +33,11 @@ public static class AbiTests
         Check(report, vectors, "Navigate-utf8", ControlCommand.Navigate(3, 1, "https://pt.wikipedia.org/wiki/Ação"));
         Check(report, vectors, "Shutdown", ControlCommand.Shutdown(9));
         Check(report, vectors, "Resync", ControlCommand.Resync(4, 1, 0));
+        Check(report, vectors, "HaltClocks", ControlCommand.HaltClocks(1));
+        Check(report, vectors, "ResumeClocks", ControlCommand.ResumeClocks(2));
+        Check(report, vectors, "FlushFrame", ControlCommand.FlushFrame(3, 1));
+        Check(report, vectors, "Snapshot", ControlCommand.Snapshot(4, 1));
+        Check(report, vectors, "SnapshotServed", ControlCommand.SnapshotServed(4, 1, 0, 1, 0, []));
 
         // ---- decodificação: os eventos que o browser emite ----
         Decode(report, vectors, "Ready", e =>
@@ -69,6 +74,14 @@ public static class AbiTests
             report.Equal("Fault.reason", "contexto desconhecido", e.Text);
         });
 
+        Decode(report, vectors, "SnapshotServed", e =>
+        {
+            report.Equal("SnapshotServed.opcode", ControlOpCode.SnapshotServed, e.OpCode);
+            report.Equal("SnapshotServed.correlationId", 4u, e.CorrelationId);
+        });
+
+        InputViewportHistoryRoundtrip(report);
+
         // ---- envelope ----
         EnvelopeRoundTrip(report, vectors);
 
@@ -77,6 +90,28 @@ public static class AbiTests
         UnknownOpCode(report);
 
         return report.Finish();
+    }
+
+    private static void InputViewportHistoryRoundtrip(Report report)
+    {
+        var input = ControlCommand.Input(11, 1, [0xaa, 0xbb]);
+        var inputReader = new ControlReader(input);
+        report.Equal("Input.opcode", ControlOpCode.Input, inputReader.OpCode);
+        report.Equal("Input.contextId", 1u, inputReader.ReadUInt32());
+        report.Bytes("Input.bytes", [0xaa, 0xbb], inputReader.ReadBytes());
+
+        var viewport = ControlCommand.ViewportSet(12, 1, 800, 600);
+        var viewportReader = new ControlReader(viewport);
+        report.Equal("ViewportSet.opcode", ControlOpCode.ViewportSet, viewportReader.OpCode);
+        report.Equal("ViewportSet.contextId", 1u, viewportReader.ReadUInt32());
+        report.Equal("ViewportSet.width", 800, viewportReader.ReadInt32());
+        report.Equal("ViewportSet.height", 600, viewportReader.ReadInt32());
+
+        var history = ControlCommand.HistoryGo(13, 1, -1);
+        var historyReader = new ControlReader(history);
+        report.Equal("HistoryGo.opcode", ControlOpCode.HistoryGo, historyReader.OpCode);
+        report.Equal("HistoryGo.contextId", 1u, historyReader.ReadUInt32());
+        report.Equal("HistoryGo.delta", -1, historyReader.ReadInt32());
     }
 
     private static void Check(Report report, Dictionary<string, Vector> vectors, string name, byte[] produced)

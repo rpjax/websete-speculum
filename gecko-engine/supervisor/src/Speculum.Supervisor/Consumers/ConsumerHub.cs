@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using Speculum.Supervisor.Wire;
 
 namespace Speculum.Supervisor.Consumers;
 
@@ -28,13 +29,28 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
     /// </summary>
     public event Action? ConsumerAttached;
 
+    /// <summary>Ativo vindo do consumidor (Kind 0x06 no plano de consumo).</summary>
+    public event Action<uint, byte[]>? AssetFromConsumer;
+
     /// <summary>
     /// Serve um consumidor até que ele desconecte. O <see cref="WebSocket"/> pertence
     /// ao chamador (o pipeline do Kestrel) e é fechado por ele.
     /// </summary>
     public async Task ServeAsync(WebSocket socket, CancellationToken cancellationToken)
     {
-        var consumer = new ConsumerConnection(socket, payload => CommandReceived?.Invoke(payload));
+        var consumer = new ConsumerConnection(socket, payload =>
+        {
+            // Envelope Asset completo — não o primeiro byte. HistoryGo é 0x0106 LE.
+            if (Envelope.TryReadComplete(payload, EnvelopeKind.Asset, out var contextId, out var length))
+            {
+                var body = new byte[length];
+                Buffer.BlockCopy(payload, Envelope.HeaderBytes, body, 0, length);
+                AssetFromConsumer?.Invoke(contextId, body);
+                return;
+            }
+
+            CommandReceived?.Invoke(payload);
+        });
         _consumers[consumer.Id] = consumer;
         logger.LogInformation("consumidor {ConsumerId} conectado ({Count} no total)", consumer.Id, _consumers.Count);
         ConsumerAttached?.Invoke();
@@ -73,6 +89,14 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
                 logger.LogWarning("consumidor {ConsumerId} descartou frame ctx={ContextId}", consumer.Id, contextId);
             }
         }
+    }
+
+    public void BroadcastEnvelope(EnvelopeKind kind, uint contextId, byte[] payload)
+    {
+        var message = new byte[Envelope.HeaderBytes + payload.Length];
+        Envelope.WriteHeader(message, kind, contextId, payload.Length);
+        Buffer.BlockCopy(payload, 0, message, Envelope.HeaderBytes, payload.Length);
+        Broadcast(contextId, message);
     }
 
     private sealed class ConsumerConnection(WebSocket socket, Action<byte[]> onCommand)

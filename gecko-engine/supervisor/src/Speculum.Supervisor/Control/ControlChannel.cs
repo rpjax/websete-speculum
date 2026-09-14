@@ -15,13 +15,19 @@ public sealed class ControlChannel(EnvelopeWriter writer, ILogger logger)
     private int _nextId;
 
     /// <summary>Evento decodificado vindo do browser.</summary>
-    public event Action<BrowserEvent>? EventReceived;
+    public event Action<BrowserEvent, byte[]>? EventReceived;
 
     public uint NextId() => (uint)Interlocked.Increment(ref _nextId);
 
     public async ValueTask SendAsync(byte[] command, uint contextId, CancellationToken cancellationToken)
     {
         await writer.WriteAsync(EnvelopeKind.Control, contextId, command, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask SendKindAsync(
+        EnvelopeKind kind, uint contextId, byte[] payload, CancellationToken cancellationToken)
+    {
+        await writer.WriteAsync(kind, contextId, payload, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Chamado pela ponte quando chega um envelope de evento.</summary>
@@ -40,6 +46,6 @@ public sealed class ControlChannel(EnvelopeWriter writer, ILogger logger)
         }
 
         logger.LogInformation("<- {OpCode} id={Id}", message.OpCode, message.CorrelationId);
-        EventReceived?.Invoke(message);
+        EventReceived?.Invoke(message, payload.ToArray());
     }
 }

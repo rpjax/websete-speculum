@@ -17,7 +17,7 @@ var code = layer switch
 {
     "l1" => AbiTests.Run(golden),
     "l2" => await TransportTests.RunAsync(),
-    "l3" => await WiringTests.RunAsync(),
+    "l3" => await RunL3Async(),
     "l4" => await StackTests.RunAsync(),
     "all" => await RunAllAsync(golden),
     _ => Unknown(layer),
@@ -34,13 +34,23 @@ static async Task<int> RunAllAsync(string golden)
     var l2 = await TransportTests.RunAsync();
     Console.WriteLine();
     var l3 = await WiringTests.RunAsync();
+    Console.WriteLine();
+    var extra = await ExtraLayerTests.RunAsync();
 
     Console.WriteLine();
-    var total = l1 + l2 + l3;
+    var total = l1 + l2 + l3 + extra;
     Console.WriteLine(total == 0
         ? "ESCADA (sem Gecko): L1+L2+L3 OK"
         : "ESCADA (sem Gecko): FALHOU — ver degraus acima");
     return total == 0 ? 0 : 1;
+}
+
+static async Task<int> RunL3Async()
+{
+    var wiring = await WiringTests.RunAsync();
+    Console.WriteLine();
+    var extra = await ExtraLayerTests.RunAsync();
+    return wiring + extra == 0 ? 0 : 1;
 }
 
 static int Unknown(string layer)

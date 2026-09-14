@@ -152,6 +152,7 @@ UNIFIED_SOURCES += [
     "SharedMessageBody.cpp",
     "SharedStringMap.cpp",
     "SpeculumControlAbi.cpp",
+    "SpeculumMarionette.cpp",
     "SpeculumMint.cpp",
     "SpeculumProjectionRuntime.cpp",
     "StructuredCloneData.cpp",

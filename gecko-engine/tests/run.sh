@@ -86,7 +86,13 @@ find_firefox() {
 
 # ---- L0 + L5: núcleo e regressão viva (C++ ↔ TypeScript, capturas congeladas) ----
 banner "L0 + L5 — núcleo e regressão viva (speculum-wire)"
-"$WIRE/run-tests.sh"
+WIRE_OUT="/tmp/speculum-wire"
+SPECULUM_OUT="$WIRE_OUT" "$WIRE/run-tests.sh"
+
+if [ -f "$HERE/projected-sw/assetSw.test.ts" ]; then
+  banner "K5 — SW projected (unit)"
+  npx --yes tsx "$HERE/projected-sw/assetSw.test.ts"
+fi
 
 # ---- L1 (C++): o codec REAL compilado fora do Gecko contra os vetores de ouro ----
 banner "L1 (C++) — ABI de controle standalone"
@@ -103,11 +109,25 @@ banner "Build C# ($CONFIG)"
 # ---- L1 (C#) + L2 + L3: contrato, transporte e amarração ----
 # Tudo pelo muxer (dotnet X.dll): ele resolve o runtime a partir do próprio
 # lugar, sem depender de apphost nem de instalação em local de sistema.
+export SPECULUM_PP_FRAMES_DIR="$OUT/l3-pp"
+rm -rf "$SPECULUM_PP_FRAMES_DIR"
+mkdir -p "$SPECULUM_PP_FRAMES_DIR"
+export SPECULUM_PRODUCER_CLI="${SPECULUM_PRODUCER_CLI:-$WIRE_OUT/producer_cli}"
+
 banner "L1 (C#) + L2 + L3 — contrato, transporte, amarração"
 SPECULUM_DOTNET="$DOTNET" \
 SPECULUM_TESTS_DLL="$TESTS_DLL" \
 SPECULUM_SUPERVISOR_DLL="$SUPERVISOR_DLL" \
+SPECULUM_PRODUCER_CLI="$SPECULUM_PRODUCER_CLI" \
+SPECULUM_PP_FRAMES_DIR="$SPECULUM_PP_FRAMES_DIR" \
   "$DOTNET" "$TESTS_DLL" all
+
+if [ ! -f "$SPECULUM_PP_FRAMES_DIR/frames.txt" ]; then
+  echo "L3-PP: frames.txt ausente — ExtraLayerTests não gravou frames do Producer"
+  exit 1
+fi
+banner "L3-PP — apply core (tsx, mesmo helper do L0)"
+(cd "$WIRE/test" && SPECULUM_OUT="$SPECULUM_PP_FRAMES_DIR" npx --yes tsx producer_loop.ts)
 
 # ---- L4: pilha real, só sob demanda ----
 if [[ "${1:-}" == "--stack" ]]; then

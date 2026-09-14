@@ -20,8 +20,12 @@ enum class SpeculumControlOpCode : uint16_t {
   Resync = 0x0109,
   DialogRespond = 0x010a,
   PermissionRespond = 0x010b,
-  DownloadRespond = 0x010c,
-  Shutdown = 0x01ff,
+    DownloadRespond = 0x010c,
+    HaltClocks = 0x010d,
+    ResumeClocks = 0x010e,
+    FlushFrame = 0x010f,
+    Snapshot = 0x0110,
+    Shutdown = 0x01ff,
 
   // browser -> supervisor
   Ready = 0x0201,
@@ -32,8 +36,9 @@ enum class SpeculumControlOpCode : uint16_t {
   LoadStateChanged = 0x0206,
   DialogRequested = 0x0207,
   PermissionRequested = 0x0208,
-  DownloadRequested = 0x0209,
-  Fault = 0x02ff,
+    DownloadRequested = 0x0209,
+    SnapshotServed = 0x020a,
+    Fault = 0x02ff,
 };
 
 constexpr size_t kSpeculumControlHeaderBytes = sizeof(uint16_t) + sizeof(uint32_t);
@@ -52,6 +57,7 @@ class SpeculumControlReader {
   bool ReadUInt32(uint32_t* aOut);
   bool ReadUInt64(uint64_t* aOut);
   bool ReadString(nsACString& aOut);
+  bool ReadBytes(nsACString& aOut);
 
  private:
   bool Require(size_t aBytes);
@@ -78,6 +84,7 @@ class SpeculumControlWriter {
   bool WriteUInt32(uint32_t aValue);
   bool WriteUInt64(uint64_t aValue);
   bool WriteString(const nsACString& aValue);
+  bool WriteBytes(const nsACString& aValue);
 
  private:
   bool Ensure(size_t aBytes);

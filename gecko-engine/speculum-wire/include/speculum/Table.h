@@ -97,6 +97,14 @@ class ReplicatedTable {
 
   uint32_t lastChildId(uint32_t parent) const { return lastChild(parent); }
 
+  std::vector<uint32_t> allRowIds() const {
+    std::vector<uint32_t> out;
+    out.reserve(rows_.size());
+    for (const auto& kv : rows_) out.push_back(kv.first);
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+
   uint32_t shadowRootOf(uint32_t host) const {
     auto it = shadowRootByHost_.find(host);
     return it == shadowRootByHost_.end() ? kNone : it->second;

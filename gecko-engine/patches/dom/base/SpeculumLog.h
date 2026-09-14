@@ -1,4 +1,5 @@
-/* Speculum — módulo de log único (MOZ_LOG=Speculum:5). */
+/* Speculum — módulo de log único (MOZ_LOG=Speculum:5).
+ * Default off. Não logar por callback de mutação. */
 #ifndef DOM_BASE_SPECULUMLOG_H_
 #define DOM_BASE_SPECULUMLOG_H_
 

@@ -40,3 +40,18 @@ Fault|ff 02 05 00 00 00 00 00 00 00 15 00 00 00 63 6f 6e 74 65 78 74 6f 20 64 65
 
 # Resync: contextId=1 força=0 (mapa / emitResyncFrame)
 Resync|09 01 04 00 00 00 01 00 00 00 00|04 01 00 00 00 0b 00 00 00 09 01 04 00 00 00 01 00 00 00 00
+
+# HaltClocks: aba inteira, sem campos
+HaltClocks|0d 01 01 00 00 00|04 00 00 00 00 06 00 00 00 0d 01 01 00 00 00
+
+# ResumeClocks
+ResumeClocks|0e 01 02 00 00 00|04 00 00 00 00 06 00 00 00 0e 01 02 00 00 00
+
+# FlushFrame: contextId=1
+FlushFrame|0f 01 03 00 00 00 01 00 00 00|04 01 00 00 00 0a 00 00 00 0f 01 03 00 00 00 01 00 00 00
+
+# Snapshot: contextId=1
+Snapshot|10 01 04 00 00 00 01 00 00 00|04 01 00 00 00 0a 00 00 00 10 01 04 00 00 00 01 00 00 00
+
+# SnapshotServed: seq=1 gen=0 ctx=1 hash=0 dump vazio, mesmo correlationId do Snapshot
+SnapshotServed|0a 02 04 00 00 00 01 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00|02 01 00 00 00 1e 00 00 00 0a 02 04 00 00 00 01 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00

@@ -56,8 +56,9 @@ nao e' operacao real — ninguem recompila sem ter mudado nada.
   `RuleChanged(rule, change)` por regra, contra "mudou neste escopo" do WebKit. (§4)
 - **Fronteira de UA vira predicado** — `IsInNativeAnonymousSubtree()` e' flag de
   primeira classe em todo no. Fecha o item **F**. (§5)
-- **`NodeWillBeDestroyed` fecha o item G** — o acumulador guarda identidade e o motor
-  avisa quando despejar; dispensa referencia forte. (§3)
+- **Identidade (item G)** — mapa `void*` + `NODE_DROP` no tick do detach.
+  `NodeWillBeDestroyed` no Document **nao** dispara por filho; nao e' o GC.
+  Lei: [`20-projecao-completa.md`](20-projecao-completa.md) L5.
 - **Coerencia de fingerprint no Linux, por construcao** — voce **e'** um Firefox:
   TLS, canvas/FreeType, fontes, SpiderMonkey, kernel. Nada forjado. WebKit-no-Linux
   e' populacao inexistente e exigiria forjar tudo isso **para sempre**.

@@ -111,6 +111,8 @@ EXPORTS += [
     "SharedLcpMarkerState.h",
     "SpeculumLog.h",
     "SpeculumMutationObserver.h",
+    "SpeculumCssom.h",
+    "SpeculumInput.h",
     "XPathGenerator.h",
 ]
 
@@ -475,6 +477,8 @@ UNIFIED_SOURCES += [
     "SourceLocation.cpp",
     "SpeculumMutationObserver.cpp",
     "SpeculumNodeSource.cpp",
+    "SpeculumCssom.cpp",
+    "SpeculumInput.cpp",
     "StaticRange.cpp",
     "StorageAccessPermissionRequest.cpp",
     "StructuredCloneBlob.cpp",

@@ -12,9 +12,9 @@ O texto original dizia que controle é "poucas mensagens por sessão, então a
 performance dele é irrelevante e a simplicidade vale tudo".
 
 **Isso está errado e foi corrigido na fonte.** Entrada de usuário viaja por esta
-ponte: movimento de ponteiro é 60–120 mensagens por segundo, contínuo, durante
-toda a sessão. E **latência de entrada é a qualidade percebida da projeção
-inteira** — não é um detalhe interno.
+ponte: scroll e tecla em rajada, sem engasgo. **Não** é stream de `pointermove`
+a 60–120 Hz — a captura no Projected é esparsa (`nodeId` + %). A ponte não pode
+bloquear a cabeça da fila mesmo assim.
 
 A premissa correta: **a ponte precisa aguentar vazão alta com conforto, com
 paralelismo e sem engasgo.** Simplicidade continua valendo, mas não à custa disso.
@@ -79,21 +79,22 @@ três gatilhos, duas forças, halt do dreno durante a construção, fechamento c
 `CHECK(scope: Table)`, pedido carimbado com `contextId` (portanto por contexto,
 não global).
 
-**O que o item C muda é só o transporte do gatilho.** Hoje é evento de barramento
-em processo, dentro do JS. Na arquitetura nova o cliente detecta a dessincronia e o
-pedido sobe: cliente → produto → orquestrador → supervisor → produtor C++.
-`Resync(contextId, força)` na ponte de controle substitui o evento de barramento.
+**O que o item C muda é só o transporte do gatilho.** No Chromium era evento de
+barramento JS. Aqui o cliente detecta a dessincronia e o pedido sobe:
+cliente → produto → orquestrador → supervisor → produtor **C++**.
+`Resync(contextId, força)` na ponte substitui o bus. Força `1` = walk da árvore
+(`resyncVirtual`); o nome **não** é o `virtual.js`.
 
 ### 5.1 A força vem na mensagem — DECIDIDO
 
-`força ∈ { mapa, virtual }`, correspondendo a `emitResyncFrame` e `resyncVirtual`
-da §5.8.
+`força ∈ { mapa, walk }`, correspondendo a `emitResyncFrame` e `resyncVirtual`
+da §5.8. O segundo **não** se chama “virtual” na ABI para não colidir com `virtual.js`.
 
 Escolher entre "barato e parcial" e "caro e completo" é **política**, e política é
 do supervisor. **O C++ não decide.** Ele executa a força que recebeu.
 
 Ganho concreto: política mais esperta no futuro (tentar `mapa`, cair para
-`virtual` se o `CHECK` não fechar) nasce inteira no supervisor, em .NET, sem tocar
+`walk` se o `CHECK` não fechar) nasce inteira no supervisor, em .NET, sem tocar
 uma linha do fork.
 
 ### 5.2 `ProjectionAttach` não existe — DECIDIDO
@@ -103,8 +104,8 @@ a página o criou; ou a gente replica, ou o cliente está errado. Não há estad
 "contexto existe mas não é projetado".
 
 Cliente novo anexando é o mesmo opcode, não uma mensagem `ProjectionAttach`.
-O mapa do **produtor** já está povoado (o attach fez `resyncVirtual`): a força
-certa é **mapa** (`emitResyncFrame`, força 0). `Resync(virtual)` é para mapa
+O mapa do **produtor** já está povoado (o attach fez walk): a força
+certa é **mapa** (`emitResyncFrame`, força 0). `Resync(walk)` é para mapa
 corrupto ou ainda vazio — não para tabela vazia no cliente.
 
 O supervisor dispara `Resync(raiz, 0)` quando um consumidor atou e o contexto

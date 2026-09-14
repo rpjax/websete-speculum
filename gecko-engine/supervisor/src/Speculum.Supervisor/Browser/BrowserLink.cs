@@ -87,6 +87,7 @@ public sealed class BrowserLink(
         control.EventReceived += OnBrowserEvent;
         consumers.CommandReceived += OnConsumerCommand;
         consumers.ConsumerAttached += OnConsumerAttached;
+        consumers.AssetFromConsumer += OnAssetFromConsumer;
 
         var frames = 0L;
         var bytes = 0L;
@@ -118,6 +119,12 @@ public sealed class BrowserLink(
                         control.Receive(message.Value.Payload);
                         break;
 
+                    case EnvelopeKind.Telemetry:
+                    case EnvelopeKind.Asset:
+                        consumers.BroadcastEnvelope(
+                            message.Value.Kind, message.Value.ContextId, message.Value.Payload);
+                        break;
+
                     default:
                         logger.LogWarning("envelope desconhecido do browser: {Kind}", message.Value.Kind);
                         break;
@@ -141,12 +148,13 @@ public sealed class BrowserLink(
             control.EventReceived -= OnBrowserEvent;
             consumers.CommandReceived -= OnConsumerCommand;
             consumers.ConsumerAttached -= OnConsumerAttached;
+            consumers.AssetFromConsumer -= OnAssetFromConsumer;
             _control = null;
             logger.LogInformation("{Frames} frames, {Bytes} bytes", frames, bytes);
         }
     }
 
-    private void OnBrowserEvent(BrowserEvent message)
+    private void OnBrowserEvent(BrowserEvent message, byte[] payload)
     {
         switch (message.OpCode)
         {
@@ -187,6 +195,13 @@ public sealed class BrowserLink(
             case ControlOpCode.Fault:
                 logger.LogError(
                     "browser reportou falha (contexto {ContextId}): {Reason}", message.ContextId, message.Text);
+                break;
+
+            case ControlOpCode.SnapshotServed:
+            case ControlOpCode.DialogRequested:
+            case ControlOpCode.PermissionRequested:
+            case ControlOpCode.DownloadRequested:
+                consumers.BroadcastEnvelope(EnvelopeKind.BrowserEvent, message.ContextId, payload);
                 break;
 
             default:
@@ -257,10 +272,86 @@ public sealed class BrowserLink(
                 break;
             }
 
+            case ControlOpCode.HaltClocks:
+                _ = SendRawAsync(ControlCommand.HaltClocks(_control?.NextId() ?? 0), 0);
+                break;
+
+            case ControlOpCode.ResumeClocks:
+                _ = SendRawAsync(ControlCommand.ResumeClocks(_control?.NextId() ?? 0), 0);
+                break;
+
+            case ControlOpCode.FlushFrame:
+            case ControlOpCode.Snapshot:
+            case ControlOpCode.Input:
+            case ControlOpCode.ViewportSet:
+            case ControlOpCode.HistoryGo:
+            case ControlOpCode.Reload:
+            case ControlOpCode.Stop:
+            case ControlOpCode.DialogRespond:
+            case ControlOpCode.PermissionRespond:
+            case ControlOpCode.DownloadRespond:
+            {
+                var requested = reader.ReadUInt32();
+                if (requested == 0 && _contexts.TryGetRoot(out var root))
+                {
+                    requested = root.ContextId;
+                }
+
+                if (requested == 0)
+                {
+                    logger.LogWarning("comando {OpCode} sem contexto; ignorado", reader.OpCode);
+                    break;
+                }
+
+                _ = SendRawAsync(RewriteContext(payload, requested), requested);
+                break;
+            }
+
             default:
                 logger.LogInformation("comando de consumidor ignorado: {OpCode}", reader.OpCode);
                 break;
         }
+    }
+
+    private async Task SendRawAsync(byte[] command, uint contextId)
+    {
+        var channel = _control;
+        if (channel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await channel.SendAsync(command, contextId, _sessionToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("falha ao encaminhar comando: {Reason}", ex.Message);
+        }
+    }
+
+    private void OnAssetFromConsumer(uint contextId, byte[] payload)
+    {
+        var channel = _control;
+        if (channel is null)
+        {
+            return;
+        }
+
+        _ = channel.SendKindAsync(EnvelopeKind.Asset, contextId, payload, _sessionToken);
+    }
+
+    private static byte[] RewriteContext(byte[] payload, uint contextId)
+    {
+        var copy = (byte[])payload.Clone();
+        if (copy.Length >= ControlWriter.HeaderBytes + sizeof(uint))
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(
+                copy.AsSpan(ControlWriter.HeaderBytes), contextId);
+        }
+
+        return copy;
     }
 
     private async Task RequestContextAsync()

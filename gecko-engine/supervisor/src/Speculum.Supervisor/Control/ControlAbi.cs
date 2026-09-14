@@ -25,6 +25,10 @@ public enum ControlOpCode : ushort
     DialogRespond = 0x010a,
     PermissionRespond = 0x010b,
     DownloadRespond = 0x010c,
+    HaltClocks = 0x010d,
+    ResumeClocks = 0x010e,
+    FlushFrame = 0x010f,
+    Snapshot = 0x0110,
     Shutdown = 0x01ff,
 
     // browser -> supervisor
@@ -37,6 +41,7 @@ public enum ControlOpCode : ushort
     DialogRequested = 0x0207,
     PermissionRequested = 0x0208,
     DownloadRequested = 0x0209,
+    SnapshotServed = 0x020a,
     Fault = 0x02ff,
 }
 
@@ -106,6 +111,8 @@ public ref struct ControlWriter
     public const int HeaderBytes = sizeof(ushort) + sizeof(uint);
 
     public static int SizeOfString(string value) => sizeof(uint) + Encoding.UTF8.GetByteCount(value);
+
+    public static int SizeOfBytes(ReadOnlySpan<byte> value) => sizeof(uint) + value.Length;
 }
 
 /// <summary>Leitura do payload de controle. Lança <see cref="InvalidDataException"/> em truncamento.</summary>
@@ -176,6 +183,15 @@ public ref struct ControlReader
         var byteCount = checked((int)ReadUInt32());
         Require(byteCount);
         var value = Encoding.UTF8.GetString(_buffer.Slice(_position, byteCount));
+        _position += byteCount;
+        return value;
+    }
+
+    public byte[] ReadBytes()
+    {
+        var byteCount = checked((int)ReadUInt32());
+        Require(byteCount);
+        var value = _buffer.Slice(_position, byteCount).ToArray();
         _position += byteCount;
         return value;
     }

@@ -524,6 +524,10 @@ class ContentParent final : public PContentParent,
                                               const uint32_t& aContextId,
                                               const uint32_t& aSequence,
                                               nsTArray<uint8_t>&& aFrame);
+  mozilla::ipc::IPCResult RecvSpeculumSnapshotDump(
+      const uint32_t& aContextId, const uint32_t& aCorrelationId,
+      const uint32_t& aSequence, const uint32_t& aGeneration,
+      const uint64_t& aTableHash, nsTArray<uint8_t>&& aDump);
 
   mozilla::ipc::IPCResult RecvAttributionEvent(
       const nsACString& aHost, PrivateAttributionImpressionType aType,

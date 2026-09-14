@@ -821,6 +821,113 @@ struct SpeculumProjectionRuntime::Impl {
     }
   }
 
+  ContentParent* ContentParentOf(uint32_t aContextId) {
+    RefPtr<BrowsingContext> bc = ResolveProjected(aContextId);
+    if (!bc || bc->IsDiscarded()) {
+      return nullptr;
+    }
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical) {
+      return nullptr;
+    }
+    return canonical->GetContentParent();
+  }
+
+  void HandleHaltClocks() {
+    std::vector<uint32_t> roots;
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      for (const auto& kv : contextToRootBc) {
+        roots.push_back(kv.first);
+      }
+    }
+    for (uint32_t rootId : roots) {
+      if (ContentParent* cp = ContentParentOf(rootId)) {
+        (void)cp->SendSpeculumHaltClocks();
+      }
+    }
+  }
+
+  void HandleResumeClocks() {
+    std::vector<uint32_t> roots;
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      for (const auto& kv : contextToRootBc) {
+        roots.push_back(kv.first);
+      }
+    }
+    for (uint32_t rootId : roots) {
+      if (ContentParent* cp = ContentParentOf(rootId)) {
+        (void)cp->SendSpeculumResumeClocks();
+      }
+    }
+  }
+
+  void HandleFlushFrame(uint32_t aCorrelationId, uint32_t aContextId) {
+    ContentParent* cp = ContentParentOf(aContextId);
+    if (!cp) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+    if (!cp->SendSpeculumFlushFrame(aContextId)) {
+      SendFault(aCorrelationId, aContextId, "FlushFrame send failed");
+    }
+  }
+
+  void HandleSnapshot(uint32_t aCorrelationId, uint32_t aContextId) {
+    ContentParent* cp = ContentParentOf(aContextId);
+    if (!cp) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+    if (!cp->SendSpeculumSnapshot(aContextId, aCorrelationId)) {
+      SendFault(aCorrelationId, aContextId, "Snapshot send failed");
+    }
+  }
+
+  void HandleInput(uint32_t aCorrelationId, uint32_t aContextId,
+                   nsTArray<uint8_t>&& aEvent) {
+    ContentParent* cp = ContentParentOf(aContextId);
+    if (!cp) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+    if (!cp->SendSpeculumInput(aContextId, aEvent)) {
+      SendFault(aCorrelationId, aContextId, "Input send failed");
+    }
+  }
+
+  void HandleDialogRespond(uint32_t aCorrelationId, uint32_t aContextId,
+                           uint32_t aRequestId, const nsACString& aAnswer) {
+    ContentParent* cp = ContentParentOf(aContextId);
+    if (!cp) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+    if (!cp->SendSpeculumDialogRespond(aContextId, aRequestId, aAnswer)) {
+      SendFault(aCorrelationId, aContextId, "DialogRespond send failed");
+    }
+  }
+
+  void DeliverSnapshot(uint32_t aContextId, uint32_t aCorrelationId,
+                       uint32_t aSequence, uint32_t aGeneration,
+                       uint64_t aTableHash, nsTArray<uint8_t>& aDump) {
+    const size_t cap = 64 + aDump.Length();
+    auto buffer = MakeUnique<uint8_t[]>(cap);
+    SpeculumControlWriter writer(buffer.get(), cap,
+                                 SpeculumControlOpCode::SnapshotServed,
+                                 aCorrelationId);
+    nsDependentCString dump(
+        reinterpret_cast<const char*>(aDump.Elements()), aDump.Length());
+    if (!writer.WriteUInt32(aSequence) || !writer.WriteUInt32(aGeneration) ||
+        !writer.WriteUInt32(aContextId) || !writer.WriteUInt64(aTableHash) ||
+        !writer.WriteBytes(dump) || !writer.Ok()) {
+      SendFault(aCorrelationId, aContextId, "response_too_large");
+      return;
+    }
+    SendEvent(buffer.get(), static_cast<uint32_t>(writer.Length()));
+  }
+
   void HandleControlBinary(const uint8_t* aData, size_t aLength) {
     SpeculumControlReader reader(aData, aLength);
     if (!reader.Ok()) {
@@ -873,6 +980,73 @@ struct SpeculumProjectionRuntime::Impl {
           return;
         }
         HandleResync(correlationId, contextId, force);
+        return;
+      }
+      case SpeculumControlOpCode::HaltClocks:
+        HandleHaltClocks();
+        return;
+      case SpeculumControlOpCode::ResumeClocks:
+        HandleResumeClocks();
+        return;
+      case SpeculumControlOpCode::FlushFrame: {
+        uint32_t contextId = 0;
+        if (!reader.ReadUInt32(&contextId)) {
+          SendFault(correlationId, 0, "FlushFrame truncated");
+          return;
+        }
+        HandleFlushFrame(correlationId, contextId);
+        return;
+      }
+      case SpeculumControlOpCode::Snapshot: {
+        uint32_t contextId = 0;
+        if (!reader.ReadUInt32(&contextId)) {
+          SendFault(correlationId, 0, "Snapshot truncated");
+          return;
+        }
+        HandleSnapshot(correlationId, contextId);
+        return;
+      }
+      case SpeculumControlOpCode::Input: {
+        uint32_t contextId = 0;
+        nsCString ev;
+        if (!reader.ReadUInt32(&contextId) || !reader.ReadBytes(ev)) {
+          SendFault(correlationId, 0, "Input truncated");
+          return;
+        }
+        nsTArray<uint8_t> bytes;
+        bytes.AppendElements(
+            reinterpret_cast<const uint8_t*>(ev.Data()), ev.Length());
+        HandleInput(correlationId, contextId, std::move(bytes));
+        return;
+      }
+      case SpeculumControlOpCode::ViewportSet: {
+        uint32_t contextId = 0;
+        int32_t width = 0;
+        int32_t height = 0;
+        if (!reader.ReadUInt32(&contextId) || !reader.ReadInt32(&width) ||
+            !reader.ReadInt32(&height)) {
+          SendFault(correlationId, 0, "ViewportSet truncated");
+          return;
+        }
+        (void)contextId;
+        (void)width;
+        (void)height;
+        return;
+      }
+      case SpeculumControlOpCode::HistoryGo:
+      case SpeculumControlOpCode::Reload:
+      case SpeculumControlOpCode::Stop:
+        return;
+      case SpeculumControlOpCode::DialogRespond: {
+        uint32_t contextId = 0;
+        uint32_t requestId = 0;
+        nsCString answer;
+        if (!reader.ReadUInt32(&contextId) || !reader.ReadUInt32(&requestId) ||
+            !reader.ReadBytes(answer)) {
+          SendFault(correlationId, 0, "DialogRespond truncated");
+          return;
+        }
+        HandleDialogRespond(correlationId, contextId, requestId, answer);
         return;
       }
       default:
@@ -1158,6 +1332,13 @@ void SpeculumProjectionRuntime::DeliverFrame(
     uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
     base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame) {
   mImpl->DeliverFrame(aContextId, aDocToken, aSequence, aChildPid, aFrame);
+}
+
+void SpeculumProjectionRuntime::DeliverSnapshot(
+    uint32_t aContextId, uint32_t aCorrelationId, uint32_t aSequence,
+    uint32_t aGeneration, uint64_t aTableHash, nsTArray<uint8_t>& aDump) {
+  mImpl->DeliverSnapshot(aContextId, aCorrelationId, aSequence, aGeneration,
+                         aTableHash, aDump);
 }
 
 uint32_t SpeculumProjectionRuntime::MintNestedContextId() {

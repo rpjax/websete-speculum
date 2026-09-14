@@ -20,7 +20,8 @@ browser sobe  ──abre a ponte──>  socket local
                        │
    No browser, tudo converge para UM ponto: o runtime de projeção,
    instalado no processo base. Os frames sobem até ele; ele coordena o
-   algoritmo no browser e é o único ponto de contato com o supervisor.
+   algoritmo **C++** no Firefox (não script na página) e é o único ponto
+   de contato com o supervisor.
 ```
 
 O princípio que sustenta cada fronteira: **cada lado pode ser trocado sem o outro
@@ -75,10 +76,9 @@ Controle, frames e input trafegam pela mesma ponte.
 Dois canais seriam dois domínios de falha e um problema de ordenação entre eles.
 Um canal só dá uma ordem, uma queda, e um lugar para observar e medir.
 
-Isso impõe que o transporte seja otimizado para alta vazão — `Input` sozinho é
-60–120 msg/s (`12-ponte-controle-vocabulario.md` §1), e latência de input é a
-qualidade percebida da projeção inteira. Daí o controle ser **binário**, não
-texto (ver `18-abi-controle.md`).
+Isso impõe que o transporte seja binário e sem HOLB — frames, resync e
+input (scroll/tecla em rajada) no mesmo canal. **Não** é stream de
+`pointermove`. Daí o controle ser **binário**, não texto (ver `18-abi-controle.md`).
 
 ---
 
@@ -107,7 +107,10 @@ sabe.
   paralelo por processo nem replay IPDL.
 - a escuta de progresso da aba (`nsIWebProgress` da Canonical): `ContextCreated`
   quando a aba está quieta, `Navigated` no commit da carga pedida (START+STOP,
-  não o STOP da carga anterior), `LoadStateChanged` no vai-e-vem da rede
+  não o STOP da carga anterior), `LoadStateChanged` no vai-e-vem da rede.
+  A janela abre **sem** URI de conteúdo: `arguments[0]` preenchido (mesmo
+  `about:blank`) faz o chrome carregar depois do `ContextCreated` e mata o
+  `Navigate` da sessão.
 - a entrada de frames vindos dos processos de conteúdo
 - o vocabulário de controle nos dois sentidos (`12-ponte-controle-vocabulario.md`)
 - o ciclo de vida da sessão

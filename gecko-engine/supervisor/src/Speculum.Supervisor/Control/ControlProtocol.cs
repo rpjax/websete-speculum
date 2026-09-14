@@ -9,8 +9,8 @@ namespace Speculum.Supervisor.Control;
 /// `Input` sozinho é 60–120 msg/s, e latência de input é a qualidade percebida
 /// da projeção inteira — por isso não existe request/response bloqueante aqui.
 ///
-/// Viaja como JSON UTF-8 no payload do envelope: Control (0x04) do supervisor
-/// para o browser, BrowserEvent (0x02) de volta.
+/// O fio da ponte é binário (doc 18). Estes records JSON são vocabulário
+/// interno do lab, não o payload do envelope.
 /// </summary>
 public static class ControlVocabulary
 {

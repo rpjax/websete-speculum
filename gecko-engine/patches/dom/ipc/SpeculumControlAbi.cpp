@@ -93,6 +93,8 @@ bool SpeculumControlReader::ReadString(nsACString& aOut) {
   return true;
 }
 
+bool SpeculumControlReader::ReadBytes(nsACString& aOut) { return ReadString(aOut); }
+
 SpeculumControlWriter::SpeculumControlWriter(uint8_t* aBuffer, size_t aCapacity,
                                              SpeculumControlOpCode aOpCode,
                                              uint32_t aCorrelationId)
@@ -178,4 +180,8 @@ bool SpeculumControlWriter::WriteString(const nsACString& aValue) {
   memcpy(mBuffer + mPos, aValue.Data(), byteCount);
   mPos += byteCount;
   return true;
+}
+
+bool SpeculumControlWriter::WriteBytes(const nsACString& aValue) {
+  return WriteString(aValue);
 }

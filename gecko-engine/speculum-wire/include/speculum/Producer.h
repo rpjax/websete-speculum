@@ -10,10 +10,16 @@
 #include "speculum/Table.h"
 #include "speculum/Wire.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
 namespace speculum {
+
+struct FormProp {
+  uint8_t id = 0;
+  PropValue value;
+};
 
 // Leitura da árvore viva. Implementada pelo lado do motor; o produtor nunca toca no DOM.
 class NodeSource {
@@ -35,6 +41,15 @@ class NodeSource {
   virtual uint32_t childScopeIdOf(const void* /*node*/) const { return 0; }
   // Passo 1 de emitResyncFrame: id cujo nó não está mais ligado some do mapa, sem NODE_DROP.
   virtual bool isConnected(const void* /*node*/) const { return true; }
+
+  virtual const void* shadowRootOf(const void* /*host*/) const { return nullptr; }
+  virtual const void* shadowHostOf(const void* /*shadowRoot*/) const { return nullptr; }
+  virtual uint8_t shadowModeOf(const void* /*shadowRoot*/) const { return 0; }
+  virtual std::vector<FormProp> formPropsOf(const void* /*node*/) const { return {}; }
+  virtual std::vector<const void*> cssomSheets() const { return {}; }
+  virtual std::vector<const void*> cssomRulesOf(const void* /*sheet*/) const { return {}; }
+  virtual std::string cssomRuleTextOf(const void* /*rule*/) const { return {}; }
+  virtual const void* cssomSheetOf(const void* /*rule*/) const { return nullptr; }
 };
 
 class Producer {
@@ -49,18 +64,29 @@ class Producer {
   uint32_t sequence() const { return sequence_; }
   uint32_t pendingOps() const { return builder_.opCount(); }
   uint32_t generation() const { return generation_; }
+  uint32_t lastFrameNewNodes() const { return lastFrameNewNodes_; }
+  bool halted() const { return halted_; }
+
+  // Halt para o relógio. A fila continua; Flush chama emitFrame. Não é discard.
+  void setHalted(bool halted) { halted_ = halted; }
 
   // Halt do tick: ops não emitidas caem. O resync descreve o DOM vivo.
-  void discardPending() { builder_.begin(); }
+  void discardPending() {
+    builder_.begin();
+    pendingInserts_.clear();
+  }
 
   // §5.8 resyncVirtual: zera o mapa (geração intacta), aloca o que está ligado, emite
   // o frame de resync. Attach do documento é isto — não um caminho paralelo.
   std::vector<uint8_t> resyncVirtual(const void* documentNode) {
     ids_.clear();
     pendingHosts_.clear();
+    pendingDrop_.clear();
+    pendingInserts_.clear();
     documentNode_ = documentNode;
     discardPending();
     allocateConnected(documentNode);
+    allocateCssom();
     return emitResyncFrame();
   }
 
@@ -88,7 +114,15 @@ class Producer {
         continue;
       }
       live.push_back(id);
-      emitNodeNew(key, id);
+      const NodeKind kind = source_.kindOf(key);
+      if (kind == NodeKind::Sheet) {
+        emitSheetNew(key, id);
+      } else if (kind == NodeKind::Rule) {
+        const void* sheet = source_.cssomSheetOf(key);
+        emitRuleNew(sheet, key, id);
+      } else {
+        emitNodeNew(key, id);
+      }
     }
     for (uint32_t id : drop) ids_.releaseId(id);
 
@@ -98,6 +132,9 @@ class Producer {
       if (!key) continue;
       insertLiveChildren(key, id);
     }
+
+    lastFrameNewNodes_ = pendingNewNodes_;
+    pendingNewNodes_ = 0;
 
     builder_.check(kCheckScopeTable, 0, 0, table_.tableHash());
 
@@ -126,18 +163,27 @@ class Producer {
     }
     uint32_t parentId = idFor(parent);
     if (parentId == kNone) return;  // pai fora da projeção: nada a dizer
-    uint32_t before = beforeIdOf(parent, node);
-    ensureDescribed(node);
-    builder_.insert(parentId, before, {ids_.idOf(node)});
-    table_.insertBatch(parentId, before, {ids_.idOf(node)});
+    const uint32_t existing = ids_.idOf(node);
+    if (existing != kNone) {
+      cancelPendingDrop(existing);
+    } else {
+      ids_.assign(node);
+    }
+    pendingInserts_.push_back(PendingInsert{parent, node});
   }
 
   void onRemoved(const void* parent, const void* node) {
     uint32_t id = ids_.idOf(node);
     if (id == kNone) return;
+    if (cancelPendingInsert(node)) {
+      if (!table_.getRow(id)) ids_.release(node);
+      return;
+    }
     uint32_t parentId = idFor(parent);
     builder_.remove(parentId, {id});
     table_.removeBatch(parentId, {id});
+    // DROP no emitFrame, não aqui: o mesmo tick ainda pode reinserir (move).
+    pendingDrop_.push_back(id);
   }
 
   void onAttrChanged(const void* node, const std::string& name) {
@@ -157,6 +203,12 @@ class Producer {
   void onTextChanged(const void* node) {
     uint32_t id = ids_.idOf(node);
     if (id == kNone) return;
+    const Row* row = table_.getRow(id);
+    if (!row) return;
+    if (row->kind != static_cast<uint32_t>(NodeKind::Text) &&
+        row->kind != static_cast<uint32_t>(NodeKind::Comment)) {
+      return;
+    }
     const std::string v = source_.valueOf(node);
     builder_.textSet(id, v);
     table_.setValue(id, v);
@@ -173,14 +225,19 @@ class Producer {
     table_.setProp(id, propId, value);
   }
 
-  // O motor avisa antes do nó morrer. Só se derruba raiz destacada: linha ligada tem que ser
-  // removida antes (§4.2, e o apply estrito do cliente recusa o contrário).
+  // Reserva: nó morreu sem passar por onRemoved (ou o teste chama os dois).
+  // O caminho normal é ContentWillBeRemoved → onRemoved → DROP no emitFrame.
+  // NodeWillBeDestroyed no Document NÃO dispara por filho; não dá para pendurar nisso.
   void onDestroyed(const void* node) {
-    uint32_t id = ids_.release(node);
+    uint32_t id = ids_.idOf(node);
     if (id == kNone) return;
     const Row* row = table_.getRow(id);
-    if (!row) return;
-    if (row->parent != kNone) return;  // ainda ligada: quem remove emite REMOVE antes
+    if (row && row->parent != kNone) return;  // ainda ligada: quem remove emite REMOVE antes
+    cancelPendingDrop(id);
+    if (!row) {
+      ids_.release(node);
+      return;
+    }
     builder_.nodeDrop({id});
     for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
   }
@@ -189,10 +246,89 @@ class Producer {
 
   // Fecha o frame com CHECK(scope=Table) sobre o tableHash. preTableHash é o hash da
   // tabela no começo deste tick (depois do emit anterior), não o hash já mutado.
+  void onSheetAdded(const void* sheet) {
+    if (!sheet) return;
+    uint32_t id = ids_.assign(sheet);
+    emitSheetNew(sheet, id);
+  }
+
+  void onSheetRemoved(const void* sheet) {
+    uint32_t id = ids_.idOf(sheet);
+    if (id == kNone) return;
+    builder_.sheetDrop({id});
+    for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+  }
+
+  void onSheetOrderChanged() {
+    std::vector<uint32_t> ids;
+    for (const void* sheet : source_.cssomSheets()) {
+      uint32_t id = ids_.idOf(sheet);
+      if (id != kNone) ids.push_back(id);
+    }
+    if (ids.empty()) return;
+    builder_.sheetOrder(ids);
+    const Row* first = table_.getRow(ids[0]);
+    const uint32_t parent = first && first->parent != kNone ? first->parent : kDocumentId;
+    table_.removeBatch(parent, ids);
+    table_.insertBatch(parent, kInsertAtEnd, ids);
+  }
+
+  void onRuleAdded(const void* sheet, const void* rule) {
+    if (!rule) return;
+    uint32_t id = ids_.assign(rule);
+    emitRuleNew(sheet, rule, id);
+  }
+
+  void onRuleRemoved(const void* sheet, const void* rule) {
+    uint32_t id = ids_.idOf(rule);
+    if (id == kNone) return;
+    uint32_t sheetId = ids_.idOf(sheet);
+    builder_.ruleDrop(sheetId, {id});
+    for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+  }
+
+  void onRuleChanged(const void* rule) {
+    uint32_t id = ids_.idOf(rule);
+    if (id == kNone) return;
+    const std::string text = source_.cssomRuleTextOf(rule);
+    builder_.ruleSet(id, text);
+    table_.setValue(id, text);
+  }
+
+  std::vector<uint8_t> snapshotDump() const {
+    std::vector<uint8_t> out;
+    auto pushU32 = [&out](uint32_t v) {
+      for (int i = 0; i < 4; ++i) out.push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xff));
+    };
+    auto pushU64 = [&out](uint64_t v) {
+      for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xff));
+    };
+    const auto rows = table_.allRowIds();
+    pushU32(sequence_);
+    pushU32(generation_);
+    pushU32(contextId_);
+    pushU64(table_.tableHash());
+    pushU32(static_cast<uint32_t>(rows.size()));
+    pushU32(lastFrameNewNodes_);
+    for (uint32_t id : rows) {
+      const Row* row = table_.getRow(id);
+      pushU32(id);
+      pushU32(row ? row->kind : 0);
+      pushU32(row ? row->parent : 0);
+      pushU64(row ? row->rowHash : 0);
+    }
+    return out;
+  }
+
   // Devolve vazio quando não houve op: frame vazio não é emitido e não consome `sequence`.
   std::vector<uint8_t> emitFrame() {
+    drainPendingInserts();
     flushPendingHosts();
+    drainFormProps();
+    flushPendingDrops();
     if (builder_.opCount() == 0) return {};
+    lastFrameNewNodes_ = pendingNewNodes_;
+    pendingNewNodes_ = 0;
     const uint64_t pre = preTableHash_;
     builder_.check(kCheckScopeTable, 0, 0, table_.tableHash());
 
@@ -227,15 +363,148 @@ class Producer {
       }
       if (!found) continue;
       uint32_t id = ids_.idOf(k);
-      if (id != kNone) return id;
+      if (id != kNone && table_.getRow(id)) return id;
     }
     return kInsertAtEnd;
   }
 
   void ensureDescribed(const void* node) {
-    if (ids_.known(node)) return;
+    if (ids_.known(node)) {
+      const uint32_t id = ids_.idOf(node);
+      const Row* row = table_.getRow(id);
+      const auto kind = static_cast<uint32_t>(source_.kindOf(node));
+      if (row && row->kind == kind) return;
+      // Mesmo endereço, outro nó: o alocador reusou o ponteiro. Id velho não cola.
+      retireDetached(id);
+    }
     describe(node);
     describeAndInsertChildren(node, ids_.idOf(node));
+  }
+
+  void cancelPendingDrop(uint32_t id) {
+    size_t w = 0;
+    for (size_t i = 0; i < pendingDrop_.size(); ++i) {
+      if (pendingDrop_[i] != id) pendingDrop_[w++] = pendingDrop_[i];
+    }
+    pendingDrop_.resize(w);
+  }
+
+  bool cancelPendingInsert(const void* node) {
+    size_t w = 0;
+    bool found = false;
+    for (size_t i = 0; i < pendingInserts_.size(); ++i) {
+      if (pendingInserts_[i].node == node) {
+        found = true;
+        continue;
+      }
+      pendingInserts_[w++] = pendingInserts_[i];
+    }
+    pendingInserts_.resize(w);
+    return found;
+  }
+
+  void drainPendingInserts() {
+    const std::vector<PendingInsert> pending = pendingInserts_;
+    pendingInserts_.clear();
+    for (const auto& item : pending) {
+      uint32_t parentId = idFor(item.parent);
+      if (parentId == kNone) continue;
+      uint32_t id = ids_.idOf(item.node);
+      if (id == kNone) continue;
+      if (!table_.getRow(id)) {
+        ensureDescribed(item.node);
+        id = ids_.idOf(item.node);
+        if (id == kNone) continue;
+      }
+      uint32_t before = beforeIdOf(item.parent, item.node);
+      builder_.insert(parentId, before, {id});
+      table_.insertBatch(parentId, before, {id});
+    }
+  }
+
+  void drainFormProps() {
+    const std::vector<uint32_t> ids = ids_.allIds();
+    for (uint32_t id : ids) {
+      const void* key = ids_.keyOf(id);
+      if (!key) continue;
+      if (source_.kindOf(key) != NodeKind::Element) continue;
+      for (const FormProp& fp : source_.formPropsOf(key)) {
+        const PropValue* cur = table_.getProp(id, fp.id);
+        const bool same = cur && cur->isBool == fp.value.isBool &&
+                          (fp.value.isBool ? cur->boolValue == fp.value.boolValue
+                                           : cur->strValue == fp.value.strValue);
+        if (same) continue;
+        onPropChanged(key, fp.id, fp.value);
+      }
+    }
+  }
+
+  void emitSheetNew(const void* sheet, uint32_t id) {
+    const uint32_t host = 0;
+    const uint8_t scope = 0;
+    const uint32_t before = kInsertAtEnd;
+    builder_.sheetNew(id, scope, host, before);
+    if (!table_.has(id)) table_.createLeafRow(id, NodeKind::Sheet, "");
+    table_.insertBatch(kDocumentId, before, {id});
+    ++pendingNewNodes_;
+    (void)sheet;
+  }
+
+  void emitRuleNew(const void* sheet, const void* rule, uint32_t id) {
+    uint32_t sheetId = ids_.idOf(sheet);
+    if (sheetId == kNone && sheet) sheetId = ids_.assign(sheet);
+    const std::string text = source_.cssomRuleTextOf(rule);
+    builder_.ruleNew(sheetId, id, kInsertAtEnd, text);
+    if (!table_.has(id)) table_.createLeafRow(id, NodeKind::Rule, text);
+    else table_.setValue(id, text);
+    table_.insertBatch(sheetId, kInsertAtEnd, {id});
+    ++pendingNewNodes_;
+  }
+
+  void allocateCssom() {
+    for (const void* sheet : source_.cssomSheets()) {
+      ids_.assign(sheet);
+      for (const void* rule : source_.cssomRulesOf(sheet)) ids_.assign(rule);
+    }
+  }
+
+  void attachShadow(const void* host) {
+    const void* sr = source_.shadowRootOf(host);
+    if (!sr || source_.isUaOwned(sr)) return;
+    if (!ids_.known(sr)) {
+      describe(sr);
+      describeAndInsertChildren(sr, ids_.idOf(sr));
+    }
+  }
+
+  void retireDetached(uint32_t id) {
+    cancelPendingDrop(id);
+    const Row* row = table_.getRow(id);
+    if (!row) {
+      ids_.releaseId(id);
+      return;
+    }
+    if (row->parent != kNone) {
+      builder_.remove(row->parent, {id});
+      table_.removeBatch(row->parent, {id});
+    }
+    builder_.nodeDrop({id});
+    for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+  }
+
+  void flushPendingDrops() {
+    const std::vector<uint32_t> snapshot = pendingDrop_;
+    pendingDrop_.clear();
+    for (uint32_t id : snapshot) {
+      const Row* row = table_.getRow(id);
+      if (!row) {
+        ids_.releaseId(id);
+        continue;
+      }
+      if (row->parent != kNone) continue;  // reinseriu neste tick: move, não GC
+      builder_.nodeDrop({id});
+      for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+    }
   }
 
   bool awaitingChildScope(const void* node) const {
@@ -293,6 +562,8 @@ class Producer {
       }
       allocateConnected(child);
     }
+    const void* sr = source_.shadowRootOf(node);
+    if (sr && !source_.isUaOwned(sr)) allocateConnected(sr);
   }
 
   void emitNodeNew(const void* node, uint32_t id) {
@@ -307,24 +578,37 @@ class Producer {
         const uint32_t childScope = nestedHost ? source_.childScopeIdOf(node) : 0;
         builder_.nodeNewElement(id, ns, name, attrs, uri, nestedHost, childScope);
         table_.createElementRow(id, name, attrs, ns, uri);
+        ++pendingNewNodes_;
         break;
       }
       case NodeKind::Text: {
         const auto v = source_.valueOf(node);
         builder_.nodeNewText(id, v);
         table_.createLeafRow(id, NodeKind::Text, v);
+        ++pendingNewNodes_;
         break;
       }
       case NodeKind::Comment: {
         const auto v = source_.valueOf(node);
         builder_.nodeNewComment(id, v);
         table_.createLeafRow(id, NodeKind::Comment, v);
+        ++pendingNewNodes_;
         break;
       }
       case NodeKind::Doctype: {
         const auto n = source_.nameOf(node);
         builder_.nodeNewDoctype(id, n);
         table_.createLeafRow(id, NodeKind::Doctype, n);
+        ++pendingNewNodes_;
+        break;
+      }
+      case NodeKind::ShadowRoot: {
+        const void* host = source_.shadowHostOf(node);
+        uint32_t hostId = idFor(host);
+        uint8_t mode = source_.shadowModeOf(node);
+        builder_.nodeNewShadowRoot(id, hostId, mode, 0);
+        table_.createShadowRootRow(id, hostId, mode, 0);
+        ++pendingNewNodes_;
         break;
       }
       default:
@@ -334,6 +618,7 @@ class Producer {
 
   void describe(const void* node) {
     emitNodeNew(node, ids_.assign(node));
+    attachShadow(node);
   }
 
   void insertLiveChildren(const void* parent, uint32_t parentId) {
@@ -378,16 +663,26 @@ class Producer {
     const void* node;
   };
 
+  struct PendingInsert {
+    const void* parent;
+    const void* node;
+  };
+
   NodeSource& source_;
   IdentityMap ids_;
   ReplicatedTable table_;
   FramePartBuilder builder_;
   std::vector<PendingHost> pendingHosts_;
+  std::vector<PendingInsert> pendingInserts_;
+  std::vector<uint32_t> pendingDrop_;
   const void* documentNode_ = nullptr;
   uint32_t contextId_;
   uint32_t generation_;
   uint32_t sequence_ = 0;
   uint64_t preTableHash_ = 0;
+  bool halted_ = false;
+  uint32_t lastFrameNewNodes_ = 0;
+  uint32_t pendingNewNodes_ = 0;
 };
 
 }  // namespace speculum

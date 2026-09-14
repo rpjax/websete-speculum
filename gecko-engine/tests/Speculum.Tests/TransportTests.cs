@@ -1,3 +1,4 @@
+using Speculum.Supervisor.Control;
 using Speculum.Supervisor.Wire;
 
 namespace Speculum.Tests;
@@ -21,8 +22,43 @@ public static class TransportTests
         await CleanEndOfStream(report);
         await TruncatedMidMessage(report);
         await OversizedRejected(report);
+        await KindTelemetryAndAsset(report);
+        HistoryGoIsNotAssetEnvelope(report);
 
         return report.Finish();
+    }
+
+    private static async Task KindTelemetryAndAsset(Report report)
+    {
+        var telemetry = Frame(EnvelopeKind.Telemetry, 1, [0x01, 0x00, 0xaa]);
+        var asset = Frame(EnvelopeKind.Asset, 1, AssetPayload.Encode(3, AssetPayload.PhaseDenied, 0, "text/html"u8.ToArray()));
+        var reader = new EnvelopeReader(new DripStream(telemetry.Concat(asset).ToArray(), bytesPerRead: 2));
+        var a = await reader.ReadAsync(CancellationToken.None);
+        var b = await reader.ReadAsync(CancellationToken.None);
+        report.Equal("kind 0x05 Telemetry", EnvelopeKind.Telemetry, a!.Value.Kind);
+        report.Equal("kind 0x06 Asset", EnvelopeKind.Asset, b!.Value.Kind);
+        report.Equal("asset denied phase", AssetPayload.PhaseDenied, AssetPayload.Decode(b.Value.Payload).Phase);
+    }
+
+    /// <summary>
+    /// HistoryGo = 0x0106: o primeiro byte no fio é 0x06, o mesmo Kind Asset.
+    /// Discriminar pelo envelope completo, senão o hub engole o comando.
+    /// </summary>
+    private static void HistoryGoIsNotAssetEnvelope(Report report)
+    {
+        var history = ControlCommand.HistoryGo(6, 0, -1);
+        report.Equal("HistoryGo não é envelope Asset", false,
+            Envelope.TryReadComplete(history, EnvelopeKind.Asset, out _, out _));
+
+        var colliding = ControlCommand.HistoryGo(0x05000000, 0, -1);
+        report.Equal("HistoryGo corr alta não é Asset", false,
+            Envelope.TryReadComplete(colliding, EnvelopeKind.Asset, out _, out _));
+
+        var asset = Frame(EnvelopeKind.Asset, 1, AssetPayload.Encode(3, AssetPayload.PhaseDenied, 0, "text/html"u8.ToArray()));
+        report.Equal("envelope Asset completo reconhece", true,
+            Envelope.TryReadComplete(asset, EnvelopeKind.Asset, out var ctx, out var length));
+        report.Equal("envelope Asset contextId", 1u, ctx);
+        report.Equal("envelope Asset length", asset.Length - Envelope.HeaderBytes, length);
     }
 
     /// <summary>O par escreve 1 byte por vez. O leitor tem que remontar a mensagem.</summary>

@@ -19,6 +19,31 @@ async function toBuffer(data: unknown): Promise<Buffer> {
   throw new Error('tipo de mensagem websocket desconhecido');
 }
 
+function connectRetry(wsUrl: string, budgetMs: number): Promise<WebSocket> {
+  const deadline = Date.now() + budgetMs;
+  return new Promise((resolve, reject) => {
+    const tryOnce = () => {
+      const ws = new WebSocket(wsUrl);
+      const onOpen = () => {
+        ws.removeEventListener('error', onError);
+        resolve(ws);
+      };
+      const onError = () => {
+        ws.removeEventListener('open', onOpen);
+        ws.close();
+        if (Date.now() >= deadline) {
+          reject(new Error(`websocket falhou: ${wsUrl}`));
+          return;
+        }
+        setTimeout(tryOnce, 100);
+      };
+      ws.addEventListener('open', onOpen, { once: true });
+      ws.addEventListener('error', onError, { once: true });
+    };
+    tryOnce();
+  });
+}
+
 async function main(): Promise<void> {
   const outDir = process.argv[2];
   const wsUrl = process.argv[3] ?? 'ws://127.0.0.1:4100/session';
@@ -36,20 +61,13 @@ async function main(): Promise<void> {
   const persistent = new PersistentStringTable();
   let ordem = 0;
 
+  const ws = await connectRetry(wsUrl, 30_000);
+  console.log(`consumidor conectado em ${wsUrl}`);
+
   await new Promise<void>((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
     const timer = setTimeout(() => {
       ws.close();
     }, timeoutSec * 1000);
-
-    ws.addEventListener('open', () => {
-      console.log(`consumidor conectado em ${wsUrl}`);
-    });
-
-    ws.addEventListener('error', () => {
-      clearTimeout(timer);
-      reject(new Error(`websocket falhou: ${wsUrl}`));
-    });
 
     ws.addEventListener('message', (ev) => {
       void (async () => {

@@ -37,14 +37,44 @@ algoritmo é o mesmo nos dois casos — é isso que permite provar o laço aqui.
    e **ordem de filhos** depois de *cada* comando.
 
 Última execução: **12/12 fixtures de hash idênticos, 20/20 ops decodificadas, CHECK igual ao
-`tableHash` nos dois lados, 49/49 passos da tabela idênticos, e 8/8 frames do produtor
-aceitos pelo apply estrito com `tableHash` final igual.**
+`tableHash` nos dois lados, 49/49 passos da tabela idênticos, e 7/7 frames do produtor
+aceitos pelo apply estrito com `tableHash` final igual.** O `producer_lifecycle` cobre
+churn sem destroy, move no mesmo tick (id permanece), ponteiro reusado (TEXT→ELEMENT),
+efêmero do tick (L24) e Halt ≠ `discardPending`. `producer_shadow` cobre mode 0/1.
+`producer_cssom` cobre cadáver de regra e o mesmo `sequence` do DOM.
+
+## CLI do Producer
+
+Binário `producer_cli` (mesmo `Producer.h`). Stdin linha a linha; stdout `FRAME hex`,
+`SNAP hex`, `EMPTY` ou `OK`. Sem `stoi` (`-fno-exceptions`).
+
+| comando | efeito |
+|---------|--------|
+| `boot` | documento mínimo + `resyncVirtual` (primeiro frame, flag resync) |
+| `mk TAG NOME` | cria elemento |
+| `mktext NOME texto…` | cria texto |
+| `append PAI FILHO` | liga e `onInserted` |
+| `detach NOME` | `onRemoved` |
+| `attr NOME chave valor` | `onAttrChanged` |
+| `prop NOME ID bool\|str VALOR` | amostra no próximo drain |
+| `sheet NOME` / `rule SHEET NOME texto…` | CSSOM |
+| `halt` / `resume` | para o relógio; **não** descarta a fila |
+| `flush` / `tick` | `emitFrame` (`tick` em halt = EMPTY) |
+| `snapshot` | dump da tabela no `sequence` atual |
+| `resync` | `resyncVirtual` de novo |
+
+O L3-PP exec este processo. Segundo encoder é defeito.
+
+## O que ainda não tem
+
+Montagem por partes quando o frame passa do teto. CSSOM no núcleo **já tem**. Tick
+de frame no Gecko é cola (`nsITimer`), não este diretório.
 
 O laço do produtor exercita carga inicial, inserção no fim e no meio (com `before` resolvido
 pelo irmão seguinte), subárvore inteira descrita de uma vez, mover nó já ligado para outro
-pai, troca e remoção de atributo, troca de texto, `PROP_SET` string e bool, remoção, e
-`NODE_DROP` de raiz destacada levando o filho junto. Também confere o item **F**: nós de UA
-pendurados na árvore **não** aparecem em frame nenhum.
+pai, troca e remoção de atributo, troca de texto, `PROP_SET` string e bool, remoção com
+`NODE_DROP` no mesmo frame (filho vai junto), e o item **F**: nós de UA pendurados na árvore
+**não** aparecem em frame nenhum.
 
 O roteiro da tabela exercita de propósito o que costuma quebrar: prepend antes do primeiro
 filho, mover um nó já ligado para outro pai, remover do meio, reinserir antes do último,
@@ -85,9 +115,3 @@ O ABI está selado e é definido por:
 
 Este diretório é **port**, não reinterpretação. Valores no fio nunca são renumerados;
 divergência de hash não é detalhe de implementação, é quebra de contrato.
-
-## O que ainda não tem
-
-Montagem por partes quando o frame passa do teto, CSSOM (`SHEET_*` / `RULE_*` estão na ISA
-mas não no builder nem na tabela), validação de precondição no lado do cliente, e o tick de
-frame. Nada disso é bloqueado por design — é ordem de trabalho.

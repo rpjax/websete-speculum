@@ -9,6 +9,10 @@
 #include "BrowserChild.h"
 #include "ContentChild.h"
 #include "SpeculumMutationObserver.h"
+#include "SpeculumInput.h"
+#include "SpeculumMarionette.h"
+
+#include <vector>
 #include "GMPServiceChild.h"
 #include "GeckoProfiler.h"
 #include "Geolocation.h"
@@ -2147,6 +2151,51 @@ mozilla::ipc::IPCResult ContentChild::RecvSetOffline(const bool& offline) {
 mozilla::ipc::IPCResult ContentChild::RecvSpeculumResync(
     const uint32_t& aContextId, const uint8_t& aForce) {
   SpeculumRequestResync(aContextId, aForce);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumHaltClocks() {
+  SpeculumHaltClocks();
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumResumeClocks() {
+  SpeculumResumeClocks();
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumFlushFrame(
+    const uint32_t& aContextId) {
+  SpeculumFlushFrame(aContextId);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumSnapshot(
+    const uint32_t& aContextId, const uint32_t& aCorrelationId) {
+  std::vector<uint8_t> dump;
+  uint32_t sequence = 0;
+  uint32_t generation = 0;
+  uint64_t tableHash = 0;
+  if (!SpeculumSnapshotDump(aContextId, dump, &sequence, &generation, &tableHash)) {
+    return IPC_OK();
+  }
+  nsTArray<uint8_t> bytes;
+  bytes.AppendElements(dump.data(), dump.size());
+  (void)SendSpeculumSnapshotDump(aContextId, aCorrelationId, sequence, generation,
+                                 tableHash, bytes);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumInput(
+    const uint32_t& aContextId, nsTArray<uint8_t>&& aEvent) {
+  SpeculumSynthesizeInput(SpeculumDocumentForContext(aContextId), aEvent);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumDialogRespond(
+    const uint32_t& aContextId, const uint32_t& aRequestId,
+    const nsACString& aAnswer) {
+  SpeculumCompleteDialog(aContextId, aRequestId, aAnswer);
   return IPC_OK();
 }
 

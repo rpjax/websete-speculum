@@ -6,6 +6,9 @@
 #include "nsStubMutationObserver.h"
 #include "nsITimer.h"
 
+#include <cstdint>
+#include <vector>
+
 struct SpeculumProducerState;
 
 namespace mozilla::dom {
@@ -22,7 +25,19 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
 
   bool TryWriteBootstrapFrame();
   void RequestResync(uint8_t aForce);
+  void SetHalted(bool aHalted);
+  void FlushNow();
+  bool SnapshotDump(std::vector<uint8_t>& aOut) const;
   uint32_t ContextId() const;
+  uint32_t Sequence() const;
+  uint32_t Generation() const;
+  uint64_t TableHash() const;
+
+  void OnSheetAdded(void* aSheet);
+  void OnSheetRemoved(void* aSheet);
+  void OnRuleAdded(void* aSheet, void* aRule);
+  void OnRuleRemoved(void* aSheet, void* aRule);
+  void OnRuleChanged(void* aRule);
 
   void CancelFrameTimer();
 
@@ -47,11 +62,14 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   void NodeWillBeDestroyed(nsINode* aNode) override;
   void ParentChainChanged(nsIContent* aContent) override;
 
+  mozilla::dom::Document* GetDocument() const { return mDocument; }
+
  private:
   ~SpeculumMutationObserver();
 
   void ArmFrameTimerIfNeeded();
   void EmitPendingFrame();
+  void MaybeObserveShadow(nsIContent* aChild);
 
   mozilla::dom::Document* mDocument;
   mozilla::UniquePtr<SpeculumProducerState> mState;
@@ -60,5 +78,12 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
 void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
 void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
 void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce);
+void SpeculumHaltClocks();
+void SpeculumResumeClocks();
+void SpeculumFlushFrame(uint32_t aContextId);
+bool SpeculumSnapshotDump(uint32_t aContextId, std::vector<uint8_t>& aOut,
+                          uint32_t* aSequence, uint32_t* aGeneration,
+                          uint64_t* aTableHash);
+mozilla::dom::Document* SpeculumDocumentForContext(uint32_t aContextId);
 
 #endif

@@ -16,6 +16,12 @@ public enum EnvelopeKind : byte
 
     /// <summary>Comando do supervisor para o browser, em JSON UTF-8 (doc 12).</summary>
     Control = 0x04,
+
+    /// <summary>Amostra de telemetria. Supervisor encaminha; não parseia.</summary>
+    Telemetry = 0x05,
+
+    /// <summary>Ativo projetado. Mão dupla. Supervisor encaminha; não parseia MIME.</summary>
+    Asset = 0x06,
 }
 
 /// <summary>
@@ -36,6 +42,44 @@ public static class Envelope
 
     /// <summary>Teto de sanidade por payload. Frame maior que isso é erro de protocolo.</summary>
     public const int MaxPayloadBytes = 64 * 1024 * 1024;
+
+    /// <summary>
+    /// Piso do payload Asset (doc 18): <c>u32 streamId</c> + <c>u8</c> fase + <c>u64 offset</c>.
+    /// Sem isso, o opcode <c>HistoryGo</c> (0x0106, primeiro byte 0x06 no LE) é
+    /// lido como Kind Asset no WS do consumidor.
+    /// </summary>
+    public const int MinAssetPayloadBytes = sizeof(uint) + sizeof(byte) + sizeof(ulong);
+
+    /// <summary>
+    /// Envelope completo: Kind bate, e Length é exatamente o resto da mensagem.
+    /// Comando cru de controle no WS não passa — mesmo quando o primeiro byte
+    /// coincide com um Kind (HistoryGo = 0x0106).
+    /// </summary>
+    public static bool TryReadComplete(
+        ReadOnlySpan<byte> source, EnvelopeKind expectedKind, out uint contextId, out int payloadLength)
+    {
+        contextId = 0;
+        payloadLength = 0;
+        if (source.Length < HeaderBytes || source[0] != (byte)expectedKind)
+        {
+            return false;
+        }
+
+        var declared = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(source[5..9]);
+        if (declared > MaxPayloadBytes || declared != (uint)(source.Length - HeaderBytes))
+        {
+            return false;
+        }
+
+        if (expectedKind == EnvelopeKind.Asset && declared < MinAssetPayloadBytes)
+        {
+            return false;
+        }
+
+        contextId = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(source[1..5]);
+        payloadLength = (int)declared;
+        return true;
+    }
 
     public static void WriteHeader(Span<byte> destination, EnvelopeKind kind, uint contextId, int length)
     {

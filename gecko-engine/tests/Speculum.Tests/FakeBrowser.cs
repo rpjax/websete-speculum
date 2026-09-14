@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using Speculum.Supervisor.Control;
 using Speculum.Supervisor.Wire;
@@ -28,6 +29,8 @@ namespace Speculum.Tests;
 public static class FakeBrowser
 {
     private const uint FakeBrowsingContextBase = 100000;
+    private static int _ppFrames;
+    private static uint _sessionContextId;
 
     public static async Task<int> RunAsync()
     {
@@ -39,6 +42,18 @@ public static class FakeBrowser
         }
 
         var journal = new Journal(Environment.GetEnvironmentVariable("SPECULUM_FAKE_JOURNAL"));
+        var mode = Environment.GetEnvironmentVariable("SPECULUM_FAKE_MODE") ?? "wiring";
+        journal.Write("mode", mode);
+        ProducerCli? producer = null;
+        if (mode == "pp")
+        {
+            if (!ProducerCli.TryStart(out producer, out var problem) || producer is null)
+            {
+                journal.Write("producer-cli-failed", problem);
+                Console.Error.WriteLine($"[fake-browser] CLI: {problem}");
+                return 2;
+            }
+        }
 
         using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         if (!await TryConnectAsync(socket, socketPath).ConfigureAwait(false))
@@ -74,12 +89,25 @@ public static class FakeBrowser
                     break;
                 }
 
+                if (message.Value.Kind == EnvelopeKind.Asset)
+                {
+                    HandleIncomingAsset(message.Value.Payload, journal);
+                    continue;
+                }
+
                 if (message.Value.Kind != EnvelopeKind.Control)
                 {
                     continue;
                 }
 
-                await HandleControlAsync(message.Value.Payload, writer, emitter, journal, life).ConfigureAwait(false);
+                try
+                {
+                    await HandleControlAsync(message.Value.Payload, writer, emitter, journal, life, mode, producer).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    journal.Write("control-error", ex.Message);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -94,13 +122,15 @@ public static class FakeBrowser
         finally
         {
             await emitter.StopAsync().ConfigureAwait(false);
+            producer?.Dispose();
         }
 
         return 0;
     }
 
     private static async Task HandleControlAsync(
-        byte[] payload, EnvelopeWriter writer, FrameEmitter emitter, Journal journal, CancellationTokenSource life)
+        byte[] payload, EnvelopeWriter writer, FrameEmitter emitter, Journal journal, CancellationTokenSource life,
+        string mode, ProducerCli? producer)
     {
         ControlOpCode opCode;
         try
@@ -136,10 +166,26 @@ public static class FakeBrowser
                     .WriteAsync(EnvelopeKind.BrowserEvent, contextId, EventContextCreated(contextId, browsingContextId), life.Token)
                     .ConfigureAwait(false);
                 journal.Write("context-created", $"ctx={contextId} bc={browsingContextId}");
+                _sessionContextId = contextId;
 
-                // Contexto existe: o fluxo de frames começa. É o análogo do bootstrap
-                // que só emite quando há um documento montado.
-                emitter.Start(contextId, life.Token);
+                if (mode == "wiring")
+                {
+                    emitter.Start(contextId, life.Token);
+                }
+                else if (mode == "pp" && producer is not null)
+                {
+                    var boot = producer.Boot();
+                    if (boot is not null)
+                    {
+                        await writer.WriteAsync(EnvelopeKind.Frame, contextId, boot, life.Token).ConfigureAwait(false);
+                        WritePpFrame(boot);
+                    }
+                }
+                else if (mode == "assets")
+                {
+                    await EmitAssetsAsync(writer, contextId, journal, life.Token).ConfigureAwait(false);
+                }
+
                 break;
             }
 
@@ -159,6 +205,14 @@ public static class FakeBrowser
                     .WriteAsync(EnvelopeKind.BrowserEvent, contextId, EventNavigated(contextId, url), life.Token)
                     .ConfigureAwait(false);
                 journal.Write("navigated", $"ctx={contextId} url={url}");
+
+                if (mode == "marionette")
+                {
+                    var dialog = ControlCommand.DialogRequested(0, contextId, 7, "confirm?"u8.ToArray());
+                    await writer.WriteAsync(EnvelopeKind.BrowserEvent, contextId, dialog, life.Token).ConfigureAwait(false);
+                    journal.Write("dialog-requested", $"ctx={contextId} req=7");
+                }
+
                 break;
             }
 
@@ -178,9 +232,141 @@ public static class FakeBrowser
                 }
 
                 journal.Write("resync", $"ctx={contextId} force={force}");
-                await emitter.EmitResyncAsync(contextId, life.Token).ConfigureAwait(false);
+                if (mode == "pp" && producer is not null)
+                {
+                    var frame = producer.Resync();
+                    if (frame is not null)
+                    {
+                        var target = contextId == 0 ? _sessionContextId : contextId;
+                        await writer.WriteAsync(EnvelopeKind.Frame, target, frame, life.Token).ConfigureAwait(false);
+                        WritePpFrame(frame);
+                    }
+                }
+                else if (mode == "marionette")
+                {
+                    var target = contextId == 0 ? _sessionContextId : contextId;
+                    var dialog = ControlCommand.DialogRequested(0, target, 7, "confirm?"u8.ToArray());
+                    await writer.WriteAsync(EnvelopeKind.BrowserEvent, target, dialog, life.Token).ConfigureAwait(false);
+                    journal.Write("dialog-requested", $"ctx={target} req=7");
+                }
+                else if (mode == "assets")
+                {
+                    var target = contextId == 0 ? _sessionContextId : contextId;
+                    await EmitAssetsAsync(writer, target, journal, life.Token).ConfigureAwait(false);
+                }
+                else if (mode == "wiring")
+                {
+                    await emitter.EmitResyncAsync(contextId, life.Token).ConfigureAwait(false);
+                }
+
                 break;
             }
+
+            case ControlOpCode.HaltClocks:
+                journal.Write("halt", "");
+                producer?.Halt();
+                break;
+
+            case ControlOpCode.ResumeClocks:
+                journal.Write("resume", "");
+                producer?.Resume();
+                break;
+
+            case ControlOpCode.FlushFrame:
+            {
+                journal.Write("flush", "");
+                var frame = producer?.Flush();
+                if (frame is not null)
+                {
+                    var ctx = new ControlReader(payload).ReadUInt32();
+                    var target = ctx == 0 ? _sessionContextId : ctx;
+                    await writer.WriteAsync(EnvelopeKind.Frame, target, frame, life.Token).ConfigureAwait(false);
+                    WritePpFrame(frame);
+                }
+
+                break;
+            }
+
+            case ControlOpCode.Snapshot:
+            {
+                uint contextId;
+                uint corr;
+                {
+                    var reader = new ControlReader(payload);
+                    corr = reader.CorrelationId;
+                    contextId = reader.ReadUInt32();
+                }
+
+                journal.Write("snapshot", $"ctx={contextId}");
+                var dump = producer?.Snapshot() ?? new byte[28];
+                ulong hash = 0;
+                if (dump.Length >= 20)
+                {
+                    hash = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(dump.AsSpan(12));
+                }
+
+                uint seq = dump.Length >= 4 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(dump) : 1;
+                var served = ControlCommand.SnapshotServed(corr, seq, 0, contextId == 0 ? 1 : contextId, hash, dump);
+                await writer.WriteAsync(EnvelopeKind.BrowserEvent, contextId, served, life.Token).ConfigureAwait(false);
+                break;
+            }
+
+            case ControlOpCode.Input:
+            {
+                uint contextId;
+                byte[] ev;
+                {
+                    var reader = new ControlReader(payload);
+                    contextId = reader.ReadUInt32();
+                    ev = reader.ReadBytes();
+                }
+
+                var kind = ev.Length > 0 ? ev[0] : (byte)0;
+                if (kind == 0x20)
+                {
+                    journal.Write("input", $"ctx={contextId} reject pointermove");
+                }
+                else
+                {
+                    journal.Write("input", $"ctx={contextId} admit bytes={ev.Length}");
+                }
+
+                break;
+            }
+
+            case ControlOpCode.ViewportSet:
+            {
+                uint contextId;
+                int width;
+                int height;
+                {
+                    var reader = new ControlReader(payload);
+                    contextId = reader.ReadUInt32();
+                    width = reader.ReadInt32();
+                    height = reader.ReadInt32();
+                }
+
+                journal.Write("viewport", $"ctx={contextId} {width}x{height}");
+                break;
+            }
+
+            case ControlOpCode.HistoryGo:
+            {
+                uint contextId;
+                int delta;
+                {
+                    var reader = new ControlReader(payload);
+                    contextId = reader.ReadUInt32();
+                    delta = reader.ReadInt32();
+                }
+
+                journal.Write("history", $"go ctx={contextId} delta={delta}");
+                break;
+            }
+
+            case ControlOpCode.DialogRespond:
+                journal.Write("dialog-respond", "");
+                break;
 
             default:
                 journal.Write("control-ignored", opCode.ToString());
@@ -236,6 +422,55 @@ public static class FakeBrowser
         return false;
     }
 
+    private static void HandleIncomingAsset(byte[] payload, Journal journal)
+    {
+        try
+        {
+            var decoded = AssetPayload.Decode(payload);
+            var text = Encoding.UTF8.GetString(decoded.Data);
+            var deny = decoded.Phase == AssetPayload.PhaseRequest &&
+                       (text.Contains(".html", StringComparison.OrdinalIgnoreCase)
+                        || text.Contains(".js", StringComparison.OrdinalIgnoreCase)
+                        || text.Contains(".css", StringComparison.OrdinalIgnoreCase)
+                        || text.Contains("text/html", StringComparison.OrdinalIgnoreCase)
+                        || text.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+                        || text.Contains("text/css", StringComparison.OrdinalIgnoreCase)
+                        || text.Contains("xmlhttprequest", StringComparison.OrdinalIgnoreCase));
+            journal.Write(deny ? "asset-denied" : "asset-in", $"stream={decoded.StreamId} phase={decoded.Phase}");
+        }
+        catch (InvalidDataException ex)
+        {
+            journal.Write("asset-illegible", ex.Message);
+        }
+    }
+
+    private static async Task EmitAssetsAsync(EnvelopeWriter writer, uint contextId, Journal journal, CancellationToken token)
+    {
+        var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(1, AssetPayload.PhaseChunk, 0, png), token)
+            .ConfigureAwait(false);
+        await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(1, AssetPayload.PhaseComplete, (ulong)png.Length, []), token)
+            .ConfigureAwait(false);
+        await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(2, AssetPayload.PhaseDenied, 0, "text/html"u8.ToArray()), token)
+            .ConfigureAwait(false);
+        journal.Write("asset-chunk", "png");
+        journal.Write("asset-denied", "html");
+    }
+
+    private static void WritePpFrame(byte[] frame)
+    {
+        var dir = Environment.GetEnvironmentVariable("SPECULUM_PP_FRAMES_DIR");
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(dir);
+        var i = Interlocked.Increment(ref _ppFrames) - 1;
+        File.WriteAllBytes(Path.Combine(dir, $"frame_{i}.bin"), frame);
+        File.AppendAllText(Path.Combine(dir, "frames.txt"), $"frame_{i}.bin\n");
+    }
+
     /// <summary>
     /// Emite frames pelo contexto criado, num fluxo contínuo. Contínuo de
     /// propósito: um consumidor que conecta tarde ainda pega os próximos frames,
@@ -248,6 +483,8 @@ public static class FakeBrowser
         private CancellationTokenSource? _own;
         private uint _contextId;
         private long _sequence;
+
+        public uint ContextId => _contextId;
 
         public void Start(uint contextId, CancellationToken outer)
         {
@@ -335,7 +572,10 @@ public static class FakeBrowser
             {
                 lock (_gate)
                 {
-                    File.AppendAllText(path, $"{key}|{detail}\n");
+                    using var fs = new FileStream(
+                        path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                    using var writer = new StreamWriter(fs) { AutoFlush = true };
+                    writer.Write($"{key}|{detail}\n");
                 }
             }
             catch (IOException)

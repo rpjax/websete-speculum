@@ -1,9 +1,9 @@
 // Speculum — mapa de identidade: nó vivo -> id u32 da tabela replicada.
 //
 // A chave é opaca (`const void*`) de propósito: aqui é `nsINode*`, mas nada nesta camada
-// sabe disso. O motor diz quando um nó morre (`NodeWillBeDestroyed` no Gecko) e esta classe
-// despeja a entrada — por isso não é preciso segurar referência forte ao nó
-// (`gecko-engine/02-costura-evidencia.md` §3).
+// sabe disso. A entrada some no NODE_DROP (detach que sobreviveu o tick) e no destroy.
+// No Gecko o observer do Document não avisa a morte de cada filho: se a entrada
+// ficar, o alocador reusa o ponteiro e o id velho cola no nó novo.
 //
 // Ids NUNCA são reaproveitados. Um id reemitido para outro nó corrompe a tabela do cliente
 // em silêncio: ele aplicaria conteúdo novo sobre uma linha que julga conhecer.

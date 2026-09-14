@@ -8,6 +8,10 @@
 #endif
 #include "speculum/Producer.h"
 
+#include <map>
+#include <string>
+#include <vector>
+
 class nsINode;
 
 namespace mozilla::dom {
@@ -33,8 +37,30 @@ class SpeculumNodeSource final : public speculum::NodeSource {
   uint32_t childScopeIdOf(const void* node) const override;
   bool isConnected(const void* node) const override;
 
+  const void* shadowRootOf(const void* host) const override;
+  const void* shadowHostOf(const void* shadowRoot) const override;
+  uint8_t shadowModeOf(const void* shadowRoot) const override;
+  std::vector<speculum::FormProp> formPropsOf(const void* node) const override;
+
+  void BindDocument(mozilla::dom::Document* aDocument);
+  void NoteSheet(const void* aSheet);
+  void DropSheet(const void* aSheet);
+  void NoteRule(const void* aSheet, const void* aRule, const std::string& aText);
+  void DropRule(const void* aRule);
+  void SetRuleText(const void* aRule, const std::string& aText);
+
+  std::vector<const void*> cssomSheets() const override;
+  std::vector<const void*> cssomRulesOf(const void* sheet) const override;
+  std::string cssomRuleTextOf(const void* rule) const override;
+  const void* cssomSheetOf(const void* rule) const override;
+
  private:
   uint64_t mDocToken;
+  mozilla::dom::Document* mDocument = nullptr;
+  std::vector<const void*> mSheets;
+  std::map<const void*, std::vector<const void*>> mRules;
+  std::map<const void*, std::string> mRuleText;
+  std::map<const void*, const void*> mRuleSheet;
 };
 
 #endif

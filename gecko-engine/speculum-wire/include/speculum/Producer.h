@@ -74,6 +74,8 @@ class Producer {
   void discardPending() {
     builder_.begin();
     pendingInserts_.clear();
+    pendingSheets_.clear();
+    pendingRules_.clear();
   }
 
   // §5.8 resyncVirtual: zera o mapa (geração intacta), aloca o que está ligado, emite
@@ -248,13 +250,18 @@ class Producer {
   // tabela no começo deste tick (depois do emit anterior), não o hash já mutado.
   void onSheetAdded(const void* sheet) {
     if (!sheet) return;
-    uint32_t id = ids_.assign(sheet);
-    emitSheetNew(sheet, id);
+    ids_.assign(sheet);
+    pendingSheets_.push_back(sheet);
   }
 
   void onSheetRemoved(const void* sheet) {
     uint32_t id = ids_.idOf(sheet);
     if (id == kNone) return;
+    cancelPendingRulesOf(sheet);
+    if (cancelPendingSheet(sheet)) {
+      if (!table_.getRow(id)) ids_.release(sheet);
+      return;
+    }
     builder_.sheetDrop({id});
     for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
   }
@@ -275,13 +282,17 @@ class Producer {
 
   void onRuleAdded(const void* sheet, const void* rule) {
     if (!rule) return;
-    uint32_t id = ids_.assign(rule);
-    emitRuleNew(sheet, rule, id);
+    ids_.assign(rule);
+    pendingRules_.push_back(PendingRule{sheet, rule});
   }
 
   void onRuleRemoved(const void* sheet, const void* rule) {
     uint32_t id = ids_.idOf(rule);
     if (id == kNone) return;
+    if (cancelPendingRule(rule)) {
+      if (!table_.getRow(id)) ids_.release(rule);
+      return;
+    }
     uint32_t sheetId = ids_.idOf(sheet);
     builder_.ruleDrop(sheetId, {id});
     for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
@@ -324,6 +335,7 @@ class Producer {
   std::vector<uint8_t> emitFrame() {
     drainPendingInserts();
     flushPendingHosts();
+    drainCssom();
     drainFormProps();
     flushPendingDrops();
     if (builder_.opCount() == 0) return {};
@@ -419,6 +431,86 @@ class Producer {
       uint32_t before = beforeIdOf(item.parent, item.node);
       builder_.insert(parentId, before, {id});
       table_.insertBatch(parentId, before, {id});
+    }
+  }
+
+  bool cancelPendingSheet(const void* sheet) {
+    size_t w = 0;
+    bool found = false;
+    for (size_t i = 0; i < pendingSheets_.size(); ++i) {
+      if (pendingSheets_[i] == sheet) {
+        found = true;
+        continue;
+      }
+      pendingSheets_[w++] = pendingSheets_[i];
+    }
+    pendingSheets_.resize(w);
+    return found;
+  }
+
+  bool cancelPendingRule(const void* rule) {
+    size_t w = 0;
+    bool found = false;
+    for (size_t i = 0; i < pendingRules_.size(); ++i) {
+      if (pendingRules_[i].rule == rule) {
+        found = true;
+        continue;
+      }
+      pendingRules_[w++] = pendingRules_[i];
+    }
+    pendingRules_.resize(w);
+    return found;
+  }
+
+  void cancelPendingRulesOf(const void* sheet) {
+    size_t w = 0;
+    for (size_t i = 0; i < pendingRules_.size(); ++i) {
+      if (pendingRules_[i].sheet == sheet) {
+        uint32_t id = ids_.idOf(pendingRules_[i].rule);
+        if (id != kNone && !table_.getRow(id)) ids_.release(pendingRules_[i].rule);
+        continue;
+      }
+      pendingRules_[w++] = pendingRules_[i];
+    }
+    pendingRules_.resize(w);
+  }
+
+  bool cssomSheetLive(const void* sheet) const {
+    for (const void* s : source_.cssomSheets()) {
+      if (s == sheet) return true;
+    }
+    return false;
+  }
+
+  bool cssomRuleLive(const void* sheet, const void* rule) const {
+    for (const void* r : source_.cssomRulesOf(sheet)) {
+      if (r == rule) return true;
+    }
+    return false;
+  }
+
+  void drainCssom() {
+    const std::vector<const void*> sheets = pendingSheets_;
+    pendingSheets_.clear();
+    for (const void* sheet : sheets) {
+      uint32_t id = ids_.idOf(sheet);
+      if (id == kNone) continue;
+      if (!cssomSheetLive(sheet)) {
+        if (!table_.getRow(id)) ids_.release(sheet);
+        continue;
+      }
+      if (!table_.getRow(id)) emitSheetNew(sheet, id);
+    }
+    const std::vector<PendingRule> rules = pendingRules_;
+    pendingRules_.clear();
+    for (const auto& item : rules) {
+      uint32_t id = ids_.idOf(item.rule);
+      if (id == kNone) continue;
+      if (!cssomRuleLive(item.sheet, item.rule)) {
+        if (!table_.getRow(id)) ids_.release(item.rule);
+        continue;
+      }
+      if (!table_.getRow(id)) emitRuleNew(item.sheet, item.rule, id);
     }
   }
 
@@ -668,12 +760,19 @@ class Producer {
     const void* node;
   };
 
+  struct PendingRule {
+    const void* sheet;
+    const void* rule;
+  };
+
   NodeSource& source_;
   IdentityMap ids_;
   ReplicatedTable table_;
   FramePartBuilder builder_;
   std::vector<PendingHost> pendingHosts_;
   std::vector<PendingInsert> pendingInserts_;
+  std::vector<const void*> pendingSheets_;
+  std::vector<PendingRule> pendingRules_;
   std::vector<uint32_t> pendingDrop_;
   const void* documentNode_ = nullptr;
   uint32_t contextId_;

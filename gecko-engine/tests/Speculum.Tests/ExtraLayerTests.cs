@@ -82,6 +82,18 @@ public static class ExtraLayerTests
         }
 
         report.Equal("history no diário", true, historyOk);
+
+        await s.Client.SendAsync(ControlCommand.ResumeClocks(7), WebSocketMessageType.Binary, true, CancellationToken.None);
+        report.Equal("resume no diário", true, await s.WaitJournal("resume", "", TimeSpan.FromSeconds(10)));
+
+        await s.Client.SendAsync(ControlCommand.Reload(8, 0), WebSocketMessageType.Binary, true, CancellationToken.None);
+        report.Equal("reload no diário", true, await s.WaitJournal("reload", "", TimeSpan.FromSeconds(10)));
+
+        await s.Client.SendAsync(ControlCommand.Stop(9, 0), WebSocketMessageType.Binary, true, CancellationToken.None);
+        report.Equal("stop no diário", true, await s.WaitJournal("stop", "", TimeSpan.FromSeconds(10)));
+
+        await s.Client.SendAsync(ControlCommand.Input(10, 0, [0x20, 0x00]), WebSocketMessageType.Binary, true, CancellationToken.None);
+        report.Equal("pointermove rejeitado", true, await s.WaitJournal("input", "reject", TimeSpan.FromSeconds(10)));
     }
 
     private static async Task MarionetteAsync(Report report, Session s)

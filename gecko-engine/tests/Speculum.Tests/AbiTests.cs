@@ -24,7 +24,7 @@ public static class AbiTests
         }
 
         var vectors = Load(goldenPath);
-        report.Equal("vetores carregados", 17, vectors.Count);
+        report.Equal("vetores carregados", 22, vectors.Count);
 
         // ---- codificação: os comandos que o supervisor emite ----
         Check(report, vectors, "ContextCreate", ControlCommand.ContextCreate(1, 1, 1280, 800));
@@ -38,6 +38,11 @@ public static class AbiTests
         Check(report, vectors, "FlushFrame", ControlCommand.FlushFrame(3, 1));
         Check(report, vectors, "Snapshot", ControlCommand.Snapshot(4, 1));
         Check(report, vectors, "SnapshotServed", ControlCommand.SnapshotServed(4, 1, 0, 1, 0, []));
+        Check(report, vectors, "Reload", ControlCommand.Reload(1, 1));
+        Check(report, vectors, "Stop", ControlCommand.Stop(1, 1));
+        Check(report, vectors, "HistoryGo", ControlCommand.HistoryGo(13, 1, -1));
+        Check(report, vectors, "ViewportSet", ControlCommand.ViewportSet(12, 1, 800, 600));
+        Check(report, vectors, "Input", ControlCommand.Input(11, 1, [0xaa, 0xbb]));
 
         // ---- decodificação: os eventos que o browser emite ----
         Decode(report, vectors, "Ready", e =>

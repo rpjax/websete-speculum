@@ -220,6 +220,26 @@ int main() {
   }
   std::cout << "ok: L24 efemero do tick nao vai ao fio\n";
 
+  // --- dois inserts no mesmo tick: beforeId só de linha já na tabela. ---
+  {
+    FakeNode* one = dom.makeElement("one");
+    FakeNode* two = dom.makeElement("two");
+    dom.append(body, one);
+    dom.append(body, two);
+    p.onInserted(body, one);
+    p.onInserted(body, two);
+    if (p.emitFrame().empty()) return Fail("dois inserts nao emitiram");
+    const uint32_t bodyId = p.identity().idOf(body);
+    const uint32_t oneId = p.identity().idOf(one);
+    const uint32_t twoId = p.identity().idOf(two);
+    auto kids = p.table().orderedChildIds(bodyId);
+    if (kids.size() < 2) return Fail("dois inserts: filhos de menos");
+    if (kids[kids.size() - 2] != oneId || kids[kids.size() - 1] != twoId) {
+      return Fail("dois inserts: ordem one,two quebrada");
+    }
+  }
+  std::cout << "ok: dois inserts no mesmo tick na ordem do DOM\n";
+
   // --- Halt nao descarta a fila; Flush emite. ---
   {
     const uint64_t hashBefore = p.table().tableHash();

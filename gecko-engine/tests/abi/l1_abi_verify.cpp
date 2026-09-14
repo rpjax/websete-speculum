@@ -230,6 +230,47 @@ Bytes BuildSnapshotServed(uint32_t corr, uint32_t seq, uint32_t gen, uint32_t ct
   return Bytes(buf, buf + wtr.Length());
 }
 
+Bytes BuildReload(uint32_t corr, uint32_t ctx) {
+  uint8_t buf[16];
+  SpeculumControlWriter wtr(buf, sizeof(buf), SpeculumControlOpCode::Reload, corr);
+  wtr.WriteUInt32(ctx);
+  return Bytes(buf, buf + wtr.Length());
+}
+
+Bytes BuildStop(uint32_t corr, uint32_t ctx) {
+  uint8_t buf[16];
+  SpeculumControlWriter wtr(buf, sizeof(buf), SpeculumControlOpCode::Stop, corr);
+  wtr.WriteUInt32(ctx);
+  return Bytes(buf, buf + wtr.Length());
+}
+
+Bytes BuildHistoryGo(uint32_t corr, uint32_t ctx, int32_t delta) {
+  uint8_t buf[16];
+  SpeculumControlWriter wtr(buf, sizeof(buf), SpeculumControlOpCode::HistoryGo, corr);
+  wtr.WriteUInt32(ctx);
+  wtr.WriteInt32(delta);
+  return Bytes(buf, buf + wtr.Length());
+}
+
+Bytes BuildViewportSet(uint32_t corr, uint32_t ctx, int32_t w, int32_t h) {
+  uint8_t buf[32];
+  SpeculumControlWriter wtr(buf, sizeof(buf), SpeculumControlOpCode::ViewportSet, corr);
+  wtr.WriteUInt32(ctx);
+  wtr.WriteInt32(w);
+  wtr.WriteInt32(h);
+  return Bytes(buf, buf + wtr.Length());
+}
+
+Bytes BuildInput(uint32_t corr, uint32_t ctx) {
+  uint8_t buf[32];
+  SpeculumControlWriter wtr(buf, sizeof(buf), SpeculumControlOpCode::Input, corr);
+  wtr.WriteUInt32(ctx);
+  const char raw[] = {'\xaa', '\xbb'};
+  nsACString ev(raw, 2);
+  wtr.WriteBytes(ev);
+  return Bytes(buf, buf + wtr.Length());
+}
+
 void CheckCommand(std::map<std::string, Bytes>& vectors, const std::string& name,
                   const Bytes& produced) {
   auto it = vectors.find(name);
@@ -252,7 +293,7 @@ int main(int argc, char** argv) {
     printf("\nL1 (C++): 1 de 1 FALHARAM\n");
     return 1;
   }
-  Equal<int>("vetores carregados", 17, static_cast<int>(vectors.size()));
+  Equal<int>("vetores carregados", 22, static_cast<int>(vectors.size()));
 
   // ---- codificacao ----
   CheckCommand(vectors, "ContextCreate", BuildContextCreate(1, 1, 1280, 800));
@@ -267,6 +308,11 @@ int main(int argc, char** argv) {
   CheckCommand(vectors, "FlushFrame", BuildFlushFrame(3, 1));
   CheckCommand(vectors, "Snapshot", BuildSnapshot(4, 1));
   CheckCommand(vectors, "SnapshotServed", BuildSnapshotServed(4, 1, 0, 1, 0));
+  CheckCommand(vectors, "Reload", BuildReload(1, 1));
+  CheckCommand(vectors, "Stop", BuildStop(1, 1));
+  CheckCommand(vectors, "HistoryGo", BuildHistoryGo(13, 1, -1));
+  CheckCommand(vectors, "ViewportSet", BuildViewportSet(12, 1, 800, 600));
+  CheckCommand(vectors, "Input", BuildInput(11, 1));
 
   // ---- decodificacao ----
   {

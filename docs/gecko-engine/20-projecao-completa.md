@@ -264,7 +264,7 @@ Coberta por L5. Sem plano paralelo. Teste obrigatório: churn sem `onDestroyed` 
 | Cliente | CSSOM owned + id Map. Sem recarregar URL viva. |
 | Prova | L0 fonte falsa; L4 regra visível; iso = tabela×tabela (+ opcional tabela×`StyleSheet` vivo no halt). Paint 1:1 não é este probe. |
 | Proibido | poll/idle; ler computed style; emitir no commit de paint; copiar `cssRules` em fatia e “commitar” depois (o pass in-flight do Chromium). |
-| Estado | **não há** no fork. Wire já sabe os opcodes. |
+| Estado | **núcleo há** (drain no `emitFrame`, L24 de regra/sheet). Cola `StyleSheet` no fork; Firefox precisa rebuild. |
 
 Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo é o poll JS (copia a lista, cede, hasheia depois — pass **uncommitted**). Aqui o motor avisa **depois** da mutação no objeto. O conjunto sujo espera o tick; o frame leva o CSSOM que ainda está vivo no drain, como o DOM. Restyle do Servo pode estar sujo — a gente **não lê** isso.
 
@@ -302,7 +302,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Cliente | property, não attribute. |
 | Prova | L0 já emite; L4 forms-state + input que muda `.value`. |
 | Proibido | Tratar value digitado como attr; idle de CSSOM para isto. |
-| Estado | **núcleo há**; observer Gecko **não amostra**. |
+| Estado | **núcleo há**; cola `formPropsOf` amostra no drain. Sem listener JS. |
 
 ### 2.8 Input
 

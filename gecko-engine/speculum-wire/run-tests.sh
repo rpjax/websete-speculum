@@ -40,6 +40,26 @@ mkdir -p "$OUT"
 "${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
   "$HERE/test/producer_cli.cpp" -o "$OUT/producer_cli"
 
+python3 - "$OUT/producer_cli" <<'PY'
+import subprocess, sys
+cli = sys.argv[1]
+script = "boot\nsnapshot\nhalt\nmk div parked\nappend body parked\nsnapshot\nflush\nsnapshot\n"
+out = subprocess.check_output([cli], input=script, text=True)
+snaps = [line.split()[1] for line in out.splitlines() if line.startswith("SNAP ")]
+if len(snaps) < 3:
+    sys.stderr.write("FALHOU CLI iso: snapshots de menos\n" + out)
+    sys.exit(1)
+def table_hash(hx):
+    return hx[24:40]
+if table_hash(snaps[0]) != table_hash(snaps[1]):
+    sys.stderr.write("FALHOU CLI iso: halt+append mudou tableHash sem Flush\n")
+    sys.exit(1)
+if table_hash(snaps[1]) == table_hash(snaps[2]):
+    sys.stderr.write("FALHOU CLI iso: Flush nao mudou tableHash\n")
+    sys.exit(1)
+print("ok: CLI halt/flush snapshot (tableHash)")
+PY
+
 cd "$HERE/test"
 SPECULUM_OUT="$OUT" npx --yes tsx verify.ts
 SPECULUM_OUT="$OUT" npx --yes tsx table_parity.ts

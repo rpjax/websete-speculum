@@ -57,6 +57,14 @@ class FakeDom : public NodeSource {
     }
     list.swap(kept);
   }
+  void dropSheet(FakeNode* sheet) {
+    rules_.erase(sheet);
+    std::vector<FakeNode*> kept;
+    for (auto* s : sheets_) {
+      if (s != sheet) kept.push_back(s);
+    }
+    sheets_.swap(kept);
+  }
   void append(FakeNode* parent, FakeNode* child) {
     parent->children.push_back(child);
     child->parent = parent;
@@ -152,6 +160,26 @@ int main() {
   if (p.table().has(ruleId)) return Fail("cadaver de regra ficou na tabela");
   if (p.identity().idOf(rule) != kNone) return Fail("cadaver de regra ficou no mapa");
   if (p.table().tableHash() == hashLive) return Fail("DROP nao mudou tableHash");
+
+  {
+    const size_t rows = p.table().size();
+    const size_t ids = p.identity().size();
+    FakeNode* ghost = dom.makeSheet("ghost");
+    FakeNode* ghostRule = dom.makeRule(ghost, "x { color: lime; }");
+    p.onSheetAdded(ghost);
+    p.onRuleAdded(ghost, ghostRule);
+    if (p.pendingOps() != 0) return Fail("CSSOM L24 sujou o builder no callback");
+    dom.dropSheet(ghost);
+    p.onSheetRemoved(ghost);
+    auto f = p.emitFrame();
+    if (!f.empty()) return Fail("CSSOM L24 emitiu cadáver do tick");
+    if (p.table().size() != rows) return Fail("CSSOM L24 tabela mudou");
+    if (p.identity().size() != ids) return Fail("CSSOM L24 identidade vazou");
+    if (p.identity().idOf(ghost) != kNone || p.identity().idOf(ghostRule) != kNone) {
+      return Fail("CSSOM L24 id efemero ficou no mapa");
+    }
+  }
+  std::cout << "ok: CSSOM L24 cadáver do tick nao vai ao fio\n";
 
   auto resync = p.resyncVirtual(document);
   if (resync.empty()) return Fail("resync CSSOM vazio");

@@ -364,6 +364,14 @@ public static class FakeBrowser
                 break;
             }
 
+            case ControlOpCode.Reload:
+                journal.Write("reload", "");
+                break;
+
+            case ControlOpCode.Stop:
+                journal.Write("stop", "");
+                break;
+
             case ControlOpCode.DialogRespond:
                 journal.Write("dialog-respond", "");
                 break;

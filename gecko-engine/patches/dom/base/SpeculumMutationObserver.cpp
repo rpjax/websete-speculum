@@ -1,6 +1,7 @@
 /* Speculum — minimal DOM mutation probe (producer spike). */
 #include "SpeculumMutationObserver.h"
 
+#include "SpeculumLog.h"
 #include "SpeculumNodeSource.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtrExtensions.h"
@@ -14,12 +15,13 @@
 #include "speculum/Producer.h"
 #include "speculum/Wire.h"
 
-#include <cstdio>
-#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 using mozilla::dom::ContentChild;
 using mozilla::dom::Document;
+
+mozilla::LazyLogModule gSpeculumLog("Speculum");
 
 struct SpeculumProducerState {
   SpeculumNodeSource source;
@@ -33,8 +35,6 @@ struct SpeculumProducerState {
 
 NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallback)
 
-#define SPECULUM_LOG(cb) printf_stderr("[SPECULUM] %s\n", cb)
-
 namespace {
 
 std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
@@ -44,11 +44,6 @@ std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
   nsAutoString tmp;
   aAtom->ToString(tmp);
   return std::string(NS_ConvertUTF16toUTF8(tmp).get());
-}
-
-uint32_t NextSpeculumFrameIndex() {
-  static uint32_t sNext = 0;
-  return sNext++;
 }
 
 void SendFrameBytes(mozilla::dom::Document* aDocument,
@@ -69,34 +64,12 @@ void SendFrameBytes(mozilla::dom::Document* aDocument,
     uri = docUri->GetSpecOrDefault();
   }
   if (aBootstrap) {
-    printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
-                  static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
-                  aFrame.size());
-    mkdir("/tmp/speculum-frames", 0777);
-    const uint32_t index = NextSpeculumFrameIndex();
-    char binPath[128];
-    (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
-                   index);
-    if (FILE* fp = fopen(binPath, "wb")) {
-      (void)fwrite(aFrame.data(), 1, aFrame.size(), fp);
-      fclose(fp);
-    }
-    if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
-      char line[64];
-      const int lineLen =
-          snprintf(line, sizeof(line), "frame_%u.bin\n", index);
-      if (lineLen > 0) {
-        (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
-      }
-      fclose(fp);
-    }
-    printf_stderr(
-        "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
-        aFrame.size(),
-        static_cast<unsigned long long>(aState.producer.table().tableHash()));
+    SPECULUM_LOG("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu",
+                 static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
+                 aFrame.size());
   } else {
-    printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n",
-                  aState.contextId, seq, aOps, aFrame.size());
+    SPECULUM_LOG("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu",
+                 aState.contextId, seq, aOps, aFrame.size());
   }
 }
 
@@ -223,7 +196,6 @@ void SpeculumMutationObserver::ContentAppended(
 
 void SpeculumMutationObserver::ContentInserted(nsIContent* aChild,
                                                const ContentInsertInfo&) {
-  printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
   SPECULUM_LOG("ContentInserted");
   if (!mState || !aChild) {
     return;
@@ -259,10 +231,28 @@ void SpeculumAttachMutationObserverToDocument(Document* aDocument) {
   if (!aDocument || aDocument->GetSpeculumMutationObserver()) {
     return;
   }
-  BrowsingContext* bc = aDocument->GetBrowsingContext();
-  const uint64_t topId = bc ? bc->Top()->Id() : 0;
-  uint32_t ctx = 0;
-  if (!ContentChild::SpeculumContextIdFor(topId, &ctx)) {
+  // O registro do contexto projetado vem da própria BrowsingContext (campo
+  // sincronizado, carimbado pelo pai no ContextCreate). O produtor não julga
+  // documento: ele lê a aba em que o documento está.
+  mozilla::dom::BrowsingContext* bc = aDocument->GetBrowsingContext();
+  mozilla::dom::BrowsingContext* top = bc ? bc->Top() : nullptr;
+  const uint64_t topId = top ? top->Id() : 0;
+  const uint32_t ctx = top ? top->GetSpeculumContextId() : 0;
+
+  // Um documento que não anexa é um documento que não projeta. A decisão é
+  // observável: sem isto, "a página não subiu" não distingue registro ausente
+  // de BrowsingContext ausente.
+  if (!bc || bc->IsContent()) {
+    nsAutoCString uri("(null)");
+    if (nsIURI* docUri = aDocument->GetDocumentURI()) {
+      uri = docUri->GetSpecOrDefault();
+    }
+    SPECULUM_LOG("[SPECULUM-ATTACH] pid=%d topBc=%llu ctx=%u uri=%s",
+                 static_cast<int>(getpid()),
+                 static_cast<unsigned long long>(topId), ctx, uri.get());
+  }
+
+  if (ctx == 0) {
     return;
   }
   RefPtr<SpeculumMutationObserver> obs =

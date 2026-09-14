@@ -198,11 +198,13 @@ void SpeculumTryWriteBootstrapFrame(mozilla::dom::Document* aDocument) {
   if (!aDocument || IsSpeculumChromeOrNonContent(aDocument)) {
     return;
   }
-  static mozilla::dom::Document* sLastBootstrappedDocument = nullptr;
-  if (sLastBootstrappedDocument == aDocument) {
+  // A marca é do documento. Um estático guardando o último ponteiro engole o
+  // bootstrap do documento seguinte quando o alocador recicla o endereço — e
+  // o documento seguinte é exatamente a página para onde se navegou.
+  if (aDocument->SpeculumBootstrapped()) {
     return;
   }
   if (WriteBootstrapFrame(aDocument)) {
-    sLastBootstrappedDocument = aDocument;
+    aDocument->SetSpeculumBootstrapped(true);
   }
 }

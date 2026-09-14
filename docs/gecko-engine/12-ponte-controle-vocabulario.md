@@ -46,7 +46,7 @@ paralelismo e sem engasgo.** Simplicidade continua valendo, mas não à custa di
 |---|---|
 | vida | `Ready`, `Heartbeat` |
 | contexto | `ContextCreated(id, parentId)`, `ContextDestroyed(id)` |
-| navegação | `Navigated(id, url)`, `LoadStateChanged` |
+| navegação | `Navigated(id, url)` no commit da carga pedida, `LoadStateChanged` (1=start, 2=stop) |
 | pedido | `DialogRequested`, `PermissionRequested`, `DownloadRequested` |
 | diagnóstico | `Fault(causa)` — ver §7.4 de `06-runtime.md` |
 

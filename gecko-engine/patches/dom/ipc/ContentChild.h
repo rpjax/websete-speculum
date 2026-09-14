@@ -123,8 +123,6 @@ class ContentChild final : public PContentChild,
 
   static ContentChild* GetSingleton() { return sSingleton; }
 
-  static bool SpeculumContextIdFor(uint64_t aBrowsingContextId, uint32_t* aOut);
-
   const AppInfo& GetAppInfo() { return mAppInfo; }
 
   void SetProcessName(const nsACString& aName,
@@ -499,11 +497,6 @@ class ContentChild final : public PContentChild,
       GetUntrustedModulesDataResolver&& aResolver);
   mozilla::ipc::IPCResult RecvUnblockUntrustedModulesThread();
 #endif  // defined(XP_WIN)
-
-  mozilla::ipc::IPCResult RecvSpeculumProjectContext(
-      const uint64_t& aBrowsingContextId, const uint32_t& aContextId);
-  mozilla::ipc::IPCResult RecvSpeculumUnprojectContext(
-      const uint64_t& aBrowsingContextId);
 
   mozilla::ipc::IPCResult RecvSetXPCOMProcessAttributes(
       XPCOMInitData&& aXPCOMInit, NotNull<StructuredCloneData*> aInitialData,

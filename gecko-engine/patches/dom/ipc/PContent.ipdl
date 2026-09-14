@@ -1999,9 +1999,6 @@ parent:
                                 nsString[] aAds,
                                 nsCString[] aImpressionSourceHosts);
 
-child:
-    async SpeculumProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId);
-    async SpeculumUnprojectContext(uint64_t aBrowsingContextId);
 };
 
 }

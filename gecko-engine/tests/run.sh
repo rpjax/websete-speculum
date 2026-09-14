@@ -63,6 +63,27 @@ export PATH="$DOTNET_ROOT:$PATH"
 echo "dotnet: $DOTNET"
 echo "DOTNET_ROOT: $DOTNET_ROOT"
 
+# Firefox construído do fork (só usado no --stack). SPECULUM_STACK_BROWSER_BIN
+# força; senão procura por <objdir>/dist/bin/firefox sob os lugares prováveis,
+# evitando /mnt/ (Windows, lento).
+find_firefox() {
+  if [ -n "${SPECULUM_STACK_BROWSER_BIN:-}" ] && [ -x "$SPECULUM_STACK_BROWSER_BIN" ]; then
+    echo "$SPECULUM_STACK_BROWSER_BIN"; return
+  fi
+  local d f
+  # Candidatos prováveis primeiro (raso e rápido): checkouts comuns de Gecko.
+  for d in "$HOME"/mozilla-unified "$HOME"/mozilla-central "$HOME"/firefox \
+           "$HOME"/gecko "$HOME"/gecko-dev "$HOME"/src/mozilla-unified \
+           "$HOME"/src/firefox "$HOME"/dev/mozilla-unified; do
+    [ -d "$d" ] || continue
+    f="$(find "$d" -maxdepth 4 -type f -name firefox -path '*/dist/bin/firefox' 2>/dev/null | head -1)"
+    if [ -n "$f" ] && [ -x "$f" ]; then echo "$f"; return; fi
+  done
+  # Varredura de último recurso, LIMITADA POR TEMPO — nunca trava o script.
+  f="$(timeout 20 find "$HOME" -maxdepth 6 -type f -name firefox -path '*/dist/bin/firefox' 2>/dev/null | head -1)"
+  if [ -n "$f" ] && [ -x "$f" ]; then echo "$f"; return; fi
+}
+
 # ---- L0 + L5: núcleo e regressão viva (C++ ↔ TypeScript, capturas congeladas) ----
 banner "L0 + L5 — núcleo e regressão viva (speculum-wire)"
 "$WIRE/run-tests.sh"
@@ -91,10 +112,17 @@ SPECULUM_SUPERVISOR_DLL="$SUPERVISOR_DLL" \
 # ---- L4: pilha real, só sob demanda ----
 if [[ "${1:-}" == "--stack" ]]; then
   banner "L4 — pilha real (Gecko construído)"
-  : "${SPECULUM_STACK_BROWSER_BIN:?defina SPECULUM_STACK_BROWSER_BIN apontando para <objdir>/dist/bin/firefox}"
+  FIREFOX="$(find_firefox)"
+  if [ -z "$FIREFOX" ]; then
+    echo "firefox do build não encontrado. Rode:"
+    echo "  SPECULUM_STACK_BROWSER_BIN=<objdir>/dist/bin/firefox bash gecko-engine/tests/run.sh --stack"
+    exit 2
+  fi
+  echo "firefox: $FIREFOX"
   SPECULUM_DOTNET="$DOTNET" \
   SPECULUM_TESTS_DLL="$TESTS_DLL" \
   SPECULUM_SUPERVISOR_DLL="$SUPERVISOR_DLL" \
+  SPECULUM_STACK_BROWSER_BIN="$FIREFOX" \
     "$DOTNET" "$TESTS_DLL" l4
 fi
 

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Speculum.Supervisor</RootNamespace>
+    <AssemblyName>speculum-supervisor</AssemblyName>
+
+    <!-- Doc 11: NativeAOT decidido no dia 1. Mantém o código honesto quanto a reflexão. -->
+    <PublishAot>true</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

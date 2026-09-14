@@ -6,10 +6,6 @@
 #include "mozilla/UniquePtr.h"
 #include "nsTArray.h"
 
-namespace mozilla::dom {
-class ContentParent;
-}
-
 class SpeculumProjectionRuntime {
  public:
   static void Startup();
@@ -17,7 +13,6 @@ class SpeculumProjectionRuntime {
 
   void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
                     base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame);
-  void ReplayProjectedContexts(mozilla::dom::ContentParent* aChild);
 
  private:
   SpeculumProjectionRuntime();

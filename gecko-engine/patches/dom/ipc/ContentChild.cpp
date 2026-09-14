@@ -1486,42 +1486,6 @@ mozilla::ipc::IPCResult ContentChild::RecvUnblockUntrustedModulesThread() {
 }
 #endif  // defined(XP_WIN)
 
-namespace {
-
-StaticMutex sSpeculumProjectedContextsMutex;
-using SpeculumProjectedContextMap = std::map<uint64_t, uint32_t>;
-SpeculumProjectedContextMap sSpeculumProjectedContexts;
-
-}  // namespace
-
-/* static */ bool ContentChild::SpeculumContextIdFor(uint64_t aBrowsingContextId,
-                                                     uint32_t* aOut) {
-  if (!aOut) {
-    return false;
-  }
-  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-  const auto it = sSpeculumProjectedContexts.find(aBrowsingContextId);
-  if (it == sSpeculumProjectedContexts.end()) {
-    return false;
-  }
-  *aOut = it->second;
-  return true;
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvSpeculumProjectContext(
-    const uint64_t& aBrowsingContextId, const uint32_t& aContextId) {
-  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-  sSpeculumProjectedContexts[aBrowsingContextId] = aContextId;
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvSpeculumUnprojectContext(
-    const uint64_t& aBrowsingContextId) {
-  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-  sSpeculumProjectedContexts.erase(aBrowsingContextId);
-  return IPC_OK();
-}
-
 PCycleCollectWithLogsChild* ContentChild::AllocPCycleCollectWithLogsChild(
     const bool& aDumpAllTraces, const FileDescriptor& aGCLog,
     const FileDescriptor& aCCLog) {

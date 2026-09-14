@@ -1,24 +1,79 @@
+diff --git a/docshell/base/BrowsingContext.h b/docshell/base/BrowsingContext.h
+index 6f7f58bba3..573b5cf8f5 100644
+--- a/docshell/base/BrowsingContext.h
++++ b/docshell/base/BrowsingContext.h
+@@ -300,7 +300,13 @@ struct EmbedderColorSchemes {
+   FIELD(IsDocumentPiP, bool)                                                  \
+   /* True if this is a content browsing context whose page has an open        \
+      Document Picture-in-Picture window */                                    \
+-  FIELD(ControlsDocumentPiP, bool)
++  FIELD(ControlsDocumentPiP, bool)                                            \
++  /* Speculum: o contexto projetado ao qual esta aba pertence, atribuído      \
++   * pelo processo pai no ContextCreate. Zero quando não é projetada. Mora    \
++   * aqui, e não num mapa por processo, porque todo processo que vier a       \
++   * hospedar a aba — inclusive o que nasce numa troca de processo — precisa  \
++   * da mesma resposta sem depender de difusão. Só no topo. */                \
++  FIELD(SpeculumContextId, uint32_t)
+ 
+ #define NS_DOM_BROWSINGCONTEXT_IID \
+   {0x5059a6aa, 0xf09, 0x415c, {0x89, 0xbd, 0x63, 0xfd, 0xe5, 0xab, 0x1a, 0x66}};
+@@ -1547,6 +1553,13 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
+     return IsTop() && XRE_IsParentProcess();
+   }
+ 
++  bool CanSet(FieldIndex<IDX_SpeculumContextId>, const uint32_t& aValue,
++              ContentParent* aSource) {
++    // Só o pai, e só no topo. Conteúdo que tentasse se declarar projetado
++    // estaria pedindo frames de uma aba que ninguém pediu.
++    return IsTop() && XRE_IsParentProcess() && !aSource;
++  }
++
+   // TODO(emilio): Maybe handle the flag being set dynamically without
+   // navigating? The previous code didn't do it tho, and a reload is probably
+   // worth it regardless.
+diff --git a/docshell/base/CanonicalBrowsingContext.cpp b/docshell/base/CanonicalBrowsingContext.cpp
+index d96248fcc4..10516f669f 100644
+--- a/docshell/base/CanonicalBrowsingContext.cpp
++++ b/docshell/base/CanonicalBrowsingContext.cpp
+@@ -336,6 +336,10 @@ void CanonicalBrowsingContext::ReplacedBy(
+   txn.SetDisplayMode(GetDisplayMode());
+   txn.SetForceDesktopViewport(GetForceDesktopViewport());
+   txn.SetIsUnderHiddenEmbedderElement(GetIsUnderHiddenEmbedderElement());
++  // Speculum: o contextId da aba projetada mora no campo sincronizado. Sem
++  // copiá-lo na troca de BrowsingContext (bfcache, remoteness, COOP) o
++  // produtor vê ctx=0 no documento novo e não anexa.
++  txn.SetSpeculumContextId(GetSpeculumContextId());
+ 
+   // When using site-specific zoom, we let the frontend manage the zoom level
+   // of BFCache'd contexts. Overriding those zoom levels can cause weirdness
 diff --git a/dom/base/Document.cpp b/dom/base/Document.cpp
-index 0122df8a7f..a5750f7257 100644
+index 0122df8a7f..a22a8b4677 100644
 --- a/dom/base/Document.cpp
 +++ b/dom/base/Document.cpp
-@@ -7,6 +7,16 @@
+@@ -7,6 +7,14 @@
   */
  
  #include "mozilla/dom/Document.h"
 +#include "SpeculumMutationObserver.h"
++#include "SpeculumLog.h"
 +#include "SpeculumNodeSource.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "nsDocShell.h"
 +
-+#include <cstdio>
 +#include <unistd.h>
-+#include <sys/stat.h>
-+#include <sys/types.h>
 +#include <vector>
  
  #include <inttypes.h>
  #include <stdlib.h>
+@@ -1298,6 +1306,8 @@ Document::Document(const char* aContentType,
+       mUpgradeInsecureRequests(false),
+       mUpgradeInsecurePreloads(false),
+       mDevToolsWatchingDOMMutations(false),
++      mSpeculumWatchingDOMMutations(false),
++      mSpeculumBootstrapped(false),
+       mLoadedAsData(aLoadedAsData == LoadedAsData::AsData),
+       mRenderingSuppressedForViewTransitions(false),
+       mBidiEnabled(false),
 @@ -3468,6 +3478,7 @@ nsresult Document::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
    RetrieveRelevantHeaders(aChannel);
  
@@ -46,7 +101,7 @@ index 0122df8a7f..a5750f7257 100644
  }
  
  void Document::GetReadyState(nsAString& aReadyState) const {
-@@ -15205,6 +15221,59 @@ void Document::SetDevToolsWatchingDOMMutations(bool aValue) {
+@@ -15205,6 +15221,49 @@ void Document::SetDevToolsWatchingDOMMutations(bool aValue) {
    }
  }
  
@@ -76,25 +131,15 @@ index 0122df8a7f..a5750f7257 100644
 +    }
 +    const bool hasParentDoc = GetEmbedderElement() != nullptr;
 +    const char* proc = XRE_IsParentProcess() ? "pai" : "conteudo";
-+    mkdir("/tmp/speculum-docs", 0777);
-+    char logPath[128];
-+    const pid_t pid = getpid();
-+    snprintf(logPath, sizeof(logPath), "/tmp/speculum-docs/%d.log",
-+             static_cast<int>(pid));
-+    if (FILE* fp = fopen(logPath, "a")) {
-+      fprintf(
-+          fp,
-+          "[SPECULUM-DOC] pid=%d | proc=%s | uri=%s | channelUri=%s | "
-+          "contentDoc=%d | "
-+          "chromeShell=%d | bcIsContent=%d | systemPrincipal=%d | hasParentDoc=%d "
-+          "| root=%d\n",
-+          static_cast<int>(pid), proc, uri.get(), channelUri.get(),
-+          IsContentDocument() ? 1 : 0,
-+          IsInChromeDocShell() ? 1 : 0, bcIsContent,
-+          NodePrincipal()->IsSystemPrincipal() ? 1 : 0, hasParentDoc ? 1 : 0,
-+          hasParentDoc ? 0 : 1);
-+      fclose(fp);
-+    }
++    SPECULUM_LOG(
++        "[SPECULUM-DOC] pid=%d | proc=%s | uri=%s | channelUri=%s | "
++        "contentDoc=%d | chromeShell=%d | bcIsContent=%d | systemPrincipal=%d | "
++        "hasParentDoc=%d | root=%d",
++        static_cast<int>(getpid()), proc, uri.get(), channelUri.get(),
++        IsContentDocument() ? 1 : 0, IsInChromeDocShell() ? 1 : 0, bcIsContent,
++        NodePrincipal()->IsSystemPrincipal() ? 1 : 0, hasParentDoc ? 1 : 0,
++        hasParentDoc ? 0 : 1);
++    mSpeculumBootstrapped = false;
 +    SpeculumAttachMutationObserverToDocument(this);
 +  } else {
 +    SpeculumDetachMutationObserverFromDocument(this);
@@ -107,7 +152,7 @@ index 0122df8a7f..a5750f7257 100644
                               Document& aDocument) {
    if (nsPresContext* pc = aDocument.GetPresContext()) {
 diff --git a/dom/base/Document.h b/dom/base/Document.h
-index 42c105bb32..50012b4538 100644
+index 42c105bb32..40085d8da6 100644
 --- a/dom/base/Document.h
 +++ b/dom/base/Document.h
 @@ -154,6 +154,7 @@ class nsIDocShell;
@@ -118,7 +163,7 @@ index 42c105bb32..50012b4538 100644
  class nsIEventTarget;
  class nsIFrame;
  class nsIGlobalObject;
-@@ -3862,6 +3863,14 @@ class Document : public nsINode,
+@@ -3862,6 +3863,19 @@ class Document : public nsINode,
      return mDevToolsWatchingDOMMutations;
    }
    void SetDevToolsWatchingDOMMutations(bool aValue);
@@ -130,14 +175,22 @@ index 42c105bb32..50012b4538 100644
 +  void SetSpeculumMutationObserver(SpeculumMutationObserver* aObserver) {
 +    mSpeculumMutationObserver = aObserver;
 +  }
++
++  bool SpeculumBootstrapped() const { return mSpeculumBootstrapped; }
++  void SetSpeculumBootstrapped(bool aValue) {
++    mSpeculumBootstrapped = aValue;
++  }
  
    // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
    void EvaluateMediaQueriesAndReportChanges();
-@@ -5022,6 +5031,9 @@ class Document : public nsINode,
+@@ -5022,6 +5036,12 @@ class Document : public nsINode,
    bool mUpgradeInsecureRequests : 1;
    bool mUpgradeInsecurePreloads : 1;
    bool mDevToolsWatchingDOMMutations : 1;
 +  bool mSpeculumWatchingDOMMutations : 1;
++  // Bootstrap é marca do documento: cada documento projetado emite o seu, uma
++  // vez. Guardar isso fora do documento confunde documentos diferentes.
++  bool mSpeculumBootstrapped : 1;
 +
 +  RefPtr<SpeculumMutationObserver> mSpeculumMutationObserver;
  
@@ -145,13 +198,14 @@ index 42c105bb32..50012b4538 100644
    // data as in XHR or DOMParser.
 diff --git a/dom/base/SpeculumMutationObserver.cpp b/dom/base/SpeculumMutationObserver.cpp
 new file mode 100755
-index 0000000000..90cde85af3
+index 0000000000..66a0d0f1a6
 --- /dev/null
 +++ b/dom/base/SpeculumMutationObserver.cpp
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,275 @@
 +/* Speculum — minimal DOM mutation probe (producer spike). */
 +#include "SpeculumMutationObserver.h"
 +
++#include "SpeculumLog.h"
 +#include "SpeculumNodeSource.h"
 +#include "mozilla/RefPtr.h"
 +#include "mozilla/UniquePtrExtensions.h"
@@ -165,12 +219,13 @@ index 0000000000..90cde85af3
 +#include "speculum/Producer.h"
 +#include "speculum/Wire.h"
 +
-+#include <cstdio>
-+#include <sys/stat.h>
++#include <unistd.h>
 +#include <vector>
 +
 +using mozilla::dom::ContentChild;
 +using mozilla::dom::Document;
++
++mozilla::LazyLogModule gSpeculumLog("Speculum");
 +
 +struct SpeculumProducerState {
 +  SpeculumNodeSource source;
@@ -184,8 +239,6 @@ index 0000000000..90cde85af3
 +
 +NS_IMPL_ISUPPORTS(SpeculumMutationObserver, nsIMutationObserver, nsITimerCallback)
 +
-+#define SPECULUM_LOG(cb) printf_stderr("[SPECULUM] %s\n", cb)
-+
 +namespace {
 +
 +std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
@@ -195,11 +248,6 @@ index 0000000000..90cde85af3
 +  nsAutoString tmp;
 +  aAtom->ToString(tmp);
 +  return std::string(NS_ConvertUTF16toUTF8(tmp).get());
-+}
-+
-+uint32_t NextSpeculumFrameIndex() {
-+  static uint32_t sNext = 0;
-+  return sNext++;
 +}
 +
 +void SendFrameBytes(mozilla::dom::Document* aDocument,
@@ -220,34 +268,12 @@ index 0000000000..90cde85af3
 +    uri = docUri->GetSpecOrDefault();
 +  }
 +  if (aBootstrap) {
-+    printf_stderr("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu\n",
-+                  static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
-+                  aFrame.size());
-+    mkdir("/tmp/speculum-frames", 0777);
-+    const uint32_t index = NextSpeculumFrameIndex();
-+    char binPath[128];
-+    (void)snprintf(binPath, sizeof(binPath), "/tmp/speculum-frames/frame_%u.bin",
-+                   index);
-+    if (FILE* fp = fopen(binPath, "wb")) {
-+      (void)fwrite(aFrame.data(), 1, aFrame.size(), fp);
-+      fclose(fp);
-+    }
-+    if (FILE* fp = fopen("/tmp/speculum-frames/frames.txt", "a")) {
-+      char line[64];
-+      const int lineLen =
-+          snprintf(line, sizeof(line), "frame_%u.bin\n", index);
-+      if (lineLen > 0) {
-+        (void)fwrite(line, 1, static_cast<size_t>(lineLen), fp);
-+      }
-+      fclose(fp);
-+    }
-+    printf_stderr(
-+        "[SPECULUM] bootstrap frame_%u bytes=%zu tableHash=%llu\n", index,
-+        aFrame.size(),
-+        static_cast<unsigned long long>(aState.producer.table().tableHash()));
++    SPECULUM_LOG("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu",
++                 static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
++                 aFrame.size());
 +  } else {
-+    printf_stderr("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu\n",
-+                  aState.contextId, seq, aOps, aFrame.size());
++    SPECULUM_LOG("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu",
++                 aState.contextId, seq, aOps, aFrame.size());
 +  }
 +}
 +
@@ -374,7 +400,6 @@ index 0000000000..90cde85af3
 +
 +void SpeculumMutationObserver::ContentInserted(nsIContent* aChild,
 +                                               const ContentInsertInfo&) {
-+  printf_stderr("[SPECULUM] wire ok, prefix=%zu\n", speculum::kFramePrefixBytes);
 +  SPECULUM_LOG("ContentInserted");
 +  if (!mState || !aChild) {
 +    return;
@@ -410,10 +435,28 @@ index 0000000000..90cde85af3
 +  if (!aDocument || aDocument->GetSpeculumMutationObserver()) {
 +    return;
 +  }
-+  BrowsingContext* bc = aDocument->GetBrowsingContext();
-+  const uint64_t topId = bc ? bc->Top()->Id() : 0;
-+  uint32_t ctx = 0;
-+  if (!ContentChild::SpeculumContextIdFor(topId, &ctx)) {
++  // O registro do contexto projetado vem da própria BrowsingContext (campo
++  // sincronizado, carimbado pelo pai no ContextCreate). O produtor não julga
++  // documento: ele lê a aba em que o documento está.
++  mozilla::dom::BrowsingContext* bc = aDocument->GetBrowsingContext();
++  mozilla::dom::BrowsingContext* top = bc ? bc->Top() : nullptr;
++  const uint64_t topId = top ? top->Id() : 0;
++  const uint32_t ctx = top ? top->GetSpeculumContextId() : 0;
++
++  // Um documento que não anexa é um documento que não projeta. A decisão é
++  // observável: sem isto, "a página não subiu" não distingue registro ausente
++  // de BrowsingContext ausente.
++  if (!bc || bc->IsContent()) {
++    nsAutoCString uri("(null)");
++    if (nsIURI* docUri = aDocument->GetDocumentURI()) {
++      uri = docUri->GetSpecOrDefault();
++    }
++    SPECULUM_LOG("[SPECULUM-ATTACH] pid=%d topBc=%llu ctx=%u uri=%s",
++                 static_cast<int>(getpid()),
++                 static_cast<unsigned long long>(topId), ctx, uri.get());
++  }
++
++  if (ctx == 0) {
 +    return;
 +  }
 +  RefPtr<SpeculumMutationObserver> obs =
@@ -503,10 +546,10 @@ index 0000000000..20fc7d79c6
 +#endif
 diff --git a/dom/base/SpeculumNodeSource.cpp b/dom/base/SpeculumNodeSource.cpp
 new file mode 100644
-index 0000000000..b77b9ec62f
+index 0000000000..24942e1528
 --- /dev/null
 +++ b/dom/base/SpeculumNodeSource.cpp
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,210 @@
 +/* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
 +#include "mozilla/Assertions.h"
 +#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
@@ -707,12 +750,14 @@ index 0000000000..b77b9ec62f
 +  if (!aDocument || IsSpeculumChromeOrNonContent(aDocument)) {
 +    return;
 +  }
-+  static mozilla::dom::Document* sLastBootstrappedDocument = nullptr;
-+  if (sLastBootstrappedDocument == aDocument) {
++  // A marca é do documento. Um estático guardando o último ponteiro engole o
++  // bootstrap do documento seguinte quando o alocador recicla o endereço — e
++  // o documento seguinte é exatamente a página para onde se navegou.
++  if (aDocument->SpeculumBootstrapped()) {
 +    return;
 +  }
 +  if (WriteBootstrapFrame(aDocument)) {
-+    sLastBootstrappedDocument = aDocument;
++    aDocument->SetSpeculumBootstrapped(true);
 +  }
 +}
 diff --git a/dom/base/SpeculumNodeSource.h b/dom/base/SpeculumNodeSource.h
@@ -759,18 +804,19 @@ index 0000000000..66d49a380f
 +
 +#endif
 diff --git a/dom/base/moz.build b/dom/base/moz.build
-index 06e0efa0d9..ba195e3968 100644
+index 06e0efa0d9..e6a353504d 100644
 --- a/dom/base/moz.build
 +++ b/dom/base/moz.build
-@@ -109,6 +109,7 @@ EXPORTS += [
+@@ -109,6 +109,8 @@ EXPORTS += [
      "nsWrapperCache.h",
      "nsWrapperCacheInlines.h",
      "SharedLcpMarkerState.h",
++    "SpeculumLog.h",
 +    "SpeculumMutationObserver.h",
      "XPathGenerator.h",
  ]
  
-@@ -357,7 +358,6 @@ UNIFIED_SOURCES += [
+@@ -357,7 +359,6 @@ UNIFIED_SOURCES += [
      "CustomElementRegistry.cpp",
      "DirectionalityUtils.cpp",
      "DocGroup.cpp",
@@ -778,7 +824,7 @@ index 06e0efa0d9..ba195e3968 100644
      "DocumentFragment.cpp",
      "DocumentOrShadowRoot.cpp",
      "DocumentType.cpp",
-@@ -472,6 +472,8 @@ UNIFIED_SOURCES += [
+@@ -472,6 +473,8 @@ UNIFIED_SOURCES += [
      "SerializedStackHolder.cpp",
      "ShadowRoot.cpp",
      "SourceLocation.cpp",
@@ -787,7 +833,7 @@ index 06e0efa0d9..ba195e3968 100644
      "StaticRange.cpp",
      "StorageAccessPermissionRequest.cpp",
      "StructuredCloneBlob.cpp",
-@@ -519,6 +521,7 @@ if CONFIG["MOZ_PLACES"]:
+@@ -519,6 +522,7 @@ if CONFIG["MOZ_PLACES"]:
  # these files couldn't be in UNIFIED_SOURCES for now for reasons given below:
  SOURCES += [
      # Several conflicts with other bindings.
@@ -795,7 +841,7 @@ index 06e0efa0d9..ba195e3968 100644
      "DOMIntersectionObserver.cpp",
      # Because of OS X headers.
      "nsContentUtils.cpp",
-@@ -593,6 +596,7 @@ LOCAL_INCLUDES += [
+@@ -593,6 +597,7 @@ LOCAL_INCLUDES += [
      "/netwerk/url-classifier",
      "/parser/htmlparser",
      "/security/manager/ssl",
@@ -804,7 +850,7 @@ index 06e0efa0d9..ba195e3968 100644
      "/widget",
      "/xpcom/build",
 diff --git a/dom/ipc/ContentChild.cpp b/dom/ipc/ContentChild.cpp
-index d77bf2ae52..ecd3bc30db 100644
+index d77bf2ae52..97448c23e3 100644
 --- a/dom/ipc/ContentChild.cpp
 +++ b/dom/ipc/ContentChild.cpp
 @@ -40,6 +40,7 @@
@@ -815,74 +861,50 @@ index d77bf2ae52..ecd3bc30db 100644
  #include "mozilla/StaticPrefs_browser.h"
  #include "mozilla/StaticPrefs_dom.h"
  #include "mozilla/StaticPrefs_fission.h"
-@@ -1485,6 +1486,42 @@ mozilla::ipc::IPCResult ContentChild::RecvUnblockUntrustedModulesThread() {
+diff --git a/dom/ipc/ContentParent.cpp b/dom/ipc/ContentParent.cpp
+index 9ae86e6114..de0905f023 100644
+--- a/dom/ipc/ContentParent.cpp
++++ b/dom/ipc/ContentParent.cpp
+@@ -3,6 +3,9 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ #include "ContentParent.h"
++#include "SpeculumProjectionRuntime.h"
++#include <cstdio>
++#include <cstdlib>
+ 
+ #include <map>
+ #include <utility>
+@@ -669,6 +672,7 @@ void ContentParent::StartUp() {
+ 
+   BackgroundChild::Startup();
+   ClientManager::Startup();
++  SpeculumProjectionRuntime::Startup();
+ 
+   Preferences::RegisterCallbackAndCall(&OnFissionBlocklistPrefChange,
+                                        kFissionEnforceBlockList);
+@@ -1265,6 +1269,21 @@ mozilla::ipc::IPCResult ContentParent::RecvCreateGMPService() {
+   return IPC_OK();
  }
- #endif  // defined(XP_WIN)
  
-+namespace {
 +
-+StaticMutex sSpeculumProjectedContextsMutex;
-+using SpeculumProjectedContextMap = std::map<uint64_t, uint32_t>;
-+SpeculumProjectedContextMap sSpeculumProjectedContexts;
-+
-+}  // namespace
-+
-+/* static */ bool ContentChild::SpeculumContextIdFor(uint64_t aBrowsingContextId,
-+                                                     uint32_t* aOut) {
-+  if (!aOut) {
-+    return false;
++IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
++                                           const uint32_t& aContextId,
++                                           const uint32_t& aSequence,
++                                           nsTArray<uint8_t>&& aFrame) {
++  if (aFrame.Length() < 28) {
++    fprintf(stderr, "[SPECULUM-FRAME-ERR] curto=1\n");
++    return IPC_OK();
 +  }
-+  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-+  const auto it = sSpeculumProjectedContexts.find(aBrowsingContextId);
-+  if (it == sSpeculumProjectedContexts.end()) {
-+    return false;
-+  }
-+  *aOut = it->second;
-+  return true;
-+}
 +
-+mozilla::ipc::IPCResult ContentChild::RecvSpeculumProjectContext(
-+    const uint64_t& aBrowsingContextId, const uint32_t& aContextId) {
-+  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-+  sSpeculumProjectedContexts[aBrowsingContextId] = aContextId;
++  SpeculumProjectionRuntime::Get().DeliverFrame(aContextId, aDocToken, aSequence,
++                                                OtherPid(), aFrame);
 +  return IPC_OK();
 +}
 +
-+mozilla::ipc::IPCResult ContentChild::RecvSpeculumUnprojectContext(
-+    const uint64_t& aBrowsingContextId) {
-+  StaticMutexAutoLock lock(sSpeculumProjectedContextsMutex);
-+  sSpeculumProjectedContexts.erase(aBrowsingContextId);
-+  return IPC_OK();
-+}
-+
- PCycleCollectWithLogsChild* ContentChild::AllocPCycleCollectWithLogsChild(
-     const bool& aDumpAllTraces, const FileDescriptor& aGCLog,
-     const FileDescriptor& aCCLog) {
-diff --git a/dom/ipc/ContentChild.h b/dom/ipc/ContentChild.h
-index 1de5f331b0..180c3f659e 100644
---- a/dom/ipc/ContentChild.h
-+++ b/dom/ipc/ContentChild.h
-@@ -123,6 +123,8 @@ class ContentChild final : public PContentChild,
- 
-   static ContentChild* GetSingleton() { return sSingleton; }
- 
-+  static bool SpeculumContextIdFor(uint64_t aBrowsingContextId, uint32_t* aOut);
-+
-   const AppInfo& GetAppInfo() { return mAppInfo; }
- 
-   void SetProcessName(const nsACString& aName,
-@@ -498,6 +500,11 @@ class ContentChild final : public PContentChild,
-   mozilla::ipc::IPCResult RecvUnblockUntrustedModulesThread();
- #endif  // defined(XP_WIN)
- 
-+  mozilla::ipc::IPCResult RecvSpeculumProjectContext(
-+      const uint64_t& aBrowsingContextId, const uint32_t& aContextId);
-+  mozilla::ipc::IPCResult RecvSpeculumUnprojectContext(
-+      const uint64_t& aBrowsingContextId);
-+
-   mozilla::ipc::IPCResult RecvSetXPCOMProcessAttributes(
-       XPCOMInitData&& aXPCOMInit, NotNull<StructuredCloneData*> aInitialData,
-       FullLookAndFeel&& aLookAndFeelData, SystemFontList&& aFontList,
+ IPCResult ContentParent::RecvAttributionEvent(
+     const nsACString& aHost, PrivateAttributionImpressionType aType,
+     uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost) {
 diff --git a/dom/ipc/ContentParent.h b/dom/ipc/ContentParent.h
 index 4e7694702d..98c47dcee4 100644
 --- a/dom/ipc/ContentParent.h
@@ -900,10 +922,10 @@ index 4e7694702d..98c47dcee4 100644
        const nsACString& aHost, PrivateAttributionImpressionType aType,
        uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost);
 diff --git a/dom/ipc/PContent.ipdl b/dom/ipc/PContent.ipdl
-index 23fb648516..ce3e415fbe 100644
+index 23fb648516..531c920a63 100644
 --- a/dom/ipc/PContent.ipdl
 +++ b/dom/ipc/PContent.ipdl
-@@ -1984,16 +1984,24 @@ parent:
+@@ -1984,16 +1984,21 @@ parent:
      async KillGPUProcess();
  #endif
  
@@ -932,9 +954,6 @@ index 23fb648516..ce3e415fbe 100644
 +                                nsString[] aAds,
 +                                nsCString[] aImpressionSourceHosts);
 +
-+child:
-+    async SpeculumProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId);
-+    async SpeculumUnprojectContext(uint64_t aBrowsingContextId);
  };
  
  }
@@ -1127,33 +1146,43 @@ index 0000000000..c7029fb75d
 +}
 diff --git a/dom/ipc/SpeculumProjectionRuntime.cpp b/dom/ipc/SpeculumProjectionRuntime.cpp
 new file mode 100755
-index 0000000000..0c73450887
+index 0000000000..e450d13360
 --- /dev/null
 +++ b/dom/ipc/SpeculumProjectionRuntime.cpp
-@@ -0,0 +1,658 @@
+@@ -0,0 +1,1064 @@
 +/* Speculum — runtime de projeção no processo base (doc 17). */
 +#include "SpeculumProjectionRuntime.h"
 +
 +#include "SpeculumControlAbi.h"
++#include "SpeculumLog.h"
 +#include "mozilla/SystemPrincipal.h"
 +#include "mozilla/dom/BrowsingContext.h"
-+#include "mozilla/dom/ContentParent.h"
++#include "mozilla/dom/CanonicalBrowsingContext.h"
 +#include "mozilla/ErrorResult.h"
 +#include "mozilla/Mutex.h"
 +#include "mozilla/NullPrincipal.h"
++#include "mozilla/SpinEventLoopUntil.h"
 +#include "mozilla/StaticMutex.h"
++#include "mozilla/TimeStamp.h"
 +#include "mozilla/UniquePtr.h"
 +#include "nsAppRunner.h"
 +#include "nsComponentManagerUtils.h"
++#include "nsError.h"
 +#include "nsGlobalWindowOuter.h"
 +#include "nsIMutableArray.h"
 +#include "nsIURI.h"
++#include "nsIDocShell.h"
++#include "nsIDocShellTreeOwner.h"
++#include "nsIWebProgress.h"
++#include "nsIWebProgressListener.h"
 +#include "nsIWindowWatcher.h"
 +#include "nsNetUtil.h"
 +#include "nsPIDOMWindow.h"
 +#include "nsPIDOMWindowInlines.h"
++#include "nsString.h"
 +#include "nsSupportsPrimitives.h"
 +#include "nsThreadUtils.h"
++#include "nsWeakReference.h"
 +
 +#include <atomic>
 +#include <cerrno>
@@ -1174,7 +1203,7 @@ index 0000000000..0c73450887
 +using mozilla::SystemPrincipal;
 +using mozilla::UniquePtr;
 +using mozilla::dom::BrowsingContext;
-+using mozilla::dom::ContentParent;
++using mozilla::dom::CanonicalBrowsingContext;
 +using mozilla::NullPrincipal;
 +
 +namespace {
@@ -1184,8 +1213,12 @@ index 0000000000..0c73450887
 +constexpr uint8_t kKindHello = 0x03;
 +constexpr uint8_t kKindCommand = 0x04;
 +
++// doc 18: LoadStateChanged.estado
++constexpr uint8_t kLoadStateStart = 1;
++constexpr uint8_t kLoadStateStop = 2;
++
 +void LogBridgeErr(const char* aMsg) {
-+  fprintf(stderr, "[SPECULUM-RUNTIME-ERR] %s\n", aMsg);
++  SPECULUM_LOG("[SPECULUM-RUNTIME-ERR] %s", aMsg);
 +}
 +
 +[[noreturn]] void FatalRuntime(const char* aMsg) {
@@ -1326,13 +1359,94 @@ index 0000000000..0c73450887
 +                        "_blank"_ns, features, args, aOutWindow);
 +}
 +
++already_AddRefed<BrowsingContext> PrimaryContentTop(
++    mozIDOMWindowProxy* aWindow) {
++  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
++  if (!outer) {
++    return nullptr;
++  }
++  nsIDocShell* chromeShell = outer->GetDocShell();
++  if (!chromeShell) {
++    return nullptr;
++  }
++  nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
++  chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
++  if (!treeOwner) {
++    return nullptr;
++  }
++  RefPtr<BrowsingContext> contentBc;
++  treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
++  if (!contentBc) {
++    return nullptr;
++  }
++  RefPtr<BrowsingContext> top = contentBc->Top();
++  return top.forget();
++}
++
 +}  // namespace
 +
 +struct SpeculumProjectionRuntime::Impl {
++  // Um documento de topo, uma geração. Guardado por contexto e protegido pelo
++  // sendMutex, que é o lock do caminho do frame.
++  struct Epoch {
++    uint64_t docToken;
++    uint32_t generation;
++  };
++
 +  StaticMutex projectedMutex;
 +  std::map<uint32_t, RefPtr<BrowsingContext>> contextToRootBc;
 +  std::map<uint64_t, uint32_t> bcIdToContextId;
 +  std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> contextToWindow;
++  std::map<uint32_t, Epoch> epochs;
++
++  class ProgressSink final : public nsIWebProgressListener,
++                             public nsSupportsWeakReference {
++   public:
++    NS_DECL_ISUPPORTS
++    NS_DECL_NSIWEBPROGRESSLISTENER
++
++    ProgressSink(Impl* aImpl, uint32_t aContextId, uint64_t aBcId)
++        : mImpl(aImpl), mContextId(aContextId), mBcId(aBcId) {}
++
++    void WaitForCreated(uint32_t aCorrelationId) {
++      mCreatedCorrelation = aCorrelationId;
++      mWaitingCreated = true;
++    }
++    void WaitForNavigated(uint32_t aCorrelationId) {
++      mNavigatedCorrelation = aCorrelationId;
++      mWaitingNavigated = true;
++      mSawLoadStart = false;
++    }
++    void CancelWaitForNavigated() {
++      mWaitingNavigated = false;
++      mSawLoadStart = false;
++    }
++    void SetProgress(nsIWebProgress* aProgress) { mProgress = aProgress; }
++    void DetachFromProgress() {
++      if (mProgress) {
++        (void)mProgress->RemoveProgressListener(this);
++        mProgress = nullptr;
++      }
++      mWaitingCreated = false;
++      mWaitingNavigated = false;
++    }
++
++   private:
++    ~ProgressSink() { DetachFromProgress(); }
++
++    Impl* mImpl;
++    const uint32_t mContextId;
++    const uint64_t mBcId;
++    bool mWaitingCreated = false;
++    bool mWaitingNavigated = false;
++    bool mSawLoadStart = false;
++    uint32_t mCreatedCorrelation = 0;
++    uint32_t mNavigatedCorrelation = 0;
++    nsCOMPtr<nsIWebProgress> mProgress;
++    nsCString mLastLocation;
++  };
++
++  std::map<uint32_t, RefPtr<ProgressSink>> progressSinks;
 +
 +  std::string socketPath;
 +  int fd = -1;
@@ -1403,8 +1517,7 @@ index 0000000000..0c73450887
 +      FatalRuntime("ready send failed");
 +    }
 +    fd = sock;
-+    fprintf(stderr, "[SPECULUM-RUNTIME] ponte conectada em %s\n",
-+            socketPath.c_str());
++    SPECULUM_LOG("[SPECULUM-RUNTIME] ponte conectada em %s", socketPath.c_str());
 +  }
 +
 +  bool SendEvent(const uint8_t* aPayload, uint32_t aLength) {
@@ -1433,26 +1546,139 @@ index 0000000000..0c73450887
 +    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
 +  }
 +
-+  void BroadcastProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId) {
-+    for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-+      (void)cp->SendSpeculumProjectContext(aBrowsingContextId, aContextId);
++  void SendContextCreated(uint32_t aCorrelationId, uint32_t aContextId,
++                          uint64_t aBcId) {
++    uint8_t buffer[64];
++    SpeculumControlWriter writer(buffer, sizeof(buffer),
++                                 SpeculumControlOpCode::ContextCreated,
++                                 aCorrelationId);
++    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt64(aBcId) ||
++        !writer.WriteUInt32(0) || !writer.Ok()) {
++      SendFault(aCorrelationId, aContextId, "ContextCreated encode failed");
++      return;
 +    }
++    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
 +  }
 +
-+  void BroadcastUnprojectContext(uint64_t aBrowsingContextId) {
-+    for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-+      (void)cp->SendSpeculumUnprojectContext(aBrowsingContextId);
++  void SendNavigated(uint32_t aCorrelationId, uint32_t aContextId,
++                     const nsACString& aUrl) {
++    uint8_t buffer[4096];
++    SpeculumControlWriter writer(buffer, sizeof(buffer),
++                                 SpeculumControlOpCode::Navigated,
++                                 aCorrelationId);
++    if (!writer.WriteUInt32(aContextId) || !writer.WriteString(aUrl) ||
++        !writer.Ok()) {
++      SendFault(aCorrelationId, aContextId, "Navigated encode failed");
++      return;
 +    }
++    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
++  }
++
++  void SendLoadState(uint32_t aContextId, uint8_t aState) {
++    uint8_t buffer[32];
++    SpeculumControlWriter writer(buffer, sizeof(buffer),
++                                 SpeculumControlOpCode::LoadStateChanged, 0);
++    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt8(aState) ||
++        !writer.Ok()) {
++      return;
++    }
++    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
++  }
++
++  bool AttachProgressSink(BrowsingContext* aBc, uint32_t aContextId,
++                          uint64_t aBcId, ProgressSink** aOut) {
++    if (!aBc || !aOut) {
++      return false;
++    }
++    CanonicalBrowsingContext* canonical = aBc->Canonical();
++    if (!canonical) {
++      return false;
++    }
++    nsIWebProgress* progress = canonical->GetWebProgress();
++    if (!progress) {
++      return false;
++    }
++    RefPtr<ProgressSink> sink = new ProgressSink(this, aContextId, aBcId);
++    nsresult rv = progress->AddProgressListener(
++        sink, nsIWebProgress::NOTIFY_STATE_WINDOW |
++                  nsIWebProgress::NOTIFY_STATE_NETWORK |
++                  nsIWebProgress::NOTIFY_LOCATION);
++    if (NS_FAILED(rv)) {
++      return false;
++    }
++    sink->SetProgress(progress);
++    progressSinks[aContextId] = sink;
++    sink.forget(aOut);
++    return true;
++  }
++
++  void DetachProgressSink(uint32_t aContextId) {
++    const auto found = progressSinks.find(aContextId);
++    if (found == progressSinks.end()) {
++      return;
++    }
++    found->second->DetachFromProgress();
++    progressSinks.erase(found);
++  }
++
++  // A aba troca de BrowsingContext (bfcache, remoteness, COOP). O campo
++  // SpeculumContextId vai no ReplacedBy; o ponteiro que o runtime guarda
++  // precisa acompanhar, senão o Navigate seguinte fala com a aba velha.
++  void AdoptLiveRootBc(uint32_t aContextId, BrowsingContext* aLive) {
++    if (!aLive) {
++      return;
++    }
++    StaticMutexAutoLock lock(projectedMutex);
++    const auto found = contextToRootBc.find(aContextId);
++    if (found == contextToRootBc.end() || found->second == aLive) {
++      return;
++    }
++    const uint64_t oldId = found->second->Id();
++    const uint64_t newId = aLive->Id();
++    found->second = aLive;
++    bcIdToContextId.erase(oldId);
++    bcIdToContextId[newId] = aContextId;
++    SPECULUM_LOG("[SPECULUM-BC] remap ctx=%u oldBc=%llu newBc=%llu",
++            aContextId, static_cast<unsigned long long>(oldId),
++            static_cast<unsigned long long>(newId));
++  }
++
++  already_AddRefed<BrowsingContext> ResolveLiveRoot(uint32_t aContextId) {
++    nsCOMPtr<mozIDOMWindowProxy> window;
++    RefPtr<BrowsingContext> stored;
++    {
++      StaticMutexAutoLock lock(projectedMutex);
++      const auto found = contextToRootBc.find(aContextId);
++      if (found == contextToRootBc.end()) {
++        return nullptr;
++      }
++      stored = found->second;
++      const auto winIt = contextToWindow.find(aContextId);
++      if (winIt != contextToWindow.end()) {
++        window = winIt->second;
++      }
++    }
++    RefPtr<BrowsingContext> live = PrimaryContentTop(window);
++    if (live && live != stored) {
++      AdoptLiveRootBc(aContextId, live);
++      return live.forget();
++    }
++    return stored.forget();
 +  }
 +
 +  void HandleContextCreate(uint32_t aCorrelationId, uint32_t aContextId,
 +                           int32_t aWidth, int32_t aHeight) {
-+    StaticMutexAutoLock lock(projectedMutex);
-+    if (contextToRootBc.find(aContextId) != contextToRootBc.end()) {
-+      SendFault(aCorrelationId, aContextId, "contextId already registered");
-+      return;
++    {
++      StaticMutexAutoLock lock(projectedMutex);
++      if (contextToRootBc.find(aContextId) != contextToRootBc.end()) {
++        SendFault(aCorrelationId, aContextId, "contextId already registered");
++        return;
++      }
 +    }
 +
++    // Abrir a janela e esperar a content BC ficam FORA do lock: a espera roda o
++    // event loop, e segurar o StaticMutex durante isso poderia travar contra
++    // qualquer outro caminho que o pegue no main thread.
 +    nsCOMPtr<mozIDOMWindowProxy> window;
 +    nsresult rv =
 +        OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
@@ -1467,39 +1693,99 @@ index 0000000000..0c73450887
 +      return;
 +    }
 +
-+    RefPtr<BrowsingContext> bc = outer->GetBrowsingContext();
-+    if (!bc) {
-+      SendFault(aCorrelationId, aContextId, "no browsing context");
++    // A janela aberta é o CHROME (browser.xhtml). O documento projetado vive na
++    // BrowsingContext de CONTEÚDO da aba — e é a top BC do conteúdo que o produtor
++    // usa como chave (SpeculumAttachMutationObserverToDocument). Registrar a BC do
++    // chrome nunca casa com a do conteúdo: por isso nenhum frame subia.
++    nsIDocShell* chromeShell = outer->GetDocShell();
++    if (!chromeShell) {
++      SendFault(aCorrelationId, aContextId, "no chrome docshell");
 +      return;
 +    }
-+    bc = bc->Top();
++    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
++    chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
++    if (!treeOwner) {
++      SendFault(aCorrelationId, aContextId, "no tree owner");
++      return;
++    }
++
++    RefPtr<BrowsingContext> chromeBc = outer->GetBrowsingContext();
++
++    // A aba de conteúdo não existe no instante em que OpenWindow retorna; ela
++    // aparece um tique depois. Espera a primary content BC surgir, com teto.
++    RefPtr<BrowsingContext> contentBc;
++    const mozilla::TimeStamp deadline =
++        mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromSeconds(10);
++    (void)mozilla::SpinEventLoopUntil(
++        "SpeculumWaitContentBrowsingContext"_ns, [&]() -> bool {
++          treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
++          return contentBc || mozilla::TimeStamp::Now() >= deadline;
++        });
++
++    SPECULUM_LOG("[SPECULUM-CTX] ctx=%u chromeBc=%llu contentBc=%llu",
++            aContextId,
++            static_cast<unsigned long long>(chromeBc ? chromeBc->Id() : 0),
++            static_cast<unsigned long long>(contentBc ? contentBc->Id() : 0));
++
++    if (!contentBc) {
++      SendFault(aCorrelationId, aContextId, "no primary content browsing context");
++      return;
++    }
++
++    RefPtr<BrowsingContext> bc = contentBc->Top();
 +    if (!bc) {
-+      SendFault(aCorrelationId, aContextId, "no top browsing context");
++      SendFault(aCorrelationId, aContextId, "no top content browsing context");
 +      return;
 +    }
 +
 +    const uint64_t bcId = bc->Id();
-+    if (bcIdToContextId.find(bcId) != bcIdToContextId.end()) {
-+      SendFault(aCorrelationId, aContextId, "browsing context already registered");
++
++    {
++      StaticMutexAutoLock lock(projectedMutex);
++      // Recheca: outro ContextCreate pode ter corrido enquanto o event loop girava.
++      if (contextToRootBc.find(aContextId) != contextToRootBc.end()) {
++        SendFault(aCorrelationId, aContextId, "contextId already registered");
++        return;
++      }
++      if (bcIdToContextId.find(bcId) != bcIdToContextId.end()) {
++        SendFault(aCorrelationId, aContextId,
++                  "browsing context already registered");
++        return;
++      }
++      contextToRootBc.emplace(aContextId, bc);
++      bcIdToContextId.emplace(bcId, aContextId);
++      contextToWindow.emplace(aContextId, window);
++    }
++
++    // Commit do campo sincronizado faz IPC para o grupo. Fora do lock, pelo
++    // mesmo motivo da espera da content BC.
++    if (NS_FAILED(bc->SetSpeculumContextId(aContextId))) {
++      StaticMutexAutoLock lock(projectedMutex);
++      contextToRootBc.erase(aContextId);
++      bcIdToContextId.erase(bcId);
++      contextToWindow.erase(aContextId);
++      SendFault(aCorrelationId, aContextId, "SetSpeculumContextId failed");
 +      return;
 +    }
 +
-+    contextToRootBc.emplace(aContextId, bc);
-+    bcIdToContextId.emplace(bcId, aContextId);
-+    contextToWindow.emplace(aContextId, window);
-+
-+    BroadcastProjectContext(bcId, aContextId);
-+
-+    uint8_t buffer[64];
-+    SpeculumControlWriter writer(buffer, sizeof(buffer),
-+                                 SpeculumControlOpCode::ContextCreated,
-+                                 aCorrelationId);
-+    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt64(bcId) ||
-+        !writer.WriteUInt32(0) || !writer.Ok()) {
-+      SendFault(aCorrelationId, aContextId, "ContextCreated encode failed");
++    RefPtr<ProgressSink> sink;
++    if (!AttachProgressSink(bc, aContextId, bcId, getter_AddRefs(sink))) {
++      (void)bc->SetSpeculumContextId(0);
++      StaticMutexAutoLock lock(projectedMutex);
++      contextToRootBc.erase(aContextId);
++      bcIdToContextId.erase(bcId);
++      contextToWindow.erase(aContextId);
++      SendFault(aCorrelationId, aContextId, "progress listener failed");
 +      return;
 +    }
-+    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
++
++    // ContextCreated só quando a aba está quieta. Senão o Navigate seguinte
++    // compete com o load de inicialização e o ack otimista mente.
++    if (bc->IsLoading()) {
++      sink->WaitForCreated(aCorrelationId);
++    } else {
++      SendContextCreated(aCorrelationId, aContextId, bcId);
++    }
 +  }
 +
 +  void HandleContextDestroy(uint32_t aCorrelationId, uint32_t aContextId) {
@@ -1525,7 +1811,11 @@ index 0000000000..0c73450887
 +      contextToWindow.erase(aContextId);
 +    }
 +
-+    BroadcastUnprojectContext(bcId);
++    DetachProgressSink(aContextId);
++
++    if (bc && !bc->IsDiscarded()) {
++      (void)bc->SetSpeculumContextId(0);
++    }
 +
 +    if (window) {
 +      if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window)) {
@@ -1546,18 +1836,13 @@ index 0000000000..0c73450887
 +
 +  void HandleNavigate(uint32_t aCorrelationId, uint32_t aContextId,
 +                      const nsACString& aUrl) {
-+    RefPtr<BrowsingContext> bc;
-+    {
-+      StaticMutexAutoLock lock(projectedMutex);
-+      const auto found = contextToRootBc.find(aContextId);
-+      if (found == contextToRootBc.end()) {
-+        SendFault(aCorrelationId, aContextId, "unknown contextId");
-+        return;
-+      }
-+      bc = found->second;
++    RefPtr<BrowsingContext> bc = ResolveLiveRoot(aContextId);
++    if (!bc) {
++      SendFault(aCorrelationId, aContextId, "unknown contextId");
++      return;
 +    }
 +
-+    if (!bc || bc->IsDiscarded()) {
++    if (bc->IsDiscarded()) {
 +      SendFault(aCorrelationId, aContextId, "browsing context unavailable");
 +      return;
 +    }
@@ -1581,35 +1866,35 @@ index 0000000000..0c73450887
 +      return;
 +    }
 +
++    const auto foundSink = progressSinks.find(aContextId);
++    if (foundSink == progressSinks.end()) {
++      SendFault(aCorrelationId, aContextId, "no progress listener");
++      return;
++    }
++    // Armar ANTES do Navigate: o START pode chegar síncrono. Sem isto o STOP
++    // da carga anterior (about:blank, página velha) vira Navigated falso.
++    foundSink->second->WaitForNavigated(aCorrelationId);
++
 +    RefPtr<nsIPrincipal> systemPrincipal = SystemPrincipal::Get();
 +    ErrorResult error;
 +    bc->Navigate(uri, /* aSourceDocument */ nullptr, *systemPrincipal, error);
 +    if (error.Failed()) {
++      foundSink->second->CancelWaitForNavigated();
 +      SendFault(aCorrelationId, aContextId, "navigate failed");
 +      return;
 +    }
-+
-+    uint8_t buffer[4096];
-+    SpeculumControlWriter writer(buffer, sizeof(buffer),
-+                                 SpeculumControlOpCode::Navigated, aCorrelationId);
-+    if (!writer.WriteUInt32(aContextId) || !writer.WriteString(spec) ||
-+        !writer.Ok()) {
-+      SendFault(aCorrelationId, aContextId, "Navigated encode failed");
-+      return;
-+    }
-+    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
 +  }
 +
 +  void HandleControlBinary(const uint8_t* aData, size_t aLength) {
 +    SpeculumControlReader reader(aData, aLength);
 +    if (!reader.Ok()) {
-+      fprintf(stderr, "[SPECULUM-CTRL-ERR] mensagem truncada (cabecalho)\n");
++      SPECULUM_LOG("[SPECULUM-CTRL-ERR] mensagem truncada (cabecalho)");
 +      return;
 +    }
 +
 +    const uint16_t op = reader.OpCode();
 +    const uint32_t correlationId = reader.CorrelationId();
-+    fprintf(stderr, "[SPECULUM-CTRL] opcode=0x%04x correlationId=%u\n", op,
++    SPECULUM_LOG("[SPECULUM-CTRL] opcode=0x%04x correlationId=%u", op,
 +            correlationId);
 +
 +    switch (static_cast<SpeculumControlOpCode>(op)) {
@@ -1645,8 +1930,7 @@ index 0000000000..0c73450887
 +        return;
 +      }
 +      default:
-+        fprintf(stderr,
-+                "[SPECULUM-CTRL-IGNORADO] opcode=0x%04x correlationId=%u\n",
++        SPECULUM_LOG("[SPECULUM-CTRL-IGNORADO] opcode=0x%04x correlationId=%u",
 +                op, correlationId);
 +        return;
 +    }
@@ -1714,9 +1998,8 @@ index 0000000000..0c73450887
 +      if (kind == kKindCommand) {
 +        const size_t got = payload.Length();
 +        if (got < kSpeculumControlHeaderBytes) {
-+          fprintf(stderr,
-+                  "[SPECULUM-CTRL-ERR] comando curto ctx=%u declarado=%u "
-+                  "lido=%zu\n",
++          SPECULUM_LOG(
++                  "[SPECULUM-CTRL-ERR] comando curto ctx=%u declarado=%u lido=%zu",
 +                  contextId, payloadLen, got);
 +          continue;
 +        }
@@ -1725,9 +2008,38 @@ index 0000000000..0c73450887
 +    }
 +  }
 +
-+  void DeliverFrame(uint32_t aContextId, uint64_t, uint32_t, base::ProcessId,
-+                    nsTArray<uint8_t>& aFrame) {
++  // Época do contexto: cada documento de topo é uma geração, e a sequência
++  // reinicia dentro dela (docs/page-projection/spec/cssom.md C1). O processo de
++  // conteúdo nasce com o documento e não sabe quantos vieram antes; quem vê
++  // todos os frames do contexto é o runtime. Sem isto, a página nova chega ao
++  // cliente como continuação da anterior — mesma geração, sequência do zero.
++  void StampGenerationLocked(uint32_t aContextId, uint64_t aDocToken,
++                             nsTArray<uint8_t>& aFrame) {
++    constexpr size_t kGenerationOffset = 8;
++    if (aFrame.Length() < kGenerationOffset + sizeof(uint32_t)) {
++      return;
++    }
++
++    auto found = epochs.find(aContextId);
++    if (found == epochs.end()) {
++      found = epochs.emplace(aContextId, Epoch{aDocToken, 0}).first;
++    } else if (found->second.docToken != aDocToken) {
++      found->second.docToken = aDocToken;
++      found->second.generation++;
++    }
++
++    const uint32_t generation = found->second.generation;
++    uint8_t* p = aFrame.Elements() + kGenerationOffset;
++    p[0] = static_cast<uint8_t>(generation & 0xffu);
++    p[1] = static_cast<uint8_t>((generation >> 8) & 0xffu);
++    p[2] = static_cast<uint8_t>((generation >> 16) & 0xffu);
++    p[3] = static_cast<uint8_t>((generation >> 24) & 0xffu);
++  }
++
++  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t,
++                    base::ProcessId, nsTArray<uint8_t>& aFrame) {
 +    mozilla::MutexAutoLock lock(sendMutex);
++    StampGenerationLocked(aContextId, aDocToken, aFrame);
 +    if (fd < 0) {
 +      return;
 +    }
@@ -1738,18 +2050,136 @@ index 0000000000..0c73450887
 +    }
 +  }
 +
-+  void ReplayProjectedContexts(ContentParent* aChild) {
-+    if (!aChild) {
-+      return;
-+    }
-+    StaticMutexAutoLock lock(projectedMutex);
-+    for (const auto& entry : contextToRootBc) {
-+      if (RefPtr<BrowsingContext> bc = entry.second) {
-+        (void)aChild->SendSpeculumProjectContext(bc->Id(), entry.first);
++};
++
++NS_IMPL_ISUPPORTS(SpeculumProjectionRuntime::Impl::ProgressSink,
++                  nsIWebProgressListener, nsISupportsWeakReference)
++
++NS_IMETHODIMP
++SpeculumProjectionRuntime::Impl::ProgressSink::OnStateChange(
++    nsIWebProgress* aWebProgress, nsIRequest*, uint32_t aStateFlags,
++    nsresult aStatus) {
++  if (!mImpl || !aWebProgress) {
++    return NS_OK;
++  }
++  bool isTop = false;
++  if (NS_FAILED(aWebProgress->GetIsTopLevel(&isTop)) || !isTop) {
++    return NS_OK;
++  }
++  const bool isWindow = aStateFlags & nsIWebProgressListener::STATE_IS_WINDOW;
++  const bool isNetwork = aStateFlags & nsIWebProgressListener::STATE_IS_NETWORK;
++  if (!isWindow || !isNetwork) {
++    return NS_OK;
++  }
++
++  if (aStateFlags & nsIWebProgressListener::STATE_START) {
++    mSawLoadStart = true;
++    mImpl->SendLoadState(mContextId, kLoadStateStart);
++    return NS_OK;
++  }
++  if (!(aStateFlags & nsIWebProgressListener::STATE_STOP)) {
++    return NS_OK;
++  }
++
++  mImpl->SendLoadState(mContextId, kLoadStateStop);
++
++  // Carga substituída — o STOP abortado não é o commit. Espera o próximo.
++  if (aStatus == NS_BINDING_ABORTED) {
++    return NS_OK;
++  }
++
++  if (mWaitingCreated) {
++    mWaitingCreated = false;
++    mImpl->SendContextCreated(mCreatedCorrelation, mContextId, mBcId);
++    return NS_OK;
++  }
++
++  if (!mWaitingNavigated || !mSawLoadStart) {
++    return NS_OK;
++  }
++  mWaitingNavigated = false;
++  mSawLoadStart = false;
++
++  if (NS_FAILED(aStatus)) {
++    mImpl->SendFault(mNavigatedCorrelation, mContextId, "load failed");
++    return NS_OK;
++  }
++
++  nsCOMPtr<mozIDOMWindowProxy> win;
++  if (NS_SUCCEEDED(aWebProgress->GetDOMWindow(getter_AddRefs(win))) && win) {
++    if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(win)) {
++      if (mozilla::dom::BrowsingContext* docBc = outer->GetBrowsingContext()) {
++        mImpl->AdoptLiveRootBc(mContextId, docBc->Top());
 +      }
 +    }
 +  }
-+};
++
++  nsAutoCString spec(mLastLocation);
++  if (spec.IsEmpty()) {
++    RefPtr<BrowsingContext> bc;
++    {
++      StaticMutexAutoLock lock(mImpl->projectedMutex);
++      const auto found = mImpl->contextToRootBc.find(mContextId);
++      if (found != mImpl->contextToRootBc.end()) {
++        bc = found->second;
++      }
++    }
++    if (bc && !bc->IsDiscarded()) {
++      if (CanonicalBrowsingContext* canonical = bc->Canonical()) {
++        if (nsCOMPtr<nsIURI> uri = canonical->GetCurrentURI()) {
++          (void)uri->GetSpec(spec);
++        }
++      }
++    }
++  }
++  if (spec.IsEmpty()) {
++    spec.AssignLiteral("about:blank");
++  }
++  mImpl->SendNavigated(mNavigatedCorrelation, mContextId, spec);
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++SpeculumProjectionRuntime::Impl::ProgressSink::OnProgressChange(
++    nsIWebProgress*, nsIRequest*, int32_t, int32_t, int32_t, int32_t) {
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++SpeculumProjectionRuntime::Impl::ProgressSink::OnLocationChange(
++    nsIWebProgress* aWebProgress, nsIRequest*, nsIURI* aLocation,
++    uint32_t aFlags) {
++  if (!aWebProgress || !aLocation) {
++    return NS_OK;
++  }
++  bool isTop = false;
++  if (NS_FAILED(aWebProgress->GetIsTopLevel(&isTop)) || !isTop) {
++    return NS_OK;
++  }
++  if (aFlags & nsIWebProgressListener::LOCATION_CHANGE_ERROR_PAGE) {
++    return NS_OK;
++  }
++  (void)aLocation->GetSpec(mLastLocation);
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++SpeculumProjectionRuntime::Impl::ProgressSink::OnStatusChange(
++    nsIWebProgress*, nsIRequest*, nsresult, const char16_t*) {
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++SpeculumProjectionRuntime::Impl::ProgressSink::OnSecurityChange(
++    nsIWebProgress*, nsIRequest*, uint32_t) {
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++SpeculumProjectionRuntime::Impl::ProgressSink::OnContentBlockingEvent(
++    nsIWebProgress*, nsIRequest*, uint32_t) {
++  return NS_OK;
++}
 +
 +SpeculumProjectionRuntime* sRuntime = nullptr;
 +
@@ -1784,8 +2214,37 @@ index 0000000000..0c73450887
 +    base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame) {
 +  mImpl->DeliverFrame(aContextId, aDocToken, aSequence, aChildPid, aFrame);
 +}
+diff --git a/dom/ipc/SpeculumProjectionRuntime.h b/dom/ipc/SpeculumProjectionRuntime.h
+new file mode 100755
+index 0000000000..6ed2062c31
+--- /dev/null
++++ b/dom/ipc/SpeculumProjectionRuntime.h
+@@ -0,0 +1,28 @@
++/* Speculum — runtime de projeção no processo base (doc 17). */
++#ifndef dom_ipc_SpeculumProjectionRuntime_h
++#define dom_ipc_SpeculumProjectionRuntime_h
 +
-+void SpeculumProjectionRuntime::ReplayProjectedContexts(
-+    ContentParent* aChild) {
-+  mImpl->ReplayProjectedContexts(aChild);
-+}
++#include "base/process_util.h"
++#include "mozilla/UniquePtr.h"
++#include "nsTArray.h"
++
++class SpeculumProjectionRuntime {
++ public:
++  static void Startup();
++  static SpeculumProjectionRuntime& Get();
++
++  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
++                    base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame);
++
++ private:
++  SpeculumProjectionRuntime();
++  ~SpeculumProjectionRuntime();
++
++  SpeculumProjectionRuntime(const SpeculumProjectionRuntime&) = delete;
++  SpeculumProjectionRuntime& operator=(const SpeculumProjectionRuntime&) = delete;
++
++  struct Impl;
++  mozilla::UniquePtr<Impl> mImpl;
++};
++
++#endif

@@ -2,25 +2,35 @@
 #include "SpeculumProjectionRuntime.h"
 
 #include "SpeculumControlAbi.h"
+#include "SpeculumLog.h"
 #include "mozilla/SystemPrincipal.h"
 #include "mozilla/dom/BrowsingContext.h"
-#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/NullPrincipal.h"
+#include "mozilla/SpinEventLoopUntil.h"
 #include "mozilla/StaticMutex.h"
+#include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
 #include "nsAppRunner.h"
 #include "nsComponentManagerUtils.h"
+#include "nsError.h"
 #include "nsGlobalWindowOuter.h"
 #include "nsIMutableArray.h"
 #include "nsIURI.h"
+#include "nsIDocShell.h"
+#include "nsIDocShellTreeOwner.h"
+#include "nsIWebProgress.h"
+#include "nsIWebProgressListener.h"
 #include "nsIWindowWatcher.h"
 #include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
 #include "nsPIDOMWindowInlines.h"
+#include "nsString.h"
 #include "nsSupportsPrimitives.h"
 #include "nsThreadUtils.h"
+#include "nsWeakReference.h"
 
 #include <atomic>
 #include <cerrno>
@@ -41,7 +51,7 @@ using mozilla::StaticMutexAutoLock;
 using mozilla::SystemPrincipal;
 using mozilla::UniquePtr;
 using mozilla::dom::BrowsingContext;
-using mozilla::dom::ContentParent;
+using mozilla::dom::CanonicalBrowsingContext;
 using mozilla::NullPrincipal;
 
 namespace {
@@ -51,8 +61,12 @@ constexpr uint8_t kKindEvent = 0x02;
 constexpr uint8_t kKindHello = 0x03;
 constexpr uint8_t kKindCommand = 0x04;
 
+// doc 18: LoadStateChanged.estado
+constexpr uint8_t kLoadStateStart = 1;
+constexpr uint8_t kLoadStateStop = 2;
+
 void LogBridgeErr(const char* aMsg) {
-  fprintf(stderr, "[SPECULUM-RUNTIME-ERR] %s\n", aMsg);
+  SPECULUM_LOG("[SPECULUM-RUNTIME-ERR] %s", aMsg);
 }
 
 [[noreturn]] void FatalRuntime(const char* aMsg) {
@@ -193,13 +207,94 @@ nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
                         "_blank"_ns, features, args, aOutWindow);
 }
 
+already_AddRefed<BrowsingContext> PrimaryContentTop(
+    mozIDOMWindowProxy* aWindow) {
+  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
+  if (!outer) {
+    return nullptr;
+  }
+  nsIDocShell* chromeShell = outer->GetDocShell();
+  if (!chromeShell) {
+    return nullptr;
+  }
+  nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+  chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+  if (!treeOwner) {
+    return nullptr;
+  }
+  RefPtr<BrowsingContext> contentBc;
+  treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
+  if (!contentBc) {
+    return nullptr;
+  }
+  RefPtr<BrowsingContext> top = contentBc->Top();
+  return top.forget();
+}
+
 }  // namespace
 
 struct SpeculumProjectionRuntime::Impl {
+  // Um documento de topo, uma geração. Guardado por contexto e protegido pelo
+  // sendMutex, que é o lock do caminho do frame.
+  struct Epoch {
+    uint64_t docToken;
+    uint32_t generation;
+  };
+
   StaticMutex projectedMutex;
   std::map<uint32_t, RefPtr<BrowsingContext>> contextToRootBc;
   std::map<uint64_t, uint32_t> bcIdToContextId;
   std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> contextToWindow;
+  std::map<uint32_t, Epoch> epochs;
+
+  class ProgressSink final : public nsIWebProgressListener,
+                             public nsSupportsWeakReference {
+   public:
+    NS_DECL_ISUPPORTS
+    NS_DECL_NSIWEBPROGRESSLISTENER
+
+    ProgressSink(Impl* aImpl, uint32_t aContextId, uint64_t aBcId)
+        : mImpl(aImpl), mContextId(aContextId), mBcId(aBcId) {}
+
+    void WaitForCreated(uint32_t aCorrelationId) {
+      mCreatedCorrelation = aCorrelationId;
+      mWaitingCreated = true;
+    }
+    void WaitForNavigated(uint32_t aCorrelationId) {
+      mNavigatedCorrelation = aCorrelationId;
+      mWaitingNavigated = true;
+      mSawLoadStart = false;
+    }
+    void CancelWaitForNavigated() {
+      mWaitingNavigated = false;
+      mSawLoadStart = false;
+    }
+    void SetProgress(nsIWebProgress* aProgress) { mProgress = aProgress; }
+    void DetachFromProgress() {
+      if (mProgress) {
+        (void)mProgress->RemoveProgressListener(this);
+        mProgress = nullptr;
+      }
+      mWaitingCreated = false;
+      mWaitingNavigated = false;
+    }
+
+   private:
+    ~ProgressSink() { DetachFromProgress(); }
+
+    Impl* mImpl;
+    const uint32_t mContextId;
+    const uint64_t mBcId;
+    bool mWaitingCreated = false;
+    bool mWaitingNavigated = false;
+    bool mSawLoadStart = false;
+    uint32_t mCreatedCorrelation = 0;
+    uint32_t mNavigatedCorrelation = 0;
+    nsCOMPtr<nsIWebProgress> mProgress;
+    nsCString mLastLocation;
+  };
+
+  std::map<uint32_t, RefPtr<ProgressSink>> progressSinks;
 
   std::string socketPath;
   int fd = -1;
@@ -270,8 +365,7 @@ struct SpeculumProjectionRuntime::Impl {
       FatalRuntime("ready send failed");
     }
     fd = sock;
-    fprintf(stderr, "[SPECULUM-RUNTIME] ponte conectada em %s\n",
-            socketPath.c_str());
+    SPECULUM_LOG("[SPECULUM-RUNTIME] ponte conectada em %s", socketPath.c_str());
   }
 
   bool SendEvent(const uint8_t* aPayload, uint32_t aLength) {
@@ -300,26 +394,139 @@ struct SpeculumProjectionRuntime::Impl {
     SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
   }
 
-  void BroadcastProjectContext(uint64_t aBrowsingContextId, uint32_t aContextId) {
-    for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-      (void)cp->SendSpeculumProjectContext(aBrowsingContextId, aContextId);
+  void SendContextCreated(uint32_t aCorrelationId, uint32_t aContextId,
+                          uint64_t aBcId) {
+    uint8_t buffer[64];
+    SpeculumControlWriter writer(buffer, sizeof(buffer),
+                                 SpeculumControlOpCode::ContextCreated,
+                                 aCorrelationId);
+    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt64(aBcId) ||
+        !writer.WriteUInt32(0) || !writer.Ok()) {
+      SendFault(aCorrelationId, aContextId, "ContextCreated encode failed");
+      return;
     }
+    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
   }
 
-  void BroadcastUnprojectContext(uint64_t aBrowsingContextId) {
-    for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-      (void)cp->SendSpeculumUnprojectContext(aBrowsingContextId);
+  void SendNavigated(uint32_t aCorrelationId, uint32_t aContextId,
+                     const nsACString& aUrl) {
+    uint8_t buffer[4096];
+    SpeculumControlWriter writer(buffer, sizeof(buffer),
+                                 SpeculumControlOpCode::Navigated,
+                                 aCorrelationId);
+    if (!writer.WriteUInt32(aContextId) || !writer.WriteString(aUrl) ||
+        !writer.Ok()) {
+      SendFault(aCorrelationId, aContextId, "Navigated encode failed");
+      return;
     }
+    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
+  }
+
+  void SendLoadState(uint32_t aContextId, uint8_t aState) {
+    uint8_t buffer[32];
+    SpeculumControlWriter writer(buffer, sizeof(buffer),
+                                 SpeculumControlOpCode::LoadStateChanged, 0);
+    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt8(aState) ||
+        !writer.Ok()) {
+      return;
+    }
+    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
+  }
+
+  bool AttachProgressSink(BrowsingContext* aBc, uint32_t aContextId,
+                          uint64_t aBcId, ProgressSink** aOut) {
+    if (!aBc || !aOut) {
+      return false;
+    }
+    CanonicalBrowsingContext* canonical = aBc->Canonical();
+    if (!canonical) {
+      return false;
+    }
+    nsIWebProgress* progress = canonical->GetWebProgress();
+    if (!progress) {
+      return false;
+    }
+    RefPtr<ProgressSink> sink = new ProgressSink(this, aContextId, aBcId);
+    nsresult rv = progress->AddProgressListener(
+        sink, nsIWebProgress::NOTIFY_STATE_WINDOW |
+                  nsIWebProgress::NOTIFY_STATE_NETWORK |
+                  nsIWebProgress::NOTIFY_LOCATION);
+    if (NS_FAILED(rv)) {
+      return false;
+    }
+    sink->SetProgress(progress);
+    progressSinks[aContextId] = sink;
+    sink.forget(aOut);
+    return true;
+  }
+
+  void DetachProgressSink(uint32_t aContextId) {
+    const auto found = progressSinks.find(aContextId);
+    if (found == progressSinks.end()) {
+      return;
+    }
+    found->second->DetachFromProgress();
+    progressSinks.erase(found);
+  }
+
+  // A aba troca de BrowsingContext (bfcache, remoteness, COOP). O campo
+  // SpeculumContextId vai no ReplacedBy; o ponteiro que o runtime guarda
+  // precisa acompanhar, senão o Navigate seguinte fala com a aba velha.
+  void AdoptLiveRootBc(uint32_t aContextId, BrowsingContext* aLive) {
+    if (!aLive) {
+      return;
+    }
+    StaticMutexAutoLock lock(projectedMutex);
+    const auto found = contextToRootBc.find(aContextId);
+    if (found == contextToRootBc.end() || found->second == aLive) {
+      return;
+    }
+    const uint64_t oldId = found->second->Id();
+    const uint64_t newId = aLive->Id();
+    found->second = aLive;
+    bcIdToContextId.erase(oldId);
+    bcIdToContextId[newId] = aContextId;
+    SPECULUM_LOG("[SPECULUM-BC] remap ctx=%u oldBc=%llu newBc=%llu",
+            aContextId, static_cast<unsigned long long>(oldId),
+            static_cast<unsigned long long>(newId));
+  }
+
+  already_AddRefed<BrowsingContext> ResolveLiveRoot(uint32_t aContextId) {
+    nsCOMPtr<mozIDOMWindowProxy> window;
+    RefPtr<BrowsingContext> stored;
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      const auto found = contextToRootBc.find(aContextId);
+      if (found == contextToRootBc.end()) {
+        return nullptr;
+      }
+      stored = found->second;
+      const auto winIt = contextToWindow.find(aContextId);
+      if (winIt != contextToWindow.end()) {
+        window = winIt->second;
+      }
+    }
+    RefPtr<BrowsingContext> live = PrimaryContentTop(window);
+    if (live && live != stored) {
+      AdoptLiveRootBc(aContextId, live);
+      return live.forget();
+    }
+    return stored.forget();
   }
 
   void HandleContextCreate(uint32_t aCorrelationId, uint32_t aContextId,
                            int32_t aWidth, int32_t aHeight) {
-    StaticMutexAutoLock lock(projectedMutex);
-    if (contextToRootBc.find(aContextId) != contextToRootBc.end()) {
-      SendFault(aCorrelationId, aContextId, "contextId already registered");
-      return;
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      if (contextToRootBc.find(aContextId) != contextToRootBc.end()) {
+        SendFault(aCorrelationId, aContextId, "contextId already registered");
+        return;
+      }
     }
 
+    // Abrir a janela e esperar a content BC ficam FORA do lock: a espera roda o
+    // event loop, e segurar o StaticMutex durante isso poderia travar contra
+    // qualquer outro caminho que o pegue no main thread.
     nsCOMPtr<mozIDOMWindowProxy> window;
     nsresult rv =
         OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
@@ -334,39 +541,99 @@ struct SpeculumProjectionRuntime::Impl {
       return;
     }
 
-    RefPtr<BrowsingContext> bc = outer->GetBrowsingContext();
-    if (!bc) {
-      SendFault(aCorrelationId, aContextId, "no browsing context");
+    // A janela aberta é o CHROME (browser.xhtml). O documento projetado vive na
+    // BrowsingContext de CONTEÚDO da aba — e é a top BC do conteúdo que o produtor
+    // usa como chave (SpeculumAttachMutationObserverToDocument). Registrar a BC do
+    // chrome nunca casa com a do conteúdo: por isso nenhum frame subia.
+    nsIDocShell* chromeShell = outer->GetDocShell();
+    if (!chromeShell) {
+      SendFault(aCorrelationId, aContextId, "no chrome docshell");
       return;
     }
-    bc = bc->Top();
+    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+    chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+    if (!treeOwner) {
+      SendFault(aCorrelationId, aContextId, "no tree owner");
+      return;
+    }
+
+    RefPtr<BrowsingContext> chromeBc = outer->GetBrowsingContext();
+
+    // A aba de conteúdo não existe no instante em que OpenWindow retorna; ela
+    // aparece um tique depois. Espera a primary content BC surgir, com teto.
+    RefPtr<BrowsingContext> contentBc;
+    const mozilla::TimeStamp deadline =
+        mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromSeconds(10);
+    (void)mozilla::SpinEventLoopUntil(
+        "SpeculumWaitContentBrowsingContext"_ns, [&]() -> bool {
+          treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
+          return contentBc || mozilla::TimeStamp::Now() >= deadline;
+        });
+
+    SPECULUM_LOG("[SPECULUM-CTX] ctx=%u chromeBc=%llu contentBc=%llu",
+            aContextId,
+            static_cast<unsigned long long>(chromeBc ? chromeBc->Id() : 0),
+            static_cast<unsigned long long>(contentBc ? contentBc->Id() : 0));
+
+    if (!contentBc) {
+      SendFault(aCorrelationId, aContextId, "no primary content browsing context");
+      return;
+    }
+
+    RefPtr<BrowsingContext> bc = contentBc->Top();
     if (!bc) {
-      SendFault(aCorrelationId, aContextId, "no top browsing context");
+      SendFault(aCorrelationId, aContextId, "no top content browsing context");
       return;
     }
 
     const uint64_t bcId = bc->Id();
-    if (bcIdToContextId.find(bcId) != bcIdToContextId.end()) {
-      SendFault(aCorrelationId, aContextId, "browsing context already registered");
+
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      // Recheca: outro ContextCreate pode ter corrido enquanto o event loop girava.
+      if (contextToRootBc.find(aContextId) != contextToRootBc.end()) {
+        SendFault(aCorrelationId, aContextId, "contextId already registered");
+        return;
+      }
+      if (bcIdToContextId.find(bcId) != bcIdToContextId.end()) {
+        SendFault(aCorrelationId, aContextId,
+                  "browsing context already registered");
+        return;
+      }
+      contextToRootBc.emplace(aContextId, bc);
+      bcIdToContextId.emplace(bcId, aContextId);
+      contextToWindow.emplace(aContextId, window);
+    }
+
+    // Commit do campo sincronizado faz IPC para o grupo. Fora do lock, pelo
+    // mesmo motivo da espera da content BC.
+    if (NS_FAILED(bc->SetSpeculumContextId(aContextId))) {
+      StaticMutexAutoLock lock(projectedMutex);
+      contextToRootBc.erase(aContextId);
+      bcIdToContextId.erase(bcId);
+      contextToWindow.erase(aContextId);
+      SendFault(aCorrelationId, aContextId, "SetSpeculumContextId failed");
       return;
     }
 
-    contextToRootBc.emplace(aContextId, bc);
-    bcIdToContextId.emplace(bcId, aContextId);
-    contextToWindow.emplace(aContextId, window);
-
-    BroadcastProjectContext(bcId, aContextId);
-
-    uint8_t buffer[64];
-    SpeculumControlWriter writer(buffer, sizeof(buffer),
-                                 SpeculumControlOpCode::ContextCreated,
-                                 aCorrelationId);
-    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt64(bcId) ||
-        !writer.WriteUInt32(0) || !writer.Ok()) {
-      SendFault(aCorrelationId, aContextId, "ContextCreated encode failed");
+    RefPtr<ProgressSink> sink;
+    if (!AttachProgressSink(bc, aContextId, bcId, getter_AddRefs(sink))) {
+      (void)bc->SetSpeculumContextId(0);
+      StaticMutexAutoLock lock(projectedMutex);
+      contextToRootBc.erase(aContextId);
+      bcIdToContextId.erase(bcId);
+      contextToWindow.erase(aContextId);
+      SendFault(aCorrelationId, aContextId, "progress listener failed");
       return;
     }
-    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
+
+    // ContextCreated só quando a aba está quieta. Senão o Navigate seguinte
+    // compete com o load de inicialização e o ack otimista mente.
+    if (bc->IsLoading()) {
+      sink->WaitForCreated(aCorrelationId);
+    } else {
+      SendContextCreated(aCorrelationId, aContextId, bcId);
+    }
   }
 
   void HandleContextDestroy(uint32_t aCorrelationId, uint32_t aContextId) {
@@ -392,7 +659,11 @@ struct SpeculumProjectionRuntime::Impl {
       contextToWindow.erase(aContextId);
     }
 
-    BroadcastUnprojectContext(bcId);
+    DetachProgressSink(aContextId);
+
+    if (bc && !bc->IsDiscarded()) {
+      (void)bc->SetSpeculumContextId(0);
+    }
 
     if (window) {
       if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window)) {
@@ -413,18 +684,13 @@ struct SpeculumProjectionRuntime::Impl {
 
   void HandleNavigate(uint32_t aCorrelationId, uint32_t aContextId,
                       const nsACString& aUrl) {
-    RefPtr<BrowsingContext> bc;
-    {
-      StaticMutexAutoLock lock(projectedMutex);
-      const auto found = contextToRootBc.find(aContextId);
-      if (found == contextToRootBc.end()) {
-        SendFault(aCorrelationId, aContextId, "unknown contextId");
-        return;
-      }
-      bc = found->second;
+    RefPtr<BrowsingContext> bc = ResolveLiveRoot(aContextId);
+    if (!bc) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
     }
 
-    if (!bc || bc->IsDiscarded()) {
+    if (bc->IsDiscarded()) {
       SendFault(aCorrelationId, aContextId, "browsing context unavailable");
       return;
     }
@@ -448,35 +714,35 @@ struct SpeculumProjectionRuntime::Impl {
       return;
     }
 
+    const auto foundSink = progressSinks.find(aContextId);
+    if (foundSink == progressSinks.end()) {
+      SendFault(aCorrelationId, aContextId, "no progress listener");
+      return;
+    }
+    // Armar ANTES do Navigate: o START pode chegar síncrono. Sem isto o STOP
+    // da carga anterior (about:blank, página velha) vira Navigated falso.
+    foundSink->second->WaitForNavigated(aCorrelationId);
+
     RefPtr<nsIPrincipal> systemPrincipal = SystemPrincipal::Get();
     ErrorResult error;
     bc->Navigate(uri, /* aSourceDocument */ nullptr, *systemPrincipal, error);
     if (error.Failed()) {
+      foundSink->second->CancelWaitForNavigated();
       SendFault(aCorrelationId, aContextId, "navigate failed");
       return;
     }
-
-    uint8_t buffer[4096];
-    SpeculumControlWriter writer(buffer, sizeof(buffer),
-                                 SpeculumControlOpCode::Navigated, aCorrelationId);
-    if (!writer.WriteUInt32(aContextId) || !writer.WriteString(spec) ||
-        !writer.Ok()) {
-      SendFault(aCorrelationId, aContextId, "Navigated encode failed");
-      return;
-    }
-    SendEvent(buffer, static_cast<uint32_t>(writer.Length()));
   }
 
   void HandleControlBinary(const uint8_t* aData, size_t aLength) {
     SpeculumControlReader reader(aData, aLength);
     if (!reader.Ok()) {
-      fprintf(stderr, "[SPECULUM-CTRL-ERR] mensagem truncada (cabecalho)\n");
+      SPECULUM_LOG("[SPECULUM-CTRL-ERR] mensagem truncada (cabecalho)");
       return;
     }
 
     const uint16_t op = reader.OpCode();
     const uint32_t correlationId = reader.CorrelationId();
-    fprintf(stderr, "[SPECULUM-CTRL] opcode=0x%04x correlationId=%u\n", op,
+    SPECULUM_LOG("[SPECULUM-CTRL] opcode=0x%04x correlationId=%u", op,
             correlationId);
 
     switch (static_cast<SpeculumControlOpCode>(op)) {
@@ -512,8 +778,7 @@ struct SpeculumProjectionRuntime::Impl {
         return;
       }
       default:
-        fprintf(stderr,
-                "[SPECULUM-CTRL-IGNORADO] opcode=0x%04x correlationId=%u\n",
+        SPECULUM_LOG("[SPECULUM-CTRL-IGNORADO] opcode=0x%04x correlationId=%u",
                 op, correlationId);
         return;
     }
@@ -581,9 +846,8 @@ struct SpeculumProjectionRuntime::Impl {
       if (kind == kKindCommand) {
         const size_t got = payload.Length();
         if (got < kSpeculumControlHeaderBytes) {
-          fprintf(stderr,
-                  "[SPECULUM-CTRL-ERR] comando curto ctx=%u declarado=%u "
-                  "lido=%zu\n",
+          SPECULUM_LOG(
+                  "[SPECULUM-CTRL-ERR] comando curto ctx=%u declarado=%u lido=%zu",
                   contextId, payloadLen, got);
           continue;
         }
@@ -592,9 +856,38 @@ struct SpeculumProjectionRuntime::Impl {
     }
   }
 
-  void DeliverFrame(uint32_t aContextId, uint64_t, uint32_t, base::ProcessId,
-                    nsTArray<uint8_t>& aFrame) {
+  // Época do contexto: cada documento de topo é uma geração, e a sequência
+  // reinicia dentro dela (docs/page-projection/spec/cssom.md C1). O processo de
+  // conteúdo nasce com o documento e não sabe quantos vieram antes; quem vê
+  // todos os frames do contexto é o runtime. Sem isto, a página nova chega ao
+  // cliente como continuação da anterior — mesma geração, sequência do zero.
+  void StampGenerationLocked(uint32_t aContextId, uint64_t aDocToken,
+                             nsTArray<uint8_t>& aFrame) {
+    constexpr size_t kGenerationOffset = 8;
+    if (aFrame.Length() < kGenerationOffset + sizeof(uint32_t)) {
+      return;
+    }
+
+    auto found = epochs.find(aContextId);
+    if (found == epochs.end()) {
+      found = epochs.emplace(aContextId, Epoch{aDocToken, 0}).first;
+    } else if (found->second.docToken != aDocToken) {
+      found->second.docToken = aDocToken;
+      found->second.generation++;
+    }
+
+    const uint32_t generation = found->second.generation;
+    uint8_t* p = aFrame.Elements() + kGenerationOffset;
+    p[0] = static_cast<uint8_t>(generation & 0xffu);
+    p[1] = static_cast<uint8_t>((generation >> 8) & 0xffu);
+    p[2] = static_cast<uint8_t>((generation >> 16) & 0xffu);
+    p[3] = static_cast<uint8_t>((generation >> 24) & 0xffu);
+  }
+
+  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t,
+                    base::ProcessId, nsTArray<uint8_t>& aFrame) {
     mozilla::MutexAutoLock lock(sendMutex);
+    StampGenerationLocked(aContextId, aDocToken, aFrame);
     if (fd < 0) {
       return;
     }
@@ -605,18 +898,136 @@ struct SpeculumProjectionRuntime::Impl {
     }
   }
 
-  void ReplayProjectedContexts(ContentParent* aChild) {
-    if (!aChild) {
-      return;
-    }
-    StaticMutexAutoLock lock(projectedMutex);
-    for (const auto& entry : contextToRootBc) {
-      if (RefPtr<BrowsingContext> bc = entry.second) {
-        (void)aChild->SendSpeculumProjectContext(bc->Id(), entry.first);
+};
+
+NS_IMPL_ISUPPORTS(SpeculumProjectionRuntime::Impl::ProgressSink,
+                  nsIWebProgressListener, nsISupportsWeakReference)
+
+NS_IMETHODIMP
+SpeculumProjectionRuntime::Impl::ProgressSink::OnStateChange(
+    nsIWebProgress* aWebProgress, nsIRequest*, uint32_t aStateFlags,
+    nsresult aStatus) {
+  if (!mImpl || !aWebProgress) {
+    return NS_OK;
+  }
+  bool isTop = false;
+  if (NS_FAILED(aWebProgress->GetIsTopLevel(&isTop)) || !isTop) {
+    return NS_OK;
+  }
+  const bool isWindow = aStateFlags & nsIWebProgressListener::STATE_IS_WINDOW;
+  const bool isNetwork = aStateFlags & nsIWebProgressListener::STATE_IS_NETWORK;
+  if (!isWindow || !isNetwork) {
+    return NS_OK;
+  }
+
+  if (aStateFlags & nsIWebProgressListener::STATE_START) {
+    mSawLoadStart = true;
+    mImpl->SendLoadState(mContextId, kLoadStateStart);
+    return NS_OK;
+  }
+  if (!(aStateFlags & nsIWebProgressListener::STATE_STOP)) {
+    return NS_OK;
+  }
+
+  mImpl->SendLoadState(mContextId, kLoadStateStop);
+
+  // Carga substituída — o STOP abortado não é o commit. Espera o próximo.
+  if (aStatus == NS_BINDING_ABORTED) {
+    return NS_OK;
+  }
+
+  if (mWaitingCreated) {
+    mWaitingCreated = false;
+    mImpl->SendContextCreated(mCreatedCorrelation, mContextId, mBcId);
+    return NS_OK;
+  }
+
+  if (!mWaitingNavigated || !mSawLoadStart) {
+    return NS_OK;
+  }
+  mWaitingNavigated = false;
+  mSawLoadStart = false;
+
+  if (NS_FAILED(aStatus)) {
+    mImpl->SendFault(mNavigatedCorrelation, mContextId, "load failed");
+    return NS_OK;
+  }
+
+  nsCOMPtr<mozIDOMWindowProxy> win;
+  if (NS_SUCCEEDED(aWebProgress->GetDOMWindow(getter_AddRefs(win))) && win) {
+    if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(win)) {
+      if (mozilla::dom::BrowsingContext* docBc = outer->GetBrowsingContext()) {
+        mImpl->AdoptLiveRootBc(mContextId, docBc->Top());
       }
     }
   }
-};
+
+  nsAutoCString spec(mLastLocation);
+  if (spec.IsEmpty()) {
+    RefPtr<BrowsingContext> bc;
+    {
+      StaticMutexAutoLock lock(mImpl->projectedMutex);
+      const auto found = mImpl->contextToRootBc.find(mContextId);
+      if (found != mImpl->contextToRootBc.end()) {
+        bc = found->second;
+      }
+    }
+    if (bc && !bc->IsDiscarded()) {
+      if (CanonicalBrowsingContext* canonical = bc->Canonical()) {
+        if (nsCOMPtr<nsIURI> uri = canonical->GetCurrentURI()) {
+          (void)uri->GetSpec(spec);
+        }
+      }
+    }
+  }
+  if (spec.IsEmpty()) {
+    spec.AssignLiteral("about:blank");
+  }
+  mImpl->SendNavigated(mNavigatedCorrelation, mContextId, spec);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SpeculumProjectionRuntime::Impl::ProgressSink::OnProgressChange(
+    nsIWebProgress*, nsIRequest*, int32_t, int32_t, int32_t, int32_t) {
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SpeculumProjectionRuntime::Impl::ProgressSink::OnLocationChange(
+    nsIWebProgress* aWebProgress, nsIRequest*, nsIURI* aLocation,
+    uint32_t aFlags) {
+  if (!aWebProgress || !aLocation) {
+    return NS_OK;
+  }
+  bool isTop = false;
+  if (NS_FAILED(aWebProgress->GetIsTopLevel(&isTop)) || !isTop) {
+    return NS_OK;
+  }
+  if (aFlags & nsIWebProgressListener::LOCATION_CHANGE_ERROR_PAGE) {
+    return NS_OK;
+  }
+  (void)aLocation->GetSpec(mLastLocation);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SpeculumProjectionRuntime::Impl::ProgressSink::OnStatusChange(
+    nsIWebProgress*, nsIRequest*, nsresult, const char16_t*) {
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SpeculumProjectionRuntime::Impl::ProgressSink::OnSecurityChange(
+    nsIWebProgress*, nsIRequest*, uint32_t) {
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SpeculumProjectionRuntime::Impl::ProgressSink::OnContentBlockingEvent(
+    nsIWebProgress*, nsIRequest*, uint32_t) {
+  return NS_OK;
+}
 
 SpeculumProjectionRuntime* sRuntime = nullptr;
 
@@ -650,9 +1061,4 @@ void SpeculumProjectionRuntime::DeliverFrame(
     uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
     base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame) {
   mImpl->DeliverFrame(aContextId, aDocToken, aSequence, aChildPid, aFrame);
-}
-
-void SpeculumProjectionRuntime::ReplayProjectedContexts(
-    ContentParent* aChild) {
-  mImpl->ReplayProjectedContexts(aChild);
 }

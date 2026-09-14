@@ -8,14 +8,12 @@
 
 #include "mozilla/dom/Document.h"
 #include "SpeculumMutationObserver.h"
+#include "SpeculumLog.h"
 #include "SpeculumNodeSource.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "nsDocShell.h"
 
-#include <cstdio>
 #include <unistd.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <vector>
 
 #include <inttypes.h>
@@ -1308,6 +1306,8 @@ Document::Document(const char* aContentType,
       mUpgradeInsecureRequests(false),
       mUpgradeInsecurePreloads(false),
       mDevToolsWatchingDOMMutations(false),
+      mSpeculumWatchingDOMMutations(false),
+      mSpeculumBootstrapped(false),
       mLoadedAsData(aLoadedAsData == LoadedAsData::AsData),
       mRenderingSuppressedForViewTransitions(false),
       mBidiEnabled(false),
@@ -15247,25 +15247,15 @@ void Document::SetSpeculumWatchingDOMMutations(bool aValue) {
     }
     const bool hasParentDoc = GetEmbedderElement() != nullptr;
     const char* proc = XRE_IsParentProcess() ? "pai" : "conteudo";
-    mkdir("/tmp/speculum-docs", 0777);
-    char logPath[128];
-    const pid_t pid = getpid();
-    snprintf(logPath, sizeof(logPath), "/tmp/speculum-docs/%d.log",
-             static_cast<int>(pid));
-    if (FILE* fp = fopen(logPath, "a")) {
-      fprintf(
-          fp,
-          "[SPECULUM-DOC] pid=%d | proc=%s | uri=%s | channelUri=%s | "
-          "contentDoc=%d | "
-          "chromeShell=%d | bcIsContent=%d | systemPrincipal=%d | hasParentDoc=%d "
-          "| root=%d\n",
-          static_cast<int>(pid), proc, uri.get(), channelUri.get(),
-          IsContentDocument() ? 1 : 0,
-          IsInChromeDocShell() ? 1 : 0, bcIsContent,
-          NodePrincipal()->IsSystemPrincipal() ? 1 : 0, hasParentDoc ? 1 : 0,
-          hasParentDoc ? 0 : 1);
-      fclose(fp);
-    }
+    SPECULUM_LOG(
+        "[SPECULUM-DOC] pid=%d | proc=%s | uri=%s | channelUri=%s | "
+        "contentDoc=%d | chromeShell=%d | bcIsContent=%d | systemPrincipal=%d | "
+        "hasParentDoc=%d | root=%d",
+        static_cast<int>(getpid()), proc, uri.get(), channelUri.get(),
+        IsContentDocument() ? 1 : 0, IsInChromeDocShell() ? 1 : 0, bcIsContent,
+        NodePrincipal()->IsSystemPrincipal() ? 1 : 0, hasParentDoc ? 1 : 0,
+        hasParentDoc ? 0 : 1);
+    mSpeculumBootstrapped = false;
     SpeculumAttachMutationObserverToDocument(this);
   } else {
     SpeculumDetachMutationObserverFromDocument(this);

@@ -3872,6 +3872,11 @@ class Document : public nsINode,
     mSpeculumMutationObserver = aObserver;
   }
 
+  bool SpeculumBootstrapped() const { return mSpeculumBootstrapped; }
+  void SetSpeculumBootstrapped(bool aValue) {
+    mSpeculumBootstrapped = aValue;
+  }
+
   // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
   void EvaluateMediaQueriesAndReportChanges();
 
@@ -5032,6 +5037,9 @@ class Document : public nsINode,
   bool mUpgradeInsecurePreloads : 1;
   bool mDevToolsWatchingDOMMutations : 1;
   bool mSpeculumWatchingDOMMutations : 1;
+  // Bootstrap é marca do documento: cada documento projetado emite o seu, uma
+  // vez. Guardar isso fora do documento confunde documentos diferentes.
+  bool mSpeculumBootstrapped : 1;
 
   RefPtr<SpeculumMutationObserver> mSpeculumMutationObserver;
 

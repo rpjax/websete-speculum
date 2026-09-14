@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
@@ -20,8 +21,8 @@ namespace Speculum.Tests;
 ///   3. Navigate → Navigated (o supervisor navega sozinho no ContextCreated)
 ///   4. pelo menos um frame chega, de UM contexto, com prefixo selado válido e
 ///      contextId carimbado pelo pai igual ao contexto raiz
-///   5. o comando de navegação do consumidor chega ao browser real e a projeção
-///      continua viva depois dele
+///   5. o comando de navegação do consumidor chega ao browser real e a página
+///      pedida é projetada — frame novo, diferente do bootstrap anterior
 ///
 /// A procedência do frame é medida direto do fio: o contextId vem do offset 4 do
 /// prefixo, carimbado pelo processo pai. Se o pai registrar a janela chrome em
@@ -35,9 +36,22 @@ public static class StackTests
         var report = new Report("L4 pilha real");
         Console.WriteLine("L4 — pilha real (supervisor + Gecko de verdade)");
 
+        var pages = PageFixtures.Start();
+        try
+        {
+            return await RunWithPagesAsync(report, pages);
+        }
+        finally
+        {
+            pages.Dispose();
+        }
+    }
+
+    private static async Task<int> RunWithPagesAsync(Report report, PageFixtures pages)
+    {
         var browserBin = Environment.GetEnvironmentVariable("SPECULUM_STACK_BROWSER_BIN");
-        var url = Environment.GetEnvironmentVariable("SPECULUM_STACK_URL") ?? "https://example.com";
-        var secondUrl = Environment.GetEnvironmentVariable("SPECULUM_STACK_URL2") ?? "https://example.org";
+        var url = Environment.GetEnvironmentVariable("SPECULUM_STACK_URL") ?? pages.FirstUrl;
+        var secondUrl = Environment.GetEnvironmentVariable("SPECULUM_STACK_URL2") ?? pages.SecondUrl;
 
         if (!Harness.TryDotnet(out var dotnet, out var pDot))
         {
@@ -69,9 +83,12 @@ public static class StackTests
         {
             using var client = await ConnectConsumerAsync(port, supervisor, TimeSpan.FromSeconds(60));
 
-            // (2)(3)(4): o supervisor pede contexto e navega sozinho; a chegada de
-            // frames prova a corrente Ready→ContextCreated→Navigated inteira.
-            var first = await ReceiveFramesAsync(client, count: 3, TimeSpan.FromSeconds(60));
+            // (2)(3)(4): o supervisor pede contexto e navega sozinho; a chegada do
+            // frame prova a corrente Ready→ContextCreated→Navigated inteira. Uma
+            // página estática emite UM frame de bootstrap e para (sem mutação, sem
+            // mais frames), então pedimos 1 — pedir mais faria o receive estourar o
+            // timeout, e cancelar um ReceiveAsync ABORTA o WebSocket.
+            var first = await ReceiveFramesAsync(client, count: 1, TimeSpan.FromSeconds(60));
             report.Equal("frames reais recebidos (bootstrap)", true, first.Count >= 1);
 
             uint rootContext = 0;
@@ -99,10 +116,28 @@ public static class StackTests
             report.Equal("contextos distintos no bootstrap", 1, contexts.Count);
             report.Equal("contextId é o raiz da sessão", 1u, rootContext);
 
-            // (5): comando do consumidor chega ao browser real; a projeção segue viva.
+            if (first.Count >= 1)
+            {
+                AssertPageText(report, first[0], "alpha", "bootstrap (página /a)");
+            }
+
+            // (5): o comando do consumidor chega ao browser real E a página nova é
+            // projetada. Contar frame não basta: o bootstrap do documento anterior
+            // pode chegar depois do comando e fingir sucesso. O documento é outro,
+            // então o frame é outro — comparamos os bytes E o texto da tabela
+            // (o mesmo layout de decode.ts).
             await SendConsumerNavigateAsync(client, secondUrl);
-            var after = await ReceiveFramesAsync(client, count: 1, TimeSpan.FromSeconds(30));
+            var after = await ReceiveFramesAsync(client, count: 1, TimeSpan.FromSeconds(60));
             report.Equal("frames após navegação do consumidor", true, after.Count >= 1);
+
+            var projectedSecondPage = after.Count >= 1 && first.Count >= 1
+                && !after[^1].AsSpan().SequenceEqual(first[0]);
+            report.Equal($"a página nova ({secondUrl}) foi projetada", true, projectedSecondPage);
+
+            if (after.Count >= 1)
+            {
+                AssertPageText(report, after[^1], "bravo", "depois do Navigate (página /b)");
+            }
 
             await CloseAsync(client);
         }
@@ -219,6 +254,17 @@ public static class StackTests
         return frames;
     }
 
+    private static void AssertPageText(Report report, byte[] frame, string needle, string where)
+    {
+        if (!FrameStrings.TryReadLocal(frame, out var strings, out var problem))
+        {
+            report.Fail($"tabela de strings ({where})", "decode.ts decodeFramePart", problem ?? "?");
+            return;
+        }
+
+        report.Equal($"texto '{needle}' no frame ({where})", true, FrameStrings.Contains(strings, needle));
+    }
+
     private static async Task SendConsumerNavigateAsync(ClientWebSocket client, string url)
     {
         // contextId 0 = "o contexto raiz"; o supervisor resolve. Mesmo ABI do doc 18.
@@ -287,6 +333,84 @@ public static class StackTests
         catch (InvalidOperationException)
         {
             return "?";
+        }
+    }
+
+    /// <summary>
+    /// Duas páginas locais de DOM distinto. A pilha não depende da internet, e
+    /// o segundo salto só passa se o frame for de outro documento.
+    /// </summary>
+    private sealed class PageFixtures : IDisposable
+    {
+        private readonly HttpListener _listener;
+        private readonly CancellationTokenSource _cancel = new();
+
+        public string FirstUrl { get; }
+        public string SecondUrl { get; }
+
+        private PageFixtures(HttpListener listener, string firstUrl, string secondUrl)
+        {
+            _listener = listener;
+            FirstUrl = firstUrl;
+            SecondUrl = secondUrl;
+            _ = ServeAsync(_cancel.Token);
+        }
+
+        public static PageFixtures Start()
+        {
+            var probe = new TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+
+            var prefix = $"http://127.0.0.1:{port}/";
+            var listener = new HttpListener();
+            listener.Prefixes.Add(prefix);
+            listener.Start();
+            return new PageFixtures(listener, prefix + "a", prefix + "b");
+        }
+
+        public void Dispose()
+        {
+            _cancel.Cancel();
+            try
+            {
+                _listener.Stop();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            _listener.Close();
+            _cancel.Dispose();
+        }
+
+        private async Task ServeAsync(CancellationToken cancel)
+        {
+            try
+            {
+                while (!cancel.IsCancellationRequested)
+                {
+                    var ctx = await _listener.GetContextAsync().WaitAsync(cancel);
+                    var path = ctx.Request.Url?.AbsolutePath ?? "/";
+                    var body = path.EndsWith("/b", StringComparison.Ordinal)
+                        ? "<!doctype html><html><head><title>spec-b</title></head><body><h1 id=\"spec-page-b\">bravo</h1></body></html>"
+                        : "<!doctype html><html><head><title>spec-a</title></head><body><h1 id=\"spec-page-a\">alpha</h1></body></html>";
+                    var bytes = Encoding.UTF8.GetBytes(body);
+                    ctx.Response.ContentType = "text/html; charset=utf-8";
+                    ctx.Response.ContentLength64 = bytes.Length;
+                    await ctx.Response.OutputStream.WriteAsync(bytes, cancel);
+                    ctx.Response.Close();
+                }
+            }
+            catch (Exception) when (cancel.IsCancellationRequested)
+            {
+            }
+            catch (HttpListenerException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
     }
 }

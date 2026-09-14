@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Speculum.Lab</RootNamespace>
+    <AssemblyName>speculum-lab</AssemblyName>
+
+    <!--
+      Ferramenta de desenvolvimento. NÃO entra no produto, e por isso não carrega
+      a restrição de NativeAOT do supervisor.
+    -->
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- O ABI de controle é contrato, não cópia: o lab usa o mesmo codec. -->
+    <ProjectReference Include="..\Speculum.Supervisor\Speculum.Supervisor.csproj" />
+  </ItemGroup>
+
+</Project>

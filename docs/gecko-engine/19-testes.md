@@ -134,7 +134,12 @@ Roteiro:
 4. pelo menos um frame REAL chega, de **um** contexto só, com prefixo selado
    válido (`magic 0x5050`, `version 2`) e `contextId` — carimbado pelo processo
    pai no offset 4 — igual ao contexto raiz da sessão
-5. o `Navigate` do consumidor chega ao browser real e a projeção segue viva
+5. o `Navigate` do consumidor chega ao browser real e **a página nova é
+   projetada**: o L4 sobe um HTTP local com `/a` (alpha) e `/b` (bravo), exige
+   um frame **diferente** do bootstrap, e lê a tabela local de strings do
+   frame — o mesmo layout de `packages/page-projection/src/core/decode.ts` —
+   para achar `alpha` no primeiro e `bravo` no segundo. Bytes iguais ou texto
+   da página velha = falha, mesmo que o `Navigated` tenha saído.
 
 A procedência do frame é lida direto do fio (`SealedFrame`): o `contextId` vem
 do prefixo, carimbado pelo pai. É esse carimbo que está sob suspeita — se o pai
@@ -144,7 +149,8 @@ isso o L4 é também o instrumento que resolve essa hipótese, não só um teste
 
 A paridade byte a byte com o *apply estrito* de produção é provada no L0 e
 congelada no L5, sobre o MESMO núcleo do produtor; o L4 prova liveness, ciclo de
-vida e procedência do frame, não re-executa o applier em C#. O passo de
+vida, procedência do frame **e** que o segundo documento (não um eco do
+primeiro) é o que sobe no fio. Não re-executa o applier em C#. O passo de
 `ContextDestroy` disparado pelo consumidor entra quando existir esse opcode no
 plano de consumo (hoje o consumo só expõe `Navigate`); pela regra de entrada do
 §8, ele chega junto com o degrau que o prova.

@@ -3187,8 +3187,6 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
 
   MaybeEnableRemoteInputEventQueue();
 
-  SpeculumProjectionRuntime::Get().ReplayProjectedContexts(this);
-
   return true;
 }
 

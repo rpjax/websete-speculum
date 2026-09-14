@@ -1,0 +1,246 @@
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
+using Speculum.Lab.Protocol;
+using Speculum.Lab.Upstream;
+using Speculum.Lab.Session;
+using Speculum.Supervisor.Control;
+
+namespace Speculum.Lab.Web;
+
+/// <summary>
+/// Uma aba do lab aberta no navegador.
+///
+/// Dois planos no mesmo WebSocket, como no lab TypeScript:
+///   binário = frame opaco, repassado ao cliente projetado;
+///   texto   = controle JSON do protocolo v1.
+/// </summary>
+public sealed class LabSessionConnection
+{
+    private const int OutboundCapacity = 512;
+
+    private readonly WebSocket _socket;
+    private readonly SupervisorClient _upstream;
+    private readonly SessionHost _sessions;
+    private readonly ILogger _logger;
+
+    private readonly Channel<OutboundMessage> _outbound = Channel.CreateBounded<OutboundMessage>(
+        new BoundedChannelOptions(OutboundCapacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
+
+    private volatile bool _streaming;
+    private long _framesForwarded;
+
+    /// <summary>Frames encaminhados ao navegador nesta sessão.</summary>
+    public long FramesForwarded => Interlocked.Read(ref _framesForwarded);
+
+    public LabSessionConnection(WebSocket socket, SupervisorClient upstream, SessionHost sessions, ILogger logger)
+    {
+        _socket = socket;
+        _upstream = upstream;
+        _sessions = sessions;
+        _logger = logger;
+        Id = Guid.NewGuid().ToString("n")[..12];
+    }
+
+    public string Id { get; }
+
+    /// <summary>Verdadeiro entre browse.start e browse.stop.</summary>
+    public bool Streaming => _streaming;
+
+    public async Task RunAsync(CancellationToken cancellationToken)
+    {
+        void OnFrame(byte[] frame)
+        {
+            if (!_streaming)
+            {
+                return;
+            }
+
+            if (_outbound.Writer.TryWrite(OutboundMessage.Binary(frame)))
+            {
+                Interlocked.Increment(ref _framesForwarded);
+            }
+        }
+
+        _upstream.FrameReceived += OnFrame;
+        try
+        {
+            Send(new SessionHello(Id, Id));
+
+            var pump = PumpOutboundAsync(cancellationToken);
+            await ReceiveLoopAsync(cancellationToken).ConfigureAwait(false);
+            _outbound.Writer.TryComplete();
+            await pump.ConfigureAwait(false);
+        }
+        finally
+        {
+            _upstream.FrameReceived -= OnFrame;
+            _outbound.Writer.TryComplete();
+        }
+    }
+
+    private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
+    {
+        var buffer = new byte[16 * 1024];
+        using var assembled = new MemoryStream();
+
+        while (_socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+        {
+            assembled.SetLength(0);
+
+            WebSocketReceiveResult result;
+            do
+            {
+                result = await _socket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return;
+                }
+
+                assembled.Write(buffer, 0, result.Count);
+            }
+            while (!result.EndOfMessage);
+
+            if (result.MessageType != WebSocketMessageType.Text)
+            {
+                continue;
+            }
+
+            HandleControl(Encoding.UTF8.GetString(assembled.ToArray()));
+        }
+    }
+
+    private void HandleControl(string payload)
+    {
+        LabClientEnvelope? message;
+        try
+        {
+            message = JsonSerializer.Deserialize<LabClientEnvelope>(payload, LabProtocol.Json);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning("controle inválido de {Id}: {Reason}", Id, ex.Message);
+            Send(new LabError("invalid JSON control message", "invalid_json"));
+            return;
+        }
+
+        if (message?.Type is not { Length: > 0 } type)
+        {
+            Send(new LabError("missing type", "unknown_type"));
+            return;
+        }
+
+        switch (type)
+        {
+            case "hello":
+                // A apresentação do host já saiu no RunAsync.
+                break;
+
+            case "browse.start":
+            {
+                _streaming = true;
+                var url = message.Url ?? string.Empty;
+                _logger.LogInformation("{Id} browse.start url={Url}", Id, url);
+
+                if (url.Length > 0)
+                {
+                    // O caller sobe a sessão. Pedir e ter são o mesmo ato.
+                    _ = _sessions.StartAsync(url, CancellationToken.None);
+                }
+
+                Send(new SessionBooted(Id, "browse", url, string.Empty));
+                break;
+            }
+
+            case "browse.stop":
+                _streaming = false;
+                _logger.LogInformation("{Id} browse.stop", Id);
+                _sessions.Stop();
+                Send(new SessionStopped(Id, "client-stop"));
+                break;
+
+            case "browse.navigate":
+            {
+                var url = message.Url ?? string.Empty;
+                _logger.LogInformation("{Id} browse.navigate url={Url}", Id, url);
+                if (url.Length > 0)
+                {
+                    // Sessão já viva: navega no contexto raiz. contextId 0 quer dizer
+                    // "a raiz"; quem resolve é o supervisor, que é quem nomeia.
+                    var command = ControlCommand.Navigate(correlationId: 0, contextId: 0, url);
+                    _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                }
+
+                break;
+            }
+
+            case "client.telemetry":
+            case "client.snapshotResult":
+            case "client.injectResult":
+            case "client.tamperResult":
+            case "client.intent":
+            case "client.resize":
+            case "client.snapshot":
+            case "client.validateSnaps":
+            case "client.requestResync":
+            case "surface.clear":
+            case "run.start":
+            case "run.abort":
+                // Mensagens válidas do protocolo v1 cujo tratamento entra nas fases
+                // seguintes. Aceitas em silêncio — nunca respondidas com erro, para
+                // não ensinar o cliente a desconfiar de mensagens corretas.
+                break;
+
+            default:
+                _logger.LogDebug("{Id} tipo de controle desconhecido: {Type}", Id, type);
+                Send(new LabError($"unknown control type: {type}", "unknown_type"));
+                break;
+        }
+    }
+
+    private async Task PumpOutboundAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var message in _outbound.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (_socket.State != WebSocketState.Open)
+                {
+                    return;
+                }
+
+                await _socket
+                    .SendAsync(message.Payload, message.Type, endOfMessage: true, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // encerramento normal
+        }
+        catch (WebSocketException ex)
+        {
+            _logger.LogInformation("{Id} caiu: {Reason}", Id, ex.Message);
+        }
+    }
+
+    private void Send<T>(T message)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(message, LabProtocol.Json);
+        _outbound.Writer.TryWrite(OutboundMessage.Text(json));
+    }
+
+    private readonly record struct OutboundMessage(WebSocketMessageType Type, ReadOnlyMemory<byte> Payload)
+    {
+        public static OutboundMessage Text(byte[] payload) => new(WebSocketMessageType.Text, payload);
+
+        public static OutboundMessage Binary(byte[] payload) => new(WebSocketMessageType.Binary, payload);
+    }
+}

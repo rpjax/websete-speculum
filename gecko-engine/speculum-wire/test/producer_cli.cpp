@@ -106,6 +106,8 @@ class FakeDom : public NodeSource {
   }
   std::string cssomRuleTextOf(const void* rule) const override { return at(rule)->value; }
   const void* cssomSheetOf(const void* rule) const override { return at(rule)->parent; }
+  bool isSheet(const void* n) const override { return at(n)->kind == NodeKind::Sheet; }
+  bool isRule(const void* n) const override { return at(n)->kind == NodeKind::Rule; }
 
  private:
   static const FakeNode* at(const void* n) { return static_cast<const FakeNode*>(n); }

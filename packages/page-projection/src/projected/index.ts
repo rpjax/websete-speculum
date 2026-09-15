@@ -17,6 +17,7 @@ export {
   PROJECTED_K5_CSP,
   stampProjectedStandardsSrcdoc,
   stripProjectedSkeleton,
+  ensureProjectedDocumentBase,
   ensureProjectedK5Csp,
   isProjectedStandardsSkeleton,
   isProjectedStandardsDocument,

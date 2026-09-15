@@ -50,6 +50,10 @@ class NodeSource {
   virtual std::vector<const void*> cssomRulesOf(const void* /*sheet*/) const { return {}; }
   virtual std::string cssomRuleTextOf(const void* /*rule*/) const { return {}; }
   virtual const void* cssomSheetOf(const void* /*rule*/) const { return nullptr; }
+  // Live CSSOM set — not "this pointer was a sheet once". emitResyncFrame drops
+  // Sheet/Rule ids that fail these, without casting the pointer to nsINode.
+  virtual bool isSheet(const void* /*ptr*/) const { return false; }
+  virtual bool isRule(const void* /*ptr*/) const { return false; }
 };
 
 class Producer {
@@ -107,33 +111,60 @@ class Producer {
     const std::vector<uint32_t> snapshot = ids_.allIds();
     std::vector<uint32_t> drop;
     std::vector<uint32_t> live;
+    std::vector<uint32_t> sheets;
+    std::vector<uint32_t> rules;
     drop.reserve(snapshot.size());
     live.reserve(snapshot.size());
+    sheets.reserve(snapshot.size());
+    rules.reserve(snapshot.size());
     for (uint32_t id : snapshot) {
-      const void* key = ids_.keyOf(id);
-      if (!key || !source_.isConnected(key) || source_.isUaOwned(key) ||
-          awaitingChildScope(key)) {
+      const IdentityKey key = ids_.keyOf(id);
+      if (!key.ptr) {
+        drop.push_back(id);
+        continue;
+      }
+      if (key.space == KeySpace::Sheet) {
+        if (!source_.isSheet(key.ptr)) {
+          drop.push_back(id);
+          continue;
+        }
+        live.push_back(id);
+        sheets.push_back(id);
+        continue;
+      }
+      if (key.space == KeySpace::Rule) {
+        if (!source_.isRule(key.ptr)) {
+          drop.push_back(id);
+          continue;
+        }
+        live.push_back(id);
+        rules.push_back(id);
+        continue;
+      }
+      if (!source_.isConnected(key.ptr) || source_.isUaOwned(key.ptr) ||
+          awaitingChildScope(key.ptr)) {
         drop.push_back(id);
         continue;
       }
       live.push_back(id);
-      const NodeKind kind = source_.kindOf(key);
-      if (kind == NodeKind::Sheet) {
-        emitSheetNew(key, id);
-      } else if (kind == NodeKind::Rule) {
-        const void* sheet = source_.cssomSheetOf(key);
-        emitRuleNew(sheet, key, id);
-      } else {
-        emitNodeNew(key, id);
-      }
+      emitNodeNew(key.ptr, id);
     }
     for (uint32_t id : drop) ids_.releaseId(id);
+    for (uint32_t id : sheets) {
+      const IdentityKey key = ids_.keyOf(id);
+      if (key.ptr) emitSheetNew(key.ptr, id);
+    }
+    for (uint32_t id : rules) {
+      const IdentityKey key = ids_.keyOf(id);
+      if (!key.ptr) continue;
+      emitRuleNew(source_.cssomSheetOf(key.ptr), key.ptr, id);
+    }
 
     insertLiveChildren(documentNode_, kDocumentId);
     for (uint32_t id : live) {
-      const void* key = ids_.keyOf(id);
-      if (!key) continue;
-      insertLiveChildren(key, id);
+      const IdentityKey key = ids_.keyOf(id);
+      if (!key.ptr || key.space != KeySpace::Node) continue;
+      insertLiveChildren(key.ptr, id);
     }
 
     lastFrameNewNodes_ = pendingNewNodes_;
@@ -167,21 +198,21 @@ class Producer {
     }
     uint32_t parentId = idFor(parent);
     if (parentId == kNone) return;  // pai fora da projeção: nada a dizer
-    const uint32_t existing = ids_.idOf(node);
+    const uint32_t existing = ids_.idOf(node, KeySpace::Node);
     if (existing != kNone) {
       cancelPendingDrop(existing);
     } else {
-      ids_.assign(node);
+      ids_.assign(node, KeySpace::Node);
     }
     pendingInserts_.push_back(PendingInsert{parent, node});
   }
 
   void onRemoved(const void* parent, const void* node) {
     cancelPendingHost(node);
-    uint32_t id = ids_.idOf(node);
+    uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
     if (cancelPendingInsert(node)) {
-      if (!table_.getRow(id)) ids_.release(node);
+      if (!table_.getRow(id)) ids_.release(node, KeySpace::Node);
       return;
     }
     uint32_t parentId = idFor(parent);
@@ -192,8 +223,12 @@ class Producer {
   }
 
   void onAttrChanged(const void* node, const std::string& name) {
-    uint32_t id = ids_.idOf(node);
+    uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
+    const Row* row = table_.getRow(id);
+    if (!row || row->kind != static_cast<uint32_t>(NodeKind::Element)) {
+      return;
+    }
     for (const auto& a : source_.attrsOf(node)) {
       if (a.name != name) continue;
       builder_.attrSet(id, {a});
@@ -206,7 +241,7 @@ class Producer {
   }
 
   void onTextChanged(const void* node) {
-    uint32_t id = ids_.idOf(node);
+    uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
     const Row* row = table_.getRow(id);
     if (!row) return;
@@ -220,7 +255,7 @@ class Producer {
   }
 
   void onPropChanged(const void* node, uint8_t propId, const PropValue& value) {
-    uint32_t id = ids_.idOf(node);
+    uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
     if (value.isBool) {
       builder_.propSetBool(id, propId, value.boolValue);
@@ -234,13 +269,13 @@ class Producer {
   // O caminho normal é ContentWillBeRemoved → onRemoved → DROP no emitFrame.
   // NodeWillBeDestroyed no Document NÃO dispara por filho; não dá para pendurar nisso.
   void onDestroyed(const void* node) {
-    uint32_t id = ids_.idOf(node);
+    uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
     const Row* row = table_.getRow(id);
     if (row && row->parent != kNone) return;  // ainda ligada: quem remove emite REMOVE antes
     cancelPendingDrop(id);
     if (!row) {
-      ids_.release(node);
+      ids_.release(node, KeySpace::Node);
       return;
     }
     builder_.nodeDrop({id});
@@ -253,16 +288,16 @@ class Producer {
   // tabela no começo deste tick (depois do emit anterior), não o hash já mutado.
   void onSheetAdded(const void* sheet) {
     if (!sheet) return;
-    ids_.assign(sheet);
+    ids_.assign(sheet, KeySpace::Sheet);
     pendingSheets_.push_back(sheet);
   }
 
   void onSheetRemoved(const void* sheet) {
-    uint32_t id = ids_.idOf(sheet);
+    uint32_t id = ids_.idOf(sheet, KeySpace::Sheet);
     if (id == kNone) return;
     cancelPendingRulesOf(sheet);
     if (cancelPendingSheet(sheet)) {
-      if (!table_.getRow(id)) ids_.release(sheet);
+      if (!table_.getRow(id)) ids_.release(sheet, KeySpace::Sheet);
       return;
     }
     builder_.sheetDrop({id});
@@ -272,7 +307,7 @@ class Producer {
   void onSheetOrderChanged() {
     std::vector<uint32_t> ids;
     for (const void* sheet : source_.cssomSheets()) {
-      uint32_t id = ids_.idOf(sheet);
+      uint32_t id = ids_.idOf(sheet, KeySpace::Sheet);
       if (id != kNone && table_.getRow(id)) ids.push_back(id);
     }
     if (ids.size() < 2) return;
@@ -285,24 +320,25 @@ class Producer {
 
   void onRuleAdded(const void* sheet, const void* rule) {
     if (!rule) return;
-    ids_.assign(rule);
+    if (sheet) ids_.assign(sheet, KeySpace::Sheet);
+    ids_.assign(rule, KeySpace::Rule);
     pendingRules_.push_back(PendingRule{sheet, rule});
   }
 
   void onRuleRemoved(const void* sheet, const void* rule) {
-    uint32_t id = ids_.idOf(rule);
+    uint32_t id = ids_.idOf(rule, KeySpace::Rule);
     if (id == kNone) return;
     if (cancelPendingRule(rule)) {
-      if (!table_.getRow(id)) ids_.release(rule);
+      if (!table_.getRow(id)) ids_.release(rule, KeySpace::Rule);
       return;
     }
-    uint32_t sheetId = ids_.idOf(sheet);
+    uint32_t sheetId = ids_.idOf(sheet, KeySpace::Sheet);
     builder_.ruleDrop(sheetId, {id});
     for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
   }
 
   void onRuleChanged(const void* rule) {
-    uint32_t id = ids_.idOf(rule);
+    uint32_t id = ids_.idOf(rule, KeySpace::Rule);
     if (id == kNone) return;
     if (!table_.getRow(id)) return;
     const std::string text = source_.cssomRuleTextOf(rule);
@@ -366,7 +402,7 @@ class Producer {
  private:
   uint32_t idFor(const void* node) const {
     if (node == documentNode_) return kDocumentId;
-    return ids_.idOf(node);
+    return ids_.idOf(node, KeySpace::Node);
   }
 
   // Id do irmão seguinte já projetado, ou 0 para "insere no fim".
@@ -379,15 +415,15 @@ class Producer {
         continue;
       }
       if (!found) continue;
-      uint32_t id = ids_.idOf(k);
+      uint32_t id = ids_.idOf(k, KeySpace::Node);
       if (id != kNone && table_.getRow(id)) return id;
     }
     return kInsertAtEnd;
   }
 
   void ensureDescribed(const void* node) {
-    if (ids_.known(node)) {
-      const uint32_t id = ids_.idOf(node);
+    if (ids_.known(node, KeySpace::Node)) {
+      const uint32_t id = ids_.idOf(node, KeySpace::Node);
       const Row* row = table_.getRow(id);
       const auto kind = static_cast<uint32_t>(source_.kindOf(node));
       if (row && row->kind == kind) return;
@@ -395,7 +431,7 @@ class Producer {
       retireDetached(id);
     }
     describe(node);
-    describeAndInsertChildren(node, ids_.idOf(node));
+    describeAndInsertChildren(node, ids_.idOf(node, KeySpace::Node));
   }
 
   void cancelPendingDrop(uint32_t id) {
@@ -438,20 +474,20 @@ class Producer {
     const std::vector<PendingInsert> pending = pendingInserts_;
     pendingInserts_.clear();
     for (const auto& item : pending) {
-      uint32_t id = ids_.idOf(item.node);
+      uint32_t id = ids_.idOf(item.node, KeySpace::Node);
       if (id == kNone) continue;
       if (!source_.isConnected(item.node) || source_.isUaOwned(item.node)) {
-        if (!table_.getRow(id)) ids_.release(item.node);
+        if (!table_.getRow(id)) ids_.release(item.node, KeySpace::Node);
         continue;
       }
       uint32_t parentId = idFor(item.parent);
       if (parentId == kNone) {
-        if (!table_.getRow(id)) ids_.release(item.node);
+        if (!table_.getRow(id)) ids_.release(item.node, KeySpace::Node);
         continue;
       }
       if (!table_.getRow(id)) {
         ensureDescribed(item.node);
-        id = ids_.idOf(item.node);
+        id = ids_.idOf(item.node, KeySpace::Node);
         if (id == kNone) continue;
       }
       uint32_t before = beforeIdOf(item.parent, item.node);
@@ -492,8 +528,8 @@ class Producer {
     size_t w = 0;
     for (size_t i = 0; i < pendingRules_.size(); ++i) {
       if (pendingRules_[i].sheet == sheet) {
-        uint32_t id = ids_.idOf(pendingRules_[i].rule);
-        if (id != kNone && !table_.getRow(id)) ids_.release(pendingRules_[i].rule);
+        uint32_t id = ids_.idOf(pendingRules_[i].rule, KeySpace::Rule);
+        if (id != kNone && !table_.getRow(id)) ids_.release(pendingRules_[i].rule, KeySpace::Rule);
         continue;
       }
       pendingRules_[w++] = pendingRules_[i];
@@ -508,40 +544,40 @@ class Producer {
     pendingRules_.clear();
 
     for (const void* sheet : source_.cssomSheets()) {
-      uint32_t id = ids_.idOf(sheet);
+      uint32_t id = ids_.idOf(sheet, KeySpace::Sheet);
       if (id == kNone) continue;
       if (!table_.getRow(id)) emitSheetNew(sheet, id);
     }
     for (const void* sheet : source_.cssomSheets()) {
       for (const void* rule : source_.cssomRulesOf(sheet)) {
-        uint32_t id = ids_.idOf(rule);
+        uint32_t id = ids_.idOf(rule, KeySpace::Rule);
         if (id == kNone) continue;
         if (!table_.getRow(id)) emitRuleNew(sheet, rule, id);
       }
     }
     for (const void* sheet : queuedSheets) {
-      uint32_t id = ids_.idOf(sheet);
-      if (id != kNone && !table_.getRow(id)) ids_.release(sheet);
+      uint32_t id = ids_.idOf(sheet, KeySpace::Sheet);
+      if (id != kNone && !table_.getRow(id)) ids_.release(sheet, KeySpace::Sheet);
     }
     for (const auto& item : queuedRules) {
-      uint32_t id = ids_.idOf(item.rule);
-      if (id != kNone && !table_.getRow(id)) ids_.release(item.rule);
+      uint32_t id = ids_.idOf(item.rule, KeySpace::Rule);
+      if (id != kNone && !table_.getRow(id)) ids_.release(item.rule, KeySpace::Rule);
     }
   }
 
   void drainFormProps() {
     const std::vector<uint32_t> ids = ids_.allIds();
     for (uint32_t id : ids) {
-      const void* key = ids_.keyOf(id);
-      if (!key) continue;
-      if (source_.kindOf(key) != NodeKind::Element) continue;
-      for (const FormProp& fp : source_.formPropsOf(key)) {
+      const IdentityKey key = ids_.keyOf(id);
+      if (!key.ptr || key.space != KeySpace::Node) continue;
+      if (source_.kindOf(key.ptr) != NodeKind::Element) continue;
+      for (const FormProp& fp : source_.formPropsOf(key.ptr)) {
         const PropValue* cur = table_.getProp(id, fp.id);
         const bool same = cur && cur->isBool == fp.value.isBool &&
                           (fp.value.isBool ? cur->boolValue == fp.value.boolValue
                                            : cur->strValue == fp.value.strValue);
         if (same) continue;
-        onPropChanged(key, fp.id, fp.value);
+        onPropChanged(key.ptr, fp.id, fp.value);
       }
     }
   }
@@ -558,8 +594,11 @@ class Producer {
   }
 
   void emitRuleNew(const void* sheet, const void* rule, uint32_t id) {
-    uint32_t sheetId = ids_.idOf(sheet);
-    if (sheetId == kNone && sheet) sheetId = ids_.assign(sheet);
+    uint32_t sheetId = ids_.idOf(sheet, KeySpace::Sheet);
+    if (sheetId == kNone && sheet) sheetId = ids_.assign(sheet, KeySpace::Sheet);
+    if (sheet && sheetId != kNone && !table_.getRow(sheetId)) {
+      emitSheetNew(sheet, sheetId);
+    }
     const std::string text = source_.cssomRuleTextOf(rule);
     builder_.ruleNew(sheetId, id, kInsertAtEnd, text);
     if (!table_.has(id)) table_.createLeafRow(id, NodeKind::Rule, text);
@@ -570,17 +609,17 @@ class Producer {
 
   void allocateCssom() {
     for (const void* sheet : source_.cssomSheets()) {
-      ids_.assign(sheet);
-      for (const void* rule : source_.cssomRulesOf(sheet)) ids_.assign(rule);
+      ids_.assign(sheet, KeySpace::Sheet);
+      for (const void* rule : source_.cssomRulesOf(sheet)) ids_.assign(rule, KeySpace::Rule);
     }
   }
 
   void attachShadow(const void* host) {
     const void* sr = source_.shadowRootOf(host);
     if (!sr || source_.isUaOwned(sr)) return;
-    if (!ids_.known(sr)) {
+    if (!ids_.known(sr, KeySpace::Node)) {
       describe(sr);
-      describeAndInsertChildren(sr, ids_.idOf(sr));
+      describeAndInsertChildren(sr, ids_.idOf(sr, KeySpace::Node));
     }
   }
 
@@ -636,7 +675,7 @@ class Producer {
         still.push_back(pending);
         continue;
       }
-      ids_.assign(pending.node);
+      ids_.assign(pending.node, KeySpace::Node);
     }
     pendingHosts_.swap(still);
   }
@@ -656,8 +695,8 @@ class Producer {
       if (parentId == kNone) continue;
       uint32_t before = beforeIdOf(pending.parent, pending.node);
       ensureDescribed(pending.node);
-      builder_.insert(parentId, before, {ids_.idOf(pending.node)});
-      table_.insertBatch(parentId, before, {ids_.idOf(pending.node)});
+      builder_.insert(parentId, before, {ids_.idOf(pending.node, KeySpace::Node)});
+      table_.insertBatch(parentId, before, {ids_.idOf(pending.node, KeySpace::Node)});
     }
     pendingHosts_.swap(still);
   }
@@ -665,7 +704,7 @@ class Producer {
   void allocateConnected(const void* node) {
     if (node != documentNode_) {
       if (source_.isUaOwned(node) || awaitingChildScope(node)) return;
-      ids_.assign(node);
+      ids_.assign(node, KeySpace::Node);
     }
     for (const void* child : source_.childrenOf(node)) {
       if (source_.isUaOwned(child)) continue;
@@ -730,7 +769,7 @@ class Producer {
   }
 
   void describe(const void* node) {
-    emitNodeNew(node, ids_.assign(node));
+    emitNodeNew(node, ids_.assign(node, KeySpace::Node));
     attachShadow(node);
   }
 
@@ -743,7 +782,7 @@ class Producer {
         notePendingHost(parent, child);
         continue;
       }
-      uint32_t id = ids_.idOf(child);
+      uint32_t id = ids_.idOf(child, KeySpace::Node);
       if (id == kNone) continue;
       batch.push_back(id);
     }
@@ -760,11 +799,11 @@ class Producer {
         notePendingHost(parent, child);
         continue;
       }
-      if (!ids_.known(child)) {
+      if (!ids_.known(child, KeySpace::Node)) {
         describe(child);
-        describeAndInsertChildren(child, ids_.idOf(child));
+        describeAndInsertChildren(child, ids_.idOf(child, KeySpace::Node));
       }
-      batch.push_back(ids_.idOf(child));
+      batch.push_back(ids_.idOf(child, KeySpace::Node));
     }
     if (batch.empty()) return;
     builder_.insert(parentId, kInsertAtEnd, batch);

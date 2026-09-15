@@ -35,6 +35,7 @@ export type NestedProjectedApplyOptions = {
   }) => void;
   getToken?: () => string | undefined;
   getAssetBaseUrl?: () => string | undefined;
+  getDocumentBaseUrl?: () => string | undefined;
 };
 
 type ApplyTarget = {
@@ -76,6 +77,7 @@ export class NestedProjectedApply {
   private readonly onRequestResyncCb?: NestedProjectedApplyOptions['onRequestResync'];
   private readonly getToken?: () => string | undefined;
   private readonly getAssetBaseUrl?: () => string | undefined;
+  private readonly getDocumentBaseUrl?: () => string | undefined;
 
   constructor(opts: NestedProjectedApplyOptions) {
     this.contextId = opts.contextId;
@@ -87,6 +89,7 @@ export class NestedProjectedApply {
     this.onRequestResyncCb = opts.onRequestResync;
     this.getToken = opts.getToken;
     this.getAssetBaseUrl = opts.getAssetBaseUrl;
+    this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
     this.surface = createNestedResyncSurface(opts.hostIframe);
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, opts.document);
@@ -182,6 +185,7 @@ export class NestedProjectedApply {
     return new DomFrameApplier(doc, registry, {
       stampUrl: (name, value) => stampAttrAuth(name, value, token(), base()),
       stampCssText: (text) => stampCssTextAuth(text, token(), base()),
+      getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || '',
       onWarn: (message) => {
         this.onTelemetry?.({
           v: TELEMETRY_WIRE_VERSION,

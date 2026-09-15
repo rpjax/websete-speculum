@@ -231,6 +231,7 @@ export function bootLabClient(): void {
   let inputCaptureMetrics = new ProjectedInputCaptureMetrics();
   let sessionToken = '';
   let assetBaseUrl = window.location.origin;
+  let documentBaseUrl = '';
   let canonicalViewport: ViewportSize = { width: 1280, height: 720 };
   let viewportSync: ViewportSync | null = null;
   let pendingResize: {
@@ -936,6 +937,7 @@ export function bootLabClient(): void {
       height: canonicalViewport.height,
       getToken: () => sessionToken,
       getAssetBaseUrl: () => assetBaseUrl,
+      getDocumentBaseUrl: () => (isGeckoLab() ? documentBaseUrl : ''),
       onArmed: () => {
         bindInputSurfaces(projection!);
       },
@@ -1297,6 +1299,7 @@ export function bootLabClient(): void {
         setScrollDiagSessionId(sessionId);
         sessionToken = String((msg as { sessionToken?: string }).sessionToken ?? '');
         assetBaseUrl = window.location.origin;
+        documentBaseUrl = '';
         setGeckoLab((msg as { engine?: string }).engine === 'gecko');
         if (isGeckoLab() && ws) {
           wireGeckoSwFetch(ws, CONTEXT_ID_ROOT);
@@ -1562,6 +1565,13 @@ export function bootLabClient(): void {
     canonicalViewport = measureAndNormalizeViewport();
     bootDeviceProfile = detectViewportDeviceProfile();
     void (async () => {
+      if (isGeckoLab()) {
+        try {
+          documentBaseUrl = new URL(urlInput.value).href;
+        } catch {
+          documentBaseUrl = urlInput.value;
+        }
+      }
       const p = await ensureProjection();
       await p.resetSurface();
       p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
@@ -1585,6 +1595,13 @@ export function bootLabClient(): void {
   });
   $('browseNavigate').addEventListener('click', () => {
     if (!sessionLive) return;
+    if (isGeckoLab()) {
+      try {
+        documentBaseUrl = new URL(urlInput.value).href;
+      } catch {
+        documentBaseUrl = urlInput.value;
+      }
+    }
     ws?.send(JSON.stringify({ type: 'browse.navigate', url: urlInput.value }));
     logActivity(`navigate ${urlInput.value}`);
   });

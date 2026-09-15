@@ -69,6 +69,8 @@ export type ProjectionClientOptions = {
   /** API/lab origin for absolutizing `/w7s/virtual-*` URLs. */
   assetBaseUrl?: string;
   getAssetBaseUrl?: () => string | undefined;
+  /** Virtual page URL (Gecko). Relative assets resolve here; SW intercepts. */
+  getDocumentBaseUrl?: () => string | undefined;
 };
 
 /** One `DomFrameApplier` + its own registry — either the live surface or an in-flight standby build. */
@@ -106,6 +108,7 @@ export class ProjectionClient {
   }) => void;
   private readonly getToken?: () => string | undefined;
   private readonly getAssetBaseUrl?: () => string | undefined;
+  private readonly getDocumentBaseUrl?: () => string | undefined;
   private readonly token?: string;
   private readonly assetBaseUrl?: string;
 
@@ -153,6 +156,7 @@ export class ProjectionClient {
     this.onRequestResyncCb = opts.onRequestResync;
     this.getToken = opts.getToken;
     this.getAssetBaseUrl = opts.getAssetBaseUrl;
+    this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
     this.token = opts.token;
     this.assetBaseUrl = opts.assetBaseUrl;
 
@@ -260,6 +264,7 @@ export class ProjectionClient {
       contextId,
       getToken: () => this.resolveToken(),
       getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
+      getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || '',
       onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
       onTelemetry: (msg) => this.onTelemetry?.(msg),
@@ -660,6 +665,7 @@ export class ProjectionClient {
     const applier = new DomFrameApplier(doc, registry, {
       stampUrl: (name, value) => stampAttrAuth(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
       stampCssText: (text) => stampCssTextAuth(text, this.resolveToken(), this.resolveAssetBaseUrl()),
+      getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || '',
       onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
       onWarn: (message) => {

@@ -1878,7 +1878,7 @@
     "../packages/page-projection/dist/projected/projectedBlankIframe.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = void 0;
+      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = void 0;
       exports.PROJECTED_SKELETON_META_NAME = "speculum-projected-skeleton";
       exports.PROJECTED_K5_CSP = "script-src 'none'; object-src 'none'";
       exports.PROJECTED_STANDARDS_SRCDOC = `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${exports.PROJECTED_K5_CSP}"><meta name="${exports.PROJECTED_SKELETON_META_NAME}" content="1"></head><body></body></html>`;
@@ -1898,6 +1898,31 @@
           doc.removeChild(doc.firstChild);
       }
       exports.stripProjectedSkeleton = stripProjectedSkeleton;
+      var PROJECTED_DOCUMENT_BASE_ATTR = "data-speculum-document-base";
+      function ensureProjectedDocumentBase(doc, pageUrl) {
+        if (!pageUrl)
+          return;
+        const head = doc.head;
+        if (!head)
+          return;
+        let href;
+        try {
+          href = new URL(pageUrl).href;
+        } catch {
+          return;
+        }
+        const existing = head.querySelector(`base[${PROJECTED_DOCUMENT_BASE_ATTR}]`);
+        if (existing) {
+          if (existing.getAttribute("href") !== href)
+            existing.setAttribute("href", href);
+          return;
+        }
+        const base = doc.createElement("base");
+        base.setAttribute(PROJECTED_DOCUMENT_BASE_ATTR, "1");
+        base.href = href;
+        head.insertBefore(base, head.firstChild);
+      }
+      exports.ensureProjectedDocumentBase = ensureProjectedDocumentBase;
       function ensureProjectedK5Csp(doc) {
         let html = doc.documentElement;
         if (!html) {
@@ -2162,6 +2187,9 @@
             }
             return this.failOp(result.reason, result.opName, result.id, result.message);
           }
+          const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || "";
+          if (documentBase)
+            (0, projectedBlankIframe_1.ensureProjectedDocumentBase)(this.doc, documentBase);
           for (let i = 0; i < frame.ops.length; i++) {
             const op = frame.ops[i];
             try {
@@ -2397,7 +2425,8 @@
             return this.fail("bad_target", "sheetNew", op.id);
           let sheet;
           try {
-            sheet = new view.CSSStyleSheet();
+            const base = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl;
+            sheet = base ? new view.CSSStyleSheet({ baseURL: base }) : new view.CSSStyleSheet();
           } catch {
             return this.fail("malformed", "sheetNew", op.id);
           }
@@ -2641,15 +2670,25 @@
             const node = this.registry.get(id);
             if (!node)
               return this.fail("address_miss", "insert", id);
-            if (isHtmlScriptElement(node))
+            if (isHtmlScriptElement(node)) {
               (0, projectedBlankIframe_1.ensureProjectedK5Csp)(this.doc);
+              const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || "";
+              if (documentBase)
+                (0, projectedBlankIframe_1.ensureProjectedDocumentBase)(this.doc, documentBase);
+            }
             if (node.nodeType === Node.DOCUMENT_TYPE_NODE && parent === this.doc && this.doc.doctype === node) {
               continue;
             }
             parent.insertBefore(node, before);
             this.maybeInstallNestedHost(id, node);
           }
+          this.pinDocumentBase();
           return true;
+        }
+        pinDocumentBase() {
+          const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || "";
+          if (documentBase)
+            (0, projectedBlankIframe_1.ensureProjectedDocumentBase)(this.doc, documentBase);
         }
         applyRemove(op) {
           const parent = this.registry.get(op.parent);
@@ -3538,6 +3577,7 @@
         onRequestResyncCb;
         getToken;
         getAssetBaseUrl;
+        getDocumentBaseUrl;
         constructor(opts) {
           this.contextId = opts.contextId;
           this.hostIframe = opts.hostIframe;
@@ -3548,6 +3588,7 @@
           this.onRequestResyncCb = opts.onRequestResync;
           this.getToken = opts.getToken;
           this.getAssetBaseUrl = opts.getAssetBaseUrl;
+          this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
           this.surface = (0, nestedResyncSurface_1.createNestedResyncSurface)(opts.hostIframe);
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, opts.document);
@@ -3627,6 +3668,7 @@
           return new applyDom_1.DomFrameApplier(doc, registry, {
             stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, token(), base()),
             stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, token(), base()),
+            getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
             onWarn: (message) => {
               this.onTelemetry?.({
                 v: telemetry_1.TELEMETRY_WIRE_VERSION,
@@ -4096,6 +4138,7 @@
         onRequestResyncCb;
         getToken;
         getAssetBaseUrl;
+        getDocumentBaseUrl;
         token;
         assetBaseUrl;
         /** The currently-live target — reassigned wholesale on a successful resync swap. */
@@ -4139,6 +4182,7 @@
           this.onRequestResyncCb = opts.onRequestResync;
           this.getToken = opts.getToken;
           this.getAssetBaseUrl = opts.getAssetBaseUrl;
+          this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
           this.token = opts.token;
           this.assetBaseUrl = opts.assetBaseUrl;
           const registry = new registry_1.PageProjectionRegistry();
@@ -4224,6 +4268,7 @@
             contextId,
             getToken: () => this.resolveToken(),
             getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
+            getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
             onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onTelemetry: (msg) => this.onTelemetry?.(msg),
@@ -4573,6 +4618,7 @@
           const applier = new applyDom_1.DomFrameApplier(doc, registry, {
             stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
             stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, this.resolveToken(), this.resolveAssetBaseUrl()),
+            getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
             onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onWarn: (message) => {
@@ -6271,7 +6317,7 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
@@ -6309,6 +6355,9 @@
       } });
       Object.defineProperty(exports, "stripProjectedSkeleton", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stripProjectedSkeleton;
+      } });
+      Object.defineProperty(exports, "ensureProjectedDocumentBase", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.ensureProjectedDocumentBase;
       } });
       Object.defineProperty(exports, "ensureProjectedK5Csp", { enumerable: true, get: function() {
         return projectedBlankIframe_1.ensureProjectedK5Csp;
@@ -8490,8 +8539,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 95,
-    builtAt: "2026-09-15T01:58:01.508Z"
+    seq: 97,
+    builtAt: "2026-09-15T15:17:43.492Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -9690,6 +9739,7 @@
     let inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
     let sessionToken = "";
     let assetBaseUrl = window.location.origin;
+    let documentBaseUrl = "";
     let canonicalViewport = { width: 1280, height: 720 };
     let viewportSync = null;
     let pendingResize = null;
@@ -10277,6 +10327,7 @@
         height: canonicalViewport.height,
         getToken: () => sessionToken,
         getAssetBaseUrl: () => assetBaseUrl,
+        getDocumentBaseUrl: () => isGeckoLab() ? documentBaseUrl : "",
         onArmed: () => {
           bindInputSurfaces(projection);
         },
@@ -10586,6 +10637,7 @@
           setScrollDiagSessionId(sessionId);
           sessionToken = String(msg.sessionToken ?? "");
           assetBaseUrl = window.location.origin;
+          documentBaseUrl = "";
           setGeckoLab(msg.engine === "gecko");
           if (isGeckoLab() && ws) {
             wireGeckoSwFetch(ws, import_frame3.CONTEXT_ID_ROOT);
@@ -10834,6 +10886,13 @@
       canonicalViewport = measureAndNormalizeViewport();
       bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
       void (async () => {
+        if (isGeckoLab()) {
+          try {
+            documentBaseUrl = new URL(urlInput.value).href;
+          } catch {
+            documentBaseUrl = urlInput.value;
+          }
+        }
         const p = await ensureProjection();
         await p.resetSurface();
         p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
@@ -10857,6 +10916,13 @@
     });
     $("browseNavigate").addEventListener("click", () => {
       if (!sessionLive) return;
+      if (isGeckoLab()) {
+        try {
+          documentBaseUrl = new URL(urlInput.value).href;
+        } catch {
+          documentBaseUrl = urlInput.value;
+        }
+      }
       ws?.send(JSON.stringify({ type: "browse.navigate", url: urlInput.value }));
       logActivity(`navigate ${urlInput.value}`);
     });

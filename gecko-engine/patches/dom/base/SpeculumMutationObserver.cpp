@@ -317,10 +317,10 @@ void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
                     1);
   CancelFrameTimer();
   mState->producer.discardPending();
+  mState->source.CaptureLiveCssom();
   std::vector<uint8_t> frame;
   const mozilla::TimeStamp t0 = StampIfOn();
   if (aForce == 1) {
-    mState->source.CaptureLiveCssom();
     frame = mState->producer.resyncVirtual(mDocument);
   } else {
     frame = mState->producer.emitResyncFrame();
@@ -406,7 +406,11 @@ const void* SpeculumMutationObserver::IdentityKey(uint32_t aNodeId) const {
   if (!mState) {
     return nullptr;
   }
-  return mState->producer.identity().keyOf(aNodeId);
+  const speculum::IdentityKey key = mState->producer.identity().keyOf(aNodeId);
+  if (!key.ptr || key.space != speculum::KeySpace::Node) {
+    return nullptr;
+  }
+  return key.ptr;
 }
 
 nsINode* SpeculumNodeForId(uint32_t aContextId, uint32_t aNodeId) {

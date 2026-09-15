@@ -1,6 +1,8 @@
 // CSSOM no mesmo sequence/IdentityMap. Cadáver de regra some no DROP.
 #include "speculum/Producer.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -101,6 +103,8 @@ class FakeDom : public NodeSource {
   }
   std::string cssomRuleTextOf(const void* rule) const override { return at(rule)->value; }
   const void* cssomSheetOf(const void* rule) const override { return at(rule)->parent; }
+  bool isSheet(const void* n) const override { return at(n)->kind == NodeKind::Sheet; }
+  bool isRule(const void* n) const override { return at(n)->kind == NodeKind::Rule; }
 
  private:
   static const FakeNode* at(const void* n) { return static_cast<const FakeNode*>(n); }
@@ -222,5 +226,86 @@ int main() {
   }
 
   std::cout << "ok: CSSOM no mesmo sequence; cadaver de regra; resync sheets\n";
+
+  {
+    FakeDom chaos;
+    FakeNode* doc = chaos.makeElement("#document");
+    FakeNode* root = chaos.makeElement("html");
+    chaos.setDocument(doc);
+    chaos.append(doc, root);
+    for (int s = 0; s < 8; ++s) {
+      FakeNode* sh = chaos.makeSheet("s");
+      for (int r = 0; r < 16; ++r) chaos.makeRule(sh, "x { color: red; }");
+    }
+    Producer p2(chaos, kContextIdRoot, 0);
+    auto frame = p2.resyncVirtual(doc);
+    if (frame.size() < kFramePrefixBytes) return Fail("resync CSSOM ordem curto");
+    auto ru32 = [&](size_t at) -> uint32_t {
+      return static_cast<uint32_t>(frame[at]) | (static_cast<uint32_t>(frame[at + 1]) << 8) |
+             (static_cast<uint32_t>(frame[at + 2]) << 16) | (static_cast<uint32_t>(frame[at + 3]) << 24);
+    };
+    size_t o = kFramePrefixBytes;
+    const uint32_t nstr = ru32(o);
+    o += 4;
+    for (uint32_t i = 0; i < nstr; ++i) {
+      const uint32_t len = ru32(o);
+      o += 4 + len;
+    }
+    if (o + 4 > frame.size()) return Fail("resync CSSOM ordem sem ops");
+    o += 4;
+    size_t firstSheet = static_cast<size_t>(-1);
+    size_t firstRule = static_cast<size_t>(-1);
+    for (size_t i = o; i < frame.size(); ++i) {
+      if (frame[i] == static_cast<uint8_t>(Op::SheetNew) && firstSheet == static_cast<size_t>(-1)) {
+        firstSheet = i;
+      }
+      if (frame[i] == static_cast<uint8_t>(Op::RuleNew) && firstRule == static_cast<size_t>(-1)) {
+        firstRule = i;
+      }
+    }
+    if (firstSheet == static_cast<size_t>(-1) || firstRule == static_cast<size_t>(-1)) {
+      return Fail("resync CSSOM ordem sem SHEET_NEW/RULE_NEW");
+    }
+    if (firstRule < firstSheet) {
+      return Fail("resync emitiu RULE_NEW antes de SHEET_NEW");
+    }
+  }
+  std::cout << "ok: resync descreve sheets antes das rules\n";
+
+  {
+    FakeDom alias;
+    FakeNode* document = alias.makeElement("#document");
+    FakeNode* html = alias.makeElement("html");
+    alias.setDocument(document);
+    alias.append(document, html);
+    Producer p2(alias, kContextIdRoot, 0);
+    if (p2.resyncVirtual(document).empty()) return Fail("alias boot vazio");
+    FakeNode* recycled = alias.makeSheet("recycled");
+    FakeNode* rule = alias.makeRule(recycled, "x { color: red; }");
+    p2.onSheetAdded(recycled);
+    p2.onRuleAdded(recycled, rule);
+    if (p2.emitFrame().empty()) return Fail("alias sheet nao emitiu");
+    const uint32_t sheetId = p2.identity().idOf(recycled, KeySpace::Sheet);
+    if (sheetId == kNone) return Fail("alias sheet sem id");
+    recycled->kind = NodeKind::Element;
+    recycled->name = "img";
+    recycled->attrs.push_back(AttrPair{"src", "/logo.png"});
+    alias.append(html, recycled);
+    p2.onInserted(html, recycled);
+    p2.onAttrChanged(recycled, "src");
+    if (p2.emitFrame().empty()) return Fail("alias elemento nao emitiu");
+    const uint32_t nodeId = p2.identity().idOf(recycled, KeySpace::Node);
+    if (nodeId == kNone) return Fail("alias elemento sem id Node");
+    if (nodeId == sheetId) return Fail("id CSSOM colou no elemento");
+    const Row* el = p2.table().getRow(nodeId);
+    if (!el || el->kind != static_cast<uint32_t>(NodeKind::Element)) {
+      return Fail("elemento reusado nao e linha ELEMENT");
+    }
+    const Row* stillSheet = p2.table().getRow(sheetId);
+    if (stillSheet && stillSheet->kind == static_cast<uint32_t>(NodeKind::Element)) {
+      return Fail("ATTR_SET reescreveu a sheet como ELEMENT");
+    }
+  }
+  std::cout << "ok: ponteiro reusado CSSOM/DOM nao cola id\n";
   return 0;
 }

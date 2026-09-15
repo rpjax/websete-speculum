@@ -24,8 +24,8 @@
 #include "mozilla/dom/HTMLTextAreaElement.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/css/Rule.h"
-#include "mozilla/ErrorResult.h"
 #include "mozilla/StyleSheet.h"
+#include "mozilla/ServoCSSRuleList.h"
 #include "nsCOMPtr.h"
 #include "nsFrameLoaderOwner.h"
 #include "nsIDocShell.h"
@@ -90,6 +90,9 @@ speculum::NodeKind SpeculumNodeSource::kindOf(const void* node) const {
 }
 
 speculum::ElementNs SpeculumNodeSource::nsOf(const void* node) const {
+  if (IsCssom(node)) {
+    return speculum::ElementNs::None;
+  }
   nsINode* n = AsNode(node);
   nsIContent* content = n->AsContent();
   if (!content || !content->IsElement()) {
@@ -112,6 +115,9 @@ speculum::ElementNs SpeculumNodeSource::nsOf(const void* node) const {
 }
 
 std::string SpeculumNodeSource::uriOf(const void* node) const {
+  if (IsCssom(node)) {
+    return std::string();
+  }
   nsINode* n = AsNode(node);
   if (nsOf(node) != speculum::ElementNs::Custom) {
     return std::string();
@@ -122,6 +128,9 @@ std::string SpeculumNodeSource::uriOf(const void* node) const {
 }
 
 std::string SpeculumNodeSource::nameOf(const void* node) const {
+  if (IsCssom(node)) {
+    return std::string();
+  }
   nsINode* n = AsNode(node);
   if (n->NodeType() == nsINode::DOCUMENT_TYPE_NODE) {
     nsAutoString name;
@@ -132,6 +141,9 @@ std::string SpeculumNodeSource::nameOf(const void* node) const {
 }
 
 std::string SpeculumNodeSource::valueOf(const void* node) const {
+  if (IsCssom(node)) {
+    return std::string();
+  }
   nsINode* n = AsNode(node);
   if (!n->IsText() && !n->IsComment()) {
     return std::string();
@@ -143,6 +155,9 @@ std::string SpeculumNodeSource::valueOf(const void* node) const {
 
 std::vector<speculum::AttrPair> SpeculumNodeSource::attrsOf(const void* node) const {
   std::vector<speculum::AttrPair> out;
+  if (IsCssom(node)) {
+    return out;
+  }
   Element* el = Element::FromNode(AsNode(node));
   if (!el) {
     return out;
@@ -165,6 +180,9 @@ std::vector<speculum::AttrPair> SpeculumNodeSource::attrsOf(const void* node) co
 
 std::vector<const void*> SpeculumNodeSource::childrenOf(const void* node) const {
   std::vector<const void*> out;
+  if (IsCssom(node)) {
+    return out;
+  }
   for (nsIContent* child = AsNode(node)->GetFirstChild(); child;
        child = child->GetNextSibling()) {
     if (child->IsElement() || child->IsText() || child->IsComment() ||
@@ -176,10 +194,16 @@ std::vector<const void*> SpeculumNodeSource::childrenOf(const void* node) const 
 }
 
 bool SpeculumNodeSource::isUaOwned(const void* node) const {
+  if (IsCssom(node)) {
+    return false;
+  }
   return AsNode(node)->IsInNativeAnonymousSubtree();
 }
 
 bool SpeculumNodeSource::isNestedHost(const void* node) const {
+  if (IsCssom(node)) {
+    return false;
+  }
   Element* el = Element::FromNode(AsNode(node));
   if (!el || !el->IsInComposedDoc()) {
     return false;
@@ -189,6 +213,9 @@ bool SpeculumNodeSource::isNestedHost(const void* node) const {
 }
 
 uint32_t SpeculumNodeSource::childScopeIdOf(const void* node) const {
+  if (IsCssom(node)) {
+    return 0;
+  }
   Element* el = Element::FromNode(AsNode(node));
   if (!el) {
     return 0;
@@ -213,17 +240,26 @@ bool SpeculumNodeSource::isConnected(const void* node) const {
 }
 
 const void* SpeculumNodeSource::shadowRootOf(const void* host) const {
+  if (IsCssom(host)) {
+    return nullptr;
+  }
   Element* el = Element::FromNode(AsNode(host));
   return el ? el->GetShadowRoot() : nullptr;
 }
 
 const void* SpeculumNodeSource::shadowHostOf(const void* shadowRoot) const {
+  if (IsCssom(shadowRoot)) {
+    return nullptr;
+  }
   mozilla::dom::ShadowRoot* sr =
       mozilla::dom::ShadowRoot::FromNode(AsNode(shadowRoot));
   return sr ? sr->GetHost() : nullptr;
 }
 
 uint8_t SpeculumNodeSource::shadowModeOf(const void* shadowRoot) const {
+  if (IsCssom(shadowRoot)) {
+    return 0;
+  }
   mozilla::dom::ShadowRoot* sr =
       mozilla::dom::ShadowRoot::FromNode(AsNode(shadowRoot));
   if (!sr) {
@@ -235,6 +271,9 @@ uint8_t SpeculumNodeSource::shadowModeOf(const void* shadowRoot) const {
 std::vector<speculum::FormProp> SpeculumNodeSource::formPropsOf(
     const void* node) const {
   std::vector<speculum::FormProp> out;
+  if (IsCssom(node)) {
+    return out;
+  }
   nsINode* n = AsNode(node);
   if (auto* input = mozilla::dom::HTMLInputElement::FromNode(n)) {
     nsAutoString type;
@@ -284,11 +323,11 @@ void SpeculumNodeSource::CaptureLiveCssom() {
 
   auto noteSheet = [this](mozilla::StyleSheet& aSheet) {
     NoteSheet(&aSheet);
-    mozilla::ErrorResult rv;
-    mozilla::dom::CSSRuleList* list =
-        aSheet.GetCssRules(*mDocument->NodePrincipal(), rv);
-    if (rv.Failed() || !list) {
-      rv.SuppressException();
+    // Motor lendo o CSSOM próprio — não o cssRules do JS da página.
+    // GetCssRules(principal) recusa sheet incompleto e CORS; o bootstrap
+    // então emitia SHEET vazio e o resync ainda descartava o ponteiro.
+    mozilla::ServoCSSRuleList* list = aSheet.GetCssRulesInternal();
+    if (!list) {
       return;
     }
     const uint32_t n = list->Length();
@@ -341,6 +380,22 @@ void SpeculumNodeSource::CaptureLiveCssom() {
     }
   };
   walkComposed(walkComposed, mDocument);
+}
+
+bool SpeculumNodeSource::isSheet(const void* aPtr) const {
+  if (!aPtr) {
+    return false;
+  }
+  for (const void* s : mSheets) {
+    if (s == aPtr) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SpeculumNodeSource::isRule(const void* aPtr) const {
+  return aPtr && mRuleSheet.find(aPtr) != mRuleSheet.end();
 }
 
 void SpeculumNodeSource::NoteSheet(const void* aSheet) {

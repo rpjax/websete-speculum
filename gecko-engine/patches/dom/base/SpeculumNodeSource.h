@@ -37,6 +37,9 @@ class SpeculumNodeSource final : public speculum::NodeSource {
   uint32_t childScopeIdOf(const void* node) const override;
   bool isConnected(const void* node) const override;
 
+  bool isSheet(const void* aPtr) const override;
+  bool isRule(const void* aPtr) const override;
+
   const void* shadowRootOf(const void* host) const override;
   const void* shadowHostOf(const void* shadowRoot) const override;
   uint8_t shadowModeOf(const void* shadowRoot) const override;
@@ -56,6 +59,8 @@ class SpeculumNodeSource final : public speculum::NodeSource {
   const void* cssomSheetOf(const void* rule) const override;
 
  private:
+  bool IsCssom(const void* aPtr) const { return isSheet(aPtr) || isRule(aPtr); }
+
   uint64_t mDocToken;
   mozilla::dom::Document* mDocument = nullptr;
   std::vector<const void*> mSheets;

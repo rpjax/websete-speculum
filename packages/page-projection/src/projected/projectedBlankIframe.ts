@@ -62,6 +62,34 @@ export function stripProjectedSkeleton(doc: Document): void {
   while (doc.firstChild) doc.removeChild(doc.firstChild);
 }
 
+const PROJECTED_DOCUMENT_BASE_ATTR = 'data-speculum-document-base';
+
+/**
+ * Virtual document baseURI on the Projected surface — same class as K5 CSP:
+ * environment, not a replicated node. Relative `src`/`href`/`url()` then
+ * resolve to the site origin so the asset SW can intercept (doc 13).
+ */
+export function ensureProjectedDocumentBase(doc: Document, pageUrl: string): void {
+  if (!pageUrl) return;
+  const head = doc.head;
+  if (!head) return;
+  let href: string;
+  try {
+    href = new URL(pageUrl).href;
+  } catch {
+    return;
+  }
+  const existing = head.querySelector(`base[${PROJECTED_DOCUMENT_BASE_ATTR}]`);
+  if (existing) {
+    if (existing.getAttribute('href') !== href) existing.setAttribute('href', href);
+    return;
+  }
+  const base = doc.createElement('base');
+  base.setAttribute(PROJECTED_DOCUMENT_BASE_ATTR, '1');
+  base.href = href;
+  head.insertBefore(base, head.firstChild);
+}
+
 /**
  * Keep K5 CSP on the live Projected document after skeleton strip and before mirrored `<script>`
  * nodes materialize. Idempotent — safe on every apply insert / attr that would run script.

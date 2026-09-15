@@ -51,6 +51,7 @@ import {
   withScriptingOnPaintParity,
 } from './scriptingOnPaintParity';
 import {
+  ensureProjectedDocumentBase,
   ensureProjectedK5Csp,
   stampProjectedStandardsSrcdoc,
 } from './projectedBlankIframe';
@@ -92,6 +93,12 @@ export interface DomFrameApplierOptions {
   stampUrl?: (name: string, value: string) => string;
   /** Stamp cssText / rule text the same way. */
   stampCssText?: (text: string) => string;
+  /**
+   * Virtual page URL — Projected `<base>` + constructed stylesheet `baseURL`.
+   * Relative subresource URLs then match the Virtual document (doc 13).
+   */
+  documentBaseUrl?: string;
+  getDocumentBaseUrl?: () => string | undefined;
 }
 
 export class DomFrameApplier {
@@ -237,6 +244,8 @@ export class DomFrameApplier {
     // Phase 2 (materialize) — §6. Only reached once phase 1 has fully succeeded for the whole
     // frame — "cannot fail" (§6) because every op it touches was already validated above.
     // CSSOM still uses the iframe window's `CSSStyleSheet`; a cross-realm constructor throws.
+    const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || '';
+    if (documentBase) ensureProjectedDocumentBase(this.doc, documentBase);
     for (let i = 0; i < frame.ops.length; i++) {
       const op = frame.ops[i]!;
       try {
@@ -492,7 +501,10 @@ export class DomFrameApplier {
     if (view === null) return this.fail('bad_target', 'sheetNew', op.id);
     let sheet: CSSStyleSheet;
     try {
-      sheet = new view.CSSStyleSheet();
+      const base = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl;
+      sheet = base
+        ? new view.CSSStyleSheet({ baseURL: base })
+        : new view.CSSStyleSheet();
     } catch {
       return this.fail('malformed', 'sheetNew', op.id);
     }
@@ -729,7 +741,11 @@ export class DomFrameApplier {
       const id = op.ids[i]!;
       const node = this.registry.get(id);
       if (!node) return this.fail('address_miss', 'insert', id);
-      if (isHtmlScriptElement(node)) ensureProjectedK5Csp(this.doc);
+      if (isHtmlScriptElement(node)) {
+        ensureProjectedK5Csp(this.doc);
+        const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || '';
+        if (documentBase) ensureProjectedDocumentBase(this.doc, documentBase);
+      }
       // Standards seed may already own this DocumentType — re-insert throws HierarchyRequestError.
       if (
         node.nodeType === Node.DOCUMENT_TYPE_NODE
@@ -741,7 +757,13 @@ export class DomFrameApplier {
       parent.insertBefore(node, before);
       this.maybeInstallNestedHost(id, node);
     }
+    this.pinDocumentBase();
     return true;
+  }
+
+  private pinDocumentBase(): void {
+    const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || '';
+    if (documentBase) ensureProjectedDocumentBase(this.doc, documentBase);
   }
 
   private applyRemove(op: Extract<FrameOp, { op: OpCode.Remove }>): boolean {

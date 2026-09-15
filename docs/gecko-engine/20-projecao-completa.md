@@ -149,7 +149,7 @@ Não existe `ProjectionAttach`. Nested não ganha opcode de controle. `C` mora n
 
 ### L12 — Relógio de frame é timer; frame vazio não existe
 
-Não acoplar emissão ao paint. Ops no tick → um frame ou nada. `sequence` não anda no vazio.
+Não acoplar emissão ao paint. `nsITimer` no `GetMainThreadSerialEventTarget()` — não na fila do documento (headless/hidden congela essa). Ops no tick → um frame ou nada. `sequence` não anda no vazio.
 
 ### L13 — Apply no Projected é duas fases, estrito
 
@@ -309,12 +309,12 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | | |
 |--|--|
 | Lei | L15, P4 local / P5 autoritativo. |
-| Gancho | `HeadlessWidget`. |
+| Gancho | Widget do documento (`HeadlessWidget` no pai; no conteúdo, `PresShell::HandleEvent` deste documento). |
 | Fio | opcode `Input` na ABI de controle (doc 18): `contextId` + tipo + campos. Mesmo codec da ponte. Nested = o `C` do comando. |
 | Cliente | captura esparsa no Projected (JS nosso). K5 intacto. Encoder = os campos da ABI, não JSON. |
 | Prova | efeito no Virtual. Clique nested no `C` filho. Challenge: token no Virtual. |
-| Proibido | CDP, uinput, inject, `Runtime.evaluate`. JSON/MessagePack neste opcode. `move` no fio. Histórico via `Input`. |
-| Estado | **há.** Clique/tecla/scroll no widget. CSS px → LayoutDevice. `nodeId` 0 em down/up não aplica. Nested carimba o `C` do comando. |
+| Proibido | CDP, uinput, inject, `Runtime.evaluate`. JSON/MessagePack neste opcode. `move` no fio. Histórico via `Input`. `EventDispatcher` no `Document` (fura ESM). |
+| Estado | **há.** Clique: `PresShell::HandleEvent` (coordenada). Tecla: `HandleEventWithTarget` no root deste `C` — o opcode já nomeou o documento; `HandleEvent` sozinho manda tecla ao chrome. Sem `EventDispatcher` no `Document`. CSS px → LayoutDevice. `nodeId` 0 em down/up não aplica. Nested carimba o `C` do comando. |
 
 ### 2.9 Ativos (imagem, fonte, mídia) — V1 completo, doc 13 inteiro
 
@@ -386,9 +386,9 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 
 | | |
 |--|--|
-| Lei | `HistoryGo`, `Reload`, `Stop`. Hard-nav = Document novo, `generation` sobe **nessa** instância. Soft-nav não bump. L17. |
-| Prova | L4 `/a` → `/b` texto novo no fio. |
-| Estado | **há.** `HistoryGo` / `Reload` / `Stop` no pai, na aba (`ResolveLiveRoot`). Nested `C` neste V1 não é o back da iframe. |
+| Lei | `HistoryGo`, `Reload`, `Stop`. Hard-nav = Document novo, `generation` sobe **nessa** instância. Soft-nav não bump. L17. Back/bfcache = `pageshow` persistido → `resyncVirtual` (COMPLETE não dispara de novo). O mapa `C` → observer é o documento **visível**. |
+| Prova | L4 `/a` → `/b` texto novo no fio; back devolve `alpha`. |
+| Estado | **há.** `HistoryGo` é o passo SHIP no pai (`CanonicalBrowsingContext::HistoryGo`). Nested `C` neste V1 não é o back da iframe. |
 
 ### 2.18 Upload de arquivo — 1.1, não deste V1
 
@@ -402,7 +402,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | | |
 |--|--|
 | Lei | L12, L23, L24. Timer 16 ms; vazio não emite. Probe pode flush agora. Halt impede S+1 até o cliente aplicar S. |
-| Gancho | `nsITimer` já existe. Halt/Flush/Snapshot na ABI e no IPDL. |
+| Gancho | `nsITimer` 16 ms no main thread serial target. Halt/Flush/Snapshot na ABI e no IPDL. |
 | Proibido | descrever no callback e chamar isso de drain. |
 | Estado | **timer, halt, flush e Snapshot há.** Halt para o relógio; a fila continua; Flush chama `emitFrame`. |
 
@@ -415,7 +415,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Cliente | UI do produto decide; não o Gecko. |
 | Prova | um alerta, um deny de permissão, um download recusado — efeito no Virtual. |
 | Proibido | auto-ok no C++ “temporário”. |
-| Estado | **há.** `alert`/`confirm`/`prompt` no hunk da janela (`SpeculumAskAndWait`). Permissão e download no `ContentParent`; recusa = `Send__delete__`. Sem auto-ok. |
+| Estado | **há.** `alert`/`confirm`/`prompt` no hunk da janela (`SpeculumTryAskDialog`). Pedido conteúdo→pai é **sync** (o `*Requested` sai no WS antes do spin). Permissão e download no `ContentParent`; recusa = `Send__delete__`. Sem auto-ok. Sem cair no prompt nativo se a aba é projetada (headless trava). |
 
 ### 2.21 Pressão e item O
 

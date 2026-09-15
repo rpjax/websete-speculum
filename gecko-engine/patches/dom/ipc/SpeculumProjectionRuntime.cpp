@@ -12,6 +12,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/ErrorResult.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/SpinEventLoopUntil.h"
@@ -32,6 +33,8 @@
 #include "nsIWebProgressListener.h"
 #include "nsIWindowWatcher.h"
 #include "nsNetUtil.h"
+#include "nsDocShellLoadState.h"
+#include "nsDocShellLoadTypes.h"
 #include "nsCOMPtr.h"
 #include "nsIPrincipal.h"
 #include "nsPIDOMWindow.h"
@@ -271,6 +274,9 @@ struct SpeculumProjectionRuntime::Impl {
   std::map<uint64_t, uint32_t> bcIdToContextId;
   std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> contextToWindow;
   std::map<uint32_t, Epoch> epochs;
+  // HistoryGo do pai precisa de época > a que o SHIP tem, senão
+  // sameEpoch=true e o passo some ("not in same doc").
+  uint64_t nextHistoryEpoch = 1;
 
   class ProgressSink final : public nsIWebProgressListener,
                              public nsSupportsWeakReference {
@@ -495,6 +501,33 @@ struct SpeculumProjectionRuntime::Impl {
     progressSinks.erase(found);
   }
 
+  void RebindProgressSink(uint32_t aContextId, BrowsingContext* aLive) {
+    if (!aLive) {
+      return;
+    }
+    CanonicalBrowsingContext* canonical = aLive->Canonical();
+    if (!canonical) {
+      return;
+    }
+    nsIWebProgress* progress = canonical->GetWebProgress();
+    if (!progress) {
+      return;
+    }
+    const auto found = progressSinks.find(aContextId);
+    if (found == progressSinks.end()) {
+      return;
+    }
+    found->second->DetachFromProgress();
+    nsresult rv = progress->AddProgressListener(
+        found->second, nsIWebProgress::NOTIFY_STATE_WINDOW |
+                           nsIWebProgress::NOTIFY_STATE_NETWORK |
+                           nsIWebProgress::NOTIFY_LOCATION);
+    if (NS_FAILED(rv)) {
+      return;
+    }
+    found->second->SetProgress(progress);
+  }
+
   // A aba troca de BrowsingContext (bfcache, remoteness, COOP). O campo
   // SpeculumContextId vai no ReplacedBy; o ponteiro que o runtime guarda
   // precisa acompanhar, senão o Navigate seguinte fala com a aba velha.
@@ -502,19 +535,27 @@ struct SpeculumProjectionRuntime::Impl {
     if (!aLive) {
       return;
     }
-    StaticMutexAutoLock lock(projectedMutex);
-    const auto found = contextToRootBc.find(aContextId);
-    if (found == contextToRootBc.end() || found->second == aLive) {
-      return;
+    bool remapped = false;
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      const auto found = contextToRootBc.find(aContextId);
+      if (found == contextToRootBc.end()) {
+        return;
+      }
+      if (found->second != aLive) {
+        const uint64_t oldId = found->second->Id();
+        const uint64_t newId = aLive->Id();
+        found->second = aLive;
+        bcIdToContextId.erase(oldId);
+        bcIdToContextId[newId] = aContextId;
+        SPECULUM_LOG("[SPECULUM-BC] remap ctx=%u oldBc=%llu newBc=%llu",
+                     aContextId, static_cast<unsigned long long>(oldId),
+                     static_cast<unsigned long long>(newId));
+        remapped = true;
+      }
     }
-    const uint64_t oldId = found->second->Id();
-    const uint64_t newId = aLive->Id();
-    found->second = aLive;
-    bcIdToContextId.erase(oldId);
-    bcIdToContextId[newId] = aContextId;
-    SPECULUM_LOG("[SPECULUM-BC] remap ctx=%u oldBc=%llu newBc=%llu",
-            aContextId, static_cast<unsigned long long>(oldId),
-            static_cast<unsigned long long>(newId));
+    RebindProgressSink(aContextId, aLive);
+    (void)remapped;
   }
 
   already_AddRefed<BrowsingContext> ResolveLiveRoot(uint32_t aContextId) {
@@ -532,7 +573,15 @@ struct SpeculumProjectionRuntime::Impl {
         window = winIt->second;
       }
     }
-    RefPtr<BrowsingContext> live = PrimaryContentTop(window);
+    // SHIP troca o objeto BC da aba. O treeOwner chrome fica com o velho
+    // (IsReplaced). GetCurrentTopByBrowserId é o topo vivo desse browserId.
+    RefPtr<BrowsingContext> live;
+    if (stored) {
+      live = BrowsingContext::GetCurrentTopByBrowserId(stored->BrowserId());
+    }
+    if (!live) {
+      live = PrimaryContentTop(window);
+    }
     if (live && live != stored) {
       AdoptLiveRootBc(aContextId, live);
       return live.forget();
@@ -740,22 +789,47 @@ struct SpeculumProjectionRuntime::Impl {
       return;
     }
 
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical) {
+      SendFault(aCorrelationId, aContextId, "no canonical browsing context");
+      return;
+    }
+    if (canonical->IsReplaced()) {
+      SendFault(aCorrelationId, aContextId, "browsing context replaced");
+      return;
+    }
+    if (!canonical->GetContentParent() && !canonical->GetDocShell()) {
+      SendFault(aCorrelationId, aContextId, "no content process");
+      return;
+    }
+    RebindProgressSink(aContextId, bc);
+    (void)bc->RemoveRootFromBFCacheSync();
+
     const auto foundSink = progressSinks.find(aContextId);
     if (foundSink == progressSinks.end()) {
       SendFault(aCorrelationId, aContextId, "no progress listener");
       return;
     }
-    // Armar ANTES do Navigate: o START pode chegar síncrono. Sem isto o STOP
+    // Armar ANTES do LoadURI: o START pode chegar síncrono. Sem isto o STOP
     // da carga anterior (about:blank, página velha) vira Navigated falso.
     foundSink->second->WaitForNavigated(aCorrelationId);
 
+    // LoadURI no pai, sem documento-fonte. Navigate() usa a janela incumbente
+    // (chrome) como origem e, depois de HistoryGo, CanNavigate/SendLoadURI
+    // por esse caminho some em silêncio — sem START, sem alert, sem pedido.
+    RefPtr<nsDocShellLoadState> loadState = new nsDocShellLoadState(uri);
     RefPtr<nsIPrincipal> systemPrincipal = SystemPrincipal::Get();
-    ErrorResult error;
-    bc->Navigate(uri, /* aSourceDocument */ nullptr, *systemPrincipal, error);
-    if (error.Failed()) {
+    loadState->SetTriggeringPrincipal(systemPrincipal);
+    loadState->SetFirstParty(true);
+    loadState->SetLoadType(LOAD_STOP_CONTENT);
+    loadState->SetLoadFlags(nsIWebNavigation::LOAD_FLAGS_NONE);
+    SPECULUM_LOG("[SPECULUM-CTRL] LoadURI ctx=%u bc=%llu cp=%p replaced=%d",
+                 aContextId, static_cast<unsigned long long>(canonical->Id()),
+                 canonical->GetContentParent(), int(canonical->IsReplaced()));
+    rv = bc->LoadURI(loadState);
+    if (NS_FAILED(rv)) {
       foundSink->second->CancelWaitForNavigated();
       SendFault(aCorrelationId, aContextId, "navigate failed");
-      return;
     }
   }
 
@@ -980,6 +1054,7 @@ struct SpeculumProjectionRuntime::Impl {
     }
   }
 
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   void HandleHistoryGo(uint32_t aCorrelationId, uint32_t aContextId,
                        int32_t aDelta) {
     RefPtr<BrowsingContext> bc = ResolveLiveRoot(aContextId);
@@ -987,19 +1062,26 @@ struct SpeculumProjectionRuntime::Impl {
       SendFault(aCorrelationId, aContextId, "unknown contextId");
       return;
     }
-    CanonicalBrowsingContext* canonical = bc->Canonical();
+    RefPtr<CanonicalBrowsingContext> canonical = bc->Canonical();
     if (!canonical) {
       SendFault(aCorrelationId, aContextId, "no canonical browsing context");
       return;
     }
-    mozilla::dom::Optional<int32_t> epoch;
-    const int32_t steps = aDelta < 0 ? -aDelta : aDelta;
-    for (int32_t i = 0; i < steps; ++i) {
-      if (aDelta < 0) {
-        canonical->GoBack(epoch, false, true);
-      } else {
-        canonical->GoForward(epoch, false, true);
-      }
+    if (aDelta == 0) {
+      return;
+    }
+    // SHIP aplica o passo no pai. GoBack() no Canonical só mexe no
+    // nsDocShell in-process (chrome) ou manda RecvGoBack ao filho — se os
+    // dois forem null, some em silêncio e o cliente fica na página nova.
+    SPECULUM_LOG("[SPECULUM-CTRL] HistoryGo ctx=%u delta=%d bc=%llu",
+                 aContextId, aDelta,
+                 static_cast<unsigned long long>(canonical->Id()));
+    const mozilla::Maybe<int32_t> index = canonical->HistoryGo(
+        aDelta, nextHistoryEpoch++, /*aRequireUserInteraction*/ false,
+        /*aUserActivation*/ true, /*aCheckForCancelation*/ false,
+        mozilla::Nothing(), [](nsresult) {});
+    if (index.isNothing()) {
+      SendFault(aCorrelationId, aContextId, "history go failed");
     }
   }
 
@@ -1511,6 +1593,14 @@ SpeculumProjectionRuntime::Impl::ProgressSink::OnLocationChange(
     return NS_OK;
   }
   (void)aLocation->GetSpec(mLastLocation);
+  nsCOMPtr<mozIDOMWindowProxy> win;
+  if (NS_SUCCEEDED(aWebProgress->GetDOMWindow(getter_AddRefs(win))) && win) {
+    if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(win)) {
+      if (mozilla::dom::BrowsingContext* docBc = outer->GetBrowsingContext()) {
+        mImpl->AdoptLiveRootBc(mContextId, docBc->Top());
+      }
+    }
+  }
   return NS_OK;
 }
 

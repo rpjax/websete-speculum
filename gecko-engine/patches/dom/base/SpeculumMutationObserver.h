@@ -80,6 +80,7 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
 
 void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
 void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
+void SpeculumBindLiveDocument(mozilla::dom::Document* aDocument);
 void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce);
 void SpeculumHaltClocks();
 void SpeculumResumeClocks();

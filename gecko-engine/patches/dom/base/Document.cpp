@@ -12596,6 +12596,15 @@ void Document::OnPageShow(bool aPersisted, EventTarget* aDispatchStartTarget,
     UpdateVisibilityState();
   }
 
+  // Saindo do bfcache: o cliente aplicou o documento que entrou no lugar
+  // deste. COMPLETE não dispara de novo. O seed é o mesmo do frio —
+  // resyncVirtual — não um tick incremental sobre a tabela da página nova.
+  if (aPersisted && mSpeculumWatchingDOMMutations) {
+    mSpeculumBootstrapped = false;
+    SpeculumTryWriteBootstrapFrame(this);
+  }
+  SpeculumBindLiveDocument(this);
+
   NotifyActivityChanged();
 
   EnumerateExternalResources([aPersisted](Document& aExternalResource) {

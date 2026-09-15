@@ -17,6 +17,7 @@
 #include "nsDebug.h"
 #include "nsReadableUtils.h"
 #include "nsTArray.h"
+#include "nsThreadUtils.h"
 #include "speculum/Producer.h"
 #include "speculum/Wire.h"
 
@@ -248,11 +249,24 @@ void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
   if (mState->producer.halted()) {
     return;
   }
-  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mState->frameTimer), this,
-                                        16, nsITimer::TYPE_ONE_SHOT);
-  if (NS_FAILED(rv)) {
-    mState->frameTimer = nullptr;
+  // Relógio da sessão, não o da aba. Sem alvo explícito o Gecko usa
+  // GetCurrentSerialEventTarget() — no callback de load/mutação isso é a
+  // fila do DocGroup. Headless (e aba hidden) congela essa fila: o
+  // bootstrap (síncrono) sai, o tick de 16 ms nunca dispara.
+  nsISerialEventTarget* target = GetMainThreadSerialEventTarget();
+  if (!target) {
+    SPECULUM_LOG("[SPECULUM-TICK] arm ctx=%u sem main thread", mState->contextId);
+    return;
   }
+  nsresult rv = NS_NewTimerWithCallback(getter_AddRefs(mState->frameTimer), this,
+                                        16, nsITimer::TYPE_ONE_SHOT, target);
+  if (NS_FAILED(rv)) {
+    SPECULUM_LOG("[SPECULUM-TICK] arm ctx=%u rv=%x", mState->contextId,
+                 static_cast<unsigned>(rv));
+    mState->frameTimer = nullptr;
+    return;
+  }
+  SPECULUM_LOG("[SPECULUM-TICK] arm ctx=%u", mState->contextId);
 }
 
 NS_IMETHODIMP
@@ -272,6 +286,8 @@ void SpeculumMutationObserver::EmitPendingFrame() {
   const mozilla::TimeStamp t0 = StampIfOn();
   std::vector<uint8_t> frame = mState->producer.emitFrame();
   if (frame.empty()) {
+    SPECULUM_LOG("[SPECULUM-TICK] vazio ctx=%u seq=%u", mState->contextId,
+                 mState->producer.sequence());
     return;
   }
   SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(),
@@ -523,4 +539,15 @@ void SpeculumDetachMutationObserverFromDocument(Document* aDocument) {
   obs->CancelFrameTimer();
   aDocument->RemoveMutationObserver(obs);
   aDocument->SetSpeculumMutationObserver(nullptr);
+}
+
+void SpeculumBindLiveDocument(Document* aDocument) {
+  if (!aDocument) {
+    return;
+  }
+  SpeculumMutationObserver* obs = aDocument->GetSpeculumMutationObserver();
+  if (!obs || obs->ContextId() == 0) {
+    return;
+  }
+  RegisterObserver(obs->ContextId(), obs);
 }

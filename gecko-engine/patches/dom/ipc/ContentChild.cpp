@@ -11,6 +11,7 @@
 #include "SpeculumMutationObserver.h"
 #include "SpeculumInput.h"
 #include "SpeculumMarionette.h"
+#include "SpeculumLog.h"
 
 #include <vector>
 #include "GMPServiceChild.h"
@@ -2188,7 +2189,9 @@ mozilla::ipc::IPCResult ContentChild::RecvSpeculumSnapshot(
 
 mozilla::ipc::IPCResult ContentChild::RecvSpeculumInput(
     const uint32_t& aContextId, nsTArray<uint8_t>&& aEvent) {
-  SpeculumSynthesizeInput(SpeculumDocumentForContext(aContextId), aEvent);
+  mozilla::dom::Document* doc = SpeculumDocumentForContext(aContextId);
+  SPECULUM_LOG("[SPECULUM-INPUT] recv ctx=%u doc=%p", aContextId, doc);
+  SpeculumSynthesizeInput(doc, aEvent);
   return IPC_OK();
 }
 

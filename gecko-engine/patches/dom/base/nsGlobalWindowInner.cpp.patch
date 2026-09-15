@@ -9,58 +9,37 @@ diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
  
  #include <inttypes.h>
  #include <stdio.h>
-@@ -3986,6 +3987,16 @@ void nsGlobalWindowInner::Alert(nsIPrincipal& aSubjectPrincipal,
+@@ -3986,6 +3987,13 @@ void nsGlobalWindowInner::Alert(nsIPrincipal& aSubjectPrincipal,
  void nsGlobalWindowInner::Alert(const nsAString& aMessage,
                                  nsIPrincipal& aSubjectPrincipal,
                                  ErrorResult& aError) {
-+  if (mozilla::dom::BrowsingContext* bc = GetBrowsingContext()) {
-+    const uint32_t ctx = bc->GetSpeculumContextId();
-+    if (ctx) {
-+      nsAutoCString desc;
-+      CopyUTF16toUTF8(aMessage, desc);
-+      nsAutoCString ans;
-+      (void)SpeculumAskAndWait(ctx, SpeculumAskKind::Dialog, desc, ans);
-+      return;
-+    }
++  nsAutoCString ans;
++  if (SpeculumTryAskDialog(GetBrowsingContext(), aMessage, ans)) {
++    return;
 +  }
    FORWARD_TO_OUTER_OR_THROW(AlertOuter, (aMessage, aSubjectPrincipal, aError),
                              aError, );
  }
-@@ -3993,6 +4004,19 @@ void nsGlobalWindowInner::Alert(const nsAString& aMessage,
+@@ -3993,6 +4001,13 @@ void nsGlobalWindowInner::Alert(const nsAString& aMessage,
  bool nsGlobalWindowInner::Confirm(const nsAString& aMessage,
                                    nsIPrincipal& aSubjectPrincipal,
                                    ErrorResult& aError) {
-+  if (mozilla::dom::BrowsingContext* bc = GetBrowsingContext()) {
-+    const uint32_t ctx = bc->GetSpeculumContextId();
-+    if (ctx) {
-+      nsAutoCString desc;
-+      CopyUTF16toUTF8(aMessage, desc);
-+      nsAutoCString ans;
-+      if (!SpeculumAskAndWait(ctx, SpeculumAskKind::Dialog, desc, ans)) {
-+        return false;
-+      }
-+      return ans.EqualsLiteral("1") || ans.EqualsLiteral("ok") ||
-+             ans.EqualsLiteral("true") || ans.EqualsLiteral("allow");
-+    }
++  nsAutoCString ans;
++  if (SpeculumTryAskDialog(GetBrowsingContext(), aMessage, ans)) {
++    return ans.EqualsLiteral("1") || ans.EqualsLiteral("ok") ||
++           ans.EqualsLiteral("true") || ans.EqualsLiteral("allow");
 +  }
    FORWARD_TO_OUTER_OR_THROW(ConfirmOuter, (aMessage, aSubjectPrincipal, aError),
                              aError, false);
  }
-@@ -4007,6 +4031,18 @@ void nsGlobalWindowInner::Prompt(const nsAString& aMessage,
+@@ -4007,6 +4022,12 @@ void nsGlobalWindowInner::Prompt(const nsAString& aMessage,
                                   const nsAString& aInitial, nsAString& aReturn,
                                   nsIPrincipal& aSubjectPrincipal,
                                   ErrorResult& aError) {
-+  if (mozilla::dom::BrowsingContext* bc = GetBrowsingContext()) {
-+    const uint32_t ctx = bc->GetSpeculumContextId();
-+    if (ctx) {
-+      nsAutoCString desc;
-+      CopyUTF16toUTF8(aMessage, desc);
-+      nsAutoCString ans;
-+      if (SpeculumAskAndWait(ctx, SpeculumAskKind::Dialog, desc, ans)) {
-+        CopyUTF8toUTF16(ans, aReturn);
-+      }
-+      return;
-+    }
++  nsAutoCString ans;
++  if (SpeculumTryAskDialog(GetBrowsingContext(), aMessage, ans)) {
++    CopyUTF8toUTF16(ans, aReturn);
++    return;
 +  }
    FORWARD_TO_OUTER_OR_THROW(
        PromptOuter, (aMessage, aInitial, aReturn, aSubjectPrincipal, aError),

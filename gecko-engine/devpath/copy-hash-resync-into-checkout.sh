@@ -52,8 +52,10 @@ HUNK="$REPO/gecko-engine/patches/dom/base/nsGlobalWindowInner.cpp.patch"
 TARGET="$GECKO/dom/base/nsGlobalWindowInner.cpp"
 [ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
 [ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
-if grep -q 'SpeculumAskAndWait' "$TARGET"; then
+if grep -q 'SpeculumTryAskDialog' "$TARGET"; then
   echo "window dialog hunk already applied"
+elif grep -q 'SpeculumAskAndWait' "$TARGET"; then
+  python3 "$(dirname "$0")/upgrade-window-dialog-hunk.py" "$TARGET"
 else
   patch -d "$GECKO" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
 fi

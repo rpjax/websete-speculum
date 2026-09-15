@@ -795,7 +795,7 @@ public static class StackTests
                         _ =>
                             "<!doctype html><html><head><title>spec-a</title></head><body><h1 id=\"spec-page-a\">alpha</h1>" +
                             "<button id=\"spec-go\">go</button><p id=\"spec-out\">idle</p>" +
-                            "<script>requestAnimationFrame(function(){document.getElementById('spec-page-a').textContent='alpha-tick';});" +
+                            "<script>window.addEventListener('load',function(){document.getElementById('spec-page-a').textContent='alpha-tick';});" +
                             "document.addEventListener('keydown',function(e){if(e.key==='x')document.getElementById('spec-out').textContent='clicked';});" +
                             "document.getElementById('spec-go').addEventListener('click',function(){document.getElementById('spec-out').textContent='clicked';});</script>" +
                             "</body></html>",

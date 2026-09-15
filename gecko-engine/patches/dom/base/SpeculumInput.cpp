@@ -5,6 +5,7 @@
 #include "SpeculumMutationObserver.h"
 #include "SpeculumTelemetry.h"
 #include "mozilla/EventForwards.h"
+#include "mozilla/FlushType.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/TextEvents.h"
@@ -136,9 +137,12 @@ void DispatchMouse(Document* aDocument, Element* aElement, bool aDown,
 
 void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
                  const nsCString& aCode, uint8_t aMods) {
+  aDocument->FlushPendingNotifications(mozilla::FlushType::Layout);
+  RefPtr<PresShell> pres = aDocument->GetPresShell();
   nsIWidget* widget = RootWidget(aDocument);
-  PresShell* pres = aDocument->GetPresShell();
-  if (!widget || !pres) {
+  Element* target = aDocument->GetDocumentElement();
+  if (!pres || !widget || !target || !target->IsInComposedDoc()) {
+    SPECULUM_LOG("[SPECULUM-INPUT] tecla sem presshell/widget/root");
     return;
   }
 
@@ -159,8 +163,12 @@ void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
   if (aMods & 8) {
     event.mModifiers |= mozilla::MODIFIER_META;
   }
+  (void)widget->AttachNativeKeyEvent(event);
+  // HandleEvent() retargeta tecla para a janela focada (chrome). O opcode já
+  // nomeou este documento — mesmo API que o nsDOMWindowUtils usa para tecla
+  // confiável neste PresShell, sem EventDispatcher no Document.
   nsEventStatus status = nsEventStatus_eIgnore;
-  pres->HandleEvent(pres->GetRootFrame(), &event, false, &status);
+  pres->HandleEventWithTarget(&event, nullptr, target, &status);
 }
 
 void ApplyScroll(Document* aDocument, uint32_t aNodeId, uint16_t aFracX,
@@ -203,6 +211,7 @@ void ApplyScroll(Document* aDocument, uint32_t aNodeId, uint16_t aFracX,
 void SpeculumSynthesizeInput(Document* aDocument,
                              const nsTArray<uint8_t>& aEvent) {
   if (!aDocument || aEvent.IsEmpty()) {
+    SPECULUM_LOG("[SPECULUM-INPUT] sem documento ou envelope vazio");
     return;
   }
 

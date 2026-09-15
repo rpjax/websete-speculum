@@ -23,6 +23,7 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "nsServiceManagerUtils.h"
 #include "nsString.h"
+#include "nsStringStream.h"
 #include "nsThreadUtils.h"
 
 #include <cstring>
@@ -127,7 +128,7 @@ void AppendTee(const std::string& aKey, uint64_t aOffset, const uint8_t* aData,
   }
 }
 
-uint32_t PolicyOf(SpeculumAssetDest aDest) {
+nsContentPolicyType PolicyOf(SpeculumAssetDest aDest) {
   switch (aDest) {
     case SpeculumAssetDest::Image:
       return nsIContentPolicy::TYPE_INTERNAL_IMAGE;

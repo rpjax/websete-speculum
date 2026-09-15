@@ -193,8 +193,7 @@ foto já pintada, não um segundo download, não um GET do supervisor.
 **Proibido:** segunda ida à origem “porque é mais fácil”; copiar bitmap/decode;
 lista de sinks; o supervisor baixar com outra identidade.
 
-A cola no fork é o canal (`nsIChannel` / listener), não um cache de corpo
-inteiro e não um `fetch` paralelo.
+A cola no fork é o canal (`nsIChannel` / listener): tee se a página já pediu; senão abre com o principal do documento. Não é cache de corpo inteiro e não é `fetch` paralelo. Zero `NullPrincipal` no registry.
 
 ## 10. Ainda evidência de cliente (não reabre o §9)
 

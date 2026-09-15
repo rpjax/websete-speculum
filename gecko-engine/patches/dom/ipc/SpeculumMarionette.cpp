@@ -12,13 +12,13 @@
 
 namespace {
 
-struct Pending {
+struct AskPending {
   nsCString answer;
   bool done = false;
 };
 
 mozilla::Monitor gDialogMon{"SpeculumDialog"};
-std::map<uint64_t, Pending> gPending;
+std::map<uint64_t, AskPending> gPending;
 
 uint64_t Key(uint32_t aContextId, uint32_t aRequestId) {
   return (uint64_t(aContextId) << 32) | aRequestId;
@@ -32,7 +32,7 @@ bool SpeculumWaitDialogRespond(uint32_t aContextId, uint32_t aRequestId,
   const uint64_t key = Key(aContextId, aRequestId);
   {
     mozilla::MonitorAutoLock lock(gDialogMon);
-    gPending[key] = Pending{};
+    gPending[key] = AskPending{};
   }
   bool ok = mozilla::SpinEventLoopUntil("SpeculumWaitDialog"_ns, [&]() {
     mozilla::MonitorAutoLock lock(gDialogMon);

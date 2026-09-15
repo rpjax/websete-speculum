@@ -17,6 +17,7 @@
 #include "nsReadableUtils.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CSSRuleList.h"
 #include "mozilla/dom/HTMLInputElement.h"
 #include "mozilla/dom/HTMLOptionElement.h"
@@ -248,7 +249,7 @@ std::vector<speculum::FormProp> SpeculumNodeSource::formPropsOf(
                !type.LowerCaseEqualsLiteral("reset") &&
                !type.LowerCaseEqualsLiteral("image")) {
       nsAutoString value;
-      input->GetValue(value);
+      input->GetValue(value, mozilla::dom::CallerType::System);
       out.push_back(speculum::FormProp{
           0x01, speculum::PropValue::str(Utf8FromUtf16(value))});
     }

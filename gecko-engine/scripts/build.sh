@@ -3,10 +3,10 @@
 # Ver docs/gecko-engine/03-build.md.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HERE="${SPECULUM_GECKO_ENGINE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ROOT="${SPECULUM_GECKO_ROOT:-$HERE}"
 # shellcheck disable=SC1091
-source "$HERE/UPSTREAM"
+source <(sed 's/\r$//' "$HERE/UPSTREAM")
 
 CHECKOUT="$ROOT/checkout"
 [ -d "$CHECKOUT/.git" ] || { echo "ABORT: checkout/ nao existe. Rodar scripts/fork-init.sh." >&2; exit 1; }
@@ -27,7 +27,7 @@ TARGET="$CHECKOUT/dom/base/nsGlobalWindowInner.cpp"
 if grep -q 'SpeculumAskAndWait' "$TARGET"; then
   echo "window dialog hunk already applied"
 else
-  patch -d "$CHECKOUT" -p1 --fuzz=0 < "$HUNK"
+  patch -d "$CHECKOUT" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
 fi
 
 HUNK="$HERE/patches/dom/base/ShadowRoot.cpp.patch"
@@ -37,7 +37,7 @@ TARGET="$CHECKOUT/dom/base/ShadowRoot.cpp"
 if grep -q 'SpeculumNotifyRuleAdded' "$TARGET"; then
   echo "shadow css hunk already applied"
 else
-  patch -d "$CHECKOUT" -p1 --fuzz=0 < "$HUNK"
+  patch -d "$CHECKOUT" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
 fi
 
 MODE="${1:-build}"

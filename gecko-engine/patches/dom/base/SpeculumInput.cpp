@@ -130,8 +130,8 @@ void DispatchMouse(Document* aDocument, Element* aElement, bool aDown,
                                  : mozilla::MouseButton::ePrimary;
   event.mClickCount = 1;
   event.mInputSource = mozilla::dom::MouseEvent_Binding::MOZ_SOURCE_MOUSE;
-  mozilla::EventStatus status = mozilla::eEventStatus_eIgnore;
-  pres->HandleEvent(pres->GetRootFrame(), event, false, &status);
+  nsEventStatus status = nsEventStatus_eIgnore;
+  pres->HandleEvent(pres->GetRootFrame(), &event, false, &status);
 }
 
 void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
@@ -159,8 +159,8 @@ void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
   if (aMods & 8) {
     event.mModifiers |= mozilla::MODIFIER_META;
   }
-  mozilla::EventStatus status = mozilla::eEventStatus_eIgnore;
-  pres->HandleEvent(pres->GetRootFrame(), event, false, &status);
+  nsEventStatus status = nsEventStatus_eIgnore;
+  pres->HandleEvent(pres->GetRootFrame(), &event, false, &status);
 }
 
 void ApplyScroll(Document* aDocument, uint32_t aNodeId, uint16_t aFracX,

@@ -9,7 +9,7 @@ diff --git a/dom/base/ShadowRoot.cpp b/dom/base/ShadowRoot.cpp
  
  #include "ChildIterator.h"
  #include "mozilla/DeclarationBlock.h"
-@@ -405,6 +406,12 @@ void ShadowRoot::RemoveSlot(HTMLSlotElement* aSlot) {
+@@ -405,6 +406,11 @@ void ShadowRoot::RemoveSlot(HTMLSlotElement* aSlot) {
  // FIXME(emilio): There's a bit of code duplication between this and the
  // equivalent ServoStyleSet methods, it'd be nice to not duplicate it...
  void ShadowRoot::RuleAdded(StyleSheet& aSheet, css::Rule& aRule) {
@@ -21,7 +21,7 @@ diff --git a/dom/base/ShadowRoot.cpp b/dom/base/ShadowRoot.cpp
    if (!aSheet.IsApplicable()) {
      return;
    }
-@@ -423,6 +430,9 @@ void ShadowRoot::RuleAdded(StyleSheet& aSheet, css::Rule& aRule) {
+@@ -423,6 +429,9 @@ void ShadowRoot::RuleAdded(StyleSheet& aSheet, css::Rule& aRule) {
  }
  
  void ShadowRoot::RuleRemoved(StyleSheet& aSheet, css::Rule& aRule) {
@@ -31,8 +31,7 @@ diff --git a/dom/base/ShadowRoot.cpp b/dom/base/ShadowRoot.cpp
    if (!aSheet.IsApplicable()) {
      return;
    }
-@@ -436,7 +446,10 @@ void ShadowRoot::RuleRemoved(StyleSheet& aSheet, css::Rule& aRule) {
- }
+@@ -437,6 +446,9 @@ void ShadowRoot::RuleRemoved(StyleSheet& aSheet, css::Rule& aRule) {
  
  void ShadowRoot::RuleChanged(StyleSheet& aSheet, css::Rule* aRule,
                               const StyleRuleChange& aChange) {
@@ -42,8 +41,7 @@ diff --git a/dom/base/ShadowRoot.cpp b/dom/base/ShadowRoot.cpp
    if (!aSheet.IsApplicable()) {
      return;
    }
-@@ -481,7 +494,10 @@ void ShadowRoot::ApplicableRulesChanged() {
- }
+@@ -482,6 +494,9 @@ void ShadowRoot::ApplicableRulesChanged() {
  
  void ShadowRoot::InsertSheetAt(size_t aIndex, StyleSheet& aSheet) {
    DocumentOrShadowRoot::InsertSheetAt(aIndex, aSheet);
@@ -53,7 +51,7 @@ diff --git a/dom/base/ShadowRoot.cpp b/dom/base/ShadowRoot.cpp
    if (aSheet.IsApplicable()) {
      InsertSheetIntoAuthorData(aIndex, aSheet, mStyleSheets);
    }
-@@ -589,6 +605,9 @@ void ShadowRoot::AppendBuiltInStyleSheet(BuiltInStyleSheet aSheet) {
+@@ -589,6 +604,9 @@ void ShadowRoot::AppendBuiltInStyleSheet(BuiltInStyleSheet aSheet) {
  }
  
  void ShadowRoot::RemoveSheetFromStyles(StyleSheet& aSheet) {

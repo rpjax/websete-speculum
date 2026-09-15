@@ -265,7 +265,7 @@ programa sem degrau é parte que pode trair.
 | Drain L24, shadow, PROP no tick, CSSOM no mesmo sequence | L0 |
 | CLI do Producer (fixture do L3-PP) | L0 |
 | Codec da ABI de controle, dos dois lados | L1 |
-| Halt / Flush / Snapshot / Kind 0x05 e 0x06 | L1 + L2 |
+| Halt / Flush / Snapshot | L1 + L2 |
 | Enquadramento do envelope, leitura curta, limites | L2 |
 | Supervisor: tabela de contextos, atribuição de id | L3 wiring |
 | Supervisor: comando de consumidor → comando de browser | L3 wiring |
@@ -275,7 +275,8 @@ programa sem degrau é parte que pode trair.
 | Input esparso / viewport / histórico (diário) | L3 |
 | Dialog pede e espera; `DialogRequested` no WS | L3 marionette |
 | `SnapshotServed` no WS do consumidor | L3-PP |
-| Tee por offset + relay Kind 0x05/0x06; HTML/JS/CSS = denied | L0 tee + L3 assets |
+| Tee por offset + relay Kind 0x06; HTML/JS/CSS = denied | L0 tee + L3 assets |
+| Telemetria Kind 0x05 (codec) | L1 + L2 |
 | SW projected: `ready` + token em header | unit tsx (K5) |
 | Upload | **1.1** — fora deste V1 |
 | Lab: conformidade com lab protocol v1 | L3 — próximo incremento (§5) |

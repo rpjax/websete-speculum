@@ -248,7 +248,7 @@ Estado = este fork. Verde no sidecar JS **não** conta.
 | Cliente | `applyFrameToTableChecked` + materialize. |
 | Prova | L0 `producer_loop` + `producer_lifecycle` (churn, move, ponteiro reusado) + L5 + oráculo de snapshot no lab. |
 | Proibido | Bootstrap DomMap; DROP só no destroy; `TEXT_SET` sem conferir kind. |
-| Estado | **há** cola + núcleo. DROP no tick do remove está no header; **Firefox precisa rebuild** para levar. Stress `prepend`/`churn` no binário velho ainda quebra. |
+| Estado | **há** cola + núcleo. DROP no tick do remove. Prova de stress no Firefox = este mach + L4. |
 
 ### 2.3 Identidade e GC de linha
 
@@ -259,12 +259,12 @@ Coberta por L5. Sem plano paralelo. Teste obrigatório: churn sem `onDestroyed` 
 | | |
 |--|--|
 | Lei | L6, L12. Completeness no establish/resync; live **percebido** 1:1, não lockstep com o paint. Sensor = mutação do **CSSOM autorado** (`css::Rule` / lista de sheets), não estilo computado. |
-| Gancho | `StyleSheet::RuleAdded/Removed/Changed`, `ApplicableStateChanged`, adopted/constructed. Um `Producer` por `window`. Enfileira no callback; drena no `emitFrame` — **igual ao DOM**. |
+| Gancho | `Document::RuleAdded/Removed/Changed`, `InsertSheetAt`, `PostStyleSheetRemovedEvent`. No Firefox 153 o sheet do shadow **não** passa pelo Document: o mesmo `SpeculumNotify*` está em `ShadowRoot::Rule*` / `InsertSheetAt` / `RemoveSheetFromStyles`. Um `Producer` por `window`. Enfileira no callback; drena no `emitFrame` — **igual ao DOM**. |
 | Fio | `SHEET_*` / `RULE_*` no **mesmo** frame, `sequence` e teto de 16 ms do DOM. Sem relógio CSSOM à parte. Sem esperar restyle/layout do Servo (`FlushPendingNotifications` não é gate de emissão). |
 | Cliente | CSSOM owned + id Map. Sem recarregar URL viva. |
 | Prova | L0 fonte falsa; L4 regra visível; iso = tabela×tabela (+ opcional tabela×`StyleSheet` vivo no halt). Paint 1:1 não é este probe. |
 | Proibido | poll/idle; ler computed style; emitir no commit de paint; copiar `cssRules` em fatia e “commitar” depois (o pass in-flight do Chromium). |
-| Estado | **núcleo há** (drain no `emitFrame`, L24 de regra/sheet, texto da fonte no drain). Cola: `Document::RuleAdded/Removed/Changed`, `InsertSheetAt` e `PostStyleSheetRemovedEvent` chamam `SpeculumNotify*`. Texto = `css::Rule::GetCssText`. Bootstrap/resync força captura das sheets vivas (`SheetAt` + `AdoptedStyleSheets`). **Firefox precisa rebuild.** Sem rebuild o CSSOM no fio não existe. Sheets de ShadowRoot ainda não. |
+| Estado | **cola há** (documento e shadow, establish e live). Texto = `css::Rule::GetCssText`. Bootstrap/resync anda `ShadowRoot` (`walkComposed`). |
 
 Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo é o poll JS (copia a lista, cede, hasheia depois — pass **uncommitted**). Aqui o motor avisa **depois** da mutação no objeto. O conjunto sujo espera o tick; o frame leva o CSSOM que ainda está vivo no drain, como o DOM. Restyle do Servo pode estar sujo — a gente **não lê** isso.
 
@@ -278,7 +278,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Cliente | `attachShadow` na fase 2 (open ou closed). Mapa de root fechado **no Projected**, não no Virtual. |
 | Prova | L0 fake shadow + L4 open, named e closed programático. |
 | Proibido | MutationObserver JS; `closedShadowCapture`; achatar slot; misturar light+shadow. |
-| Estado | **núcleo sabe**; `MaybeObserveShadow` pende o observer no root. `childrenOf` é só luz. |
+| Estado | **há.** `MaybeObserveShadow` pende o observer no root. `childrenOf` é só luz. CSS live do shadow = plano 2.4. |
 
 ### 2.6 Nested browsing context (tipo 2)
 
@@ -314,7 +314,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Cliente | captura esparsa no Projected (JS nosso). K5 intacto. Encoder = os campos da ABI, não JSON. |
 | Prova | efeito no Virtual. Clique nested no `C` filho. Challenge: token no Virtual. |
 | Proibido | CDP, uinput, inject, `Runtime.evaluate`. JSON/MessagePack neste opcode. `move` no fio. Histórico via `Input`. |
-| Estado | **fio fechado 2026-09-14.** Apply nativo ainda não há. |
+| Estado | **há.** Clique/tecla/scroll no widget. CSS px → LayoutDevice. `nodeId` 0 em down/up não aplica. Nested carimba o `C` do comando. |
 
 ### 2.9 Ativos (imagem, fonte, mídia) — V1 completo, doc 13 inteiro
 
@@ -329,7 +329,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Supervisor | relay opaco, igual ao frame. |
 | Prova | img, fonte, vídeo com seek/`Range`; origem real não vê o Projected. |
 | Proibido | `rewritePart`; lista de sinks; supervisor baixar; segunda busca; copiar bitmap. |
-| Estado | **mecanismo fechado 2026-09-14** (doc 13 §9): um canal Firefox, N leitores. Apply no fork ainda não há. |
+| Estado | **há.** Tee do canal da página, ou abre com o principal do documento. Chave `(contextId, URL, Range)`. Zero `NullPrincipal` no registry. |
 
 ### 2.10 Superfície projetada e K5
 
@@ -372,7 +372,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Lei | `ViewportSet` na ABI. Zoom do cliente **proibido** (quebra hit-test). Geometria por sessão (K2). |
 | Gancho | `HeadlessWidget` / tamanho interno da BC. |
 | Prova | mesmo viewport nos dois lados; layout 1:1. Larguras diferentes invalidam a medição. |
-| Estado | opcode há; apply no widget **não há**. |
+| Estado | **há.** Pai aplica `SetPositionAndSize` no widget da aba. |
 
 ### 2.16 Scroll e foco
 
@@ -380,7 +380,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 |--|--|
 | Lei | P4 local no Projected (scroll nativo). P5: `scrollSet` no Virtual. Foco autoritativo = clique/tecla no Virtual; `:focus-within` no Projected é CSS local. |
 | Proibido | stream de `pointermove`; `preventDefault` no `touchstart` de link (PP-SCROLL-AXIS). |
-| Estado | envelope de Input há; apply nativo não. |
+| Estado | **há.** `scrollSet` é Input tipo 5 no mesmo apply. |
 
 ### 2.17 Histórico e hard-nav
 
@@ -388,7 +388,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 |--|--|
 | Lei | `HistoryGo`, `Reload`, `Stop`. Hard-nav = Document novo, `generation` sobe **nessa** instância. Soft-nav não bump. L17. |
 | Prova | L4 `/a` → `/b` texto novo no fio. |
-| Estado | Navigate há. Back/forward do usuário = apply **não há**. |
+| Estado | **há.** `HistoryGo` / `Reload` / `Stop` no pai, na aba (`ResolveLiveRoot`). Nested `C` neste V1 não é o back da iframe. |
 
 ### 2.18 Upload de arquivo — 1.1, não deste V1
 
@@ -415,7 +415,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Cliente | UI do produto decide; não o Gecko. |
 | Prova | um alerta, um deny de permissão, um download recusado — efeito no Virtual. |
 | Proibido | auto-ok no C++ “temporário”. |
-| Estado | ABI envelope há; apply nativo **não**. |
+| Estado | **há.** `alert`/`confirm`/`prompt` no hunk da janela (`SpeculumAskAndWait`). Permissão e download no `ContentParent`; recusa = `Send__delete__`. Sem auto-ok. |
 
 ### 2.21 Pressão e item O
 
@@ -423,7 +423,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 |--|--|
 | Lei | Fila: descarta o **mais antigo**, nunca down/up. Teto 64 MiB. Agulha content→pai é o primeiro volume (doc 17 §7). |
 | Métrica | profundidade, bytes/s, atraso IPC, frames dropped. Evento, não iso. |
-| Estado | L3 “descarte do mais antigo” ainda é próximo incremento (doc 19). |
+| Estado | **fora deste V1** (capacidade). Não entra neste mach. |
 
 ### 2.22 Fontes (métrica de texto)
 
@@ -455,8 +455,8 @@ Ainda não é plano extra: `ParentChainChanged` (é INSERT/REMOVE); `template.co
 |-------|--------|-------|------------|
 | 2.1 sessão | `Navigated` / `ContextCreated` ABI | — | hop verde ≠ página certa |
 | 2.2 DOM | `frameEmitted` | Snapshot + `frameNewNodes` | `opCount` ≠ iso |
-| 2.3 identidade | `producerFault` (MAX_ROWS / kind) | `rowCount` vs árvore viva | — |
-| 2.4 CSSOM | `cssomTick` | `cssom: committed` | contagem de regra ≠ paint |
+| 2.3 identidade | `Fault` ABI (queda); helper `producerFault` no catálogo, sem caller neste V1 | `rowCount` vs árvore viva | — |
+| 2.4 CSSOM | `frameEmitted.opCount` (CSS no mesmo tick) | dump `SHEET`/`RULE` | contagem ≠ paint |
 | 2.5 shadow | ops no frame | dump `tree` com root | — |
 | 2.6 nested | frames com `C` filho | dump por `contextId` | um frame do pai ≠ filho ok |
 | 2.7 form | `PROP_SET` no frame | `formProps` | — |
@@ -466,58 +466,49 @@ Ainda não é plano extra: `ParentChainChanged` (é INSERT/REMOVE); `template.co
 | 2.15 viewport | — | geometria igual nos dois | — |
 | 2.19 halt | — | Snapshot em S com relógio parado | halt verde ≠ PP-FR-1 |
 | 2.20 diálogo | `DialogRequested` etc. | efeito no Virtual | envelope sozinho |
-| 2.21 fila | `queuePressure` | — | drop oldest ≠ dessincronia |
+| 2.21 fila | — (fora V1) | — | — |
 
 ---
 
 ## 3. O que o Gecko já tem vs o que falta
 
-Leitura honesta do fork (`gecko-engine/patches` + `speculum-wire`), não do sidecar.
+Leitura honesta do fork (`gecko-engine/patches` + `speculum-wire`), não do sidecar. **Cola V1 no tree 2026-09-14.** Aceite 1:1 = este mach + L4 por efeito, não hop.
 
-| Plano | Núcleo (L0) | Cola Gecko | Prod-ready |
-|-------|-------------|------------|------------|
-| Sessão / Navigate / `C` | n/a | sim | quase (L4 contínuo) |
-| DOM + hash + apply | sim | sim (DROP no header) | depois do binário novo + stress |
-| Identidade / GC | sim (lifecycle) | `onRemoved` há | idem |
-| PP-FR-1 (efêmero do tick) | sim (drain no `emitFrame`) | tick do observer | depois do binário novo |
-| CSSOM | opcodes + drain ordem viva | `Document::Rule*` + `GetCssText` + captura no resync | depois do rebuild |
-| Shadow | tabela/wire | `MaybeObserveShadow`; luz em `childrenOf` | depois do rebuild |
-| Nested | hold `C` | mint + frames; hold desliga se o host sai | DOM nested há; CSSOM do filho = 2.4 na instância filha |
-| PROP_SET | sim | `formPropsOf` amostra no drain | depois do rebuild |
-| Input nativo | n/a | envelope; apply é no-op | não |
-| Viewport | n/a | opcode só | não |
-| Ativos / SW / proxy | n/a | **não (entra neste V1, doc 13 inteiro)** | não ainda |
-| Dialog/perm/download | ABI | **não** | não |
+| Plano | Núcleo (L0) | Cola Gecko | Aceite |
+|-------|-------------|------------|--------|
+| Sessão / Navigate / `C` | n/a | sim | L4 |
+| DOM + hash + apply | sim | sim | L4 + stress |
+| Identidade / GC | sim (lifecycle) | `onRemoved` há | L4 |
+| PP-FR-1 (efêmero do tick) | sim (drain no `emitFrame`) | tick do observer | L4 |
+| CSSOM | opcodes + drain ordem viva | `Document::Rule*` + `ShadowRoot::Rule*` + `GetCssText` + captura no resync | L4 |
+| Shadow | tabela/wire | `MaybeObserveShadow`; CSS live no `ShadowRoot` | L4 |
+| Nested | hold `C` | mint + frames; hold desliga se o host sai | L4 |
+| PROP_SET | sim | `formPropsOf` amostra no drain | L4 |
+| Input nativo | n/a | widget, CSS px → LayoutDevice | L4 por efeito |
+| Viewport | n/a | `SetPositionAndSize` no pai | L4 |
+| Ativos / SW / proxy | n/a | tee + open com principal da página | L4 (pixel, não 200) |
+| Dialog/perm/download | ABI | `SpeculumAskAndWait`; recusa = delete | L4 por efeito |
 | Upload | — | — | **1.1** |
 | Canvas / print | — | — | **1.1** |
-| Halt / snapshot / `frameNewNodes` | sim | IPDL Halt/Flush/Snapshot | depois do rebuild |
-| Telemetria catalogada | não | `MOZ_LOG` por mutação | não |
-| Métrica P/E (O3) | não | não | não |
-| Backpressure (drop oldest) | n/a | próximo incremento | não |
+| Halt / snapshot / `frameNewNodes` | sim | IPDL Halt/Flush/Snapshot | L4 iso |
+| Telemetria catalogada | Kind `0x05` | `SPECULUM_CAP_EVENTS` (default off); `MOZ_LOG` só boot/tick/resync/attach | debug; **nunca** aceite |
+| Métrica P/E (O3) | `buildMs` se `SPECULUM_CAP_METRICS` | — | capacidade, não 1:1 |
+| Backpressure (drop oldest) | n/a | **fora deste V1** | — |
 
-**Corte deste V1** = terceira coluna “sim” em tudo que não é 1.1. Canvas/print = 1.1. “DOM sobe no fio” não é corte.
+**Corte deste V1** = cola “sim” em tudo que não é 1.1. Canvas/print/fila = 1.1. “DOM sobe no fio” não é corte.
 
 ---
 
 ## 4. Ordem de implementação (sem pular)
 
-**Um `mach` no fim.** Código e L0–L3-PP primeiro; `mach` e L4 ficam para depois. O estado final do V1 (Firefox real, widget, proxy de rede, aceite visual) **não** fecha nesta leva.
+Passos 1–7 **no tree** (2026-09-14). Upload do passo 7 ficou **1.1**, de propósito.
 
-Instrumentação da §8 entra **junto** de cada plano, não no passo 8.
-
-1. Núcleo: L5 + L24 (drain no tick) + PROP_SET + shadow no `Producer` — L0.
-2. CSSOM no núcleo (fonte falsa + opcodes) — L0.
-3. Cola: observer drain, sample de props, shadow roots, `RuleAdded*`.
-4. ABI de probe: Halt / Resume / Flush / Snapshot; eventos de telemetria (doc 18 estende). L1 golden.
-5. Input + viewport no `HeadlessWidget`.
-6. Ativos: **doc 13 inteiro** (proxy Gecko + SW + tee + Range + img/fonte).
-7. Dialog / permission / download / upload.
-8. **Rebuild único.**
+8. **Este mach** — overlay `copy-hash-resync-into-checkout.sh`, depois `scripts/build.sh binaries` (IPDL + fontes novas). Não reaplicar `ALL.diff`. Não `mach build` a frio se o objdir já existe.
 9. L4 + stress + iso (snapshot, não hop) + aceite 1:1.
 
-Sem passo de canvas/print neste V1.
+Sem canvas/print neste V1. Verde no sidecar Chromium injetado **não** fecha o 9.
 
-O pacote `projected` (apply no browser do usuário) não substitui o Virtual Gecko. Verde no sidecar Chromium injetado **não** fecha passo desta ordem.
+Instrumentação da §8 já entra com a cola; não é um passo extra.
 
 ---
 
@@ -584,7 +575,7 @@ Está prod-ready quando:
 7. Eventos de telemetria existem, ligam/desligam, e **ninguém** passa aceite por eles.
 8. Um humano não distingue Projected do original no critério da `acceptance.md`.
 
-Qualquer um desses falso = não está pronto. Rebuild não é o produto; é o passo 9.
+Qualquer um desses falso = não está pronto. O mach não é o produto; o 9 (L4 + aceite) é.
 
 ---
 
@@ -600,26 +591,28 @@ Lei: L21–L26. Quem manda no *como afirmar*: `observability.md`. Quem manda no 
 | `Fault` ABI | ponte | on | queda observável, `errorCode`+`phase` |
 | Bytes crus no L1/L2 fail | teste | n/a | doc 19: a saída conserta, não investiga |
 
-Proibido: deixar o observer atual (`SPECULUM_LOG` em todo insert/attr/text) no binário de produção.
+Proibido: `SPECULUM_LOG` em todo insert/attr/text. O observer só loga boot/tick/resync/attach.
 
 ### 8.2 Eventos (linha do tempo)
 
-Todo evento: `contextId`, descritor no catálogo, capability. Toggle off → custo ~0.
+Todo evento: `contextId`, `u16 catalogId` no Kind `0x05`. Toggle off → um atomic, sem alloc/IPDL. Default **off**.
 
-**Produtor (Gecko → supervisor → produto), um kind por fato:**
+`SPECULUM_CAP_EVENTS=1` liga os eventos. `SPECULUM_CAP_METRICS=1` preenche `buildMs` (relógio só se events **e** metrics).
 
-| Kind | Quando | Campos (investigação) |
-|------|--------|------------------------|
-| `frameEmitted` | frame não vazio saiu | `sequence`, `generation`, `bytes`, `opCount`, `tableSize`, `identitySize` (diagnóstico), `buildMs`, `encodeMs`, `droppedThisTick`, `resync` bool |
-| `resyncRequested` / `Completed` / `Failed` | `Resync` | `force`, `reason`, `errorCode`+`phase` se falhou |
-| `producerFault` | invariante, MAX_ROWS, UAF evitado | `errorCode`, `phase` |
-| `queuePressure` | item O | `depth`, `droppedOldest`, `ipcHopMs`, `socketBacklogBytes` |
-| `inputAdmitted` / `inputRejected` | apply nativo | `type`, `errorCode` se reject; **não** prova que o site reagiu |
-| `cssomTick` | ganchos nativos no tick | `opSheet*` / `opRule*` counts, `callbackNs` — **não** iso |
+**Produtor (Gecko → supervisor → produto):**
+
+| catalogId | Nome | Quando | Campos |
+|-----------|------|--------|--------|
+| 1 | `frameEmitted` | frame não vazio saiu | `sequence`, `generation`, `bytes`, `opCount`, `tableSize`, `identitySize`, `buildMs`, `encodeMs`, `dropped`, `resync` |
+| 2 / 3 / 4 | `resyncRequested` / `Completed` / `Failed` | `Resync` | `force`; completed/failed: `ok` |
+| 5 | `producerFault` | helper existe; **ninguém chama** neste V1. Queda = `Fault` ABI `0x02ff` | `errorCode`, `phase` |
+| 6 / 7 | `inputAdmitted` / `inputRejected` | apply nativo | `type`; **não** prova que o site reagiu |
+
+Fora deste V1: `queuePressure`. CSS no mesmo `frameEmitted.opCount` — **não** há evento `cssomTick`.
 
 **Cliente (já existe no pacote, reusar):** `applyResult`, `desynced`, `applyOverrun`, `applyGateDrain` / `Overflow` / `OverflowLoop`.
 
-**Não inventar** evento `cssomPoll` no Gecko. O sensor é callback; o evento é contagem de ops + tempo. Isso **não** afirma paint.
+**Não inventar** evento `cssomPoll` no Gecko.
 
 Heartbeat `0x0202` já existe — liveness da ponte, não da tabela.
 
@@ -648,12 +641,12 @@ Nomes do dump iguais ao contrato de sessão. Transporte = ABI da ponte (doc 18).
 
 Sem passo 2 o cliente não tem S. Sem passo 1 o dump rasga. `S` é por `contextId` — nested não alinha sequence entre pai e filho; halt é da aba inteira.
 
-Dump (opts):
+Dump (bytes do `snapshotDump`):
 
-- sempre: `{ rowCount, tableHash, sequence, generation, contextId }`
-- `table: full` + `liveChildOrder`
-- CSSOM: as rows na tabela **são** o committed. Não existe pass in-flight para esperar. `cssom: none` no Chromium era “não espera o poll”; aqui não há poll.
-- `formProps`, `tree`, `frameNewNodes`
+- cabeçalho: `{ sequence, generation, contextId, tableHash, rowCount, lastFrameNewNodes }`
+- por linha: `{ id, kind, parent, rowHash }`
+- ordem dos filhos entra no `rowHash` (`prevSibling`); o dump **não** lista `liveChildOrder` à parte
+- CSSOM: as rows `SHEET`/`RULE` **são** o committed. Não existe pass in-flight.
 
 `getTelemetrySnapshot` (barato, produto): seq/gen, `tableSize`, profundidade de fila, halted, fps recente. **Nunca** iso.
 
@@ -713,9 +706,9 @@ Halt ≠ `discardPending`. Halt para o timer; a fila continua; Flush chama `emit
 
 ---
 
-## 9. Furos que a revisão fechou no papel (não no código)
+## 9. Furos que a revisão fechou (papel e cola)
 
-Lista do que a primeira versão deste doc **não** cobria e agora cobre. Se algo disto ainda estiver vago na hora de implementar, para e escreve — não chuta.
+A primeira versão deste doc cobria o desenho e deixava a cola como “ainda não”. Em 2026-09-14 a cola V1 está no tree. O que falta é o mach + L4. Se algo disto ainda estiver vago, para e escreve — não chuta.
 
 | Furo | Fechado como |
 |------|----------------|

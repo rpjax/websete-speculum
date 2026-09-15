@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
 GECKO="${GECKO:-$HOME/speculum-gecko/checkout}"
 echo "REPO=$REPO"
 echo "GECKO=$GECKO"
@@ -55,7 +55,7 @@ TARGET="$GECKO/dom/base/nsGlobalWindowInner.cpp"
 if grep -q 'SpeculumAskAndWait' "$TARGET"; then
   echo "window dialog hunk already applied"
 else
-  patch -d "$GECKO" -p1 --fuzz=0 < "$HUNK"
+  patch -d "$GECKO" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
 fi
 HUNK="$REPO/gecko-engine/patches/dom/base/ShadowRoot.cpp.patch"
 TARGET="$GECKO/dom/base/ShadowRoot.cpp"
@@ -64,6 +64,6 @@ TARGET="$GECKO/dom/base/ShadowRoot.cpp"
 if grep -q 'SpeculumNotifyRuleAdded' "$TARGET"; then
   echo "shadow css hunk already applied"
 else
-  patch -d "$GECKO" -p1 --fuzz=0 < "$HUNK"
+  patch -d "$GECKO" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
 fi
 echo DONE

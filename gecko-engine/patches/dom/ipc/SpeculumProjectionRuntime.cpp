@@ -60,6 +60,7 @@ using mozilla::StaticMutex;
 using mozilla::StaticMutexAutoLock;
 using mozilla::SystemPrincipal;
 using mozilla::UniquePtr;
+using mozilla::MakeUnique;
 using mozilla::dom::BrowsingContext;
 using mozilla::dom::CanonicalBrowsingContext;
 using mozilla::dom::ContentParent;
@@ -1035,9 +1036,8 @@ struct SpeculumProjectionRuntime::Impl {
     const size_t cap = 64 + aDescription.Length();
     auto buffer = MakeUnique<uint8_t[]>(cap);
     SpeculumControlWriter writer(buffer.get(), cap, aOp, 0);
-    nsDependentCString desc(aDescription);
     if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt32(aRequestId) ||
-        !writer.WriteBytes(desc) || !writer.Ok()) {
+        !writer.WriteBytes(aDescription) || !writer.Ok()) {
       return;
     }
     SendEvent(buffer.get(), static_cast<uint32_t>(writer.Length()));

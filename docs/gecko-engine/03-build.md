@@ -77,6 +77,8 @@ mostraram 0 hits no primeiro build — esperado).
 
 Metodologia: comentario temporario, revert com `git checkout`, mesmo padrao do lado A.
 
+Cola Speculum no checkout já materializado: `gecko-engine/devpath/copy-hash-resync-into-checkout.sh`, depois `scripts/build.sh binaries` (IPDL + fontes novas). Não reaplicar `ALL.diff`. Não `mach build` a frio se o objdir existe.
+
 ---
 
 ## Sinal de vida (`./mach run --headless https://example.com/`)

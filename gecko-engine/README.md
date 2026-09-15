@@ -15,7 +15,7 @@ Docs: `docs/gecko-engine/`. Constituicao da projecao completa (leis + planos +
 o que falta): [`docs/gecko-engine/20-projecao-completa.md`](../docs/gecko-engine/20-projecao-completa.md).
 
 Gate sem Gecko: `gecko-engine/tests/run.sh` (sem `--stack`). L0–L3-PP + L5.
-Isto **nao** e o V1 prod-ready — falta Firefox real, widget, proxy e aceite visual.
+Cola V1 está no `patches/`. Aceite 1:1 e L4 precisam do Firefox deste mach.
 
 ## Uso
 

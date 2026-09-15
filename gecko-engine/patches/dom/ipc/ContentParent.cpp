@@ -4790,7 +4790,7 @@ mozilla::ipc::IPCResult ContentParent::RecvPExternalHelperAppConstructor(
     if (!SpeculumAskAndWait(specCtx, SpeculumAskKind::Download, desc, ans) ||
         !(ans.EqualsLiteral("1") || ans.EqualsLiteral("ok") ||
           ans.EqualsLiteral("allow") || ans.EqualsLiteral("true"))) {
-      Unused << PExternalHelperAppParent::Send__delete__(actor);
+      (void)PExternalHelperAppParent::Send__delete__(actor);
       return IPC_OK();
     }
   }
@@ -5421,7 +5421,7 @@ mozilla::ipc::IPCResult ContentParent::RecvPContentPermissionRequestConstructor(
     if (!SpeculumAskAndWait(specCtx, SpeculumAskKind::Permission, desc, ans) ||
         !(ans.EqualsLiteral("1") || ans.EqualsLiteral("ok") ||
           ans.EqualsLiteral("allow") || ans.EqualsLiteral("true"))) {
-      Unused << PContentPermissionRequestParent::Send__delete__(aActor);
+      (void)PContentPermissionRequestParent::Send__delete__(aActor);
       return IPC_OK();
     }
   }

@@ -26,7 +26,7 @@ u32  Length        bytes de payload
 | 0x02 | Event | browser → supervisor | mensagem de controle (§2) |
 | 0x03 | Hello | browser → supervisor | vazio |
 | 0x04 | Command | supervisor → browser | mensagem de controle (§2) |
-| 0x05 | Telemetry | browser → supervisor | `u16 catalogId` + `bytes` opacos. Supervisor encaminha; não parseia. |
+| 0x05 | Telemetry | browser → supervisor | `u16 catalogId` + `bytes` opacos. Supervisor encaminha; não parseia. Default off (`SPECULUM_CAP_EVENTS`). |
 | 0x06 | Asset | **mão dupla** | `u32 streamId`, `u8` fase (`0 request` / `1 chunk` / `2 denied` / `3 complete`), `u64 offset`, `bytes`. Recusa HTML/JS/CSS/XHR é fase `denied` no falso/Gecko, não MIME no supervisor. |
 
 O `ContextId` viaja **no envelope**. É isso que permite ao supervisor rotear sem
@@ -147,6 +147,22 @@ não enfileira URI de conteúdo; quem navega é o `Navigate`. `ContextCreated` s
 quando a aba está quieta; se ainda está carregando, espera o STOP.
 `parentContextId` é resto do ABI: nested não emite `ContextCreated`. O `C` do
 iframe viaja no frame e no `NODE_NEW` do host.
+
+### Kind 0x05 — catálogo
+
+Toggle: `SPECULUM_CAP_EVENTS=1` (eventos). `SPECULUM_CAP_METRICS=1` preenche `buildMs`. Off = um atomic, sem alloc/IPDL.
+
+| catalogId | Nome |
+|-----------|------|
+| 1 | FrameEmitted |
+| 2 | ResyncRequested |
+| 3 | ResyncCompleted |
+| 4 | ResyncFailed |
+| 5 | ProducerFault (helper no C++; queda da ponte é `0x02ff`) |
+| 6 | InputAdmitted |
+| 7 | InputRejected |
+
+Não há `cssomTick` nem `queuePressure` neste V1.
 
 ---
 

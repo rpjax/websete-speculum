@@ -4,6 +4,7 @@
 
 #include "ContentParent.h"
 #include "SpeculumProjectionRuntime.h"
+#include "SpeculumMarionette.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -4773,6 +4774,20 @@ mozilla::ipc::IPCResult ContentParent::RecvPExternalHelperAppConstructor(
   }
 
   BrowsingContext* context = aContext.IsDiscarded() ? nullptr : aContext.get();
+  const uint32_t specCtx = context ? context->GetSpeculumContextId() : 0;
+  if (specCtx) {
+    nsAutoCString desc;
+    if (uri) {
+      uri->GetSpec(desc);
+    }
+    nsAutoCString ans;
+    if (!SpeculumAskAndWait(specCtx, SpeculumAskKind::Download, desc, ans) ||
+        !(ans.EqualsLiteral("1") || ans.EqualsLiteral("ok") ||
+          ans.EqualsLiteral("allow") || ans.EqualsLiteral("true"))) {
+      Unused << PExternalHelperAppParent::Send__delete__(actor);
+      return IPC_OK();
+    }
+  }
   if (!static_cast<ExternalHelperAppParent*>(actor)->Init(
           loadInfoArgs, aMimeContentType, aForceSave, aReferrer, context)) {
     return IPC_FAIL(this, "Init failed.");
@@ -5383,6 +5398,27 @@ mozilla::ipc::IPCResult ContentParent::RecvPContentPermissionRequestConstructor(
     nsIPrincipal* aTopLevelPrincipal, const bool& aIsHandlingUserInput,
     const bool& aMaybeUnsafePermissionDelegate, const TabId& tabId,
     const bool& aIgnoreAllowSitePermission) {
+  uint32_t specCtx = 0;
+  ContentProcessManager* cpm = ContentProcessManager::GetSingleton();
+  if (cpm) {
+    if (RefPtr<BrowserParent> tp =
+            cpm->GetTopLevelBrowserParentByProcessAndTabId(this->ChildID(),
+                                                           tabId)) {
+      if (BrowsingContext* bc = tp->GetBrowsingContext()) {
+        specCtx = bc->GetSpeculumContextId();
+      }
+    }
+  }
+  if (specCtx) {
+    nsAutoCString desc("permission");
+    nsAutoCString ans;
+    if (!SpeculumAskAndWait(specCtx, SpeculumAskKind::Permission, desc, ans) ||
+        !(ans.EqualsLiteral("1") || ans.EqualsLiteral("ok") ||
+          ans.EqualsLiteral("allow") || ans.EqualsLiteral("true"))) {
+      Unused << PContentPermissionRequestParent::Send__delete__(aActor);
+      return IPC_OK();
+    }
+  }
   nsContentPermissionUtils::InitContentPermissionRequestParent(
       aActor, std::move(aRequests));
   return IPC_OK();

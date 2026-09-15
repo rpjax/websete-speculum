@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 
 namespace Speculum.Tests;
 
@@ -13,6 +14,19 @@ public static class AssetPayload
     public const byte PhaseComplete = 3;
 
     public const int HeaderBytes = sizeof(uint) + sizeof(byte) + sizeof(ulong) + sizeof(uint);
+
+    public static byte[] EncodeRequest(byte dest, string url, string range)
+    {
+        var urlBytes = Encoding.UTF8.GetBytes(url);
+        var rangeBytes = Encoding.UTF8.GetBytes(range);
+        var inner = new byte[1 + 4 + urlBytes.Length + 4 + rangeBytes.Length];
+        inner[0] = dest;
+        BinaryPrimitives.WriteUInt32LittleEndian(inner.AsSpan(1), (uint)urlBytes.Length);
+        urlBytes.CopyTo(inner.AsSpan(5));
+        BinaryPrimitives.WriteUInt32LittleEndian(inner.AsSpan(5 + urlBytes.Length), (uint)rangeBytes.Length);
+        rangeBytes.CopyTo(inner.AsSpan(9 + urlBytes.Length));
+        return Encode(1, PhaseRequest, 0, inner);
+    }
 
     public static byte[] Encode(uint streamId, byte phase, ulong offset, ReadOnlySpan<byte> data)
     {

@@ -3,14 +3,19 @@
 #define dom_ipc_SpeculumProjectionRuntime_h
 
 #include "base/process_util.h"
+#include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/UniquePtr.h"
 #include "nsStringFwd.h"
 #include "nsTArray.h"
+
+class nsIPrincipal;
 
 class SpeculumProjectionRuntime {
  public:
   static void Startup();
   static SpeculumProjectionRuntime& Get();
+
+  already_AddRefed<nsIPrincipal> DocumentPrincipalOf(uint32_t aContextId);
 
   void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
                     base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame);

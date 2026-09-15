@@ -144,7 +144,12 @@ export {
   encodeInputScroll,
   encodeHistoryGo,
   encodeViewportSet,
+  encodeDialogRespond,
+  encodePermissionRespond,
+  encodeDownloadRespond,
   encodeControlFromIntent,
+  encodeAssetRequest,
+  bytesToBase64,
 } from './input/geckoControlInput';
 export { snapshotTree } from './snapshot/domTreeSnapshot';
 export type { TreeNode } from './treeNode';

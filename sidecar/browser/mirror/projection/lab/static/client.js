@@ -6485,6 +6485,1339 @@
     }
   });
 
+  // ../packages/page-projection/dist/core/domNodeKey.js
+  var require_domNodeKey = __commonJS({
+    "../packages/page-projection/dist/core/domNodeKey.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.NONE_DOM_NODE_KEY = void 0;
+      exports.NONE_DOM_NODE_KEY = 0;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/contextBusConstants.js
+  var require_contextBusConstants = __commonJS({
+    "../packages/page-projection/dist/core/contextBusConstants.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.CONTEXT_BUS_CHANNEL = exports.CONTEXT_ID_PROVISIONAL = exports.CONTEXT_ID_MAX_DOCUMENT = exports.CONTEXT_BUS_RUNTIME = void 0;
+      exports.CONTEXT_BUS_RUNTIME = 4294967295;
+      exports.CONTEXT_ID_MAX_DOCUMENT = 4294967294;
+      exports.CONTEXT_ID_PROVISIONAL = 0;
+      exports.CONTEXT_BUS_CHANNEL = "speculum.context.bus";
+    }
+  });
+
+  // ../packages/page-projection/dist/core/contextIdMint.js
+  var require_contextIdMint = __commonJS({
+    "../packages/page-projection/dist/core/contextIdMint.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ContextIdMint = void 0;
+      var contextBusConstants_1 = require_contextBusConstants();
+      var ContextIdMint = class {
+        next = 2;
+        mint() {
+          const id = this.next;
+          if (id > contextBusConstants_1.CONTEXT_ID_MAX_DOCUMENT)
+            throw new Error("contextId space exhausted");
+          this.next = id + 1;
+          return id >>> 0;
+        }
+        /** True for root (1) or any id already returned by {@link mint}. */
+        hasMinted(id) {
+          if (id === 1)
+            return true;
+          return Number.isInteger(id) && id >= 2 && id < this.next;
+        }
+      };
+      exports.ContextIdMint = ContextIdMint;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/plane/channels.js
+  var require_channels = __commonJS({
+    "../packages/page-projection/dist/core/plane/channels.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.planeChannelName = exports.PlaneChannel = void 0;
+      var PlaneChannel;
+      (function(PlaneChannel2) {
+        PlaneChannel2[PlaneChannel2["Frame"] = 1] = "Frame";
+        PlaneChannel2[PlaneChannel2["Control"] = 2] = "Control";
+        PlaneChannel2[PlaneChannel2["Telemetry"] = 3] = "Telemetry";
+      })(PlaneChannel || (exports.PlaneChannel = PlaneChannel = {}));
+      function planeChannelName(ch) {
+        switch (ch) {
+          case PlaneChannel.Frame:
+            return "frame";
+          case PlaneChannel.Control:
+            return "control";
+          case PlaneChannel.Telemetry:
+            return "telemetry";
+          default:
+            return `channel(${ch})`;
+        }
+      }
+      exports.planeChannelName = planeChannelName;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/loopback/envelope.js
+  var require_envelope = __commonJS({
+    "../packages/page-projection/dist/core/loopback/envelope.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isLoopbackWireMessage = exports.decodeLoopbackToPlane = exports.encodeLoopbackFromPlane = exports.encodeLoopbackInvokeHeartbeat = exports.encodeLoopbackInvokeStarted = exports.encodeLoopbackInvokeResult = exports.encodeLoopbackInvoke = exports.encodeLoopbackHelloReject = exports.encodeLoopbackHelloAck = exports.encodeLoopbackHello = exports.decodeLoopbackEnvelope = exports.encodeLoopbackEnvelope = exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = exports.LOOPBACK_INVOKE_HEARTBEAT_MS = exports.LOOPBACK_INVOKE_IDLE_MS = exports.LOOPBACK_CONTROL_INVOKE_NAME = exports.VIRTUAL_LOOPBACK_CHANNEL = void 0;
+      var channels_1 = require_channels();
+      exports.VIRTUAL_LOOPBACK_CHANNEL = "speculum.virtual.loopback";
+      exports.LOOPBACK_CONTROL_INVOKE_NAME = "__control";
+      exports.LOOPBACK_INVOKE_IDLE_MS = 2e3;
+      exports.LOOPBACK_INVOKE_HEARTBEAT_MS = 500;
+      exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = 15e3;
+      exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = 5e3;
+      exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = 2e4;
+      exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = 4e3;
+      exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = "speculum:generation_superseded";
+      function encodeLoopbackEnvelope(env) {
+        return new TextEncoder().encode(JSON.stringify(env));
+      }
+      exports.encodeLoopbackEnvelope = encodeLoopbackEnvelope;
+      function decodeLoopbackEnvelope(message) {
+        let parsed;
+        try {
+          parsed = JSON.parse(new TextDecoder().decode(message));
+        } catch {
+          return null;
+        }
+        if (typeof parsed !== "object" || parsed === null)
+          return null;
+        const env = parsed;
+        if (env.channel !== exports.VIRTUAL_LOOPBACK_CHANNEL || typeof env.kind !== "string")
+          return null;
+        switch (env.kind) {
+          case "hello": {
+            const h = env;
+            if (typeof h.sessionId !== "string" || typeof h.generation !== "number")
+              return null;
+            if (h.role !== "virtual-root")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "hello",
+              sessionId: h.sessionId,
+              generation: h.generation >>> 0,
+              role: "virtual-root"
+            };
+          }
+          case "hello-ack": {
+            const ack = env;
+            if (typeof ack.sessionId !== "string" || typeof ack.generation !== "number")
+              return null;
+            if (ack.ok !== true)
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "hello-ack",
+              sessionId: ack.sessionId,
+              generation: ack.generation >>> 0,
+              ok: true
+            };
+          }
+          case "hello-reject": {
+            const rej = env;
+            if (typeof rej.sessionId !== "string" || typeof rej.generation !== "number")
+              return null;
+            if (rej.ok !== false)
+              return null;
+            const reason = rej.reason;
+            if (reason !== "generation_mismatch" && reason !== "session_mismatch" && reason !== "already_established" && reason !== "protocol_unsupported" && reason !== "server_shutting_down") {
+              return null;
+            }
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "hello-reject",
+              sessionId: rej.sessionId,
+              generation: rej.generation >>> 0,
+              ok: false,
+              reason
+            };
+          }
+          case "frame": {
+            const bytes = env.bytes;
+            if (!Array.isArray(bytes))
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "frame",
+              bytes
+            };
+          }
+          case "telemetry":
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "telemetry",
+              message: env.message
+            };
+          case "invoke": {
+            const inv = env;
+            if (typeof inv.correlationId !== "number" || typeof inv.name !== "string")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "invoke",
+              correlationId: inv.correlationId >>> 0,
+              name: inv.name,
+              args: inv.args
+            };
+          }
+          case "invoke-started":
+          case "invoke-heartbeat": {
+            const hb = env;
+            if (typeof hb.correlationId !== "number")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: env.kind,
+              correlationId: hb.correlationId >>> 0
+            };
+          }
+          case "invoke-result": {
+            const res = env;
+            if (typeof res.correlationId !== "number" || typeof res.ok !== "boolean")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "invoke-result",
+              correlationId: res.correlationId >>> 0,
+              ok: res.ok,
+              value: res.value,
+              error: res.error && typeof res.error.message === "string" ? { message: res.error.message, name: res.error.name } : void 0
+            };
+          }
+          default:
+            return null;
+        }
+      }
+      exports.decodeLoopbackEnvelope = decodeLoopbackEnvelope;
+      function encodeLoopbackHello(sessionId, generation, role = "virtual-root") {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello",
+          sessionId,
+          generation: generation >>> 0,
+          role
+        });
+      }
+      exports.encodeLoopbackHello = encodeLoopbackHello;
+      function encodeLoopbackHelloAck(sessionId, generation) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello-ack",
+          sessionId,
+          generation: generation >>> 0,
+          ok: true
+        });
+      }
+      exports.encodeLoopbackHelloAck = encodeLoopbackHelloAck;
+      function encodeLoopbackHelloReject(sessionId, generation, reason) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello-reject",
+          sessionId,
+          generation: generation >>> 0,
+          ok: false,
+          reason
+        });
+      }
+      exports.encodeLoopbackHelloReject = encodeLoopbackHelloReject;
+      function encodeLoopbackInvoke(correlationId, name, args) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke",
+          correlationId: correlationId >>> 0,
+          name,
+          args
+        });
+      }
+      exports.encodeLoopbackInvoke = encodeLoopbackInvoke;
+      function encodeLoopbackInvokeResult(correlationId, result) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke-result",
+          correlationId: correlationId >>> 0,
+          ok: result.ok,
+          value: result.value,
+          error: result.error
+        });
+      }
+      exports.encodeLoopbackInvokeResult = encodeLoopbackInvokeResult;
+      function encodeLoopbackInvokeStarted(correlationId) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke-started",
+          correlationId: correlationId >>> 0
+        });
+      }
+      exports.encodeLoopbackInvokeStarted = encodeLoopbackInvokeStarted;
+      function encodeLoopbackInvokeHeartbeat(correlationId) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke-heartbeat",
+          correlationId: correlationId >>> 0
+        });
+      }
+      exports.encodeLoopbackInvokeHeartbeat = encodeLoopbackInvokeHeartbeat;
+      function encodeLoopbackFromPlane(channel, payload) {
+        if (channel === channels_1.PlaneChannel.Frame) {
+          return encodeLoopbackEnvelope({
+            channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+            kind: "frame",
+            bytes: Array.from(payload)
+          });
+        }
+        if (channel === channels_1.PlaneChannel.Telemetry) {
+          return encodeLoopbackEnvelope({
+            channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+            kind: "telemetry",
+            message: JSON.parse(new TextDecoder().decode(payload))
+          });
+        }
+        return encodeLoopbackInvoke(0, exports.LOOPBACK_CONTROL_INVOKE_NAME, JSON.parse(new TextDecoder().decode(payload)));
+      }
+      exports.encodeLoopbackFromPlane = encodeLoopbackFromPlane;
+      function decodeLoopbackToPlane(message) {
+        const env = decodeLoopbackEnvelope(message);
+        if (env === null)
+          return null;
+        switch (env.kind) {
+          case "frame":
+            return { channel: channels_1.PlaneChannel.Frame, payload: Uint8Array.from(env.bytes) };
+          case "telemetry":
+            return {
+              channel: channels_1.PlaneChannel.Telemetry,
+              payload: new TextEncoder().encode(JSON.stringify(env.message ?? null))
+            };
+          case "invoke":
+            if (env.name === exports.LOOPBACK_CONTROL_INVOKE_NAME) {
+              return {
+                channel: channels_1.PlaneChannel.Control,
+                payload: new TextEncoder().encode(JSON.stringify(env.args ?? {}))
+              };
+            }
+            return null;
+          default:
+            return null;
+        }
+      }
+      exports.decodeLoopbackToPlane = decodeLoopbackToPlane;
+      function isLoopbackWireMessage(message) {
+        if (message.length < 2 || message[0] !== 123)
+          return false;
+        try {
+          const parsed = JSON.parse(new TextDecoder().decode(message));
+          return parsed.channel === exports.VIRTUAL_LOOPBACK_CHANNEL;
+        } catch {
+          return false;
+        }
+      }
+      exports.isLoopbackWireMessage = isLoopbackWireMessage;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/plane/envelope.js
+  var require_envelope2 = __commonJS({
+    "../packages/page-projection/dist/core/plane/envelope.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = void 0;
+      var envelope_1 = require_envelope();
+      exports.PLANE_MAGIC = 20563;
+      exports.PLANE_VERSION = 1;
+      exports.PLANE_HEADER_SIZE = 5;
+      function encodePlaneEnvelope(channel, payload, _flags = 0) {
+        void _flags;
+        return (0, envelope_1.encodeLoopbackFromPlane)(channel, payload);
+      }
+      exports.encodePlaneEnvelope = encodePlaneEnvelope;
+      function decodePlaneEnvelope(message) {
+        if ((0, envelope_1.isLoopbackWireMessage)(message)) {
+          const mapped = (0, envelope_1.decodeLoopbackToPlane)(message);
+          if (mapped === null)
+            return null;
+          return { channel: mapped.channel, flags: 0, payload: mapped.payload };
+        }
+        if (message.length < exports.PLANE_HEADER_SIZE)
+          return null;
+        const view = new DataView(message.buffer, message.byteOffset, message.byteLength);
+        if (view.getUint16(0, true) !== exports.PLANE_MAGIC)
+          return null;
+        if (message[2] !== exports.PLANE_VERSION)
+          return null;
+        const channel = message[3];
+        const flags = message[4];
+        return {
+          channel,
+          flags,
+          payload: message.subarray(exports.PLANE_HEADER_SIZE)
+        };
+      }
+      exports.decodePlaneEnvelope = decodePlaneEnvelope;
+      function isPlaneEnvelope(message) {
+        return (0, envelope_1.isLoopbackWireMessage)(message) || decodePlaneEnvelope(message) !== null;
+      }
+      exports.isPlaneEnvelope = isPlaneEnvelope;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/plane/index.js
+  var require_plane = __commonJS({
+    "../packages/page-projection/dist/core/plane/index.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = exports.planeChannelName = exports.PlaneChannel = void 0;
+      var channels_1 = require_channels();
+      Object.defineProperty(exports, "PlaneChannel", { enumerable: true, get: function() {
+        return channels_1.PlaneChannel;
+      } });
+      Object.defineProperty(exports, "planeChannelName", { enumerable: true, get: function() {
+        return channels_1.planeChannelName;
+      } });
+      var envelope_1 = require_envelope2();
+      Object.defineProperty(exports, "PLANE_MAGIC", { enumerable: true, get: function() {
+        return envelope_1.PLANE_MAGIC;
+      } });
+      Object.defineProperty(exports, "PLANE_VERSION", { enumerable: true, get: function() {
+        return envelope_1.PLANE_VERSION;
+      } });
+      Object.defineProperty(exports, "PLANE_HEADER_SIZE", { enumerable: true, get: function() {
+        return envelope_1.PLANE_HEADER_SIZE;
+      } });
+      Object.defineProperty(exports, "encodePlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_1.encodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "decodePlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_1.decodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "isPlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_1.isPlaneEnvelope;
+      } });
+    }
+  });
+
+  // ../packages/page-projection/dist/core/loopback/socket.js
+  var require_socket = __commonJS({
+    "../packages/page-projection/dist/core/loopback/socket.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.LOOPBACK_SOCKET_CLOSED = exports.LOOPBACK_SOCKET_CLOSING = exports.LOOPBACK_SOCKET_OPEN = exports.LOOPBACK_SOCKET_CONNECTING = void 0;
+      exports.LOOPBACK_SOCKET_CONNECTING = 0;
+      exports.LOOPBACK_SOCKET_OPEN = 1;
+      exports.LOOPBACK_SOCKET_CLOSING = 2;
+      exports.LOOPBACK_SOCKET_CLOSED = 3;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/extensionPlane/envelope.js
+  var require_envelope3 = __commonJS({
+    "../packages/page-projection/dist/core/extensionPlane/envelope.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.decodeExtensionPlaneEnvelope = exports.isExtensionPlaneWireMessage = exports.EXTENSION_PLANE_CHANNEL = void 0;
+      exports.EXTENSION_PLANE_CHANNEL = "speculum.extension.plane";
+      function asUint8Array(value) {
+        if (value instanceof Uint8Array)
+          return value;
+        if (ArrayBuffer.isView(value)) {
+          const view = value;
+          return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+        }
+        if (value instanceof ArrayBuffer)
+          return new Uint8Array(value);
+        if (Array.isArray(value) && value.every((x) => typeof x === "number")) {
+          return Uint8Array.from(value);
+        }
+        return null;
+      }
+      function isExtensionPlaneWireMessage(value) {
+        return decodeExtensionPlaneEnvelope(value) !== null;
+      }
+      exports.isExtensionPlaneWireMessage = isExtensionPlaneWireMessage;
+      function decodeExtensionPlaneEnvelope(value) {
+        if (typeof value !== "object" || value === null)
+          return null;
+        const raw = value;
+        if (raw.channel !== exports.EXTENSION_PLANE_CHANNEL)
+          return null;
+        if (typeof raw.token !== "string" || raw.token.length === 0)
+          return null;
+        if (typeof raw.kind !== "string")
+          return null;
+        const token = raw.token;
+        switch (raw.kind) {
+          case "bind":
+          case "bind-ack":
+            return { channel: exports.EXTENSION_PLANE_CHANNEL, token, kind: raw.kind };
+          case "open": {
+            if (typeof raw.url !== "string" || typeof raw.socketId !== "number")
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "open",
+              url: raw.url,
+              socketId: raw.socketId >>> 0
+            };
+          }
+          case "open-ok":
+          case "open-fail": {
+            if (typeof raw.socketId !== "number")
+              return null;
+            if (raw.kind === "open-ok") {
+              return { channel: exports.EXTENSION_PLANE_CHANNEL, token, kind: "open-ok", socketId: raw.socketId >>> 0 };
+            }
+            if (typeof raw.message !== "string")
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "open-fail",
+              socketId: raw.socketId >>> 0,
+              message: raw.message
+            };
+          }
+          case "send":
+          case "message": {
+            if (typeof raw.socketId !== "number")
+              return null;
+            const bytes = asUint8Array(raw.bytes);
+            if (bytes === null)
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: raw.kind,
+              socketId: raw.socketId >>> 0,
+              bytes
+            };
+          }
+          case "close": {
+            if (typeof raw.socketId !== "number")
+              return null;
+            const code = raw.code === void 0 ? void 0 : Number(raw.code);
+            const reason = raw.reason === void 0 ? void 0 : String(raw.reason);
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "close",
+              socketId: raw.socketId >>> 0,
+              code: code !== void 0 && Number.isFinite(code) ? code : void 0,
+              reason
+            };
+          }
+          case "error": {
+            if (typeof raw.socketId !== "number" || typeof raw.message !== "string")
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "error",
+              socketId: raw.socketId >>> 0,
+              message: raw.message
+            };
+          }
+          default:
+            return null;
+        }
+      }
+      exports.decodeExtensionPlaneEnvelope = decodeExtensionPlaneEnvelope;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/input/intentTypes.js
+  var require_intentTypes = __commonJS({
+    "../packages/page-projection/dist/core/input/intentTypes.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.INTENT_SCHEMA_VERSION = void 0;
+      exports.INTENT_SCHEMA_VERSION = 1;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/input/geckoControlInput.js
+  var require_geckoControlInput = __commonJS({
+    "../packages/page-projection/dist/core/input/geckoControlInput.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.encodeControlFromIntent = exports.bytesToBase64 = exports.encodeAssetRequest = exports.encodeDownloadRespond = exports.encodePermissionRespond = exports.encodeBoolRespond = exports.encodeDialogRespond = exports.encodeViewportSet = exports.encodeHistoryGo = exports.encodeInputScroll = exports.encodeInputKey = exports.encodeInputPointer = exports.modsToU8 = exports.buttonToU8 = exports.fracToU16 = exports.GECKO_INPUT_SCROLL_SET = exports.GECKO_INPUT_KEY_UP = exports.GECKO_INPUT_KEY_DOWN = exports.GECKO_INPUT_UP = exports.GECKO_INPUT_DOWN = exports.GECKO_OP_DOWNLOAD_RESPOND = exports.GECKO_OP_PERMISSION_RESPOND = exports.GECKO_OP_DIALOG_RESPOND = exports.GECKO_OP_VIEWPORT_SET = exports.GECKO_OP_HISTORY_GO = exports.GECKO_OP_INPUT = void 0;
+      exports.GECKO_OP_INPUT = 264;
+      exports.GECKO_OP_HISTORY_GO = 262;
+      exports.GECKO_OP_VIEWPORT_SET = 263;
+      exports.GECKO_OP_DIALOG_RESPOND = 266;
+      exports.GECKO_OP_PERMISSION_RESPOND = 267;
+      exports.GECKO_OP_DOWNLOAD_RESPOND = 268;
+      exports.GECKO_INPUT_DOWN = 1;
+      exports.GECKO_INPUT_UP = 2;
+      exports.GECKO_INPUT_KEY_DOWN = 3;
+      exports.GECKO_INPUT_KEY_UP = 4;
+      exports.GECKO_INPUT_SCROLL_SET = 5;
+      var HEADER = 6;
+      function writeU8(buf, off, v) {
+        buf[off] = v & 255;
+        return off + 1;
+      }
+      function writeU16(buf, off, v) {
+        buf[off] = v & 255;
+        buf[off + 1] = v >>> 8 & 255;
+        return off + 2;
+      }
+      function writeU32(buf, off, v) {
+        buf[off] = v & 255;
+        buf[off + 1] = v >>> 8 & 255;
+        buf[off + 2] = v >>> 16 & 255;
+        buf[off + 3] = v >>> 24 & 255;
+        return off + 4;
+      }
+      function writeU64(buf, off, v) {
+        const lo = v >>> 0;
+        const hi = Math.floor(v / 4294967296) >>> 0;
+        off = writeU32(buf, off, lo);
+        return writeU32(buf, off, hi);
+      }
+      function writeI32(buf, off, v) {
+        return writeU32(buf, off, v | 0);
+      }
+      function writeStr(buf, off, value) {
+        const bytes = new TextEncoder().encode(value);
+        off = writeU32(buf, off, bytes.length);
+        buf.set(bytes, off);
+        return off + bytes.length;
+      }
+      function strSize(value) {
+        return 4 + new TextEncoder().encode(value).length;
+      }
+      function header(buf, op, corr2) {
+        let off = 0;
+        off = writeU16(buf, off, op);
+        return writeU32(buf, off, corr2);
+      }
+      function fracToU16(f) {
+        if (f == null || Number.isNaN(f)) {
+          return 32768;
+        }
+        if (f <= 0) {
+          return 0;
+        }
+        if (f >= 1) {
+          return 65535;
+        }
+        return Math.round(f * 65535);
+      }
+      exports.fracToU16 = fracToU16;
+      function buttonToU8(button) {
+        if (button === "middle") {
+          return 1;
+        }
+        if (button === "right") {
+          return 2;
+        }
+        return 0;
+      }
+      exports.buttonToU8 = buttonToU8;
+      function modsToU8(mods) {
+        let v = 0;
+        if (mods?.ctrl)
+          v |= 1;
+        if (mods?.shift)
+          v |= 2;
+        if (mods?.alt)
+          v |= 4;
+        if (mods?.meta)
+          v |= 8;
+        return v;
+      }
+      exports.modsToU8 = modsToU8;
+      function encodeInputPointer(corr2, ctx, type, nodeId, localX, localY, button) {
+        const buf = new Uint8Array(HEADER + 4 + 1 + 4 + 2 + 2 + 1);
+        let off = header(buf, exports.GECKO_OP_INPUT, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU8(buf, off, type);
+        off = writeU32(buf, off, nodeId);
+        off = writeU16(buf, off, localX);
+        off = writeU16(buf, off, localY);
+        writeU8(buf, off, button);
+        return buf;
+      }
+      exports.encodeInputPointer = encodeInputPointer;
+      function encodeInputKey(corr2, ctx, type, key, code, mods) {
+        const buf = new Uint8Array(HEADER + 4 + 1 + strSize(key) + strSize(code) + 1);
+        let off = header(buf, exports.GECKO_OP_INPUT, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU8(buf, off, type);
+        off = writeStr(buf, off, key);
+        off = writeStr(buf, off, code);
+        writeU8(buf, off, mods);
+        return buf;
+      }
+      exports.encodeInputKey = encodeInputKey;
+      function encodeInputScroll(corr2, ctx, nodeId, fracX, fracY) {
+        const buf = new Uint8Array(HEADER + 4 + 1 + 4 + 2 + 2);
+        let off = header(buf, exports.GECKO_OP_INPUT, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU8(buf, off, exports.GECKO_INPUT_SCROLL_SET);
+        off = writeU32(buf, off, nodeId);
+        off = writeU16(buf, off, fracX);
+        writeU16(buf, off, fracY);
+        return buf;
+      }
+      exports.encodeInputScroll = encodeInputScroll;
+      function encodeHistoryGo(corr2, ctx, delta) {
+        const buf = new Uint8Array(HEADER + 4 + 4);
+        let off = header(buf, exports.GECKO_OP_HISTORY_GO, corr2);
+        off = writeU32(buf, off, ctx);
+        writeI32(buf, off, delta);
+        return buf;
+      }
+      exports.encodeHistoryGo = encodeHistoryGo;
+      function encodeViewportSet2(corr2, ctx, width, height) {
+        const buf = new Uint8Array(HEADER + 4 + 4 + 4);
+        let off = header(buf, exports.GECKO_OP_VIEWPORT_SET, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeI32(buf, off, width);
+        writeI32(buf, off, height);
+        return buf;
+      }
+      exports.encodeViewportSet = encodeViewportSet2;
+      function encodeDialogRespond2(corr2, ctx, requestId, answer) {
+        const buf = new Uint8Array(HEADER + 4 + 4 + strSize(answer));
+        let off = header(buf, exports.GECKO_OP_DIALOG_RESPOND, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU32(buf, off, requestId);
+        writeStr(buf, off, answer);
+        return buf;
+      }
+      exports.encodeDialogRespond = encodeDialogRespond2;
+      function encodeBoolRespond(op, corr2, ctx, requestId, yes) {
+        const buf = new Uint8Array(HEADER + 4 + 4 + 1);
+        let off = header(buf, op, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU32(buf, off, requestId);
+        writeU8(buf, off, yes ? 1 : 0);
+        return buf;
+      }
+      exports.encodeBoolRespond = encodeBoolRespond;
+      function encodePermissionRespond2(corr2, ctx, requestId, granted) {
+        return encodeBoolRespond(exports.GECKO_OP_PERMISSION_RESPOND, corr2, ctx, requestId, granted);
+      }
+      exports.encodePermissionRespond = encodePermissionRespond2;
+      function encodeDownloadRespond2(corr2, ctx, requestId, accepted) {
+        return encodeBoolRespond(exports.GECKO_OP_DOWNLOAD_RESPOND, corr2, ctx, requestId, accepted);
+      }
+      exports.encodeDownloadRespond = encodeDownloadRespond2;
+      function encodeAssetRequest2(streamId, dest, url, range, offset) {
+        const urlBytes = new TextEncoder().encode(url);
+        const rangeBytes = new TextEncoder().encode(range);
+        const inner = 1 + 4 + urlBytes.length + 4 + rangeBytes.length;
+        const buf = new Uint8Array(4 + 1 + 8 + 4 + inner);
+        let off = writeU32(buf, 0, streamId);
+        off = writeU8(buf, off, 0);
+        off = writeU64(buf, off, offset);
+        off = writeU32(buf, off, inner);
+        off = writeU8(buf, off, dest & 255);
+        off = writeU32(buf, off, urlBytes.length);
+        buf.set(urlBytes, off);
+        off += urlBytes.length;
+        off = writeU32(buf, off, rangeBytes.length);
+        buf.set(rangeBytes, off);
+        return buf;
+      }
+      exports.encodeAssetRequest = encodeAssetRequest2;
+      function bytesToBase642(bytes) {
+        let s = "";
+        for (let i = 0; i < bytes.length; i++) {
+          s += String.fromCharCode(bytes[i]);
+        }
+        return btoa(s);
+      }
+      exports.bytesToBase64 = bytesToBase642;
+      function encodeControlFromIntent3(corr2, ctx, intent) {
+        if (intent.type === "down" || intent.type === "up") {
+          const nodeId = intent.nodeId ?? 0;
+          return encodeInputPointer(corr2, intent.contextId ?? ctx, intent.type === "down" ? exports.GECKO_INPUT_DOWN : exports.GECKO_INPUT_UP, nodeId, fracToU16(intent.localX), fracToU16(intent.localY), buttonToU8(intent.button));
+        }
+        if (intent.type === "keyDown" || intent.type === "keyUp") {
+          return encodeInputKey(corr2, ctx, intent.type === "keyDown" ? exports.GECKO_INPUT_KEY_DOWN : exports.GECKO_INPUT_KEY_UP, intent.key, intent.code, modsToU8(intent.modifiers));
+        }
+        if (intent.type === "scrollSet") {
+          return encodeInputScroll(corr2, intent.contextId ?? ctx, intent.nodeId ?? 0, fracToU16(intent.scrollFracX), fracToU16(intent.scrollFracY));
+        }
+        if (intent.type === "historyNav") {
+          return encodeHistoryGo(corr2, ctx, intent.direction === "back" ? -1 : 1);
+        }
+        return null;
+      }
+      exports.encodeControlFromIntent = encodeControlFromIntent3;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/tableLiveOracle.js
+  var require_tableLiveOracle = __commonJS({
+    "../packages/page-projection/dist/core/tableLiveOracle.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.compareTableToLiveOrder = void 0;
+      var frame_1 = require_frame();
+      var opcodes_1 = require_opcodes();
+      var MAX_DIVERGENCES = 50;
+      var NONE = 0;
+      function isSkippedKind(kind) {
+        return kind === opcodes_1.NodeKind.Sheet || kind === opcodes_1.NodeKind.Rule || kind === opcodes_1.NodeKind.ShadowRoot;
+      }
+      function orderedDomChildIds(table, parent) {
+        const all = table.orderedChildIds(parent);
+        const out = [];
+        for (let i = 0; i < all.length; i++) {
+          const id = all[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && isSkippedKind(row.kind))
+            continue;
+          out.push(id);
+        }
+        return out;
+      }
+      function idsEqual(a, b) {
+        if (a.length !== b.length)
+          return false;
+        for (let i = 0; i < a.length; i++) {
+          if (a[i] !== b[i])
+            return false;
+        }
+        return true;
+      }
+      function compareTableToLiveOrder(table, liveChildren) {
+        const divergences = [];
+        let count = 0;
+        const record = (path, kind, details) => {
+          count += 1;
+          if (divergences.length < MAX_DIVERGENCES)
+            divergences.push({ path, kind, details });
+        };
+        const liveIds = /* @__PURE__ */ new Set();
+        for (const kids of liveChildren.values()) {
+          for (let i = 0; i < kids.length; i++)
+            liveIds.add(kids[i]);
+        }
+        const parents = /* @__PURE__ */ new Set([frame_1.DOCUMENT_ID]);
+        for (const parent of liveChildren.keys())
+          parents.add(parent);
+        for (const parent of parents) {
+          const tableOrder = orderedDomChildIds(table, parent);
+          const liveOrder = liveChildren.get(parent) ?? [];
+          if (!idsEqual(tableOrder, liveOrder)) {
+            const hashed = table.countAttachedChildren(parent);
+            const lastWalk = tableOrder.length > 0 ? tableOrder[tableOrder.length - 1] : 0;
+            const lastRow = lastWalk !== 0 ? table.getRow(lastWalk) : void 0;
+            record(`#${parent}`, "child_order_mismatch", `walkLen=${tableOrder.length} hashedAttached=${hashed} liveLen=${liveOrder.length} tableHead=[${tableOrder.slice(0, 8).join(",")}] liveHead=[${liveOrder.slice(0, 8).join(",")}] lastWalk=#${lastWalk} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : "missing"}`);
+          }
+        }
+        for (const id of liveIds) {
+          const row = table.getRow(id);
+          if (row === void 0) {
+            record(`#${id}`, "missing_in_table", "connected mapped id has no table row");
+          } else if (row.parent === NONE) {
+            record(`#${id}`, "detached_but_connected", "table parent=0 but id appears in live child order");
+          }
+        }
+        table.forEachRow((id, row) => {
+          if (row.parent === NONE)
+            return;
+          if (isSkippedKind(row.kind))
+            return;
+          const parentIsLive = row.parent === frame_1.DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
+          if (!parentIsLive)
+            return;
+          if (!liveIds.has(id)) {
+            record(`#${id}`, "extra_attached_in_table", `attached under ${row.parent} but absent from live walk`);
+          }
+        });
+        return { kind: "table_live", identical: count === 0, divergenceCount: count, divergences };
+      }
+      exports.compareTableToLiveOrder = compareTableToLiveOrder;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/cssomTableLiveOracle.js
+  var require_cssomTableLiveOracle = __commonJS({
+    "../packages/page-projection/dist/core/cssomTableLiveOracle.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.compareTableToLiveCssom = exports.emptyCssomTableLiveOracleResult = void 0;
+      var frame_1 = require_frame();
+      var opcodes_1 = require_opcodes();
+      var MAX_DIVERGENCES = 50;
+      function idsEqual(a, b) {
+        if (a.length !== b.length)
+          return false;
+        for (let i = 0; i < a.length; i++) {
+          if (a[i] !== b[i])
+            return false;
+        }
+        return true;
+      }
+      function orderedKindChildIds(table, parent, kind) {
+        const all = table.orderedChildIds(parent);
+        const out = [];
+        for (let i = 0; i < all.length; i++) {
+          const id = all[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && row.kind === kind)
+            out.push(id);
+        }
+        return out;
+      }
+      function emptyCssomTableLiveOracleResult() {
+        return { kind: "cssom_table_live", identical: true, divergenceCount: 0, divergences: [] };
+      }
+      exports.emptyCssomTableLiveOracleResult = emptyCssomTableLiveOracleResult;
+      function compareTableToLiveCssom(table, liveSheets) {
+        const divergences = [];
+        let count = 0;
+        const record = (path, kind, details) => {
+          count += 1;
+          if (divergences.length < MAX_DIVERGENCES)
+            divergences.push({ path, kind, details });
+        };
+        const byParent = /* @__PURE__ */ new Map();
+        for (const live of liveSheets) {
+          const parent = live.hostNode ?? frame_1.DOCUMENT_ID;
+          const key = parent === 0 ? frame_1.DOCUMENT_ID : parent;
+          let group = byParent.get(key);
+          if (group === void 0) {
+            group = [];
+            byParent.set(key, group);
+          }
+          group.push(live);
+        }
+        const tableParents = /* @__PURE__ */ new Set([frame_1.DOCUMENT_ID, ...byParent.keys()]);
+        table.forEachRow((_id, row) => {
+          if (row.kind === opcodes_1.NodeKind.Sheet) {
+            tableParents.add(row.parent === 0 ? frame_1.DOCUMENT_ID : row.parent);
+          }
+        });
+        for (const parent of tableParents) {
+          const tableSheets = orderedKindChildIds(table, parent, opcodes_1.NodeKind.Sheet);
+          const liveGroup = byParent.get(parent) ?? [];
+          const liveSheetIds = liveGroup.map((s) => s.id);
+          if (!idsEqual(tableSheets, liveSheetIds)) {
+            record(parent === frame_1.DOCUMENT_ID ? "#sheets" : `#${parent}/sheets`, "sheet_order_mismatch", `table=[${tableSheets.slice(0, 8).join(",")}] live=[${liveSheetIds.slice(0, 8).join(",")}]`);
+          }
+          const liveSheetSet = new Set(liveSheetIds);
+          for (const id of tableSheets) {
+            if (!liveSheetSet.has(id))
+              record(`#${id}`, "extra_in_table", "Sheet row not in live readable list");
+          }
+          for (const live of liveGroup) {
+            if (table.getRow(live.id) === void 0) {
+              record(`#${live.id}`, "missing_in_table", "live readable sheet has no table row");
+              continue;
+            }
+            const tableRules = orderedKindChildIds(table, live.id, opcodes_1.NodeKind.Rule);
+            if (!idsEqual(tableRules, live.ruleIds)) {
+              record(`#${live.id}`, "rule_order_mismatch", `table=[${tableRules.slice(0, 8).join(",")}] live=[${live.ruleIds.slice(0, 8).join(",")}]`);
+            }
+            const n = Math.min(tableRules.length, live.ruleIds.length, live.ruleHashes.length);
+            for (let i = 0; i < n; i++) {
+              const rid = live.ruleIds[i];
+              if (tableRules[i] !== rid)
+                continue;
+              const row = table.getRow(rid);
+              if (row === void 0) {
+                record(`#${rid}`, "missing_in_table", "live rule has no table row");
+                continue;
+              }
+              if (row.contentHash !== live.ruleHashes[i]) {
+                record(`#${rid}`, "rule_content_mismatch", `sheet=#${live.id} contentHash diverged`);
+              }
+            }
+            for (const rid of live.ruleIds) {
+              if (table.getRow(rid) === void 0)
+                record(`#${rid}`, "missing_in_table", "live rule has no table row");
+            }
+            for (const rid of tableRules) {
+              if (!live.ruleIds.includes(rid))
+                record(`#${rid}`, "extra_in_table", `Rule row not in live cssRules of sheet #${live.id}`);
+            }
+          }
+        }
+        return { kind: "cssom_table_live", identical: count === 0, divergenceCount: count, divergences };
+      }
+      exports.compareTableToLiveCssom = compareTableToLiveCssom;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/formControlSnap.js
+  var require_formControlSnap = __commonJS({
+    "../packages/page-projection/dist/core/formControlSnap.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.formControlSnapsEqual = void 0;
+      function formControlSnapsEqual(a, b) {
+        if (a == null || b == null) {
+          return { identical: false, reason: "formProps missing" };
+        }
+        if (a.length !== b.length) {
+          return { identical: false, reason: `count virtual=${a.length} projected=${b.length}` };
+        }
+        for (let i = 0; i < a.length; i++) {
+          const left = a[i];
+          const right = b[i];
+          if (left.key !== right.key) {
+            return { identical: false, reason: `key ${left.key} vs ${right.key}` };
+          }
+          if (left.value !== right.value || left.checked !== right.checked || left.selected !== right.selected) {
+            return {
+              identical: false,
+              reason: `${left.key} virtual=${JSON.stringify(left)} projected=${JSON.stringify(right)}`
+            };
+          }
+        }
+        return { identical: true, reason: `${a.length} controls` };
+      }
+      exports.formControlSnapsEqual = formControlSnapsEqual;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/index.js
+  var require_core = __commonJS({
+    "../packages/page-projection/dist/core/index.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.encodeLoopbackEnvelope = exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = exports.LOOPBACK_INVOKE_HEARTBEAT_MS = exports.LOOPBACK_INVOKE_IDLE_MS = exports.LOOPBACK_CONTROL_INVOKE_NAME = exports.VIRTUAL_LOOPBACK_CHANNEL = exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = exports.planeChannelName = exports.PlaneChannel = exports.desyncPhase = exports.isProjectionTelemetryMessage = exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = exports.PersistentStringTable = exports.FramePartAssembler = exports.peekFrameHeader = exports.decodeFramePart = exports.isNestedHostNavAttr = exports.ContextIdMint = exports.createFrame = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.unpackElementNsWireByte = exports.packElementNsWireByte = exports.elementNsSnapshotLabel = exports.elementNsUri = exports.classifyElementNs = exports.ELEMENT_NS_NESTED_HOST_BIT = exports.ELEMENT_NS_MATHML = exports.ELEMENT_NS_SVG = exports.ELEMENT_NS_HTML = exports.ElementNs = exports.NodeKind = exports.opCodeName = exports.OpCode = exports.NONE_DOM_NODE_KEY = void 0;
+      exports.formControlSnapsEqual = exports.compareTableToLiveCssom = exports.compareTableToLiveOrder = exports.applyFrameToTableChecked = exports.applyOpsToTable = exports.ReplicatedTable = exports.tableDigestsEqual = exports.digestReplicatedTable = exports.snapshotTree = exports.bytesToBase64 = exports.encodeAssetRequest = exports.encodeControlFromIntent = exports.encodeDownloadRespond = exports.encodePermissionRespond = exports.encodeDialogRespond = exports.encodeViewportSet = exports.encodeHistoryGo = exports.encodeInputScroll = exports.encodeInputKey = exports.encodeInputPointer = exports.modsToU8 = exports.buttonToU8 = exports.fracToU16 = exports.GECKO_INPUT_SCROLL_SET = exports.GECKO_INPUT_KEY_UP = exports.GECKO_INPUT_KEY_DOWN = exports.GECKO_INPUT_UP = exports.GECKO_INPUT_DOWN = exports.GECKO_OP_VIEWPORT_SET = exports.GECKO_OP_HISTORY_GO = exports.GECKO_OP_INPUT = exports.INTENT_SCHEMA_VERSION = exports.isExtensionPlaneWireMessage = exports.decodeExtensionPlaneEnvelope = exports.EXTENSION_PLANE_CHANNEL = exports.LOOPBACK_SOCKET_CLOSED = exports.LOOPBACK_SOCKET_CLOSING = exports.LOOPBACK_SOCKET_OPEN = exports.LOOPBACK_SOCKET_CONNECTING = exports.isLoopbackWireMessage = exports.decodeLoopbackToPlane = exports.encodeLoopbackFromPlane = exports.encodeLoopbackInvokeHeartbeat = exports.encodeLoopbackInvokeStarted = exports.encodeLoopbackInvokeResult = exports.encodeLoopbackInvoke = exports.encodeLoopbackHelloReject = exports.encodeLoopbackHelloAck = exports.encodeLoopbackHello = exports.decodeLoopbackEnvelope = void 0;
+      var domNodeKey_1 = require_domNodeKey();
+      Object.defineProperty(exports, "NONE_DOM_NODE_KEY", { enumerable: true, get: function() {
+        return domNodeKey_1.NONE_DOM_NODE_KEY;
+      } });
+      var opcodes_1 = require_opcodes();
+      Object.defineProperty(exports, "OpCode", { enumerable: true, get: function() {
+        return opcodes_1.OpCode;
+      } });
+      Object.defineProperty(exports, "opCodeName", { enumerable: true, get: function() {
+        return opcodes_1.opCodeName;
+      } });
+      Object.defineProperty(exports, "NodeKind", { enumerable: true, get: function() {
+        return opcodes_1.NodeKind;
+      } });
+      var elementNs_1 = require_elementNs();
+      Object.defineProperty(exports, "ElementNs", { enumerable: true, get: function() {
+        return elementNs_1.ElementNs;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_HTML", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_HTML;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_SVG", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_SVG;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_MATHML", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_MATHML;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_NESTED_HOST_BIT", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_NESTED_HOST_BIT;
+      } });
+      Object.defineProperty(exports, "classifyElementNs", { enumerable: true, get: function() {
+        return elementNs_1.classifyElementNs;
+      } });
+      Object.defineProperty(exports, "elementNsUri", { enumerable: true, get: function() {
+        return elementNs_1.elementNsUri;
+      } });
+      Object.defineProperty(exports, "elementNsSnapshotLabel", { enumerable: true, get: function() {
+        return elementNs_1.elementNsSnapshotLabel;
+      } });
+      Object.defineProperty(exports, "packElementNsWireByte", { enumerable: true, get: function() {
+        return elementNs_1.packElementNsWireByte;
+      } });
+      Object.defineProperty(exports, "unpackElementNsWireByte", { enumerable: true, get: function() {
+        return elementNs_1.unpackElementNsWireByte;
+      } });
+      var frame_1 = require_frame();
+      Object.defineProperty(exports, "FRAME_WIRE_VERSION", { enumerable: true, get: function() {
+        return frame_1.FRAME_WIRE_VERSION;
+      } });
+      Object.defineProperty(exports, "FRAME_PREFIX_BYTES", { enumerable: true, get: function() {
+        return frame_1.FRAME_PREFIX_BYTES;
+      } });
+      Object.defineProperty(exports, "DOCUMENT_ID", { enumerable: true, get: function() {
+        return frame_1.DOCUMENT_ID;
+      } });
+      Object.defineProperty(exports, "CONTEXT_ID_ROOT", { enumerable: true, get: function() {
+        return frame_1.CONTEXT_ID_ROOT;
+      } });
+      Object.defineProperty(exports, "INSERT_AT_END", { enumerable: true, get: function() {
+        return frame_1.INSERT_AT_END;
+      } });
+      Object.defineProperty(exports, "createFrame", { enumerable: true, get: function() {
+        return frame_1.createFrame;
+      } });
+      var contextIdMint_1 = require_contextIdMint();
+      Object.defineProperty(exports, "ContextIdMint", { enumerable: true, get: function() {
+        return contextIdMint_1.ContextIdMint;
+      } });
+      var nestedNav_1 = require_nestedNav();
+      Object.defineProperty(exports, "isNestedHostNavAttr", { enumerable: true, get: function() {
+        return nestedNav_1.isNestedHostNavAttr;
+      } });
+      var decode_1 = require_decode();
+      Object.defineProperty(exports, "decodeFramePart", { enumerable: true, get: function() {
+        return decode_1.decodeFramePart;
+      } });
+      Object.defineProperty(exports, "peekFrameHeader", { enumerable: true, get: function() {
+        return decode_1.peekFrameHeader;
+      } });
+      Object.defineProperty(exports, "FramePartAssembler", { enumerable: true, get: function() {
+        return decode_1.FramePartAssembler;
+      } });
+      Object.defineProperty(exports, "PersistentStringTable", { enumerable: true, get: function() {
+        return decode_1.PersistentStringTable;
+      } });
+      var telemetry_1 = require_telemetry();
+      Object.defineProperty(exports, "TELEMETRY_WIRE_VERSION", { enumerable: true, get: function() {
+        return telemetry_1.TELEMETRY_WIRE_VERSION;
+      } });
+      Object.defineProperty(exports, "DEFAULT_TELEMETRY_CONFIG", { enumerable: true, get: function() {
+        return telemetry_1.DEFAULT_TELEMETRY_CONFIG;
+      } });
+      Object.defineProperty(exports, "LAB_TELEMETRY_DEFAULTS", { enumerable: true, get: function() {
+        return telemetry_1.LAB_TELEMETRY_DEFAULTS;
+      } });
+      Object.defineProperty(exports, "TELEMETRY_BOOL_CAPS", { enumerable: true, get: function() {
+        return telemetry_1.TELEMETRY_BOOL_CAPS;
+      } });
+      Object.defineProperty(exports, "isProjectionTelemetryMessage", { enumerable: true, get: function() {
+        return telemetry_1.isProjectionTelemetryMessage;
+      } });
+      Object.defineProperty(exports, "desyncPhase", { enumerable: true, get: function() {
+        return telemetry_1.desyncPhase;
+      } });
+      var plane_1 = require_plane();
+      Object.defineProperty(exports, "PlaneChannel", { enumerable: true, get: function() {
+        return plane_1.PlaneChannel;
+      } });
+      Object.defineProperty(exports, "planeChannelName", { enumerable: true, get: function() {
+        return plane_1.planeChannelName;
+      } });
+      Object.defineProperty(exports, "PLANE_MAGIC", { enumerable: true, get: function() {
+        return plane_1.PLANE_MAGIC;
+      } });
+      Object.defineProperty(exports, "PLANE_VERSION", { enumerable: true, get: function() {
+        return plane_1.PLANE_VERSION;
+      } });
+      Object.defineProperty(exports, "PLANE_HEADER_SIZE", { enumerable: true, get: function() {
+        return plane_1.PLANE_HEADER_SIZE;
+      } });
+      Object.defineProperty(exports, "encodePlaneEnvelope", { enumerable: true, get: function() {
+        return plane_1.encodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "decodePlaneEnvelope", { enumerable: true, get: function() {
+        return plane_1.decodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "isPlaneEnvelope", { enumerable: true, get: function() {
+        return plane_1.isPlaneEnvelope;
+      } });
+      var envelope_1 = require_envelope();
+      Object.defineProperty(exports, "VIRTUAL_LOOPBACK_CHANNEL", { enumerable: true, get: function() {
+        return envelope_1.VIRTUAL_LOOPBACK_CHANNEL;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_CONTROL_INVOKE_NAME", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_CONTROL_INVOKE_NAME;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_INVOKE_IDLE_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_INVOKE_IDLE_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_INVOKE_HEARTBEAT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_INVOKE_HEARTBEAT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_WS_OPEN_TIMEOUT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_WS_OPEN_TIMEOUT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_HELLO_ACK_TIMEOUT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_HELLO_ACK_TIMEOUT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_GENERATION_SUPERSEDED_CODE", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_GENERATION_SUPERSEDED_CODE;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_GENERATION_SUPERSEDED_REASON", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_GENERATION_SUPERSEDED_REASON;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackEnvelope", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackEnvelope;
+      } });
+      Object.defineProperty(exports, "decodeLoopbackEnvelope", { enumerable: true, get: function() {
+        return envelope_1.decodeLoopbackEnvelope;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackHello", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackHello;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackHelloAck", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackHelloAck;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackHelloReject", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackHelloReject;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvoke", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvoke;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvokeResult", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvokeResult;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvokeStarted", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvokeStarted;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvokeHeartbeat", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvokeHeartbeat;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackFromPlane", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackFromPlane;
+      } });
+      Object.defineProperty(exports, "decodeLoopbackToPlane", { enumerable: true, get: function() {
+        return envelope_1.decodeLoopbackToPlane;
+      } });
+      Object.defineProperty(exports, "isLoopbackWireMessage", { enumerable: true, get: function() {
+        return envelope_1.isLoopbackWireMessage;
+      } });
+      var socket_1 = require_socket();
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_CONNECTING", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_CONNECTING;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_OPEN", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_OPEN;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_CLOSING", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_CLOSING;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_CLOSED", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_CLOSED;
+      } });
+      var envelope_2 = require_envelope3();
+      Object.defineProperty(exports, "EXTENSION_PLANE_CHANNEL", { enumerable: true, get: function() {
+        return envelope_2.EXTENSION_PLANE_CHANNEL;
+      } });
+      Object.defineProperty(exports, "decodeExtensionPlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_2.decodeExtensionPlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "isExtensionPlaneWireMessage", { enumerable: true, get: function() {
+        return envelope_2.isExtensionPlaneWireMessage;
+      } });
+      var intentTypes_1 = require_intentTypes();
+      Object.defineProperty(exports, "INTENT_SCHEMA_VERSION", { enumerable: true, get: function() {
+        return intentTypes_1.INTENT_SCHEMA_VERSION;
+      } });
+      var geckoControlInput_1 = require_geckoControlInput();
+      Object.defineProperty(exports, "GECKO_OP_INPUT", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_OP_INPUT;
+      } });
+      Object.defineProperty(exports, "GECKO_OP_HISTORY_GO", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_OP_HISTORY_GO;
+      } });
+      Object.defineProperty(exports, "GECKO_OP_VIEWPORT_SET", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_OP_VIEWPORT_SET;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_DOWN", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_DOWN;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_UP", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_UP;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_KEY_DOWN", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_KEY_DOWN;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_KEY_UP", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_KEY_UP;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_SCROLL_SET", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_SCROLL_SET;
+      } });
+      Object.defineProperty(exports, "fracToU16", { enumerable: true, get: function() {
+        return geckoControlInput_1.fracToU16;
+      } });
+      Object.defineProperty(exports, "buttonToU8", { enumerable: true, get: function() {
+        return geckoControlInput_1.buttonToU8;
+      } });
+      Object.defineProperty(exports, "modsToU8", { enumerable: true, get: function() {
+        return geckoControlInput_1.modsToU8;
+      } });
+      Object.defineProperty(exports, "encodeInputPointer", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeInputPointer;
+      } });
+      Object.defineProperty(exports, "encodeInputKey", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeInputKey;
+      } });
+      Object.defineProperty(exports, "encodeInputScroll", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeInputScroll;
+      } });
+      Object.defineProperty(exports, "encodeHistoryGo", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeHistoryGo;
+      } });
+      Object.defineProperty(exports, "encodeViewportSet", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeViewportSet;
+      } });
+      Object.defineProperty(exports, "encodeDialogRespond", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeDialogRespond;
+      } });
+      Object.defineProperty(exports, "encodePermissionRespond", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodePermissionRespond;
+      } });
+      Object.defineProperty(exports, "encodeDownloadRespond", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeDownloadRespond;
+      } });
+      Object.defineProperty(exports, "encodeControlFromIntent", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeControlFromIntent;
+      } });
+      Object.defineProperty(exports, "encodeAssetRequest", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeAssetRequest;
+      } });
+      Object.defineProperty(exports, "bytesToBase64", { enumerable: true, get: function() {
+        return geckoControlInput_1.bytesToBase64;
+      } });
+      var domTreeSnapshot_1 = require_domTreeSnapshot();
+      Object.defineProperty(exports, "snapshotTree", { enumerable: true, get: function() {
+        return domTreeSnapshot_1.snapshotTree;
+      } });
+      var tableDigest_1 = require_tableDigest();
+      Object.defineProperty(exports, "digestReplicatedTable", { enumerable: true, get: function() {
+        return tableDigest_1.digestReplicatedTable;
+      } });
+      Object.defineProperty(exports, "tableDigestsEqual", { enumerable: true, get: function() {
+        return tableDigest_1.tableDigestsEqual;
+      } });
+      var replicatedTable_1 = require_replicatedTable();
+      Object.defineProperty(exports, "ReplicatedTable", { enumerable: true, get: function() {
+        return replicatedTable_1.ReplicatedTable;
+      } });
+      var replicatedTableApply_1 = require_replicatedTableApply();
+      Object.defineProperty(exports, "applyOpsToTable", { enumerable: true, get: function() {
+        return replicatedTableApply_1.applyOpsToTable;
+      } });
+      Object.defineProperty(exports, "applyFrameToTableChecked", { enumerable: true, get: function() {
+        return replicatedTableApply_1.applyFrameToTableChecked;
+      } });
+      var tableLiveOracle_1 = require_tableLiveOracle();
+      Object.defineProperty(exports, "compareTableToLiveOrder", { enumerable: true, get: function() {
+        return tableLiveOracle_1.compareTableToLiveOrder;
+      } });
+      var cssomTableLiveOracle_1 = require_cssomTableLiveOracle();
+      Object.defineProperty(exports, "compareTableToLiveCssom", { enumerable: true, get: function() {
+        return cssomTableLiveOracle_1.compareTableToLiveCssom;
+      } });
+      var formControlSnap_1 = require_formControlSnap();
+      Object.defineProperty(exports, "formControlSnapsEqual", { enumerable: true, get: function() {
+        return formControlSnap_1.formControlSnapsEqual;
+      } });
+    }
+  });
+
   // browser/mirror/projection/lab/client/LabProjectedHarness.ts
   var import_ProjectionClient = __toESM(require_ProjectionClient());
   var import_frame = __toESM(require_frame());
@@ -7146,6 +8479,7 @@
   var import_decode = __toESM(require_decode());
   var import_telemetry = __toESM(require_telemetry());
   var import_frame2 = __toESM(require_frame());
+  var import_core2 = __toESM(require_core());
 
   // browser/mirror/projection/lab/labPublicOrigin.ts
   var NGROK_SKIP_BROWSER_WARNING = "ngrok-skip-browser-warning";
@@ -7155,8 +8489,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 91,
-    builtAt: "2026-09-07T20:00:37.476Z"
+    seq: 94,
+    builtAt: "2026-09-15T01:07:20.366Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -8072,6 +9406,134 @@
     };
   }
 
+  // browser/mirror/projection/lab/client/geckoLabWire.ts
+  var import_core = __toESM(require_core());
+  function classifyFetchDestination(destination) {
+    switch (destination) {
+      case "image":
+        return 1;
+      case "font":
+        return 2;
+      case "audio":
+        return 3;
+      case "video":
+        return 4;
+      case "document":
+      case "frame":
+      case "iframe":
+      case "embed":
+      case "object":
+        return 10;
+      case "script":
+        return 11;
+      case "style":
+        return 12;
+      case "websocket":
+        return 15;
+      case "":
+        return 5;
+      default:
+        return 0;
+    }
+  }
+  var gecko = false;
+  var corr = 1;
+  var pendingAssets = /* @__PURE__ */ new Map();
+  var nextStream = 1;
+  var swReg = null;
+  function setGeckoLab(on) {
+    gecko = on;
+  }
+  function isGeckoLab() {
+    return gecko;
+  }
+  function nextGeckoCorr() {
+    corr += 1;
+    return corr;
+  }
+  function sendGeckoControl(ws, bytes) {
+    ws.send(JSON.stringify({ type: "client.control", bytes: (0, import_core.bytesToBase64)(bytes) }));
+  }
+  function sendGeckoViewport(ws, width, height) {
+    sendGeckoControl(ws, (0, import_core.encodeViewportSet)(nextGeckoCorr(), 0, width, height));
+  }
+  function answerGeckoRequest(ws, kind, contextId, requestId, yes, text) {
+    const c = nextGeckoCorr();
+    if (kind === "dialog") {
+      sendGeckoControl(ws, (0, import_core.encodeDialogRespond)(c, contextId, requestId, yes ? text || "ok" : ""));
+      return;
+    }
+    if (kind === "permission") {
+      sendGeckoControl(ws, (0, import_core.encodePermissionRespond)(c, contextId, requestId, yes));
+      return;
+    }
+    sendGeckoControl(ws, (0, import_core.encodeDownloadRespond)(c, contextId, requestId, yes));
+  }
+  function showGeckoPrompt(_kind, description) {
+    const yes = window.confirm(description);
+    return { yes, text: yes ? "ok" : "" };
+  }
+  async function ensureGeckoAssetSw(token) {
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("service worker indispon\xEDvel");
+    }
+    swReg = await navigator.serviceWorker.register("/lab/asset-sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+    const sw = swReg.active ?? navigator.serviceWorker.controller;
+    sw?.postMessage({ type: "token", token });
+  }
+  function sendGeckoAssetFetch(ws, ctx, url, dest, range) {
+    const streamId = nextStream++;
+    const destCode = classifyFetchDestination(dest);
+    const payload = (0, import_core.encodeAssetRequest)(streamId, destCode, url, range, 0);
+    return new Promise((resolve, reject) => {
+      pendingAssets.set(streamId, { chunks: [], resolve, reject });
+      ws.send(JSON.stringify({ type: "client.asset", contextId: ctx, bytes: (0, import_core.bytesToBase64)(payload) }));
+    });
+  }
+  function onGeckoAssetMessage(streamId, phase, data, why) {
+    const pending = pendingAssets.get(streamId);
+    if (!pending) {
+      return;
+    }
+    if (phase === 2) {
+      pendingAssets.delete(streamId);
+      pending.reject(new Error(why || "denied"));
+      return;
+    }
+    if (phase === 1 && data.length) {
+      pending.chunks.push(data);
+    }
+    if (phase === 3) {
+      pendingAssets.delete(streamId);
+      const total = pending.chunks.reduce((n, c) => n + c.length, 0);
+      const body = new Uint8Array(total);
+      let o = 0;
+      for (const c of pending.chunks) {
+        body.set(c, o);
+        o += c.length;
+      }
+      pending.resolve(new Response(body));
+    }
+  }
+  function wireGeckoSwFetch(ws, ctx) {
+    navigator.serviceWorker.addEventListener("message", (ev) => {
+      const msg = ev.data;
+      if (msg?.type !== "asset-fetch" || typeof msg.url !== "string" || typeof msg.id !== "number") {
+        return;
+      }
+      void sendGeckoAssetFetch(ws, ctx, msg.url, msg.dest ?? "", msg.range ?? "").then(
+        async (res) => {
+          const buf = new Uint8Array(await res.arrayBuffer());
+          ev.source?.postMessage({ type: "asset", id: msg.id, ok: true, bytes: buf.buffer }, { transfer: [buf.buffer] });
+        },
+        (err) => {
+          ev.source?.postMessage({ type: "asset", id: msg.id, ok: false, error: err.message });
+        }
+      );
+    });
+  }
+
   // browser/mirror/projection/lab/client/main.ts
   function labFetch(input, init) {
     const headers = new Headers(init?.headers);
@@ -8240,14 +9702,18 @@
           pendingResize.resolve({ applied: false, message: "superseded", errorCode: "superseded" });
         }
         pendingResize = { resolve };
-        ws.send(
-          JSON.stringify({
-            type: "client.resize",
-            width: size.width,
-            height: size.height,
-            device
-          })
-        );
+        if (isGeckoLab()) {
+          sendGeckoViewport(ws, size.width, size.height);
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: "client.resize",
+              width: size.width,
+              height: size.height,
+              device
+            })
+          );
+        }
       });
     }
     function startViewportSync() {
@@ -8276,47 +9742,58 @@
     }
     function sendInputIntent(intent) {
       if (surfaceWrap.classList.contains("is-crashed")) return;
-      if (ws?.readyState === WebSocket.OPEN) {
-        const payload = { schemaVersion: intent.schemaVersion, type: intent.type };
-        if (intent.type === "move" || intent.type === "down" || intent.type === "up") {
-          payload.x = intent.x;
-          payload.y = intent.y;
-          payload.viewportW = intent.viewportW;
-          payload.viewportH = intent.viewportH;
-          payload.button = intent.button;
-          if (intent.type !== "move") {
-            if (intent.contextId != null) payload.contextId = intent.contextId;
-            if (intent.nodeId !== void 0) payload.nodeId = intent.nodeId;
-            if (intent.localX != null) payload.localX = intent.localX;
-            if (intent.localY != null) payload.localY = intent.localY;
-          }
-          payload.payload = JSON.stringify({
-            x: intent.x,
-            y: intent.y,
-            button: intent.button,
-            ...intent.type !== "move" && intent.localX != null && intent.localY != null ? { localX: intent.localX, localY: intent.localY } : {}
-          });
-        } else if (intent.type === "keyDown" || intent.type === "keyUp") {
-          payload.key = intent.key;
-          payload.code = intent.code;
-          payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
-        } else if (intent.type === "scrollSet") {
-          payload.contextId = intent.contextId;
-          payload.nodeId = intent.nodeId;
-          payload.scrollFracX = intent.scrollFracX;
-          payload.scrollFracY = intent.scrollFracY;
-          payload.payload = JSON.stringify({
-            scrollFracX: intent.scrollFracX,
-            scrollFracY: intent.scrollFracY
-          });
-        } else if (intent.type === "historyNav") {
-          payload.direction = intent.direction;
-          payload.payload = JSON.stringify({ direction: intent.direction });
+      if (ws?.readyState !== WebSocket.OPEN) return;
+      if (isGeckoLab()) {
+        const bytes = (0, import_core2.encodeControlFromIntent)(
+          nextGeckoCorr(),
+          intent.contextId ?? import_frame2.CONTEXT_ID_ROOT,
+          intent
+        );
+        if (bytes) {
+          sendGeckoControl(ws, bytes);
         }
-        payload.timestampClient = intent.timestampClient;
-        ws.send(JSON.stringify({ type: "client.intent", intent: payload }));
         logActivity(`intent ${formatIntentShort(intent)}`);
+        return;
       }
+      const payload = { schemaVersion: intent.schemaVersion, type: intent.type };
+      if (intent.type === "move" || intent.type === "down" || intent.type === "up") {
+        payload.x = intent.x;
+        payload.y = intent.y;
+        payload.viewportW = intent.viewportW;
+        payload.viewportH = intent.viewportH;
+        payload.button = intent.button;
+        if (intent.type !== "move") {
+          if (intent.contextId != null) payload.contextId = intent.contextId;
+          if (intent.nodeId !== void 0) payload.nodeId = intent.nodeId;
+          if (intent.localX != null) payload.localX = intent.localX;
+          if (intent.localY != null) payload.localY = intent.localY;
+        }
+        payload.payload = JSON.stringify({
+          x: intent.x,
+          y: intent.y,
+          button: intent.button,
+          ...intent.type !== "move" && intent.localX != null && intent.localY != null ? { localX: intent.localX, localY: intent.localY } : {}
+        });
+      } else if (intent.type === "keyDown" || intent.type === "keyUp") {
+        payload.key = intent.key;
+        payload.code = intent.code;
+        payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
+      } else if (intent.type === "scrollSet") {
+        payload.contextId = intent.contextId;
+        payload.nodeId = intent.nodeId;
+        payload.scrollFracX = intent.scrollFracX;
+        payload.scrollFracY = intent.scrollFracY;
+        payload.payload = JSON.stringify({
+          scrollFracX: intent.scrollFracX,
+          scrollFracY: intent.scrollFracY
+        });
+      } else if (intent.type === "historyNav") {
+        payload.direction = intent.direction;
+        payload.payload = JSON.stringify({ direction: intent.direction });
+      }
+      payload.timestampClient = intent.timestampClient;
+      ws.send(JSON.stringify({ type: "client.intent", intent: payload }));
+      logActivity(`intent ${formatIntentShort(intent)}`);
     }
     function sendInputClickDiag() {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -8762,6 +10239,9 @@
     }
     async function ensureProjection() {
       if (projection) return projection;
+      if (isGeckoLab()) {
+        await ensureGeckoAssetSw(sessionToken);
+      }
       projection = await LabProjectedHarness.create({
         surfaceHost,
         width: canonicalViewport.width,
@@ -9077,8 +10557,39 @@
           setScrollDiagSessionId(sessionId);
           sessionToken = String(msg.sessionToken ?? "");
           assetBaseUrl = window.location.origin;
-          logActivity(`session.hello ${sessionId}`);
+          setGeckoLab(msg.engine === "gecko");
+          if (isGeckoLab() && ws) {
+            wireGeckoSwFetch(ws, import_frame2.CONTEXT_ID_ROOT);
+            void ensureGeckoAssetSw(sessionToken).then(
+              () => logActivity("gecko sw ready"),
+              (err) => logActivity(`gecko sw falhou: ${err.message}`)
+            );
+          }
+          logActivity(`session.hello ${sessionId}${isGeckoLab() ? " gecko" : ""}`);
           refreshStatus();
+          return;
+        }
+        if (msg.type === "gecko.requested" && isGeckoLab() && ws) {
+          const kind = String(msg.kind ?? "dialog");
+          const contextId = Number(msg.contextId ?? import_frame2.CONTEXT_ID_ROOT);
+          const requestId = Number(msg.requestId ?? 0);
+          const description = String(msg.description ?? "");
+          const { yes, text } = showGeckoPrompt(kind, description);
+          answerGeckoRequest(ws, kind, contextId, requestId, yes, text);
+          logActivity(`gecko.requested ${kind} #${requestId}`);
+          return;
+        }
+        if (msg.type === "gecko.asset" && isGeckoLab()) {
+          const streamId = Number(msg.streamId ?? 0);
+          const phase2 = Number(msg.phase ?? 0);
+          const why = String(msg.why ?? "");
+          let data = new Uint8Array(0);
+          if (typeof msg.bytes === "string" && msg.bytes.length > 0) {
+            const raw = atob(msg.bytes);
+            data = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+          }
+          onGeckoAssetMessage(streamId, phase2, data, why);
           return;
         }
         if (msg.type === "session.booted") {

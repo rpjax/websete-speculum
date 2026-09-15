@@ -39,5 +39,13 @@ do
   cp -f "$REPO/gecko-engine/patches/$f" "$GECKO/$f"
   echo "copied $f"
 done
-GECKO="$GECKO" python3 "$REPO/gecko-engine/scripts/apply-speculum-v1-hooks.py" || true
+HUNK="$REPO/gecko-engine/patches/dom/base/nsGlobalWindowInner.cpp.patch"
+TARGET="$GECKO/dom/base/nsGlobalWindowInner.cpp"
+[ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
+[ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
+if grep -q 'SpeculumAskAndWait' "$TARGET"; then
+  echo "window dialog hunk already applied"
+else
+  patch -d "$GECKO" -p1 --fuzz=0 < "$HUNK"
+fi
 echo DONE

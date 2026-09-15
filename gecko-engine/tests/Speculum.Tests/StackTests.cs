@@ -1,9 +1,11 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using Speculum.Supervisor.Control;
+using Speculum.Supervisor.Wire;
 
 namespace Speculum.Tests;
 
@@ -209,6 +211,57 @@ public static class StackTests
                 ControlCommand.Snapshot(0, 0),
                 WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
 
+            await client.SendAsync(
+                ControlCommand.InputKey(0, 0, ControlCommand.InputKeyDown, "x", "KeyX", 0),
+                WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+            await client.SendAsync(
+                ControlCommand.InputKey(0, 0, ControlCommand.InputKeyUp, "x", "KeyX", 0),
+                WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+            var clicked = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(30), seen =>
+                seen.Any(f =>
+                    SealedFrame.Parse(f).Ok && FrameStrings.TryReadLocal(f, out var s, out _) &&
+                    FrameStrings.Contains(s, "clicked")));
+            report.Equal("gesto muda o texto para clicked", true,
+                clicked.Any(f =>
+                    SealedFrame.Parse(f).Ok && FrameStrings.TryReadLocal(f, out var s, out _) &&
+                    FrameStrings.Contains(s, "clicked")));
+
+            await client.SendAsync(
+                ControlCommand.Navigate(0, 0, pages.AlertUrl),
+                WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+            var dialog = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(30), seen =>
+                seen.Any(IsDialogRequested));
+            report.Equal("alerta pede DialogRequested", true, dialog.Any(IsDialogRequested));
+            if (dialog.Any(IsDialogRequested))
+            {
+                var ev = dialog.Last(IsDialogRequested);
+                var payload = ev.AsSpan(Envelope.HeaderBytes);
+                var reader = new ControlReader(payload);
+                var ctx = reader.ReadUInt32();
+                var requestId = reader.ReadUInt32();
+                await client.SendAsync(
+                    ControlCommand.DialogRespond(1, ctx, requestId, "ok"u8.ToArray()),
+                    WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+                var answered = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(30), seen =>
+                    seen.Any(f =>
+                        SealedFrame.Parse(f).Ok && FrameStrings.TryReadLocal(f, out var s, out _) &&
+                        FrameStrings.Contains(s, "answered")));
+                report.Equal("alerta espera resposta e segue", true,
+                    answered.Any(f =>
+                        SealedFrame.Parse(f).Ok && FrameStrings.TryReadLocal(f, out var s, out _) &&
+                        FrameStrings.Contains(s, "answered")));
+            }
+
+            var assetBody = AssetPayload.EncodeRequest(1, pages.PixelUrl, "");
+            var assetEnv = new byte[Envelope.HeaderBytes + assetBody.Length];
+            Envelope.WriteHeader(assetEnv, EnvelopeKind.Asset, 1, assetBody.Length);
+            Buffer.BlockCopy(assetBody, 0, assetEnv, Envelope.HeaderBytes, assetBody.Length);
+            await client.SendAsync(assetEnv, WebSocketMessageType.Binary, true, CancellationToken.None);
+            var photo = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(30), seen =>
+                seen.Any(f => Envelope.TryReadComplete(f, EnvelopeKind.Asset, out _, out _)));
+            report.Equal("foto: envelope de ativo no consumidor", true,
+                photo.Any(f => Envelope.TryReadComplete(f, EnvelopeKind.Asset, out _, out _)));
+
             await CloseAsync(client);
         }
         catch (Exception ex)
@@ -396,6 +449,17 @@ public static class StackTests
                 await Task.Delay(100);
             }
         }
+    }
+
+    private static bool IsDialogRequested(byte[] bytes)
+    {
+        if (!Envelope.TryReadComplete(bytes, EnvelopeKind.BrowserEvent, out _, out var len) || len < 2)
+        {
+            return false;
+        }
+
+        var op = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(Envelope.HeaderBytes));
+        return op == (ushort)ControlOpCode.DialogRequested;
     }
 
     private static async Task<List<byte[]>> ReceiveFramesAsync(ClientWebSocket client, int count, TimeSpan timeout)
@@ -645,15 +709,19 @@ public static class StackTests
         public string SecondUrl { get; }
         public string HostUrl { get; }
         public string Host2Url { get; }
+        public string AlertUrl { get; }
+        public string PixelUrl { get; }
 
         private PageFixtures(HttpListener listener, string firstUrl, string secondUrl,
-            string hostUrl, string host2Url)
+            string hostUrl, string host2Url, string alertUrl, string pixelUrl)
         {
             _listener = listener;
             FirstUrl = firstUrl;
             SecondUrl = secondUrl;
             HostUrl = hostUrl;
             Host2Url = host2Url;
+            AlertUrl = alertUrl;
+            PixelUrl = pixelUrl;
             _ = ServeAsync(_cancel.Token);
         }
 
@@ -668,7 +736,8 @@ public static class StackTests
             var listener = new HttpListener();
             listener.Prefixes.Add(prefix);
             listener.Start();
-            return new PageFixtures(listener, prefix + "a", prefix + "b", prefix + "host", prefix + "host2");
+            return new PageFixtures(listener, prefix + "a", prefix + "b", prefix + "host", prefix + "host2",
+                prefix + "alert", prefix + "pixel.png");
         }
 
         public void Dispose()
@@ -693,8 +762,22 @@ public static class StackTests
                 {
                     var ctx = await _listener.GetContextAsync().WaitAsync(cancel);
                     var path = ctx.Request.Url?.AbsolutePath ?? "/";
+                    if (path.EndsWith("/pixel.png", StringComparison.Ordinal))
+                    {
+                        var png = Convert.FromBase64String(
+                            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+                        ctx.Response.ContentType = "image/png";
+                        ctx.Response.ContentLength64 = png.Length;
+                        await ctx.Response.OutputStream.WriteAsync(png, cancel);
+                        ctx.Response.Close();
+                        continue;
+                    }
+
                     var body = path switch
                     {
+                        var p when p.EndsWith("/alert", StringComparison.Ordinal) =>
+                            "<!doctype html><html><head><title>spec-alert</title></head><body><p id=\"spec-alert\">wait</p>" +
+                            "<script>alert('spec-ask');document.getElementById('spec-alert').textContent='answered';</script></body></html>",
                         var p when p.EndsWith("/b", StringComparison.Ordinal) =>
                             "<!doctype html><html><head><title>spec-b</title></head><body><h1 id=\"spec-page-b\">bravo</h1></body></html>",
                         var p when p.EndsWith("/inner2", StringComparison.Ordinal) =>
@@ -711,7 +794,10 @@ public static class StackTests
                             "</body></html>",
                         _ =>
                             "<!doctype html><html><head><title>spec-a</title></head><body><h1 id=\"spec-page-a\">alpha</h1>" +
-                            "<script>requestAnimationFrame(function(){document.getElementById('spec-page-a').textContent='alpha-tick';});</script>" +
+                            "<button id=\"spec-go\">go</button><p id=\"spec-out\">idle</p>" +
+                            "<script>requestAnimationFrame(function(){document.getElementById('spec-page-a').textContent='alpha-tick';});" +
+                            "document.addEventListener('keydown',function(e){if(e.key==='x')document.getElementById('spec-out').textContent='clicked';});" +
+                            "document.getElementById('spec-go').addEventListener('click',function(){document.getElementById('spec-out').textContent='clicked';});</script>" +
                             "</body></html>",
                     };
                     var bytes = Encoding.UTF8.GetBytes(body);

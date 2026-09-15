@@ -10,6 +10,7 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/NullPrincipal.h"
@@ -31,6 +32,8 @@
 #include "nsIWebProgressListener.h"
 #include "nsIWindowWatcher.h"
 #include "nsNetUtil.h"
+#include "nsCOMPtr.h"
+#include "nsIPrincipal.h"
 #include "nsPIDOMWindow.h"
 #include "nsPIDOMWindowInlines.h"
 #include "nsString.h"
@@ -798,6 +801,23 @@ struct SpeculumProjectionRuntime::Impl {
     return nullptr;
   }
 
+  already_AddRefed<nsIPrincipal> DocumentPrincipalOf(uint32_t aContextId) {
+    RefPtr<BrowsingContext> bc = ResolveProjected(aContextId);
+    if (!bc || bc->IsDiscarded()) {
+      return nullptr;
+    }
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical) {
+      return nullptr;
+    }
+    if (mozilla::dom::WindowGlobalParent* wgp =
+            canonical->GetCurrentWindowGlobal()) {
+      nsCOMPtr<nsIPrincipal> principal = wgp->DocumentPrincipal();
+      return principal.forget();
+    }
+    return nullptr;
+  }
+
   void HandleResync(uint32_t aCorrelationId, uint32_t aContextId,
                     uint8_t aForce) {
     if (aForce > 1) {
@@ -1561,4 +1581,9 @@ uint32_t SpeculumProjectionRuntime::MintNestedContextId() {
     return 0;
   }
   return sRuntime->mImpl->MintNestedContextId();
+}
+
+already_AddRefed<nsIPrincipal> SpeculumProjectionRuntime::DocumentPrincipalOf(
+    uint32_t aContextId) {
+  return mImpl->DocumentPrincipalOf(aContextId);
 }

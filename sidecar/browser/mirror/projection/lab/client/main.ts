@@ -24,11 +24,25 @@ import { snapshotFormControls } from '@speculum/page-projection/projected/formCo
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '@speculum/page-projection/core/telemetry';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
+import { encodeControlFromIntent } from '@speculum/page-projection/core';
 import { NGROK_SKIP_HEADERS } from '../labPublicOrigin';
 import labBuildStamp from '../static/labBuildStamp.json';
 import { createRunsPanel } from './runsPanel';
 import { initLabShell, type LabShell } from './labShell';
 import { installScrollDiagHostApis, setScrollDiagSessionId } from './scrollDiagHost';
+import {
+  answerGeckoRequest,
+  ensureGeckoAssetSw,
+  isGeckoLab,
+  nextGeckoCorr,
+  onGeckoAssetMessage,
+  sendGeckoControl,
+  sendGeckoViewport,
+  setGeckoLab,
+  showGeckoPrompt,
+  wireGeckoSwFetch,
+  type GeckoRequestedKind,
+} from './geckoLabWire';
 
 function labFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
@@ -278,14 +292,18 @@ export function bootLabClient(): void {
         pendingResize.resolve({ applied: false, message: 'superseded', errorCode: 'superseded' });
       }
       pendingResize = { resolve };
-      ws!.send(
-        JSON.stringify({
-          type: 'client.resize',
-          width: size.width,
-          height: size.height,
-          device,
-        }),
-      );
+      if (isGeckoLab()) {
+        sendGeckoViewport(ws!, size.width, size.height);
+      } else {
+        ws!.send(
+          JSON.stringify({
+            type: 'client.resize',
+            width: size.width,
+            height: size.height,
+            device,
+          }),
+        );
+      }
     });
   }
 
@@ -318,50 +336,60 @@ export function bootLabClient(): void {
 
   function sendInputIntent(intent: UnifiedIntent): void {
     if (surfaceWrap.classList.contains('is-crashed')) return;
-    if (ws?.readyState === WebSocket.OPEN) {
-      const payload: Record<string, unknown> = { schemaVersion: intent.schemaVersion, type: intent.type };
-      if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
-        payload.x = intent.x;
-        payload.y = intent.y;
-        payload.viewportW = intent.viewportW;
-        payload.viewportH = intent.viewportH;
-        payload.button = intent.button;
-        // Sparse-cdp id-addressed click — nodeId + local % in target box.
-        if (intent.type !== 'move') {
-          if (intent.contextId != null) payload.contextId = intent.contextId;
-          if (intent.nodeId !== undefined) payload.nodeId = intent.nodeId;
-          if (intent.localX != null) payload.localX = intent.localX;
-          if (intent.localY != null) payload.localY = intent.localY;
-        }
-        payload.payload = JSON.stringify({
-          x: intent.x,
-          y: intent.y,
-          button: intent.button,
-          ...(intent.type !== 'move' && intent.localX != null && intent.localY != null
-            ? { localX: intent.localX, localY: intent.localY }
-            : {}),
-        });
-      } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
-        payload.key = intent.key;
-        payload.code = intent.code;
-        payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
-      } else if (intent.type === 'scrollSet') {
-        payload.contextId = intent.contextId;
-        payload.nodeId = intent.nodeId;
-        payload.scrollFracX = intent.scrollFracX;
-        payload.scrollFracY = intent.scrollFracY;
-        payload.payload = JSON.stringify({
-          scrollFracX: intent.scrollFracX,
-          scrollFracY: intent.scrollFracY,
-        });
-      } else if (intent.type === 'historyNav') {
-        payload.direction = intent.direction;
-        payload.payload = JSON.stringify({ direction: intent.direction });
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    if (isGeckoLab()) {
+      const bytes = encodeControlFromIntent(
+        nextGeckoCorr(),
+        intent.contextId ?? CONTEXT_ID_ROOT,
+        intent,
+      );
+      if (bytes) {
+        sendGeckoControl(ws, bytes);
       }
-      payload.timestampClient = intent.timestampClient;
-      ws.send(JSON.stringify({ type: 'client.intent', intent: payload }));
       logActivity(`intent ${formatIntentShort(intent as unknown as Record<string, unknown>)}`);
+      return;
     }
+    const payload: Record<string, unknown> = { schemaVersion: intent.schemaVersion, type: intent.type };
+    if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
+      payload.x = intent.x;
+      payload.y = intent.y;
+      payload.viewportW = intent.viewportW;
+      payload.viewportH = intent.viewportH;
+      payload.button = intent.button;
+      if (intent.type !== 'move') {
+        if (intent.contextId != null) payload.contextId = intent.contextId;
+        if (intent.nodeId !== undefined) payload.nodeId = intent.nodeId;
+        if (intent.localX != null) payload.localX = intent.localX;
+        if (intent.localY != null) payload.localY = intent.localY;
+      }
+      payload.payload = JSON.stringify({
+        x: intent.x,
+        y: intent.y,
+        button: intent.button,
+        ...(intent.type !== 'move' && intent.localX != null && intent.localY != null
+          ? { localX: intent.localX, localY: intent.localY }
+          : {}),
+      });
+    } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
+      payload.key = intent.key;
+      payload.code = intent.code;
+      payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
+    } else if (intent.type === 'scrollSet') {
+      payload.contextId = intent.contextId;
+      payload.nodeId = intent.nodeId;
+      payload.scrollFracX = intent.scrollFracX;
+      payload.scrollFracY = intent.scrollFracY;
+      payload.payload = JSON.stringify({
+        scrollFracX: intent.scrollFracX,
+        scrollFracY: intent.scrollFracY,
+      });
+    } else if (intent.type === 'historyNav') {
+      payload.direction = intent.direction;
+      payload.payload = JSON.stringify({ direction: intent.direction });
+    }
+    payload.timestampClient = intent.timestampClient;
+    ws.send(JSON.stringify({ type: 'client.intent', intent: payload }));
+    logActivity(`intent ${formatIntentShort(intent as unknown as Record<string, unknown>)}`);
   }
 
   function sendInputClickDiag(): void {
@@ -891,6 +919,9 @@ export function bootLabClient(): void {
 
   async function ensureProjection(): Promise<LabProjectedHarness> {
     if (projection) return projection;
+    if (isGeckoLab()) {
+      await ensureGeckoAssetSw(sessionToken);
+    }
     projection = await LabProjectedHarness.create({
       surfaceHost,
       width: canonicalViewport.width,
@@ -1258,8 +1289,39 @@ export function bootLabClient(): void {
         setScrollDiagSessionId(sessionId);
         sessionToken = String((msg as { sessionToken?: string }).sessionToken ?? '');
         assetBaseUrl = window.location.origin;
-        logActivity(`session.hello ${sessionId}`);
+        setGeckoLab((msg as { engine?: string }).engine === 'gecko');
+        if (isGeckoLab() && ws) {
+          wireGeckoSwFetch(ws, CONTEXT_ID_ROOT);
+          void ensureGeckoAssetSw(sessionToken).then(
+            () => logActivity('gecko sw ready'),
+            (err: Error) => logActivity(`gecko sw falhou: ${err.message}`),
+          );
+        }
+        logActivity(`session.hello ${sessionId}${isGeckoLab() ? ' gecko' : ''}`);
         refreshStatus();
+        return;
+      }
+      if (msg.type === 'gecko.requested' && isGeckoLab() && ws) {
+        const kind = String(msg.kind ?? 'dialog') as GeckoRequestedKind;
+        const contextId = Number(msg.contextId ?? CONTEXT_ID_ROOT);
+        const requestId = Number(msg.requestId ?? 0);
+        const description = String(msg.description ?? '');
+        const { yes, text } = showGeckoPrompt(kind, description);
+        answerGeckoRequest(ws, kind, contextId, requestId, yes, text);
+        logActivity(`gecko.requested ${kind} #${requestId}`);
+        return;
+      }
+      if (msg.type === 'gecko.asset' && isGeckoLab()) {
+        const streamId = Number(msg.streamId ?? 0);
+        const phase = Number(msg.phase ?? 0);
+        const why = String(msg.why ?? '');
+        let data = new Uint8Array(0);
+        if (typeof msg.bytes === 'string' && msg.bytes.length > 0) {
+          const raw = atob(msg.bytes);
+          data = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+        }
+        onGeckoAssetMessage(streamId, phase, data, why);
         return;
       }
       if (msg.type === 'session.booted') {

@@ -39,7 +39,7 @@ var liveSessions = new System.Collections.Concurrent.ConcurrentDictionary<string
 app.MapGet("/", () => ServeStatic(options.StaticDirectory, "client.html", MediaTypeNames.Text.Html));
 app.MapGet("/index.html", () => ServeStatic(options.StaticDirectory, "client.html", MediaTypeNames.Text.Html));
 app.MapGet("/client.js", () => ServeStatic(options.StaticDirectory, "client.js", "text/javascript"));
-app.MapGet("/lab/client.js", () => ServeStatic(options.StaticDirectory, "client.js", "text/javascript"));
+app.MapGet("/lab/asset-sw.js", () => ServeStatic(options.StaticDirectory, "asset-sw.js", "text/javascript"));
 
 app.MapGet("/fixtures/{**path}", (string path) => ServeStatic(options.FixturesDirectory, path, null));
 

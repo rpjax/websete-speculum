@@ -83,6 +83,7 @@ EXPORTS.mozilla.dom += [
     "RemoteType.h",
     "RemoteWebProgressRequest.h",
     "SharedMessageBody.h",
+    "SpeculumMarionette.h",
     "SpeculumMint.h",
     "TabContext.h",
     "TabMessageTypes.h",

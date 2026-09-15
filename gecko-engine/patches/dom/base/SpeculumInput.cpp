@@ -16,6 +16,10 @@
 #include <algorithm>
 #include "nsFocusManager.h"
 #include "nsIWidget.h"
+#include "nsLayoutUtils.h"
+#include "nsPresContext.h"
+#include "nsIFrame.h"
+#include "Units.h"
 #include "nsPIDOMWindow.h"
 #include "nsString.h"
 #include "speculum/InputHit.h"
@@ -100,10 +104,26 @@ void DispatchMouse(Document* aDocument, Element* aElement, bool aDown,
     fm->SetFocus(aElement, 0);
   }
 
-  WidgetMouseEvent event(true, aDown ? eMouseDown : eMouseUp, widget,
+  nsPresContext* pc = pres->GetPresContext();
+  nsIFrame* root = pres->GetRootFrame();
+  if (!pc || !root) {
+    return;
+  }
+  nsPoint appOffset;
+  nsIWidget* nearest = root->GetNearestWidget(appOffset);
+  if (!nearest) {
+    nearest = widget;
+  }
+  const mozilla::CSSToLayoutDeviceScale scale = pc->CSSToDevPixelScale();
+  mozilla::LayoutDeviceIntPoint ref =
+      mozilla::LayoutDeviceIntPoint::FromAppUnitsToNearest(
+          appOffset, pc->AppUnitsPerDevPixel());
+  ref.x += NSToIntRound(hit.x * scale.scale);
+  ref.y += NSToIntRound(hit.y * scale.scale);
+
+  WidgetMouseEvent event(true, aDown ? eMouseDown : eMouseUp, nearest,
                          WidgetMouseEvent::eReal);
-  event.mRefPoint = mozilla::LayoutDeviceIntPoint(int32_t(hit.x),
-                                                  int32_t(hit.y));
+  event.mRefPoint = ref;
   event.mButton = aButton == 1   ? mozilla::MouseButton::eMiddle
                   : aButton == 2 ? mozilla::MouseButton::eSecondary
                                  : mozilla::MouseButton::ePrimary;

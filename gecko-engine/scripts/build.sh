@@ -20,8 +20,14 @@ command -v sccache >/dev/null || { echo "ABORT: sccache ausente. Instalar antes 
 
 cd "$CHECKOUT"
 
-if [ -f "$HERE/scripts/apply-speculum-v1-hooks.py" ]; then
-  GECKO="$CHECKOUT" python3 "$HERE/scripts/apply-speculum-v1-hooks.py" || true
+HUNK="$HERE/patches/dom/base/nsGlobalWindowInner.cpp.patch"
+TARGET="$CHECKOUT/dom/base/nsGlobalWindowInner.cpp"
+[ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
+[ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
+if grep -q 'SpeculumAskAndWait' "$TARGET"; then
+  echo "window dialog hunk already applied"
+else
+  patch -d "$CHECKOUT" -p1 --fuzz=0 < "$HUNK"
 fi
 
 MODE="${1:-build}"

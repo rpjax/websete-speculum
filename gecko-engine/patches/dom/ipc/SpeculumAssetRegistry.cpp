@@ -7,7 +7,6 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Span.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/NullPrincipal.h"
 #include "nsIChannel.h"
 #include "nsIContentPolicy.h"
 #include "nsIHttpChannel.h"
@@ -18,8 +17,10 @@
 #include "nsIPrincipal.h"
 #include "nsIStreamListener.h"
 #include "nsITraceableChannel.h"
+#include "nsIPrincipal.h"
 #include "nsIURI.h"
 #include "nsNetUtil.h"
+#include "mozilla/dom/BrowsingContext.h"
 #include "nsServiceManagerUtils.h"
 #include "nsString.h"
 #include "nsThreadUtils.h"
@@ -109,6 +110,23 @@ void EmitFromBody(const SpeculumAssetRegistry::Emit& aEmit, uint32_t aContextId,
   }
 }
 
+void AppendTee(const std::string& aKey, uint64_t aOffset, const uint8_t* aData,
+               uint32_t aLength, bool aDone, bool aFailed = false) {
+  TeeBody& body = State().Ensure(aKey);
+  if (aData && aLength) {
+    if (body.bytes.size() < aOffset + aLength) {
+      body.bytes.resize(static_cast<size_t>(aOffset + aLength));
+    }
+    memcpy(body.bytes.data() + aOffset, aData, aLength);
+  }
+  if (aDone) {
+    body.complete = true;
+  }
+  if (aFailed) {
+    body.failed = true;
+  }
+}
+
 uint32_t PolicyOf(SpeculumAssetDest aDest) {
   switch (aDest) {
     case SpeculumAssetDest::Image:
@@ -156,14 +174,13 @@ OpenListener::OnStartRequest(nsIRequest*) { return NS_OK; }
 
 NS_IMETHODIMP
 OpenListener::OnStopRequest(nsIRequest*, nsresult aStatus) {
-  TeeBody& body = State().Ensure(mKey);
-  body.complete = NS_SUCCEEDED(aStatus);
-  body.failed = NS_FAILED(aStatus);
-  if (body.failed) {
+  AppendTee(mKey, 0, nullptr, 0, NS_SUCCEEDED(aStatus), NS_FAILED(aStatus));
+  TeeBody* body = State().Find(mKey);
+  if (!body || body->failed) {
     EmitDenied(mEmit, mContextId, mStreamId, "open-failed");
     return NS_OK;
   }
-  EmitFromBody(mEmit, mContextId, mStreamId, mOffset, body);
+  EmitFromBody(mEmit, mContextId, mStreamId, mOffset, *body);
   return NS_OK;
 }
 
@@ -178,11 +195,7 @@ OpenListener::OnDataAvailable(nsIRequest*, nsIInputStream* aStream,
   if (NS_FAILED(rv) || !read) {
     return rv;
   }
-  TeeBody& body = State().Ensure(mKey);
-  if (body.bytes.size() < aOffset + read) {
-    body.bytes.resize(static_cast<size_t>(aOffset + read));
-  }
-  memcpy(body.bytes.data() + aOffset, chunk.Elements(), read);
+  AppendTee(mKey, aOffset, chunk.Elements(), read, false);
   mWrote += read;
   return NS_OK;
 }
@@ -195,6 +208,8 @@ class TeeTap final : public nsIStreamListener {
 
   TeeTap(nsIStreamListener* aNext, std::string aKey)
       : mNext(aNext), mKey(std::move(aKey)) {}
+
+  void SetNext(nsIStreamListener* aNext) { mNext = aNext; }
 
  private:
   ~TeeTap() = default;
@@ -211,8 +226,7 @@ TeeTap::OnStartRequest(nsIRequest* aRequest) {
 
 NS_IMETHODIMP
 TeeTap::OnStopRequest(nsIRequest* aRequest, nsresult aStatus) {
-  State().Ensure(mKey).complete = NS_SUCCEEDED(aStatus);
-  State().Ensure(mKey).failed = NS_FAILED(aStatus);
+  AppendTee(mKey, 0, nullptr, 0, NS_SUCCEEDED(aStatus), NS_FAILED(aStatus));
   return mNext ? mNext->OnStopRequest(aRequest, aStatus) : NS_OK;
 }
 
@@ -227,11 +241,7 @@ TeeTap::OnDataAvailable(nsIRequest* aRequest, nsIInputStream* aStream,
   if (NS_FAILED(rv) || !read) {
     return rv;
   }
-  TeeBody& body = State().Ensure(mKey);
-  if (body.bytes.size() < aOffset + read) {
-    body.bytes.resize(static_cast<size_t>(aOffset + read));
-  }
-  memcpy(body.bytes.data() + aOffset, chunk.Elements(), read);
+  AppendTee(mKey, aOffset, chunk.Elements(), read, false);
   if (!mNext) {
     return NS_OK;
   }
@@ -305,7 +315,13 @@ ChannelObserver::Observe(nsISupports* aSubject, const char* aTopic,
   if (nsCOMPtr<nsIHttpChannel> http = do_QueryInterface(channel)) {
     (void)http->GetRequestHeader("Range"_ns, range);
   }
-  const uint32_t ctx = 0;
+  const uint32_t ctx = [&]() -> uint32_t {
+    RefPtr<mozilla::dom::BrowsingContext> bc = info->GetBrowsingContext();
+    return bc ? bc->GetSpeculumContextId() : 0;
+  }();
+  if (!ctx) {
+    return NS_OK;
+  }
   const std::string key = KeyOf(ctx, spec, range);
   State().Ensure(key);
   nsCOMPtr<nsITraceableChannel> trace = do_QueryInterface(channel);
@@ -313,13 +329,11 @@ ChannelObserver::Observe(nsISupports* aSubject, const char* aTopic,
     return NS_OK;
   }
   nsCOMPtr<nsIStreamListener> old;
-  nsCOMPtr<nsIStreamListener> tap = new TeeTap(nullptr, key);
-  (void)trace->SetNewListener(tap, false, getter_AddRefs(old));
-  if (old) {
-    tap = new TeeTap(old, key);
-    nsCOMPtr<nsIStreamListener> unused;
-    (void)trace->SetNewListener(tap, false, getter_AddRefs(unused));
+  RefPtr<TeeTap> tap = new TeeTap(nullptr, key);
+  if (NS_FAILED(trace->SetNewListener(tap, false, getter_AddRefs(old)))) {
+    return NS_OK;
   }
+  tap->SetNext(old);
   return NS_OK;
 }
 
@@ -355,16 +369,7 @@ void SpeculumAssetRegistry::NoteChannelBytes(uint32_t aContextId,
                                              uint64_t aOffset,
                                              const uint8_t* aData,
                                              uint32_t aLength, bool aDone) {
-  TeeBody& body = State().Ensure(KeyOf(aContextId, aUrl, aRange));
-  if (aData && aLength) {
-    if (body.bytes.size() < aOffset + aLength) {
-      body.bytes.resize(static_cast<size_t>(aOffset + aLength));
-    }
-    memcpy(body.bytes.data() + aOffset, aData, aLength);
-  }
-  if (aDone) {
-    body.complete = true;
-  }
+  AppendTee(KeyOf(aContextId, aUrl, aRange), aOffset, aData, aLength, aDone);
 }
 
 void SpeculumAssetRegistry::OnConsumerRequest(uint32_t aContextId,
@@ -397,13 +402,6 @@ void SpeculumAssetRegistry::OnConsumerRequest(uint32_t aContextId,
       return;
     }
   }
-  const std::string pageKey = KeyOf(0, url, range);
-  if (TeeBody* page = State().Find(pageKey)) {
-    if (page->complete || !page->bytes.empty()) {
-      EmitFromBody(aEmit, aContextId, msg.streamId, msg.offset, *page);
-      return;
-    }
-  }
 
   nsCOMPtr<nsIURI> uri;
   if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), url)) || !uri) {
@@ -412,11 +410,15 @@ void SpeculumAssetRegistry::OnConsumerRequest(uint32_t aContextId,
   }
 
   nsCOMPtr<nsIPrincipal> principal =
-      mozilla::NullPrincipal::CreateWithoutOriginAttributes();
+      SpeculumProjectionRuntime::Get().DocumentPrincipalOf(aContextId);
+  if (!principal) {
+    EmitDenied(aEmit, aContextId, msg.streamId, "no-principal");
+    return;
+  }
   nsCOMPtr<nsIChannel> channel;
   nsresult rv = NS_NewChannel(
       getter_AddRefs(channel), uri, principal,
-      nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL,
+      nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_INHERITS_SEC_CONTEXT,
       PolicyOf(dest));
   if (NS_FAILED(rv) || !channel) {
     EmitDenied(aEmit, aContextId, msg.streamId, "open-failed");

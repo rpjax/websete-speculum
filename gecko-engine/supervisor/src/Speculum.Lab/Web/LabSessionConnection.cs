@@ -7,15 +7,16 @@ using Speculum.Lab.Protocol;
 using Speculum.Lab.Upstream;
 using Speculum.Lab.Session;
 using Speculum.Supervisor.Control;
+using Speculum.Supervisor.Wire;
 
 namespace Speculum.Lab.Web;
 
 /// <summary>
 /// Uma aba do lab aberta no navegador.
 ///
-/// Dois planos no mesmo WebSocket, como no lab TypeScript:
+/// Dois planos no mesmo WebSocket:
 ///   binário = frame opaco, repassado ao cliente projetado;
-///   texto   = controle JSON do protocolo v1.
+///   texto   = controle JSON (client.control encaminha ABI).
 /// </summary>
 public sealed class LabSessionConnection
 {
@@ -37,7 +38,6 @@ public sealed class LabSessionConnection
     private volatile bool _streaming;
     private long _framesForwarded;
 
-    /// <summary>Frames encaminhados ao navegador nesta sessão.</summary>
     public long FramesForwarded => Interlocked.Read(ref _framesForwarded);
 
     public LabSessionConnection(WebSocket socket, SupervisorClient upstream, SessionHost sessions, ILogger logger)
@@ -51,7 +51,6 @@ public sealed class LabSessionConnection
 
     public string Id { get; }
 
-    /// <summary>Verdadeiro entre browse.start e browse.stop.</summary>
     public bool Streaming => _streaming;
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -69,7 +68,47 @@ public sealed class LabSessionConnection
             }
         }
 
+        void OnEvent(byte[] payload)
+        {
+            try
+            {
+                var ev = BrowserEvent.Decode(payload);
+                if (ev.OpCode is ControlOpCode.DialogRequested
+                    or ControlOpCode.PermissionRequested
+                    or ControlOpCode.DownloadRequested)
+                {
+                    var kind = ev.OpCode switch
+                    {
+                        ControlOpCode.PermissionRequested => "permission",
+                        ControlOpCode.DownloadRequested => "download",
+                        _ => "dialog",
+                    };
+                    Send(new GeckoRequested(kind, ev.ContextId, (uint)ev.BrowsingContextId, ev.Text ?? ""));
+                }
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogWarning("{Id} evento ilegível: {Reason}", Id, ex.Message);
+            }
+        }
+
+        void OnAsset(uint contextId, byte[] payload)
+        {
+            try
+            {
+                var decoded = DecodeAsset(payload);
+                Send(new GeckoAsset(decoded.StreamId, decoded.Phase, Convert.ToBase64String(decoded.Data),
+                    decoded.Phase == 2 ? Encoding.UTF8.GetString(decoded.Data) : ""));
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogWarning("{Id} ativo ilegível: {Reason}", Id, ex.Message);
+            }
+        }
+
         _upstream.FrameReceived += OnFrame;
+        _upstream.EventReceived += OnEvent;
+        _upstream.AssetReceived += OnAsset;
         try
         {
             Send(new SessionHello(Id, Id));
@@ -82,6 +121,8 @@ public sealed class LabSessionConnection
         finally
         {
             _upstream.FrameReceived -= OnFrame;
+            _upstream.EventReceived -= OnEvent;
+            _upstream.AssetReceived -= OnAsset;
             _outbound.Writer.TryComplete();
         }
     }
@@ -140,7 +181,6 @@ public sealed class LabSessionConnection
         switch (type)
         {
             case "hello":
-                // A apresentação do host já saiu no RunAsync.
                 break;
 
             case "browse.start":
@@ -151,7 +191,6 @@ public sealed class LabSessionConnection
 
                 if (url.Length > 0)
                 {
-                    // O caller sobe a sessão. Pedir e ter são o mesmo ato.
                     _ = _sessions.StartAsync(url, CancellationToken.None);
                 }
 
@@ -172,9 +211,52 @@ public sealed class LabSessionConnection
                 _logger.LogInformation("{Id} browse.navigate url={Url}", Id, url);
                 if (url.Length > 0)
                 {
-                    // Sessão já viva: navega no contexto raiz. contextId 0 quer dizer
-                    // "a raiz"; quem resolve é o supervisor, que é quem nomeia.
                     var command = ControlCommand.Navigate(correlationId: 0, contextId: 0, url);
+                    _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                }
+
+                break;
+            }
+
+            case "client.control":
+            {
+                if (!TryDecodeBytes(message.Bytes, out var command))
+                {
+                    Send(new LabError("client.control sem bytes ABI", "invalid_control"));
+                    break;
+                }
+
+                _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                break;
+            }
+
+            case "client.asset":
+            {
+                if (!TryDecodeBytes(message.Bytes, out var assetPayload))
+                {
+                    Send(new LabError("client.asset sem bytes", "invalid_asset"));
+                    break;
+                }
+
+                var ctx = message.ContextId ?? 0;
+                var envelope = new byte[Envelope.HeaderBytes + assetPayload.Length];
+                Envelope.WriteHeader(envelope, EnvelopeKind.Asset, ctx, assetPayload.Length);
+                Buffer.BlockCopy(assetPayload, 0, envelope, Envelope.HeaderBytes, assetPayload.Length);
+                _ = _upstream.SendCommandAsync(envelope, CancellationToken.None).AsTask();
+                break;
+            }
+
+            case "client.intent":
+                Send(new LabError("client.intent não entra neste fio Gecko", "intent_not_gecko"));
+                break;
+
+            case "client.resize":
+            {
+                var width = message.Width ?? 0;
+                var height = message.Height ?? 0;
+                if (width > 0 && height > 0)
+                {
+                    var command = ControlCommand.ViewportSet(0, 0, width, height);
                     _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
                 }
 
@@ -185,16 +267,11 @@ public sealed class LabSessionConnection
             case "client.snapshotResult":
             case "client.injectResult":
             case "client.tamperResult":
-            case "client.intent":
-            case "client.resize":
             case "client.snapshot":
             case "client.validateSnaps":
             case "surface.clear":
             case "run.start":
             case "run.abort":
-                // Mensagens válidas do protocolo v1 cujo tratamento entra nas fases
-                // seguintes. Aceitas em silêncio — nunca respondidas com erro, para
-                // não ensinar o cliente a desconfiar de mensagens corretas.
                 break;
 
             case "client.requestResync":
@@ -211,6 +288,45 @@ public sealed class LabSessionConnection
                 Send(new LabError($"unknown control type: {type}", "unknown_type"));
                 break;
         }
+    }
+
+    internal static bool TryDecodeBytes(string? base64, out byte[] bytes)
+    {
+        bytes = [];
+        if (string.IsNullOrWhiteSpace(base64))
+        {
+            return false;
+        }
+
+        try
+        {
+            bytes = Convert.FromBase64String(base64);
+            return bytes.Length > 0;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static (uint StreamId, byte Phase, byte[] Data) DecodeAsset(byte[] payload)
+    {
+        if (payload.Length < 17)
+        {
+            throw new InvalidDataException("asset curto");
+        }
+
+        var streamId = BitConverter.ToUInt32(payload, 0);
+        var phase = payload[4];
+        var len = checked((int)BitConverter.ToUInt32(payload, 13));
+        if (payload.Length < 17 + len)
+        {
+            throw new InvalidDataException("asset truncado");
+        }
+
+        var data = new byte[len];
+        Buffer.BlockCopy(payload, 17, data, 0, len);
+        return (streamId, phase, data);
     }
 
     private async Task PumpOutboundAsync(CancellationToken cancellationToken)
@@ -231,7 +347,6 @@ public sealed class LabSessionConnection
         }
         catch (OperationCanceledException)
         {
-            // encerramento normal
         }
         catch (WebSocketException ex)
         {

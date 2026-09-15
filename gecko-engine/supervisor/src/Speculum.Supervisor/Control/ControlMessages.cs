@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Speculum.Supervisor.Control;
 
 /// <summary>
@@ -89,7 +91,9 @@ public readonly record struct BrowserEvent(
     private static BrowserEvent DecodeDialogRequested(ref ControlReader reader)
     {
         var contextId = reader.ReadUInt32();
-        return new BrowserEvent(reader.OpCode, reader.CorrelationId, contextId, 0, 0, null);
+        var requestId = reader.ReadUInt32();
+        var description = Encoding.UTF8.GetString(reader.ReadBytes());
+        return new BrowserEvent(reader.OpCode, reader.CorrelationId, contextId, requestId, 0, description);
     }
 }
 

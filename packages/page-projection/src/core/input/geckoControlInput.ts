@@ -8,6 +8,9 @@ import type { UnifiedIntent } from './unifiedIntentTypes';
 export const GECKO_OP_INPUT = 0x0108;
 export const GECKO_OP_HISTORY_GO = 0x0106;
 export const GECKO_OP_VIEWPORT_SET = 0x0107;
+export const GECKO_OP_DIALOG_RESPOND = 0x010a;
+export const GECKO_OP_PERMISSION_RESPOND = 0x010b;
+export const GECKO_OP_DOWNLOAD_RESPOND = 0x010c;
 
 export const GECKO_INPUT_DOWN = 1;
 export const GECKO_INPUT_UP = 2;
@@ -34,6 +37,13 @@ function writeU32(buf: Uint8Array, off: number, v: number): number {
   buf[off + 2] = (v >>> 16) & 0xff;
   buf[off + 3] = (v >>> 24) & 0xff;
   return off + 4;
+}
+
+function writeU64(buf: Uint8Array, off: number, v: number): number {
+  const lo = v >>> 0;
+  const hi = Math.floor(v / 0x100000000) >>> 0;
+  off = writeU32(buf, off, lo);
+  return writeU32(buf, off, hi);
 }
 
 function writeI32(buf: Uint8Array, off: number, v: number): number {
@@ -159,6 +169,85 @@ export function encodeViewportSet(corr: number, ctx: number, width: number, heig
   off = writeI32(buf, off, width);
   writeI32(buf, off, height);
   return buf;
+}
+
+export function encodeDialogRespond(
+  corr: number,
+  ctx: number,
+  requestId: number,
+  answer: string,
+): Uint8Array {
+  const buf = new Uint8Array(HEADER + 4 + 4 + strSize(answer));
+  let off = header(buf, GECKO_OP_DIALOG_RESPOND, corr);
+  off = writeU32(buf, off, ctx);
+  off = writeU32(buf, off, requestId);
+  writeStr(buf, off, answer);
+  return buf;
+}
+
+export function encodeBoolRespond(
+  op: number,
+  corr: number,
+  ctx: number,
+  requestId: number,
+  yes: boolean,
+): Uint8Array {
+  const buf = new Uint8Array(HEADER + 4 + 4 + 1);
+  let off = header(buf, op, corr);
+  off = writeU32(buf, off, ctx);
+  off = writeU32(buf, off, requestId);
+  writeU8(buf, off, yes ? 1 : 0);
+  return buf;
+}
+
+export function encodePermissionRespond(
+  corr: number,
+  ctx: number,
+  requestId: number,
+  granted: boolean,
+): Uint8Array {
+  return encodeBoolRespond(GECKO_OP_PERMISSION_RESPOND, corr, ctx, requestId, granted);
+}
+
+export function encodeDownloadRespond(
+  corr: number,
+  ctx: number,
+  requestId: number,
+  accepted: boolean,
+): Uint8Array {
+  return encodeBoolRespond(GECKO_OP_DOWNLOAD_RESPOND, corr, ctx, requestId, accepted);
+}
+
+export function encodeAssetRequest(
+  streamId: number,
+  dest: number,
+  url: string,
+  range: string,
+  offset: number,
+): Uint8Array {
+  const urlBytes = new TextEncoder().encode(url);
+  const rangeBytes = new TextEncoder().encode(range);
+  const inner = 1 + 4 + urlBytes.length + 4 + rangeBytes.length;
+  const buf = new Uint8Array(4 + 1 + 8 + 4 + inner);
+  let off = writeU32(buf, 0, streamId);
+  off = writeU8(buf, off, 0);
+  off = writeU64(buf, off, offset);
+  off = writeU32(buf, off, inner);
+  off = writeU8(buf, off, dest & 0xff);
+  off = writeU32(buf, off, urlBytes.length);
+  buf.set(urlBytes, off);
+  off += urlBytes.length;
+  off = writeU32(buf, off, rangeBytes.length);
+  buf.set(rangeBytes, off);
+  return buf;
+}
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) {
+    s += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(s);
 }
 
 /** `move` e `setFiles` não entram neste fio. `historyNav` vira HistoryGo. */

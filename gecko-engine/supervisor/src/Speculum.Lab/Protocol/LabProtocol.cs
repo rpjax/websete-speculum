@@ -6,13 +6,8 @@ namespace Speculum.Lab.Protocol;
 /// <summary>
 /// Protocolo de controle do lab, versão 1.
 ///
-/// Estes nomes NÃO são escolha nossa: são o contrato que o cliente projetado já
-/// existente (<c>lab/client/main.ts</c>, compilado em <c>static/client.js</c>)
-/// fala hoje. Falar esse protocolo é o que permite reaproveitar o cliente de
-/// produção sem uma linha alterada — e portanto sem reimplementar o applier,
-/// o desync, o resync e o snapshot.
-///
-/// Referência: sidecar/browser/mirror/projection/lab/host/protocol.ts
+/// O lab Gecko serve o mesmo cliente TypeScript, com <c>engine=gecko</c> no hello.
+/// Clique e ativo neste fio são ABI, não JSON Chromium.
 /// </summary>
 public static class LabProtocol
 {
@@ -47,6 +42,9 @@ public sealed record LabClientEnvelope
 
     [JsonPropertyName("contextId")]
     public uint? ContextId { get; init; }
+
+    [JsonPropertyName("bytes")]
+    public string? Bytes { get; init; }
 }
 
 public sealed record SessionHello(string SessionId, string SessionToken)
@@ -56,6 +54,9 @@ public sealed record SessionHello(string SessionId, string SessionToken)
 
     [JsonPropertyName("protocolVersion")]
     public int ProtocolVersion => LabProtocol.Version;
+
+    [JsonPropertyName("engine")]
+    public string Engine => "gecko";
 }
 
 public sealed record SessionBooted(string SessionId, string Mode, string Url, string DossierDir)
@@ -74,6 +75,26 @@ public sealed record SessionFault(string SessionId, string Message, string? Erro
 {
     [JsonPropertyName("type")]
     public string Type => "session.fault";
+}
+
+public sealed record GeckoRequested(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("contextId")] uint ContextId,
+    [property: JsonPropertyName("requestId")] uint RequestId,
+    [property: JsonPropertyName("description")] string Description)
+{
+    [JsonPropertyName("type")]
+    public string Type => "gecko.requested";
+}
+
+public sealed record GeckoAsset(
+    [property: JsonPropertyName("streamId")] uint StreamId,
+    [property: JsonPropertyName("phase")] byte Phase,
+    [property: JsonPropertyName("bytes")] string Bytes,
+    [property: JsonPropertyName("why")] string Why)
+{
+    [JsonPropertyName("type")]
+    public string Type => "gecko.asset";
 }
 
 public sealed record LabError(string Message, string? Code = null)

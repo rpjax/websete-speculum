@@ -29,6 +29,7 @@ Read this **before** multi-file or sessions/diagnostics/CI changes. Deeper detai
 - Do not add config key aliases or “deprecated” API paths during V1 development.
 - Do not treat `Task.Delay` as the primary Act→Assert synchronizer.
 - Do not assume `200` / `ok: true` proves session truth.
+- Do not call a slice **done** because files, goldens, unused helpers, or compile-shaped stubs exist. **Done = the designed last hop is live** (real caller, real call site in the product tree). Unwired = incomplete; say so first; do not complete the todo. See [../.cursor/rules/speculum-done-bar.mdc](../.cursor/rules/speculum-done-bar.mdc).
 - Do not treat PageProjection protocol recovery (QD / Resync / WD) or smoke PASS as accept unless **Projected ≈ original site 1:1** — see [page-projection/spec/acceptance.md](page-projection/spec/acceptance.md).
 - Do not pass/fail PageProjection **state** invariants (table identity, DOM isomorphism) from event telemetry; use **state snapshot** dumps + lab oracles — [page-projection/spec/observability.md](page-projection/spec/observability.md), [page-projection/spec/browser-session.md](page-projection/spec/browser-session.md).
 
@@ -258,6 +259,7 @@ Do **not** treat the legacy motor-assertive Docker+Chrome category as laptop QA 
 | Ban | Why |
 |-----|-----|
 | **Ad-hoc / workaround paths** | Hides the real defect; often reintroduces banned cost (e.g. DomMap dump on cold). Fix the algorithm. |
+| Envelope as “implemented” (unused encoder, checkout-script hook, IPDL with no emit, golden without product caller) | Marks the slice done while the designed path is dead. Last hop live or incomplete — never “pronto”. |
 | Skip-if-missing-property | Hides missing contracts |
 | Smoke-only session tests | Green ≠ working |
 | Shrinking live Diagnostics `maxBytes` on shared CI stack to “prove” overflow without a Perf/unit home | Stack kills cascade; move load to Perf / sink units |

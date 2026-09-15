@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Speculum.Supervisor.Wire;
 
 namespace Speculum.Lab.Upstream;
 
@@ -17,6 +18,12 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
 
     /// <summary>Disparado a cada frame recebido. Os bytes são opacos.</summary>
     public event Action<byte[]>? FrameReceived;
+
+    /// <summary>Pedido do browser (diálogo / permissão / download), payload ABI cru.</summary>
+    public event Action<byte[]>? EventReceived;
+
+    /// <summary>Ativo Kind 0x06, payload sem o envelope.</summary>
+    public event Action<uint, byte[]>? AssetReceived;
 
     public bool Connected { get; private set; }
 
@@ -114,6 +121,22 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
             var frame = assembled.ToArray();
             Interlocked.Increment(ref _framesReceived);
             Interlocked.Add(ref _bytesReceived, frame.LongLength);
+            if (Envelope.TryReadComplete(frame, EnvelopeKind.Asset, out var assetCtx, out var assetLen))
+            {
+                var body = new byte[assetLen];
+                Buffer.BlockCopy(frame, Envelope.HeaderBytes, body, 0, assetLen);
+                AssetReceived?.Invoke(assetCtx, body);
+                continue;
+            }
+
+            if (Envelope.TryReadComplete(frame, EnvelopeKind.BrowserEvent, out _, out var eventLen))
+            {
+                var body = new byte[eventLen];
+                Buffer.BlockCopy(frame, Envelope.HeaderBytes, body, 0, eventLen);
+                EventReceived?.Invoke(body);
+                continue;
+            }
+
             FrameReceived?.Invoke(frame);
         }
     }

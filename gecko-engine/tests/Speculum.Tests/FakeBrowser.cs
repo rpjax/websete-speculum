@@ -314,21 +314,31 @@ public static class FakeBrowser
             case ControlOpCode.Input:
             {
                 uint contextId;
-                byte[] ev;
+                byte type;
                 {
                     var reader = new ControlReader(payload);
                     contextId = reader.ReadUInt32();
-                    ev = reader.ReadBytes();
-                }
+                    type = reader.ReadUInt8();
+                    if (type is < 1 or > 5)
+                    {
+                        journal.Write("input", $"ctx={contextId} reject type={type}");
+                        break;
+                    }
 
-                var kind = ev.Length > 0 ? ev[0] : (byte)0;
-                if (kind == 0x20)
-                {
-                    journal.Write("input", $"ctx={contextId} reject pointermove");
-                }
-                else
-                {
-                    journal.Write("input", $"ctx={contextId} admit bytes={ev.Length}");
+                    if (type is ControlCommand.InputDown or ControlCommand.InputUp)
+                    {
+                        var nodeId = reader.ReadUInt32();
+                        if (nodeId == 0)
+                        {
+                            journal.Write("input", $"ctx={contextId} reject node=0");
+                            break;
+                        }
+
+                        journal.Write("input", $"ctx={contextId} admit type={type} node={nodeId}");
+                        break;
+                    }
+
+                    journal.Write("input", $"ctx={contextId} admit type={type}");
                 }
 
                 break;
@@ -374,6 +384,14 @@ public static class FakeBrowser
 
             case ControlOpCode.DialogRespond:
                 journal.Write("dialog-respond", "");
+                break;
+
+            case ControlOpCode.PermissionRespond:
+                journal.Write("permission-respond", "");
+                break;
+
+            case ControlOpCode.DownloadRespond:
+                journal.Write("download-respond", "");
                 break;
 
             default:
@@ -436,14 +454,25 @@ public static class FakeBrowser
         {
             var decoded = AssetPayload.Decode(payload);
             var text = Encoding.UTF8.GetString(decoded.Data);
-            var deny = decoded.Phase == AssetPayload.PhaseRequest &&
-                       (text.Contains(".html", StringComparison.OrdinalIgnoreCase)
+            var deny = decoded.Phase == AssetPayload.PhaseRequest;
+            if (deny)
+            {
+                if (AssetClassifier.TryDecodeRequestData(decoded.Data, out var dest, out _, out _))
+                {
+                    deny = !AssetClassifier.CanExit(dest);
+                }
+                else
+                {
+                    deny = text.Contains(".html", StringComparison.OrdinalIgnoreCase)
                         || text.Contains(".js", StringComparison.OrdinalIgnoreCase)
                         || text.Contains(".css", StringComparison.OrdinalIgnoreCase)
                         || text.Contains("text/html", StringComparison.OrdinalIgnoreCase)
                         || text.Contains("javascript", StringComparison.OrdinalIgnoreCase)
                         || text.Contains("text/css", StringComparison.OrdinalIgnoreCase)
-                        || text.Contains("xmlhttprequest", StringComparison.OrdinalIgnoreCase));
+                        || text.Contains("xmlhttprequest", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+
             journal.Write(deny ? "asset-denied" : "asset-in", $"stream={decoded.StreamId} phase={decoded.Phase}");
         }
         catch (InvalidDataException ex)

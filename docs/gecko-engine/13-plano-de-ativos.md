@@ -176,16 +176,28 @@ revisão dirigida:
 - **§4** (HLS/DASH) — sobrevive.
 - **§5** (MSE/DRM) — sobrevive, agora com o motivo registrado (§6 deste doc).
 
-## 9. Derivado, ainda aberto
+## 9. Como os bytes saem do Gecko — fechado 2026-09-14
 
-1. **Fonte e imagem: como os bytes da busca do Virtual chegam ao plano de ativos.**
-   Duas famílias: derivar da própria pilha de rede do Gecko no momento da resposta,
-   ou aceitar uma segunda busca só para esses dois tipos. Vale meia hora de leitura
-   na árvore antes de escolher — a hipótese é que `http-on-examine-response` +
-   `nsITraceableChannel` resolvem **sem modificação no fork**, e se for verdade o
-   custo dessa metade cai a quase zero. **Não confirmado.**
-2. **Cliente WebKit/Safari.** O teste foi em Chromium. O comportamento de `Range`
-   através de SW em Safari é historicamente o mais frágil dos três motores. Precisa
-   de uma rodada equivalente antes de prometer paridade.
-3. **Iframe de origem estrangeira.** Os contextos projetados são réplicas
-   same-origin, então em teoria caem no escopo do SW. Não testado.
+**Um pedido de rede do Firefox, N leitores.** O cliente lê o cano HTTP, não a
+foto já pintada, não um segundo download, não um GET do supervisor.
+
+- A página pediu (imagem, fonte) → o cliente entra nesse pedido. Quem chega no
+  meio pega do offset dele pra frente (§5.1).
+- A página não pediu (vídeo/áudio, ou o cliente chegou antes) → o Firefox abre
+  o pedido **como a página abriria** (mesma cookie, mesmo TLS) e só encaminha.
+- `Range` é pedido de verdade no canal, como um `<video>` pediria.
+
+**Pode sair:** imagem, fonte, áudio, vídeo, segmento HLS/DASH.  
+**Não sai:** HTML, JS, CSS, XHR, SSE, WebSocket. Dúvida = recusa.
+
+**Proibido:** segunda ida à origem “porque é mais fácil”; copiar bitmap/decode;
+lista de sinks; o supervisor baixar com outra identidade.
+
+A cola no fork é o canal (`nsIChannel` / listener), não um cache de corpo
+inteiro e não um `fetch` paralelo.
+
+## 10. Ainda evidência de cliente (não reabre o §9)
+
+1. **Cliente WebKit/Safari.** O teste de `Range` via SW foi em Chromium.
+2. **Iframe de origem estrangeira.** Réplicas same-origin devem cair no SW; não
+   testado.

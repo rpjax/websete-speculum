@@ -20,6 +20,10 @@ command -v sccache >/dev/null || { echo "ABORT: sccache ausente. Instalar antes 
 
 cd "$CHECKOUT"
 
+if [ -f "$HERE/scripts/apply-speculum-v1-hooks.py" ]; then
+  GECKO="$CHECKOUT" python3 "$HERE/scripts/apply-speculum-v1-hooks.py" || true
+fi
+
 MODE="${1:-build}"
 case "$MODE" in
   build)
@@ -30,7 +34,8 @@ case "$MODE" in
     sccache -s 2>/dev/null | head -12 || true
     ;;
   binaries)
-    echo ">> mach build binaries, MOZCONFIG=$MOZCONFIG"
+    echo ">> mach build pre-export export (IPDL) + binaries, MOZCONFIG=$MOZCONFIG"
+    ./mach build pre-export export
     ./mach build binaries
     ;;
   *)

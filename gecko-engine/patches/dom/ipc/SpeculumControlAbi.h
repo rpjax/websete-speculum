@@ -59,6 +59,9 @@ class SpeculumControlReader {
   bool ReadString(nsACString& aOut);
   bool ReadBytes(nsACString& aOut);
 
+  size_t Remaining() const;
+  const uint8_t* RemainingData() const;
+
  private:
   bool Require(size_t aBytes);
 

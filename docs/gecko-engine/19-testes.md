@@ -277,7 +277,7 @@ programa sem degrau é parte que pode trair.
 | `SnapshotServed` no WS do consumidor | L3-PP |
 | Tee por offset + relay Kind 0x05/0x06; HTML/JS/CSS = denied | L0 tee + L3 assets |
 | SW projected: `ready` + token em header | unit tsx (K5) |
-| Upload | **fora** desta leva |
+| Upload | **1.1** — fora deste V1 |
 | Lab: conformidade com lab protocol v1 | L3 — próximo incremento (§5) |
 | Cliente projetado aplicando frames sem desync | L0 + L5 |
 | Leque de consumidores (fan-out) | L3 |

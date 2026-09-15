@@ -127,6 +127,25 @@ export {
   INTENT_SCHEMA_VERSION,
   type DomInputIngress,
 } from './input/intentTypes';
+export {
+  GECKO_OP_INPUT,
+  GECKO_OP_HISTORY_GO,
+  GECKO_OP_VIEWPORT_SET,
+  GECKO_INPUT_DOWN,
+  GECKO_INPUT_UP,
+  GECKO_INPUT_KEY_DOWN,
+  GECKO_INPUT_KEY_UP,
+  GECKO_INPUT_SCROLL_SET,
+  fracToU16,
+  buttonToU8,
+  modsToU8,
+  encodeInputPointer,
+  encodeInputKey,
+  encodeInputScroll,
+  encodeHistoryGo,
+  encodeViewportSet,
+  encodeControlFromIntent,
+} from './input/geckoControlInput';
 export { snapshotTree } from './snapshot/domTreeSnapshot';
 export type { TreeNode } from './treeNode';
 export { digestReplicatedTable, tableDigestsEqual, type ReplicatedTableDigest } from './tableDigest';

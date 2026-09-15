@@ -184,6 +184,31 @@ public static class StackTests
                 AssertPageText(report, after[^1], "bravo", "depois do Navigate (página /b)");
             }
 
+            await client.SendAsync(
+                ControlCommand.HistoryGo(0, 0, -1),
+                WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+            var back = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(60), seen =>
+                seen.Any(f =>
+                {
+                    var h = SealedFrame.Parse(f);
+                    return h.Ok && FrameStrings.TryReadLocal(f, out var s, out _) &&
+                           FrameStrings.Contains(s, "alpha");
+                }));
+            report.Equal("back muda o texto para alpha", true,
+                back.Any(f =>
+                {
+                    var h = SealedFrame.Parse(f);
+                    return h.Ok && FrameStrings.TryReadLocal(f, out var s, out _) &&
+                           FrameStrings.Contains(s, "alpha");
+                }));
+
+            await client.SendAsync(
+                ControlCommand.ViewportSet(0, 0, 800, 600),
+                WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+            await client.SendAsync(
+                ControlCommand.Snapshot(0, 0),
+                WebSocketMessageType.Binary, endOfMessage: true, CancellationToken.None);
+
             await CloseAsync(client);
         }
         catch (Exception ex)

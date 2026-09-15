@@ -265,9 +265,11 @@ Bytes BuildInput(uint32_t corr, uint32_t ctx) {
   uint8_t buf[32];
   SpeculumControlWriter wtr(buf, sizeof(buf), SpeculumControlOpCode::Input, corr);
   wtr.WriteUInt32(ctx);
-  const char raw[] = {'\xaa', '\xbb'};
-  nsACString ev(raw, 2);
-  wtr.WriteBytes(ev);
+  wtr.WriteUInt8(1);
+  wtr.WriteUInt32(5);
+  wtr.WriteUInt16(32768);
+  wtr.WriteUInt16(32768);
+  wtr.WriteUInt8(0);
   return Bytes(buf, buf + wtr.Length());
 }
 

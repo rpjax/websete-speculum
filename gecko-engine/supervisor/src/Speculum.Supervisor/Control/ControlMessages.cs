@@ -170,12 +170,65 @@ public static class ControlCommand
         return buffer;
     }
 
-    public static byte[] Input(uint correlationId, uint contextId, ReadOnlySpan<byte> ev)
+    public const byte InputDown = 1;
+    public const byte InputUp = 2;
+    public const byte InputKeyDown = 3;
+    public const byte InputKeyUp = 4;
+    public const byte InputScrollSet = 5;
+
+    public static byte[] Input(uint correlationId, uint contextId, byte type, ReadOnlySpan<byte> fields)
     {
-        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + ControlWriter.SizeOfBytes(ev)];
+        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + sizeof(byte) + fields.Length];
         var writer = new ControlWriter(buffer, ControlOpCode.Input, correlationId);
         writer.WriteUInt32(contextId);
-        writer.WriteBytes(ev);
+        writer.WriteUInt8(type);
+        foreach (var b in fields)
+        {
+            writer.WriteUInt8(b);
+        }
+
+        return buffer;
+    }
+
+    public static byte[] InputPointer(
+        uint correlationId, uint contextId, byte type, uint nodeId, ushort localX, ushort localY, byte button)
+    {
+        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + sizeof(byte) + sizeof(uint)
+            + sizeof(ushort) + sizeof(ushort) + sizeof(byte)];
+        var writer = new ControlWriter(buffer, ControlOpCode.Input, correlationId);
+        writer.WriteUInt32(contextId);
+        writer.WriteUInt8(type);
+        writer.WriteUInt32(nodeId);
+        writer.WriteUInt16(localX);
+        writer.WriteUInt16(localY);
+        writer.WriteUInt8(button);
+        return buffer;
+    }
+
+    public static byte[] InputKey(
+        uint correlationId, uint contextId, byte type, string key, string code, byte mods)
+    {
+        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + sizeof(byte)
+            + ControlWriter.SizeOfString(key) + ControlWriter.SizeOfString(code) + sizeof(byte)];
+        var writer = new ControlWriter(buffer, ControlOpCode.Input, correlationId);
+        writer.WriteUInt32(contextId);
+        writer.WriteUInt8(type);
+        writer.WriteString(key);
+        writer.WriteString(code);
+        writer.WriteUInt8(mods);
+        return buffer;
+    }
+
+    public static byte[] InputScroll(uint correlationId, uint contextId, uint nodeId, ushort fracX, ushort fracY)
+    {
+        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + sizeof(byte) + sizeof(uint)
+            + sizeof(ushort) + sizeof(ushort)];
+        var writer = new ControlWriter(buffer, ControlOpCode.Input, correlationId);
+        writer.WriteUInt32(contextId);
+        writer.WriteUInt8(InputScrollSet);
+        writer.WriteUInt32(nodeId);
+        writer.WriteUInt16(fracX);
+        writer.WriteUInt16(fracY);
         return buffer;
     }
 
@@ -224,6 +277,26 @@ public static class ControlCommand
         return buffer;
     }
 
+    public static byte[] PermissionRespond(uint correlationId, uint contextId, uint requestId, bool granted)
+    {
+        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + sizeof(uint) + sizeof(byte)];
+        var writer = new ControlWriter(buffer, ControlOpCode.PermissionRespond, correlationId);
+        writer.WriteUInt32(contextId);
+        writer.WriteUInt32(requestId);
+        writer.WriteBool(granted);
+        return buffer;
+    }
+
+    public static byte[] DownloadRespond(uint correlationId, uint contextId, uint requestId, bool accepted)
+    {
+        var buffer = new byte[ControlWriter.HeaderBytes + sizeof(uint) + sizeof(uint) + sizeof(byte)];
+        var writer = new ControlWriter(buffer, ControlOpCode.DownloadRespond, correlationId);
+        writer.WriteUInt32(contextId);
+        writer.WriteUInt32(requestId);
+        writer.WriteBool(accepted);
+        return buffer;
+    }
+
     public static byte[] SnapshotServed(
         uint correlationId, uint sequence, uint generation, uint contextId, ulong tableHash, ReadOnlySpan<byte> dump)
     {
@@ -241,9 +314,25 @@ public static class ControlCommand
 
     public static byte[] DialogRequested(uint correlationId, uint contextId, uint requestId, ReadOnlySpan<byte> description)
     {
+        return Requested(ControlOpCode.DialogRequested, correlationId, contextId, requestId, description);
+    }
+
+    public static byte[] PermissionRequested(uint correlationId, uint contextId, uint requestId, ReadOnlySpan<byte> description)
+    {
+        return Requested(ControlOpCode.PermissionRequested, correlationId, contextId, requestId, description);
+    }
+
+    public static byte[] DownloadRequested(uint correlationId, uint contextId, uint requestId, ReadOnlySpan<byte> description)
+    {
+        return Requested(ControlOpCode.DownloadRequested, correlationId, contextId, requestId, description);
+    }
+
+    private static byte[] Requested(
+        ControlOpCode op, uint correlationId, uint contextId, uint requestId, ReadOnlySpan<byte> description)
+    {
         var buffer = new byte[
             ControlWriter.HeaderBytes + sizeof(uint) + sizeof(uint) + ControlWriter.SizeOfBytes(description)];
-        var writer = new ControlWriter(buffer, ControlOpCode.DialogRequested, correlationId);
+        var writer = new ControlWriter(buffer, op, correlationId);
         writer.WriteUInt32(contextId);
         writer.WriteUInt32(requestId);
         writer.WriteBytes(description);

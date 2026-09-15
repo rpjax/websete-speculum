@@ -302,17 +302,44 @@ void SpeculumNodeSource::CaptureLiveCssom() {
     }
   };
 
-  const size_t n = mDocument->SheetCount();
-  for (size_t i = 0; i < n; ++i) {
-    if (mozilla::StyleSheet* sheet = mDocument->SheetAt(i)) {
-      noteSheet(*sheet);
+  auto walkRoot = [&](auto* root) {
+    if (!root) {
+      return;
     }
-  }
-  for (mozilla::StyleSheet* sheet : mDocument->AdoptedStyleSheets()) {
-    if (sheet) {
-      noteSheet(*sheet);
+    const size_t n = root->SheetCount();
+    for (size_t i = 0; i < n; ++i) {
+      if (mozilla::StyleSheet* sheet = root->SheetAt(i)) {
+        noteSheet(*sheet);
+      }
     }
-  }
+    for (mozilla::StyleSheet* sheet : root->AdoptedStyleSheets()) {
+      if (sheet) {
+        noteSheet(*sheet);
+      }
+    }
+  };
+
+  walkRoot(mDocument);
+
+  auto walkComposed = [&](auto&& self, nsINode* node) -> void {
+    if (!node) {
+      return;
+    }
+    if (node->IsElement()) {
+      if (mozilla::dom::ShadowRoot* sr = node->AsElement()->GetShadowRoot()) {
+        walkRoot(sr);
+        for (nsIContent* child = sr->GetFirstChild(); child;
+             child = child->GetNextSibling()) {
+          self(self, child);
+        }
+      }
+    }
+    for (nsIContent* child = node->GetFirstChild(); child;
+         child = child->GetNextSibling()) {
+      self(self, child);
+    }
+  };
+  walkComposed(walkComposed, mDocument);
 }
 
 void SpeculumNodeSource::NoteSheet(const void* aSheet) {

@@ -11,6 +11,7 @@
 #include <vector>
 
 struct SpeculumProducerState;
+class nsINode;
 
 namespace mozilla::dom {
 class Document;
@@ -64,6 +65,7 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   void ParentChainChanged(nsIContent* aContent) override;
 
   mozilla::dom::Document* GetDocument() const { return mDocument; }
+  const void* IdentityKey(uint32_t aNodeId) const;
 
  private:
   ~SpeculumMutationObserver();
@@ -86,5 +88,6 @@ bool SpeculumSnapshotDump(uint32_t aContextId, std::vector<uint8_t>& aOut,
                           uint32_t* aSequence, uint32_t* aGeneration,
                           uint64_t* aTableHash);
 mozilla::dom::Document* SpeculumDocumentForContext(uint32_t aContextId);
+nsINode* SpeculumNodeForId(uint32_t aContextId, uint32_t aNodeId);
 
 #endif

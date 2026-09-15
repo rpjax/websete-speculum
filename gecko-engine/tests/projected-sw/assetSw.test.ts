@@ -1,4 +1,9 @@
-import { ASSET_TOKEN_HEADER, stampAssetHeaders, swReadyMessage } from './assetSw.ts';
+import {
+  ASSET_TOKEN_HEADER,
+  classifyFetchDestination,
+  stampAssetHeaders,
+  swReadyMessage,
+} from './assetSw.ts';
 
 function fail(msg: string): never {
   console.error('FALHOU:', msg);
@@ -21,6 +26,16 @@ if (stamped.accept !== 'image/png') {
 const empty = stampAssetHeaders({}, '');
 if (ASSET_TOKEN_HEADER in empty) {
   fail('token vazio não carimba header');
+}
+
+if (classifyFetchDestination('image') !== 1) {
+  fail('dest image');
+}
+if (classifyFetchDestination('script') !== 11) {
+  fail('dest script');
+}
+if (classifyFetchDestination('weird') !== 0) {
+  fail('dest dúvida');
 }
 
 console.log('ok: SW projected ready + token em header');

@@ -353,6 +353,22 @@ mozilla::dom::Document* SpeculumDocumentForContext(uint32_t aContextId) {
   return it->second->GetDocument();
 }
 
+const void* SpeculumMutationObserver::IdentityKey(uint32_t aNodeId) const {
+  if (!mState) {
+    return nullptr;
+  }
+  return mState->producer.identity().keyOf(aNodeId);
+}
+
+nsINode* SpeculumNodeForId(uint32_t aContextId, uint32_t aNodeId) {
+  auto it = gObserversByContext.find(aContextId);
+  if (it == gObserversByContext.end() || !it->second) {
+    return nullptr;
+  }
+  const void* key = it->second->IdentityKey(aNodeId);
+  return const_cast<nsINode*>(static_cast<const nsINode*>(key));
+}
+
 void SpeculumMutationObserver::CharacterDataWillChange(
     nsIContent*, const CharacterDataChangeInfo&) {}
 

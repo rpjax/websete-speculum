@@ -4,6 +4,7 @@
 
 #include "base/process_util.h"
 #include "mozilla/UniquePtr.h"
+#include "nsStringFwd.h"
 #include "nsTArray.h"
 
 class SpeculumProjectionRuntime {
@@ -16,6 +17,12 @@ class SpeculumProjectionRuntime {
   void DeliverSnapshot(uint32_t aContextId, uint32_t aCorrelationId,
                        uint32_t aSequence, uint32_t aGeneration,
                        uint64_t aTableHash, nsTArray<uint8_t>& aDump);
+  void DeliverDialogRequested(uint32_t aContextId, uint32_t aRequestId,
+                              const nsACString& aDescription);
+  void DeliverPermissionRequested(uint32_t aContextId, uint32_t aRequestId,
+                                  const nsACString& aDescription);
+  void DeliverDownloadRequested(uint32_t aContextId, uint32_t aRequestId,
+                                const nsACString& aDescription);
 
   // Próximo contextId aninhado (≥ 2). Sessão-global, nunca reusa. 0 se o
   // runtime ainda não subiu. Só o processo pai.

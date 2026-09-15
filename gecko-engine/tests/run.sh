@@ -102,6 +102,9 @@ banner "L1 (C++) — ABI de controle standalone"
   -o "$OUT/l1_abi_verify"
 "$OUT/l1_abi_verify" "$GOLDEN"
 
+banner "L1 (TS) — encoder Input deste fio"
+npx --yes tsx "$HERE/abi/encode-input.test.ts"
+
 # ---- Build do lado C# (uma vez; puxa o supervisor junto) ----
 banner "Build C# ($CONFIG)"
 "$DOTNET" build "$TESTS_PROJ" -c "$CONFIG" --nologo -v quiet

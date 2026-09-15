@@ -528,6 +528,15 @@ class ContentParent final : public PContentParent,
       const uint32_t& aContextId, const uint32_t& aCorrelationId,
       const uint32_t& aSequence, const uint32_t& aGeneration,
       const uint64_t& aTableHash, nsTArray<uint8_t>&& aDump);
+  mozilla::ipc::IPCResult RecvSpeculumDialogRequested(
+      const uint32_t& aContextId, const uint32_t& aRequestId,
+      const nsACString& aDescription);
+  mozilla::ipc::IPCResult RecvSpeculumPermissionRequested(
+      const uint32_t& aContextId, const uint32_t& aRequestId,
+      const nsACString& aDescription);
+  mozilla::ipc::IPCResult RecvSpeculumDownloadRequested(
+      const uint32_t& aContextId, const uint32_t& aRequestId,
+      const nsACString& aDescription);
 
   mozilla::ipc::IPCResult RecvAttributionEvent(
       const nsACString& aHost, PrivateAttributionImpressionType aType,

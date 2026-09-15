@@ -151,6 +151,8 @@ UNIFIED_SOURCES += [
     "SharedMap.cpp",
     "SharedMessageBody.cpp",
     "SharedStringMap.cpp",
+    "SpeculumAssetClassifier.cpp",
+    "SpeculumAssetRegistry.cpp",
     "SpeculumControlAbi.cpp",
     "SpeculumMarionette.cpp",
     "SpeculumMint.cpp",

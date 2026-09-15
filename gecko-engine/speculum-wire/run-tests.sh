@@ -38,6 +38,14 @@ mkdir -p "$OUT"
 "$OUT/producer_cssom"
 
 "${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/input_hit.cpp" -o "$OUT/input_hit"
+"$OUT/input_hit"
+
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
+  "$HERE/test/asset_dest.cpp" -o "$OUT/asset_dest"
+"$OUT/asset_dest"
+
+"${CXX:-g++}" -std=c++17 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti -I"$HERE/include" \
   "$HERE/test/producer_cli.cpp" -o "$OUT/producer_cli"
 
 python3 - "$OUT/producer_cli" <<'PY'

@@ -95,6 +95,15 @@ bool SpeculumControlReader::ReadString(nsACString& aOut) {
 
 bool SpeculumControlReader::ReadBytes(nsACString& aOut) { return ReadString(aOut); }
 
+size_t SpeculumControlReader::Remaining() const {
+  if (!mOk || mPos > mLength) {
+    return 0;
+  }
+  return mLength - mPos;
+}
+
+const uint8_t* SpeculumControlReader::RemainingData() const { return mData + mPos; }
+
 SpeculumControlWriter::SpeculumControlWriter(uint8_t* aBuffer, size_t aCapacity,
                                              SpeculumControlOpCode aOpCode,
                                              uint32_t aCorrelationId)

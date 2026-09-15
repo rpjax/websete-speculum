@@ -1,9 +1,12 @@
 /* Speculum — runtime de projeção no processo base (doc 17). */
 #include "SpeculumProjectionRuntime.h"
 
+#include "SpeculumAssetRegistry.h"
 #include "SpeculumControlAbi.h"
 #include "SpeculumLog.h"
+#include "SpeculumMarionette.h"
 #include "mozilla/SystemPrincipal.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/ContentParent.h"
@@ -20,8 +23,10 @@
 #include "nsGlobalWindowOuter.h"
 #include "nsIMutableArray.h"
 #include "nsIURI.h"
+#include "nsIBaseWindow.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeOwner.h"
+#include "nsIWebNavigation.h"
 #include "nsIWebProgress.h"
 #include "nsIWebProgressListener.h"
 #include "nsIWindowWatcher.h"
@@ -63,6 +68,7 @@ constexpr uint8_t kKindFrame = 0x01;
 constexpr uint8_t kKindEvent = 0x02;
 constexpr uint8_t kKindHello = 0x03;
 constexpr uint8_t kKindCommand = 0x04;
+constexpr uint8_t kKindAsset = 0x06;
 
 // doc 18: LoadStateChanged.estado
 constexpr uint8_t kLoadStateStart = 1;
@@ -318,6 +324,7 @@ struct SpeculumProjectionRuntime::Impl {
 
   explicit Impl(std::string aPath) : socketPath(std::move(aPath)) {
     ConnectOrDie();
+    SpeculumAssetRegistry::Get();
     readThread = std::thread([this]() { ReadLoop(); });
   }
 
@@ -899,14 +906,143 @@ struct SpeculumProjectionRuntime::Impl {
 
   void HandleDialogRespond(uint32_t aCorrelationId, uint32_t aContextId,
                            uint32_t aRequestId, const nsACString& aAnswer) {
+    SpeculumCompleteDialog(aContextId, aRequestId, aAnswer);
     ContentParent* cp = ContentParentOf(aContextId);
     if (!cp) {
-      SendFault(aCorrelationId, aContextId, "unknown contextId");
       return;
     }
     if (!cp->SendSpeculumDialogRespond(aContextId, aRequestId, aAnswer)) {
       SendFault(aCorrelationId, aContextId, "DialogRespond send failed");
     }
+  }
+
+  void HandleViewportSet(uint32_t aCorrelationId, uint32_t aContextId,
+                         int32_t aWidth, int32_t aHeight) {
+    nsCOMPtr<mozIDOMWindowProxy> window;
+    {
+      StaticMutexAutoLock lock(projectedMutex);
+      const auto found = contextToWindow.find(aContextId);
+      if (found == contextToWindow.end()) {
+        SendFault(aCorrelationId, aContextId, "unknown contextId");
+        return;
+      }
+      window = found->second;
+    }
+    nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window);
+    if (!outer) {
+      SendFault(aCorrelationId, aContextId, "no outer window");
+      return;
+    }
+    nsIDocShell* chromeShell = outer->GetDocShell();
+    if (!chromeShell) {
+      SendFault(aCorrelationId, aContextId, "no chrome docshell");
+      return;
+    }
+    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+    chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+    nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner);
+    if (!base) {
+      SendFault(aCorrelationId, aContextId, "no base window");
+      return;
+    }
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t cx = 0;
+    int32_t cy = 0;
+    if (NS_FAILED(base->GetPositionAndSize(&x, &y, &cx, &cy))) {
+      SendFault(aCorrelationId, aContextId, "GetPositionAndSize failed");
+      return;
+    }
+    if (NS_FAILED(base->SetPositionAndSize(x, y, aWidth, aHeight, true))) {
+      SendFault(aCorrelationId, aContextId, "SetPositionAndSize failed");
+    }
+  }
+
+  void HandleHistoryGo(uint32_t aCorrelationId, uint32_t aContextId,
+                       int32_t aDelta) {
+    RefPtr<BrowsingContext> bc = ResolveLiveRoot(aContextId);
+    if (!bc || bc->IsDiscarded()) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical) {
+      SendFault(aCorrelationId, aContextId, "no canonical browsing context");
+      return;
+    }
+    mozilla::dom::Optional<int32_t> epoch;
+    const int32_t steps = aDelta < 0 ? -aDelta : aDelta;
+    for (int32_t i = 0; i < steps; ++i) {
+      if (aDelta < 0) {
+        canonical->GoBack(epoch, false, true);
+      } else {
+        canonical->GoForward(epoch, false, true);
+      }
+    }
+  }
+
+  void HandleReload(uint32_t aCorrelationId, uint32_t aContextId) {
+    RefPtr<BrowsingContext> bc = ResolveLiveRoot(aContextId);
+    if (!bc || bc->IsDiscarded()) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical) {
+      SendFault(aCorrelationId, aContextId, "no canonical browsing context");
+      return;
+    }
+    canonical->Reload(nsIWebNavigation::LOAD_FLAGS_NONE);
+  }
+
+  void HandleStop(uint32_t aCorrelationId, uint32_t aContextId) {
+    RefPtr<BrowsingContext> bc = ResolveLiveRoot(aContextId);
+    if (!bc || bc->IsDiscarded()) {
+      SendFault(aCorrelationId, aContextId, "unknown contextId");
+      return;
+    }
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical) {
+      SendFault(aCorrelationId, aContextId, "no canonical browsing context");
+      return;
+    }
+    canonical->Stop(nsIWebNavigation::STOP_ALL);
+  }
+
+  void SendRequested(SpeculumControlOpCode aOp, uint32_t aContextId,
+                     uint32_t aRequestId, const nsACString& aDescription) {
+    const size_t cap = 64 + aDescription.Length();
+    auto buffer = MakeUnique<uint8_t[]>(cap);
+    SpeculumControlWriter writer(buffer.get(), cap, aOp, 0);
+    nsDependentCString desc(aDescription);
+    if (!writer.WriteUInt32(aContextId) || !writer.WriteUInt32(aRequestId) ||
+        !writer.WriteBytes(desc) || !writer.Ok()) {
+      return;
+    }
+    SendEvent(buffer.get(), static_cast<uint32_t>(writer.Length()));
+  }
+
+  bool SendAssetEnvelope(uint32_t aContextId, const uint8_t* aPayload,
+                         uint32_t aLength) {
+    mozilla::MutexAutoLock lock(sendMutex);
+    if (fd < 0) {
+      return false;
+    }
+    if (!SendEnvelope(fd, kKindAsset, aContextId, aPayload, aLength)) {
+      LogBridgeErr("asset send failed");
+      CloseFdUnlocked();
+      return false;
+    }
+    return true;
+  }
+
+  void HandleAssetPayload(uint32_t aContextId, const uint8_t* aPayload,
+                          size_t aLength) {
+    SpeculumAssetRegistry::Get().OnConsumerRequest(
+        aContextId, aPayload, aLength,
+        [this](uint32_t ctx, const uint8_t* p, uint32_t n) {
+          SendAssetEnvelope(ctx, p, n);
+        });
   }
 
   void DeliverSnapshot(uint32_t aContextId, uint32_t aCorrelationId,
@@ -1008,14 +1144,14 @@ struct SpeculumProjectionRuntime::Impl {
       }
       case SpeculumControlOpCode::Input: {
         uint32_t contextId = 0;
-        nsCString ev;
-        if (!reader.ReadUInt32(&contextId) || !reader.ReadBytes(ev)) {
+        if (!reader.ReadUInt32(&contextId)) {
           SendFault(correlationId, 0, "Input truncated");
           return;
         }
         nsTArray<uint8_t> bytes;
-        bytes.AppendElements(
-            reinterpret_cast<const uint8_t*>(ev.Data()), ev.Length());
+        if (reader.Remaining() > 0) {
+          bytes.AppendElements(reader.RemainingData(), reader.Remaining());
+        }
         HandleInput(correlationId, contextId, std::move(bytes));
         return;
       }
@@ -1028,15 +1164,37 @@ struct SpeculumProjectionRuntime::Impl {
           SendFault(correlationId, 0, "ViewportSet truncated");
           return;
         }
-        (void)contextId;
-        (void)width;
-        (void)height;
+        HandleViewportSet(correlationId, contextId, width, height);
         return;
       }
-      case SpeculumControlOpCode::HistoryGo:
-      case SpeculumControlOpCode::Reload:
-      case SpeculumControlOpCode::Stop:
+      case SpeculumControlOpCode::HistoryGo: {
+        uint32_t contextId = 0;
+        int32_t delta = 0;
+        if (!reader.ReadUInt32(&contextId) || !reader.ReadInt32(&delta)) {
+          SendFault(correlationId, 0, "HistoryGo truncated");
+          return;
+        }
+        HandleHistoryGo(correlationId, contextId, delta);
         return;
+      }
+      case SpeculumControlOpCode::Reload: {
+        uint32_t contextId = 0;
+        if (!reader.ReadUInt32(&contextId)) {
+          SendFault(correlationId, 0, "Reload truncated");
+          return;
+        }
+        HandleReload(correlationId, contextId);
+        return;
+      }
+      case SpeculumControlOpCode::Stop: {
+        uint32_t contextId = 0;
+        if (!reader.ReadUInt32(&contextId)) {
+          SendFault(correlationId, 0, "Stop truncated");
+          return;
+        }
+        HandleStop(correlationId, contextId);
+        return;
+      }
       case SpeculumControlOpCode::DialogRespond: {
         uint32_t contextId = 0;
         uint32_t requestId = 0;
@@ -1046,6 +1204,34 @@ struct SpeculumProjectionRuntime::Impl {
           SendFault(correlationId, 0, "DialogRespond truncated");
           return;
         }
+        HandleDialogRespond(correlationId, contextId, requestId, answer);
+        return;
+      }
+      case SpeculumControlOpCode::PermissionRespond: {
+        uint32_t contextId = 0;
+        uint32_t requestId = 0;
+        uint8_t granted = 0;
+        if (!reader.ReadUInt32(&contextId) || !reader.ReadUInt32(&requestId) ||
+            !reader.ReadUInt8(&granted)) {
+          SendFault(correlationId, 0, "PermissionRespond truncated");
+          return;
+        }
+        nsAutoCString answer;
+        answer.AssignASCII(granted ? "1" : "0");
+        HandleDialogRespond(correlationId, contextId, requestId, answer);
+        return;
+      }
+      case SpeculumControlOpCode::DownloadRespond: {
+        uint32_t contextId = 0;
+        uint32_t requestId = 0;
+        uint8_t accepted = 0;
+        if (!reader.ReadUInt32(&contextId) || !reader.ReadUInt32(&requestId) ||
+            !reader.ReadUInt8(&accepted)) {
+          SendFault(correlationId, 0, "DownloadRespond truncated");
+          return;
+        }
+        nsAutoCString answer;
+        answer.AssignASCII(accepted ? "1" : "0");
         HandleDialogRespond(correlationId, contextId, requestId, answer);
         return;
       }
@@ -1124,6 +1310,17 @@ struct SpeculumProjectionRuntime::Impl {
           continue;
         }
         DispatchControlPayload(payload.Elements(), got);
+      } else if (kind == kKindAsset) {
+        const uint32_t ctx = contextId;
+        auto bytes = MakeUnique<uint8_t[]>(payload.Length());
+        if (payload.Length() > 0) {
+          memcpy(bytes.get(), payload.Elements(), payload.Length());
+        }
+        NS_DispatchToMainThread(NS_NewRunnableFunction(
+            "SpeculumHandleAsset",
+            [this, ctx, bytes = std::move(bytes), len = payload.Length()]() mutable {
+              HandleAssetPayload(ctx, bytes.get(), len);
+            }));
       }
     }
   }
@@ -1339,6 +1536,24 @@ void SpeculumProjectionRuntime::DeliverSnapshot(
     uint32_t aGeneration, uint64_t aTableHash, nsTArray<uint8_t>& aDump) {
   mImpl->DeliverSnapshot(aContextId, aCorrelationId, aSequence, aGeneration,
                          aTableHash, aDump);
+}
+
+void SpeculumProjectionRuntime::DeliverDialogRequested(
+    uint32_t aContextId, uint32_t aRequestId, const nsACString& aDescription) {
+  mImpl->SendRequested(SpeculumControlOpCode::DialogRequested, aContextId,
+                       aRequestId, aDescription);
+}
+
+void SpeculumProjectionRuntime::DeliverPermissionRequested(
+    uint32_t aContextId, uint32_t aRequestId, const nsACString& aDescription) {
+  mImpl->SendRequested(SpeculumControlOpCode::PermissionRequested, aContextId,
+                       aRequestId, aDescription);
+}
+
+void SpeculumProjectionRuntime::DeliverDownloadRequested(
+    uint32_t aContextId, uint32_t aRequestId, const nsACString& aDescription) {
+  mImpl->SendRequested(SpeculumControlOpCode::DownloadRequested, aContextId,
+                       aRequestId, aDescription);
 }
 
 uint32_t SpeculumProjectionRuntime::MintNestedContextId() {

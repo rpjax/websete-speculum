@@ -1298,6 +1298,30 @@ IPCResult ContentParent::RecvSpeculumSnapshotDump(
   return IPC_OK();
 }
 
+IPCResult ContentParent::RecvSpeculumDialogRequested(
+    const uint32_t& aContextId, const uint32_t& aRequestId,
+    const nsACString& aDescription) {
+  SpeculumProjectionRuntime::Get().DeliverDialogRequested(aContextId, aRequestId,
+                                                          aDescription);
+  return IPC_OK();
+}
+
+IPCResult ContentParent::RecvSpeculumPermissionRequested(
+    const uint32_t& aContextId, const uint32_t& aRequestId,
+    const nsACString& aDescription) {
+  SpeculumProjectionRuntime::Get().DeliverPermissionRequested(
+      aContextId, aRequestId, aDescription);
+  return IPC_OK();
+}
+
+IPCResult ContentParent::RecvSpeculumDownloadRequested(
+    const uint32_t& aContextId, const uint32_t& aRequestId,
+    const nsACString& aDescription) {
+  SpeculumProjectionRuntime::Get().DeliverDownloadRequested(
+      aContextId, aRequestId, aDescription);
+  return IPC_OK();
+}
+
 IPCResult ContentParent::RecvAttributionEvent(
     const nsACString& aHost, PrivateAttributionImpressionType aType,
     uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost) {

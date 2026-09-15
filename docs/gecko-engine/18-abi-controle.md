@@ -86,7 +86,7 @@ de silencioso.
 | 0x0105 | Stop | `u32` contextId |
 | 0x0106 | HistoryGo | `u32` contextId, `i32` delta |
 | 0x0107 | ViewportSet | `u32` contextId, `i32` width, `i32` height |
-| 0x0108 | Input | `u32` contextId, `bytes` evento |
+| 0x0108 | Input | `u32` contextId, `u8` tipo, campos do tipo (abaixo). Sem JSON. Sem MessagePack. |
 | 0x0109 | Resync | `u32` contextId, `u8` força (0 = mapa/`emitResyncFrame`, 1 = walk/`resyncVirtual`) |
 | 0x010a | DialogRespond | `u32` contextId, `u32` requestId, `bytes` resposta |
 | 0x010b | PermissionRespond | `u32` contextId, `u32` requestId, `bool` concedido |
@@ -101,9 +101,22 @@ de silencioso.
 
 `FlushFrame` e `Snapshot` são de um `C`. Nested: `sequence` não alinha entre pai e filho.
 
-`Input` carrega `bytes` e não campos nomeados: o formato do evento é do plano de
-input, e o controle não o interpreta. É o mesmo princípio do frame opaco, um nível
-acima.
+`Input` usa os **mesmos tipos de campo** desta ABI. O supervisor relaya o comando
+e não interpreta o gesto. O payload **não** é saco opaco nem JSON do lab Chromium.
+
+`tipo`: `1` down, `2` up, `3` keyDown, `4` keyUp, `5` scrollSet. Outro valor: não
+aplica (não derruba a ponte). `move` não existe neste fio. Histórico é
+`HistoryGo`, não `Input`. `setFiles` é **1.1**, não deste V1.
+
+| tipo | Campos depois do `u8` |
+|------|------------------------|
+| 1, 2 | `u32` nodeId, `u16` localX, `u16` localY, `u8` botão (0 esquerda, 1 meio, 2 direita) |
+| 3, 4 | `str` key, `str` code, `u8` mods (bit0 ctrl, bit1 shift, bit2 alt, bit3 meta) |
+| 5 | `u32` nodeId (`0` = viewport), `u16` fracX, `u16` fracY |
+
+`local*` e `frac*` são 0…65535 = [0, 1], origem no canto superior esquerdo da
+caixa do nó. `nodeId` 0 em down/up: não aplica. Sem `local*` neste fio — centro
+é `32768, 32768`. Apply: id da tabela → nó vivo → `HeadlessWidget`. Sem CDP.
 
 `Resync`: a força vem na mensagem. O C++ não decide qual resync aplicar
 (`12-ponte-controle-vocabulario.md`).

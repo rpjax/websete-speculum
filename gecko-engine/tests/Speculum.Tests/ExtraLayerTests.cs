@@ -39,6 +39,17 @@ public static class ExtraLayerTests
         tee.Apply(2, AssetPayload.PhaseDenied, 0, "text/html"u8.ToArray());
         report.Equal("tee denied HTML", true, tee.Denied(2));
 
+        report.Equal("foto sai", true, AssetClassifier.CanExit(AssetDest.Image));
+        report.Equal("fonte sai", true, AssetClassifier.CanExit(AssetDest.Font));
+        report.Equal("vídeo sai", true, AssetClassifier.CanExit(AssetDest.Video));
+        report.Equal("HTML não sai", false, AssetClassifier.CanExit(AssetDest.Html));
+        report.Equal("JS não sai", false, AssetClassifier.CanExit(AssetDest.Js));
+        report.Equal("CSS não sai", false, AssetClassifier.CanExit(AssetDest.Css));
+        report.Equal("XHR não sai", false, AssetClassifier.CanExit(AssetDest.Xhr));
+        report.Equal("dúvida não sai", false, AssetClassifier.CanExit(AssetDest.Unknown));
+        report.Equal("dest fetch image", AssetDest.Image, AssetClassifier.FromFetchDestination("image"));
+        report.Equal("dest fetch script", AssetDest.Js, AssetClassifier.FromFetchDestination("script"));
+
         var hole = new StreamTee();
         hole.Apply(3, AssetPayload.PhaseChunk, 10, png);
         var threw = false;
@@ -81,7 +92,9 @@ public static class ExtraLayerTests
             report.Equal("dump >= 24", true, dump.Length >= 24);
         }
 
-        await s.Client.SendAsync(ControlCommand.Input(4, 0, [0x01, 0x02]), WebSocketMessageType.Binary, true, CancellationToken.None);
+        await s.Client.SendAsync(
+            ControlCommand.InputPointer(4, 0, ControlCommand.InputDown, 5, 32768, 32768, 0),
+            WebSocketMessageType.Binary, true, CancellationToken.None);
         report.Equal("input admitido", true, await s.WaitJournal("input", "admit", TimeSpan.FromSeconds(10)));
 
         await s.Client.SendAsync(ControlCommand.ViewportSet(5, 0, 1024, 768), WebSocketMessageType.Binary, true, CancellationToken.None);
@@ -106,8 +119,10 @@ public static class ExtraLayerTests
         await s.Client.SendAsync(ControlCommand.Stop(9, 0), WebSocketMessageType.Binary, true, CancellationToken.None);
         report.Equal("stop no diário", true, await s.WaitJournal("stop", "", TimeSpan.FromSeconds(10)));
 
-        await s.Client.SendAsync(ControlCommand.Input(10, 0, [0x20, 0x00]), WebSocketMessageType.Binary, true, CancellationToken.None);
-        report.Equal("pointermove rejeitado", true, await s.WaitJournal("input", "reject", TimeSpan.FromSeconds(10)));
+        await s.Client.SendAsync(
+            ControlCommand.Input(10, 0, 0x20, []),
+            WebSocketMessageType.Binary, true, CancellationToken.None);
+        report.Equal("tipo desconhecido rejeitado", true, await s.WaitJournal("input", "reject", TimeSpan.FromSeconds(10)));
     }
 
     private static async Task MarionetteAsync(Report report, Session s)

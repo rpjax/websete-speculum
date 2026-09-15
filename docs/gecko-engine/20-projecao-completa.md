@@ -309,12 +309,12 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | | |
 |--|--|
 | Lei | L15, P4 local / P5 autoritativo. |
-| Gancho | `HeadlessWidget`. Opcode `Input` opaco. |
-| Fio | intenção: `contextId` + `nodeId` + `localX/Y` + tecla + `scrollSet`. |
-| Cliente | captura esparsa no Projected (JS nosso). K5 intacto. |
+| Gancho | `HeadlessWidget`. |
+| Fio | opcode `Input` na ABI de controle (doc 18): `contextId` + tipo + campos. Mesmo codec da ponte. Nested = o `C` do comando. |
+| Cliente | captura esparsa no Projected (JS nosso). K5 intacto. Encoder = os campos da ABI, não JSON. |
 | Prova | efeito no Virtual. Clique nested no `C` filho. Challenge: token no Virtual. |
-| Proibido | CDP, uinput, inject, `Runtime.evaluate`. |
-| Estado | **ABI tem o envelope. Apply nativo não há** — `SpeculumSynthesizeInput` é no-op (não inventa mouse). Decoder da intenção UnifiedIntent falta. |
+| Proibido | CDP, uinput, inject, `Runtime.evaluate`. JSON/MessagePack neste opcode. `move` no fio. Histórico via `Input`. |
+| Estado | **fio fechado 2026-09-14.** Apply nativo ainda não há. |
 
 ### 2.9 Ativos (imagem, fonte, mídia) — V1 completo, doc 13 inteiro
 
@@ -328,8 +328,8 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | SW | `ready` **antes** do primeiro paint. Token em header, não na query. |
 | Supervisor | relay opaco, igual ao frame. |
 | Prova | img, fonte, vídeo com seek/`Range`; origem real não vê o Projected. |
-| Proibido | `rewritePart`; lista de sinks; supervisor baixar com outra identidade TLS. |
-| Estado | **decidido. Entra neste V1 por inteiro.** Escolha mecânica (doc 13 §9.1: `nsITraceableChannel` vs segunda busca de img/fonte) é *como*, não *se*. |
+| Proibido | `rewritePart`; lista de sinks; supervisor baixar; segunda busca; copiar bitmap. |
+| Estado | **mecanismo fechado 2026-09-14** (doc 13 §9): um canal Firefox, N leitores. Apply no fork ainda não há. |
 
 ### 2.10 Superfície projetada e K5
 
@@ -390,12 +390,12 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Prova | L4 `/a` → `/b` texto novo no fio. |
 | Estado | Navigate há. Back/forward do usuário = apply **não há**. |
 
-### 2.18 Upload de arquivo
+### 2.18 Upload de arquivo — 1.1, não deste V1
 
 | | |
 |--|--|
-| Lei | `setFiles` no plano de input. Se não der neste V1, escreve na matriz **deste** fork. Não copiar silêncio da support-matrix Chromium. |
-| Estado | não há. |
+| Lei | `setFiles` no plano de input. **Fora deste V1** (fechado 2026-09-14). Escrito na matriz deste fork — não silêncio. |
+| Estado | **1.1.** V1 não escolhe arquivo. `Input` não tem tipo `setFiles`. |
 
 ### 2.19 Relógio, halt, flush
 
@@ -488,7 +488,7 @@ Leitura honesta do fork (`gecko-engine/patches` + `speculum-wire`), não do side
 | Viewport | n/a | opcode só | não |
 | Ativos / SW / proxy | n/a | **não (entra neste V1, doc 13 inteiro)** | não ainda |
 | Dialog/perm/download | ABI | **não** | não |
-| Upload | não | não | não |
+| Upload | — | — | **1.1** |
 | Canvas / print | — | — | **1.1** |
 | Halt / snapshot / `frameNewNodes` | sim | IPDL Halt/Flush/Snapshot | depois do rebuild |
 | Telemetria catalogada | não | `MOZ_LOG` por mutação | não |

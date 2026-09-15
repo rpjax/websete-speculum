@@ -2006,6 +2006,12 @@ parent:
     async SpeculumSnapshotDump(uint32_t aContextId, uint32_t aCorrelationId,
                                uint32_t aSequence, uint32_t aGeneration,
                                uint64_t aTableHash, uint8_t[] aDump);
+    async SpeculumDialogRequested(uint32_t aContextId, uint32_t aRequestId,
+                                  nsCString aDescription);
+    async SpeculumPermissionRequested(uint32_t aContextId, uint32_t aRequestId,
+                                      nsCString aDescription);
+    async SpeculumDownloadRequested(uint32_t aContextId, uint32_t aRequestId,
+                                    nsCString aDescription);
 
 parent:
     async AttributionEvent(nsCString aSourceHost,

@@ -596,6 +596,7 @@ LOCAL_INCLUDES += [
     "/layout/generic",
     "/layout/style",
     "/layout/xul",
+    "/dom/ipc",
     "/netwerk/base",
     "/netwerk/protocol/http",
     "/netwerk/url-classifier",

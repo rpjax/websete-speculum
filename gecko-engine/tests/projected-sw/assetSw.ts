@@ -14,3 +14,33 @@ export function stampAssetHeaders(
   }
   return { ...headers, [ASSET_TOKEN_HEADER]: token };
 }
+
+/** Destino do pedido (SW). Dúvida = 0 = recusa no pai. */
+export function classifyFetchDestination(destination: string): number {
+  switch (destination) {
+    case 'image':
+      return 1;
+    case 'font':
+      return 2;
+    case 'audio':
+      return 3;
+    case 'video':
+      return 4;
+    case 'document':
+    case 'frame':
+    case 'iframe':
+    case 'embed':
+    case 'object':
+      return 10;
+    case 'script':
+      return 11;
+    case 'style':
+      return 12;
+    case 'websocket':
+      return 15;
+    case '':
+      return 13;
+    default:
+      return 0;
+  }
+}

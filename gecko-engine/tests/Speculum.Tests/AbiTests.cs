@@ -42,7 +42,7 @@ public static class AbiTests
         Check(report, vectors, "Stop", ControlCommand.Stop(1, 1));
         Check(report, vectors, "HistoryGo", ControlCommand.HistoryGo(13, 1, -1));
         Check(report, vectors, "ViewportSet", ControlCommand.ViewportSet(12, 1, 800, 600));
-        Check(report, vectors, "Input", ControlCommand.Input(11, 1, [0xaa, 0xbb]));
+        Check(report, vectors, "Input", ControlCommand.InputPointer(11, 1, ControlCommand.InputDown, 5, 32768, 32768, 0));
 
         // ---- decodificação: os eventos que o browser emite ----
         Decode(report, vectors, "Ready", e =>
@@ -99,11 +99,15 @@ public static class AbiTests
 
     private static void InputViewportHistoryRoundtrip(Report report)
     {
-        var input = ControlCommand.Input(11, 1, [0xaa, 0xbb]);
+        var input = ControlCommand.InputPointer(11, 1, ControlCommand.InputDown, 5, 32768, 32768, 0);
         var inputReader = new ControlReader(input);
         report.Equal("Input.opcode", ControlOpCode.Input, inputReader.OpCode);
         report.Equal("Input.contextId", 1u, inputReader.ReadUInt32());
-        report.Bytes("Input.bytes", [0xaa, 0xbb], inputReader.ReadBytes());
+        report.Equal("Input.type", ControlCommand.InputDown, inputReader.ReadUInt8());
+        report.Equal("Input.nodeId", 5u, inputReader.ReadUInt32());
+        report.Equal("Input.localX", (ushort)32768, inputReader.ReadUInt16());
+        report.Equal("Input.localY", (ushort)32768, inputReader.ReadUInt16());
+        report.Equal("Input.button", (byte)0, inputReader.ReadUInt8());
 
         var viewport = ControlCommand.ViewportSet(12, 1, 800, 600);
         var viewportReader = new ControlReader(viewport);

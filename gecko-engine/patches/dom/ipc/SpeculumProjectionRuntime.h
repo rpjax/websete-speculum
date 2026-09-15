@@ -28,6 +28,7 @@ class SpeculumProjectionRuntime {
                                   const nsACString& aDescription);
   void DeliverDownloadRequested(uint32_t aContextId, uint32_t aRequestId,
                                 const nsACString& aDescription);
+  void DeliverTelemetry(uint32_t aContextId, nsTArray<uint8_t>& aPayload);
 
   // Próximo contextId aninhado (≥ 2). Sessão-global, nunca reusa. 0 se o
   // runtime ainda não subiu. Só o processo pai.

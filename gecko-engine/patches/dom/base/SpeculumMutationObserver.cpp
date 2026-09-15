@@ -2,8 +2,11 @@
 #include "SpeculumMutationObserver.h"
 
 #include "SpeculumLog.h"
+#include "SpeculumCaps.h"
 #include "SpeculumNodeSource.h"
+#include "SpeculumTelemetry.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentChild.h"
@@ -52,7 +55,7 @@ std::string SpeculumObserverUtf8FromAtom(const nsAtom* aAtom) {
 void SendFrameBytes(mozilla::dom::Document* aDocument,
                     SpeculumProducerState& aState,
                     const std::vector<uint8_t>& aFrame, uint32_t aOps,
-                    bool aBootstrap) {
+                    bool aBootstrap, uint32_t aBuildMs) {
   if (aFrame.empty() || !aDocument) {
     return;
   }
@@ -74,6 +77,27 @@ void SendFrameBytes(mozilla::dom::Document* aDocument,
     SPECULUM_LOG("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu",
                  aState.contextId, seq, aOps, aFrame.size());
   }
+  SpeculumEmitFrameEmitted(
+      aState.contextId, seq, aState.producer.generation(),
+      static_cast<uint32_t>(aFrame.size()), aOps,
+      static_cast<uint32_t>(aState.producer.table().size()),
+      static_cast<uint32_t>(aState.producer.identity().size()), aBuildMs, 0, 0,
+      aBootstrap);
+}
+
+uint32_t BuildMsIfOn(const mozilla::TimeStamp& aStart) {
+  if (!SpeculumEventsOn() || !SpeculumMetricsOn() || aStart.IsNull()) {
+    return 0;
+  }
+  const double ms = (mozilla::TimeStamp::Now() - aStart).ToMilliseconds();
+  return ms < 0 ? 0 : static_cast<uint32_t>(ms);
+}
+
+mozilla::TimeStamp StampIfOn() {
+  if (SpeculumEventsOn() && SpeculumMetricsOn()) {
+    return mozilla::TimeStamp::Now();
+  }
+  return mozilla::TimeStamp();
 }
 
 }  // namespace
@@ -245,12 +269,13 @@ void SpeculumMutationObserver::EmitPendingFrame() {
   if (!mState) {
     return;
   }
+  const mozilla::TimeStamp t0 = StampIfOn();
   std::vector<uint8_t> frame = mState->producer.emitFrame();
   if (frame.empty()) {
     return;
   }
   SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(),
-                 false);
+                 false, BuildMsIfOn(t0));
 }
 
 bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
@@ -258,11 +283,13 @@ bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
     return false;
   }
   mState->source.CaptureLiveCssom();
+  const mozilla::TimeStamp t0 = StampIfOn();
   std::vector<uint8_t> frame = mState->producer.resyncVirtual(mDocument);
   if (frame.empty()) {
     return false;
   }
-  SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(), true);
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(), true,
+                 BuildMsIfOn(t0));
   return true;
 }
 
@@ -270,9 +297,12 @@ void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
   if (!mDocument || !mState) {
     return;
   }
+  SpeculumEmitBytes(mState->contextId, SpeculumCatalog::ResyncRequested, &aForce,
+                    1);
   CancelFrameTimer();
   mState->producer.discardPending();
   std::vector<uint8_t> frame;
+  const mozilla::TimeStamp t0 = StampIfOn();
   if (aForce == 1) {
     mState->source.CaptureLiveCssom();
     frame = mState->producer.resyncVirtual(mDocument);
@@ -282,9 +312,12 @@ void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
   if (frame.empty()) {
     SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u force=%u vazio", mState->contextId,
                  aForce);
+    SpeculumEmitResync(mState->contextId, aForce, false);
     return;
   }
-  SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(), true);
+  SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(), true,
+                 BuildMsIfOn(t0));
+  SpeculumEmitResync(mState->contextId, aForce, true);
   SPECULUM_LOG("[SPECULUM-RESYNC] ctx=%u force=%u seq=%u bytes=%zu",
                mState->contextId, aForce, mState->producer.sequence(),
                frame.size());

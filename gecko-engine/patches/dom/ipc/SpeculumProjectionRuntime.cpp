@@ -71,6 +71,7 @@ constexpr uint8_t kKindFrame = 0x01;
 constexpr uint8_t kKindEvent = 0x02;
 constexpr uint8_t kKindHello = 0x03;
 constexpr uint8_t kKindCommand = 0x04;
+constexpr uint8_t kKindTelemetry = 0x05;
 constexpr uint8_t kKindAsset = 0x06;
 
 // doc 18: LoadStateChanged.estado
@@ -1056,6 +1057,20 @@ struct SpeculumProjectionRuntime::Impl {
     return true;
   }
 
+  bool SendTelemetryEnvelope(uint32_t aContextId, const uint8_t* aPayload,
+                             uint32_t aLength) {
+    mozilla::MutexAutoLock lock(sendMutex);
+    if (fd < 0) {
+      return false;
+    }
+    if (!SendEnvelope(fd, kKindTelemetry, aContextId, aPayload, aLength)) {
+      LogBridgeErr("telemetry send failed");
+      CloseFdUnlocked();
+      return false;
+    }
+    return true;
+  }
+
   void HandleAssetPayload(uint32_t aContextId, const uint8_t* aPayload,
                           size_t aLength) {
     SpeculumAssetRegistry::Get().OnConsumerRequest(
@@ -1574,6 +1589,12 @@ void SpeculumProjectionRuntime::DeliverDownloadRequested(
     uint32_t aContextId, uint32_t aRequestId, const nsACString& aDescription) {
   mImpl->SendRequested(SpeculumControlOpCode::DownloadRequested, aContextId,
                        aRequestId, aDescription);
+}
+
+void SpeculumProjectionRuntime::DeliverTelemetry(uint32_t aContextId,
+                                                 nsTArray<uint8_t>& aPayload) {
+  mImpl->SendTelemetryEnvelope(aContextId, aPayload.Elements(),
+                               aPayload.Length());
 }
 
 uint32_t SpeculumProjectionRuntime::MintNestedContextId() {

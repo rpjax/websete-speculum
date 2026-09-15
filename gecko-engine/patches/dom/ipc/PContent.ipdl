@@ -2012,6 +2012,7 @@ parent:
                                       nsCString aDescription);
     async SpeculumDownloadRequested(uint32_t aContextId, uint32_t aRequestId,
                                     nsCString aDescription);
+    async SpeculumTelemetry(uint32_t aContextId, uint8_t[] aPayload);
 
 parent:
     async AttributionEvent(nsCString aSourceHost,

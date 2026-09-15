@@ -3,6 +3,7 @@
 
 #include "SpeculumLog.h"
 #include "SpeculumMutationObserver.h"
+#include "SpeculumTelemetry.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/PresShell.h"
@@ -220,19 +221,23 @@ void SpeculumSynthesizeInput(Document* aDocument,
 
   if (type == 1 || type == 2) {
     if (len < 1 + 4 + 2 + 2 + 1) {
+      SpeculumEmitInput(ctx, type, false);
       return;
     }
     const uint32_t nodeId = ReadU32(data + 1);
     if (nodeId == 0) {
+      SpeculumEmitInput(ctx, type, false);
       return;
     }
     nsINode* node = SpeculumNodeForId(ctx, nodeId);
     Element* el = ElementFromNode(node, aDocument);
     if (!el) {
+      SpeculumEmitInput(ctx, type, false);
       return;
     }
     DispatchMouse(aDocument, el, type == 1, ReadU16(data + 5),
                   ReadU16(data + 7), data[9]);
+    SpeculumEmitInput(ctx, type, true);
     return;
   }
 
@@ -242,17 +247,21 @@ void SpeculumSynthesizeInput(Document* aDocument,
     nsCString code;
     if (!ReadStr(data, len, pos, key) || !ReadStr(data, len, pos, code) ||
         pos >= len) {
+      SpeculumEmitInput(ctx, type, false);
       return;
     }
     DispatchKey(aDocument, type == 3, key, code, data[pos]);
+    SpeculumEmitInput(ctx, type, true);
     return;
   }
 
   if (type == 5) {
     if (len < 1 + 4 + 2 + 2) {
+      SpeculumEmitInput(ctx, type, false);
       return;
     }
     ApplyScroll(aDocument, ReadU32(data + 1), ReadU16(data + 5),
                 ReadU16(data + 7));
+    SpeculumEmitInput(ctx, type, true);
   }
 }

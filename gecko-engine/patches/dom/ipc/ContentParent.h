@@ -537,6 +537,8 @@ class ContentParent final : public PContentParent,
   mozilla::ipc::IPCResult RecvSpeculumDownloadRequested(
       const uint32_t& aContextId, const uint32_t& aRequestId,
       const nsACString& aDescription);
+  mozilla::ipc::IPCResult RecvSpeculumTelemetry(const uint32_t& aContextId,
+                                                nsTArray<uint8_t>&& aPayload);
 
   mozilla::ipc::IPCResult RecvAttributionEvent(
       const nsACString& aHost, PrivateAttributionImpressionType aType,

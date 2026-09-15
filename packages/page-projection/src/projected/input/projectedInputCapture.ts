@@ -414,6 +414,7 @@ export function attachProjectedInputCapture(
       schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
       type: event.type === 'keyup' ? 'keyUp' : 'keyDown',
       timestampClient: performance.now(),
+      contextId: opts.contextId,
       key: event.key,
       code: event.code,
       modifiers: {

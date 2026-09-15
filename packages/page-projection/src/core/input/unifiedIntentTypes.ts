@@ -59,6 +59,7 @@ export type KeyIntent = UnifiedIntentBase & {
   type: 'keyDown' | 'keyUp';
   key: string;
   code: string;
+  contextId?: number;
   modifiers?: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean };
 };
 

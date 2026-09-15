@@ -1,9 +1,11 @@
 import {
   encodeControlFromIntent,
+  encodeInputKey,
   encodeInputPointer,
   GECKO_INPUT_DOWN,
+  GECKO_INPUT_KEY_DOWN,
 } from '../../../packages/page-projection/src/core/input/geckoControlInput.ts';
-import type { PointerIntent } from '../../../packages/page-projection/src/core/input/unifiedIntentTypes.ts';
+import type { KeyIntent, PointerIntent } from '../../../packages/page-projection/src/core/input/unifiedIntentTypes.ts';
 import { UNIFIED_INTENT_SCHEMA_VERSION } from '../../../packages/page-projection/src/core/input/unifiedIntentTypes.ts';
 
 function hex(bytes: Uint8Array): string {
@@ -39,3 +41,22 @@ if (!viaIntent || hex(viaIntent) !== want) {
   process.exit(1);
 }
 console.log('ok encoder Input down');
+
+const keyWant = hex(
+  encodeInputKey(11, 2, GECKO_INPUT_KEY_DOWN, 'x', 'KeyX', 0),
+);
+const keyIntent: KeyIntent = {
+  schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
+  type: 'keyDown',
+  contextId: 2,
+  key: 'x',
+  code: 'KeyX',
+};
+const viaKey = encodeControlFromIntent(11, 1, keyIntent);
+if (!viaKey || hex(viaKey) !== keyWant) {
+  console.error(
+    `FALHOU encodeControlFromIntent key nested\n  esperado: ${keyWant}\n  recebido: ${viaKey ? hex(viaKey) : 'null'}`,
+  );
+  process.exit(1);
+}
+console.log('ok encoder Input key nested ctx');

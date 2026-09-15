@@ -5231,6 +5231,7 @@
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type: event.type === "keyup" ? "keyUp" : "keyDown",
             timestampClient: performance.now(),
+            contextId: opts.contextId,
             key: event.key,
             code: event.code,
             modifiers: {
@@ -7246,7 +7247,7 @@
           return encodeInputPointer(corr2, intent.contextId ?? ctx, intent.type === "down" ? exports.GECKO_INPUT_DOWN : exports.GECKO_INPUT_UP, nodeId, fracToU16(intent.localX), fracToU16(intent.localY), buttonToU8(intent.button));
         }
         if (intent.type === "keyDown" || intent.type === "keyUp") {
-          return encodeInputKey(corr2, ctx, intent.type === "keyDown" ? exports.GECKO_INPUT_KEY_DOWN : exports.GECKO_INPUT_KEY_UP, intent.key, intent.code, modsToU8(intent.modifiers));
+          return encodeInputKey(corr2, intent.contextId ?? ctx, intent.type === "keyDown" ? exports.GECKO_INPUT_KEY_DOWN : exports.GECKO_INPUT_KEY_UP, intent.key, intent.code, modsToU8(intent.modifiers));
         }
         if (intent.type === "scrollSet") {
           return encodeInputScroll(corr2, intent.contextId ?? ctx, intent.nodeId ?? 0, fracToU16(intent.scrollFracX), fracToU16(intent.scrollFracY));
@@ -8478,7 +8479,7 @@
   var import_formControlSnapshot = __toESM(require_formControlSnapshot());
   var import_decode = __toESM(require_decode());
   var import_telemetry = __toESM(require_telemetry());
-  var import_frame2 = __toESM(require_frame());
+  var import_frame3 = __toESM(require_frame());
   var import_core2 = __toESM(require_core());
 
   // browser/mirror/projection/lab/labPublicOrigin.ts
@@ -8489,8 +8490,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 94,
-    builtAt: "2026-09-15T01:07:20.366Z"
+    seq: 95,
+    builtAt: "2026-09-15T01:58:01.508Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -9408,6 +9409,7 @@
 
   // browser/mirror/projection/lab/client/geckoLabWire.ts
   var import_core = __toESM(require_core());
+  var import_frame2 = __toESM(require_frame());
   function classifyFetchDestination(destination) {
     switch (destination) {
       case "image":
@@ -9479,8 +9481,27 @@
     }
     swReg = await navigator.serviceWorker.register("/lab/asset-sw.js", { scope: "/" });
     await navigator.serviceWorker.ready;
-    const sw = swReg.active ?? navigator.serviceWorker.controller;
+    if (!navigator.serviceWorker.controller) {
+      await new Promise((resolve) => {
+        const done = () => resolve();
+        navigator.serviceWorker.addEventListener("controllerchange", done, { once: true });
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.removeEventListener("controllerchange", done);
+          resolve();
+        }
+      });
+    }
+    const sw = navigator.serviceWorker.controller ?? swReg.active;
     sw?.postMessage({ type: "token", token });
+    sw?.postMessage({ type: "ctx", contextId: import_frame2.CONTEXT_ID_ROOT });
+  }
+  function registerGeckoAssetContext(contextId, win = window) {
+    if (!("serviceWorker" in win.navigator)) {
+      return;
+    }
+    void win.navigator.serviceWorker.ready.then((reg) => {
+      (reg.active ?? win.navigator.serviceWorker.controller)?.postMessage({ type: "ctx", contextId });
+    });
   }
   function sendGeckoAssetFetch(ws, ctx, url, dest, range) {
     const streamId = nextStream++;
@@ -9522,7 +9543,8 @@
       if (msg?.type !== "asset-fetch" || typeof msg.url !== "string" || typeof msg.id !== "number") {
         return;
       }
-      void sendGeckoAssetFetch(ws, ctx, msg.url, msg.dest ?? "", msg.range ?? "").then(
+      const fetchCtx = typeof msg.contextId === "number" && Number.isInteger(msg.contextId) && msg.contextId >= 1 ? msg.contextId : ctx;
+      void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? "", msg.range ?? "").then(
         async (res) => {
           const buf = new Uint8Array(await res.arrayBuffer());
           ev.source?.postMessage({ type: "asset", id: msg.id, ok: true, bytes: buf.buffer }, { transfer: [buf.buffer] });
@@ -9746,7 +9768,7 @@
       if (isGeckoLab()) {
         const bytes = (0, import_core2.encodeControlFromIntent)(
           nextGeckoCorr(),
-          intent.contextId ?? import_frame2.CONTEXT_ID_ROOT,
+          intent.contextId ?? import_frame3.CONTEXT_ID_ROOT,
           intent
         );
         if (bytes) {
@@ -9836,7 +9858,7 @@
       const rootSurface = client.document.documentElement;
       if (rootSurface && rootSurface.nodeType === 1) {
         const detach = (0, import_projected.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
-          contextId: import_frame2.CONTEXT_ID_ROOT,
+          contextId: import_frame3.CONTEXT_ID_ROOT,
           getGeneration: () => client.getGeneration(),
           getViewportSize: () => canonicalViewport,
           isArmed: () => client.isArmed,
@@ -9844,13 +9866,20 @@
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
           metrics: inputCaptureMetrics
         });
-        inputDetachers.set(import_frame2.CONTEXT_ID_ROOT, detach);
+        inputDetachers.set(import_frame3.CONTEXT_ID_ROOT, detach);
       }
       const rootWin = client.document.defaultView;
+      if (isGeckoLab() && rootWin) {
+        registerGeckoAssetContext(import_frame3.CONTEXT_ID_ROOT, rootWin);
+      }
       client.forEachNestedInputSurface((info) => {
         const nestedDoc = info.surface.contentDocument;
         const nestedSurface = nestedDoc?.documentElement;
         if (!nestedSurface || nestedSurface.nodeType !== 1) return;
+        const nestedWin = nestedDoc.defaultView;
+        if (isGeckoLab() && nestedWin) {
+          registerGeckoAssetContext(info.contextId, nestedWin);
+        }
         const detach = (0, import_projected.attachProjectedInputCapture)(nestedSurface, info.registry, sendInputIntent, {
           contextId: info.contextId,
           getGeneration: info.getGeneration,
@@ -9909,7 +9938,7 @@
     }
     function observeStreamTelemetry(msg) {
       const kind = typeof msg.kind === "string" ? msg.kind : "";
-      const ctxId = typeof msg.contextId === "number" && Number.isInteger(msg.contextId) && msg.contextId >= 1 ? msg.contextId : import_frame2.CONTEXT_ID_ROOT;
+      const ctxId = typeof msg.contextId === "number" && Number.isInteger(msg.contextId) && msg.contextId >= 1 ? msg.contextId : import_frame3.CONTEXT_ID_ROOT;
       const row = ctxStats(ctxId);
       if (kind === "frameEmitted") {
         row.emitted += 1;
@@ -10163,7 +10192,7 @@
       $("dbgDrops").textContent = JSON.stringify(drops, null, 2);
     }
     function updateStream() {
-      const root = ctxStats(import_frame2.CONTEXT_ID_ROOT);
+      const root = ctxStats(import_frame3.CONTEXT_ID_ROOT);
       $("streamFrames").textContent = String(root.wireFrames);
       $("streamApply").textContent = String(root.applyOk);
       $("streamDesync").textContent = String(root.desync);
@@ -10187,12 +10216,12 @@
       for (const id of ids) {
         const s = byContext.get(id);
         const card = document.createElement("article");
-        card.className = id === import_frame2.CONTEXT_ID_ROOT ? "ctx-card stream-root" : "ctx-card";
+        card.className = id === import_frame3.CONTEXT_ID_ROOT ? "ctx-card stream-root" : "ctx-card";
         const head = document.createElement("div");
         head.className = "ctx-card-head";
         const idEl = document.createElement("div");
         idEl.className = "ctx-id";
-        idEl.textContent = id === import_frame2.CONTEXT_ID_ROOT ? `ctx ${id} \xB7 root` : `ctx ${id}`;
+        idEl.textContent = id === import_frame3.CONTEXT_ID_ROOT ? `ctx ${id} \xB7 root` : `ctx ${id}`;
         const seqEl = document.createElement("div");
         seqEl.className = "ctx-seq";
         seqEl.textContent = s.lastSequence !== null ? `seq ${s.lastSequence}` : "seq \u2014";
@@ -10254,21 +10283,21 @@
         onTelemetry: (msg) => {
           observeStreamTelemetry(msg);
           const m = msg;
-          const ctxId = typeof m.contextId === "number" ? m.contextId : import_frame2.CONTEXT_ID_ROOT;
+          const ctxId = typeof m.contextId === "number" ? m.contextId : import_frame3.CONTEXT_ID_ROOT;
           if (m.kind === "clientWarn" && typeof m.message === "string") {
             logConsole(3, m.message);
             logActivity(m.message);
           }
-          if (m.kind === "applyResult" && m.ok === true && ctxId !== import_frame2.CONTEXT_ID_ROOT && projection) {
+          if (m.kind === "applyResult" && m.ok === true && ctxId !== import_frame3.CONTEXT_ID_ROOT && projection) {
             bindInputSurfaces(projection);
           }
-          if (m.kind === "applyResult" && typeof m.opCount === "number" && ctxId === import_frame2.CONTEXT_ID_ROOT && m.ok === true) {
+          if (m.kind === "applyResult" && typeof m.opCount === "number" && ctxId === import_frame3.CONTEXT_ID_ROOT && m.ok === true) {
             opsTotal += m.opCount;
             $("streamOps").textContent = String(m.opCount);
           }
           if (m.kind === "desynced" || m.kind === "desync") {
             logActivity(
-              ctxId === import_frame2.CONTEXT_ID_ROOT ? `desync ${msg.errorCode ?? m.kind}` : `ctx${ctxId} desync ${msg.errorCode ?? m.kind}`
+              ctxId === import_frame3.CONTEXT_ID_ROOT ? `desync ${msg.errorCode ?? m.kind}` : `ctx${ctxId} desync ${msg.errorCode ?? m.kind}`
             );
           }
           if (ws?.readyState === WebSocket.OPEN) {
@@ -10277,10 +10306,10 @@
           updateStream();
         },
         onRequestResync: (info) => {
-          const ctxId = info.contextId ?? import_frame2.CONTEXT_ID_ROOT;
+          const ctxId = info.contextId ?? import_frame3.CONTEXT_ID_ROOT;
           ctxStats(ctxId).resync += 1;
           logActivity(
-            ctxId === import_frame2.CONTEXT_ID_ROOT ? `resync requested reason=${info.reason}` : `ctx${ctxId} resync requested reason=${info.reason}`
+            ctxId === import_frame3.CONTEXT_ID_ROOT ? `resync requested reason=${info.reason}` : `ctx${ctxId} resync requested reason=${info.reason}`
           );
           updateStream();
           if (ws?.readyState === WebSocket.OPEN) {
@@ -10410,7 +10439,7 @@
           void ensureProjection().then((p) => {
             const bytes = new Uint8Array(ev.data);
             const hdr = (0, import_decode.peekFrameHeader)(bytes);
-            const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : import_frame2.CONTEXT_ID_ROOT;
+            const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : import_frame3.CONTEXT_ID_ROOT;
             ctxStats(ctxId).wireFrames += 1;
             p.ingest(bytes);
             updateStream();
@@ -10559,7 +10588,7 @@
           assetBaseUrl = window.location.origin;
           setGeckoLab(msg.engine === "gecko");
           if (isGeckoLab() && ws) {
-            wireGeckoSwFetch(ws, import_frame2.CONTEXT_ID_ROOT);
+            wireGeckoSwFetch(ws, import_frame3.CONTEXT_ID_ROOT);
             void ensureGeckoAssetSw(sessionToken).then(
               () => logActivity("gecko sw ready"),
               (err) => logActivity(`gecko sw falhou: ${err.message}`)
@@ -10571,7 +10600,7 @@
         }
         if (msg.type === "gecko.requested" && isGeckoLab() && ws) {
           const kind = String(msg.kind ?? "dialog");
-          const contextId = Number(msg.contextId ?? import_frame2.CONTEXT_ID_ROOT);
+          const contextId = Number(msg.contextId ?? import_frame3.CONTEXT_ID_ROOT);
           const requestId = Number(msg.requestId ?? 0);
           const description = String(msg.description ?? "");
           const { yes, text } = showGeckoPrompt(kind, description);

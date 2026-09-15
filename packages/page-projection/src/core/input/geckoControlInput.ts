@@ -271,7 +271,7 @@ export function encodeControlFromIntent(
   if (intent.type === 'keyDown' || intent.type === 'keyUp') {
     return encodeInputKey(
       corr,
-      ctx,
+      intent.contextId ?? ctx,
       intent.type === 'keyDown' ? GECKO_INPUT_KEY_DOWN : GECKO_INPUT_KEY_UP,
       intent.key,
       intent.code,

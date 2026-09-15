@@ -339,7 +339,13 @@ public sealed class BrowserLink(
             return;
         }
 
-        _ = channel.SendKindAsync(EnvelopeKind.Asset, contextId, payload, _sessionToken);
+        var ctx = contextId;
+        if (ctx == 0 && _contexts.TryGetRoot(out var root))
+        {
+            ctx = root.ContextId;
+        }
+
+        _ = channel.SendKindAsync(EnvelopeKind.Asset, ctx, payload, _sessionToken);
     }
 
     private static byte[] RewriteContext(byte[] payload, uint contextId)

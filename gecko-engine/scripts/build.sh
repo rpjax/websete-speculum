@@ -30,6 +30,16 @@ else
   patch -d "$CHECKOUT" -p1 --fuzz=0 < "$HUNK"
 fi
 
+HUNK="$HERE/patches/dom/base/ShadowRoot.cpp.patch"
+TARGET="$CHECKOUT/dom/base/ShadowRoot.cpp"
+[ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
+[ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
+if grep -q 'SpeculumNotifyRuleAdded' "$TARGET"; then
+  echo "shadow css hunk already applied"
+else
+  patch -d "$CHECKOUT" -p1 --fuzz=0 < "$HUNK"
+fi
+
 MODE="${1:-build}"
 case "$MODE" in
   build)

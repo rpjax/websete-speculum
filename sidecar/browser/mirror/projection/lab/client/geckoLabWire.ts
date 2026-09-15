@@ -12,6 +12,7 @@ import {
   encodePermissionRespond,
   encodeViewportSet,
 } from '@speculum/page-projection/core';
+import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes';
 
 function classifyFetchDestination(destination: string): number {
@@ -115,8 +116,29 @@ export async function ensureGeckoAssetSw(token: string): Promise<void> {
   }
   swReg = await navigator.serviceWorker.register('/lab/asset-sw.js', { scope: '/' });
   await navigator.serviceWorker.ready;
-  const sw = swReg.active ?? navigator.serviceWorker.controller;
+  if (!navigator.serviceWorker.controller) {
+    await new Promise<void>((resolve) => {
+      const done = () => resolve();
+      navigator.serviceWorker.addEventListener('controllerchange', done, { once: true });
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.removeEventListener('controllerchange', done);
+        resolve();
+      }
+    });
+  }
+  const sw = navigator.serviceWorker.controller ?? swReg.active;
   sw?.postMessage({ type: 'token', token });
+  sw?.postMessage({ type: 'ctx', contextId: CONTEXT_ID_ROOT });
+}
+
+/** Carimba C no cliente que pede o ativo. Sem isto o join no pai erra no iframe. */
+export function registerGeckoAssetContext(contextId: number, win: Window = window): void {
+  if (!('serviceWorker' in win.navigator)) {
+    return;
+  }
+  void win.navigator.serviceWorker.ready.then((reg) => {
+    (reg.active ?? win.navigator.serviceWorker.controller)?.postMessage({ type: 'ctx', contextId });
+  });
 }
 
 export function sendGeckoAssetFetch(
@@ -163,11 +185,22 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
 
 export function wireGeckoSwFetch(ws: WebSocket, ctx: number): void {
   navigator.serviceWorker.addEventListener('message', (ev) => {
-    const msg = ev.data as { type?: string; url?: string; dest?: string; range?: string; id?: number };
+    const msg = ev.data as {
+      type?: string;
+      url?: string;
+      dest?: string;
+      range?: string;
+      id?: number;
+      contextId?: number;
+    };
     if (msg?.type !== 'asset-fetch' || typeof msg.url !== 'string' || typeof msg.id !== 'number') {
       return;
     }
-    void sendGeckoAssetFetch(ws, ctx, msg.url, msg.dest ?? '', msg.range ?? '').then(
+    const fetchCtx =
+      typeof msg.contextId === 'number' && Number.isInteger(msg.contextId) && msg.contextId >= 1
+        ? msg.contextId
+        : ctx;
+    void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? '', msg.range ?? '').then(
       async (res) => {
         const buf = new Uint8Array(await res.arrayBuffer());
         ev.source?.postMessage({ type: 'asset', id: msg.id, ok: true, bytes: buf.buffer }, { transfer: [buf.buffer] });

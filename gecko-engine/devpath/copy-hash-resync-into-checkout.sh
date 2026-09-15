@@ -17,6 +17,9 @@ for f in \
   dom/base/SpeculumMutationObserver.cpp \
   dom/base/SpeculumInput.h \
   dom/base/SpeculumInput.cpp \
+  dom/base/SpeculumCssom.h \
+  dom/base/SpeculumCssom.cpp \
+  dom/base/SpeculumLog.h \
   dom/base/moz.build \
   dom/ipc/PContent.ipdl \
   dom/ipc/ContentChild.h \
@@ -29,10 +32,16 @@ for f in \
   dom/ipc/SpeculumControlAbi.cpp \
   dom/ipc/SpeculumMarionette.h \
   dom/ipc/SpeculumMarionette.cpp \
+  dom/ipc/SpeculumMint.h \
+  dom/ipc/SpeculumMint.cpp \
   dom/ipc/SpeculumAssetClassifier.h \
   dom/ipc/SpeculumAssetClassifier.cpp \
   dom/ipc/SpeculumAssetRegistry.h \
   dom/ipc/SpeculumAssetRegistry.cpp \
+  dom/ipc/SpeculumCaps.h \
+  dom/ipc/SpeculumCaps.cpp \
+  dom/ipc/SpeculumTelemetry.h \
+  dom/ipc/SpeculumTelemetry.cpp \
   dom/ipc/moz.build
 do
   mkdir -p "$GECKO/$(dirname "$f")"
@@ -45,6 +54,15 @@ TARGET="$GECKO/dom/base/nsGlobalWindowInner.cpp"
 [ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
 if grep -q 'SpeculumAskAndWait' "$TARGET"; then
   echo "window dialog hunk already applied"
+else
+  patch -d "$GECKO" -p1 --fuzz=0 < "$HUNK"
+fi
+HUNK="$REPO/gecko-engine/patches/dom/base/ShadowRoot.cpp.patch"
+TARGET="$GECKO/dom/base/ShadowRoot.cpp"
+[ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
+[ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
+if grep -q 'SpeculumNotifyRuleAdded' "$TARGET"; then
+  echo "shadow css hunk already applied"
 else
   patch -d "$GECKO" -p1 --fuzz=0 < "$HUNK"
 fi

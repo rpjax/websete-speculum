@@ -1,8 +1,18 @@
 /* Speculum — SW do Projected Gecko. URL original. Token no header. Sem rewrite. */
 const TOKEN_HEADER = 'x-speculum-session-token';
 let token = '';
+let pageClientId = '';
 let nextId = 1;
 const pending = new Map();
+const ctxByClient = new Map();
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
 self.addEventListener('message', (event) => {
   const msg = event.data;
@@ -11,6 +21,13 @@ self.addEventListener('message', (event) => {
   }
   if (msg.type === 'token' && typeof msg.token === 'string') {
     token = msg.token;
+    if (event.source && typeof event.source.id === 'string') {
+      pageClientId = event.source.id;
+    }
+    return;
+  }
+  if (msg.type === 'ctx' && typeof msg.contextId === 'number' && event.source && typeof event.source.id === 'string') {
+    ctxByClient.set(event.source.id, msg.contextId);
     return;
   }
   if (msg.type === 'asset' && typeof msg.id === 'number') {
@@ -37,17 +54,46 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(new Response('', { status: 403, statusText: 'speculum-denied' }));
     return;
   }
-  event.respondWith(proxy(event.request));
+  event.respondWith(proxy(event.request, event.clientId));
 });
 
-async function proxy(request) {
-  const id = nextId++;
+async function pageClient() {
+  if (pageClientId) {
+    const pinned = await self.clients.get(pageClientId);
+    if (pinned) {
+      return pinned;
+    }
+  }
   const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  const client = clientList[0];
+  return clientList[0] ?? null;
+}
+
+function assetResponse(request, bytes) {
+  const headers = new Headers();
+  if (token) {
+    headers.set(TOKEN_HEADER, token);
+  }
+  const range = request.headers.get('Range') || '';
+  if (!range) {
+    return new Response(bytes, { status: 200, headers });
+  }
+  const m = /^bytes=(\d+)-(\d+)?$/i.exec(range.trim());
+  const start = m ? Number(m[1]) : 0;
+  const end = start + bytes.byteLength - 1;
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Content-Range', `bytes ${start}-${end}/*`);
+  headers.set('Content-Length', String(bytes.byteLength));
+  return new Response(bytes, { status: 206, headers });
+}
+
+async function proxy(request, clientId) {
+  const id = nextId++;
+  const client = await pageClient();
   if (!client) {
     return new Response('', { status: 503 });
   }
   const range = request.headers.get('Range') || '';
+  const contextId = (clientId && ctxByClient.get(clientId)) || 1;
   const reply = new Promise((resolve) => {
     pending.set(id, resolve);
   });
@@ -57,6 +103,7 @@ async function proxy(request) {
     url: request.url,
     dest: request.destination,
     range,
+    contextId,
     tokenHeader: TOKEN_HEADER,
     token,
   });
@@ -64,9 +111,5 @@ async function proxy(request) {
   if (!msg.ok) {
     return new Response('', { status: 404, statusText: String(msg.error || 'denied') });
   }
-  const headers = new Headers();
-  if (token) {
-    headers.set(TOKEN_HEADER, token);
-  }
-  return new Response(msg.bytes, { status: 200, headers });
+  return assetResponse(request, msg.bytes);
 }

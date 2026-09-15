@@ -39,7 +39,21 @@ var liveSessions = new System.Collections.Concurrent.ConcurrentDictionary<string
 app.MapGet("/", () => ServeStatic(options.StaticDirectory, "client.html", MediaTypeNames.Text.Html));
 app.MapGet("/index.html", () => ServeStatic(options.StaticDirectory, "client.html", MediaTypeNames.Text.Html));
 app.MapGet("/client.js", () => ServeStatic(options.StaticDirectory, "client.js", "text/javascript"));
-app.MapGet("/lab/asset-sw.js", () => ServeStatic(options.StaticDirectory, "asset-sw.js", "text/javascript"));
+app.MapGet("/lab/asset-sw.js", async (HttpContext http) =>
+{
+    var root = Path.GetFullPath(options.StaticDirectory);
+    var full = Path.GetFullPath(Path.Combine(root, "asset-sw.js"));
+    if (!full.StartsWith(root, StringComparison.Ordinal) || !File.Exists(full))
+    {
+        http.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    // Sem isto o browser recusa scope '/' e o SW não intercepta foto/fonte/vídeo.
+    http.Response.ContentType = "text/javascript; charset=utf-8";
+    http.Response.Headers["Service-Worker-Allowed"] = "/";
+    await http.Response.SendFileAsync(full);
+});
 
 app.MapGet("/fixtures/{**path}", (string path) => ServeStatic(options.FixturesDirectory, path, null));
 

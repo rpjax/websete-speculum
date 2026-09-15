@@ -40,6 +40,7 @@ import {
   sendGeckoViewport,
   setGeckoLab,
   showGeckoPrompt,
+  registerGeckoAssetContext,
   wireGeckoSwFetch,
   type GeckoRequestedKind,
 } from './geckoLabWire';
@@ -456,10 +457,17 @@ export function bootLabClient(): void {
     }
 
     const rootWin = client.document.defaultView;
+    if (isGeckoLab() && rootWin) {
+      registerGeckoAssetContext(CONTEXT_ID_ROOT, rootWin);
+    }
     client.forEachNestedInputSurface((info) => {
       const nestedDoc = info.surface.contentDocument;
       const nestedSurface = nestedDoc?.documentElement;
       if (!nestedSurface || nestedSurface.nodeType !== 1) return;
+      const nestedWin = nestedDoc.defaultView;
+      if (isGeckoLab() && nestedWin) {
+        registerGeckoAssetContext(info.contextId, nestedWin);
+      }
       const detach = attachProjectedInputCapture(nestedSurface, info.registry, sendInputIntent, {
         contextId: info.contextId,
         getGeneration: info.getGeneration,

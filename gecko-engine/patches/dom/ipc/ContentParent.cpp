@@ -1323,6 +1323,12 @@ IPCResult ContentParent::RecvSpeculumDownloadRequested(
   return IPC_OK();
 }
 
+IPCResult ContentParent::RecvSpeculumTelemetry(const uint32_t& aContextId,
+                                               nsTArray<uint8_t>&& aPayload) {
+  SpeculumProjectionRuntime::Get().DeliverTelemetry(aContextId, aPayload);
+  return IPC_OK();
+}
+
 IPCResult ContentParent::RecvAttributionEvent(
     const nsACString& aHost, PrivateAttributionImpressionType aType,
     uint32_t aIndex, const nsAString& aAd, const nsACString& aTargetHost) {

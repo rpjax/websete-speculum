@@ -65,6 +65,31 @@ Fluxo: lab `browse.start` → env do processo supervisor → supervisor copia pa
 
 Estado em S = probe (Snapshot ABI + `requestSnapshot`). Eventos = investigação, nunca accept.
 
+## Same-S (status quo de debug de layout / CSSOM / DOM / asset)
+
+**Um ato.** Não coletar contagem de rule solta nem snapshot sem Halt.
+
+```text
+client.sameS  (botão Snapshot no lab Gecko, ou CLI)
+  → HaltClocks → FlushFrame → (apply beat)
+  → Snapshot Virtual (dump tabela C++)
+  → requestSnapshot Projected { cssomSheetDump, layoutRootCause }
+  → ResumeClocks
+  → lab.sameSResult
+```
+
+| Campo | Plano |
+|-------|--------|
+| `virtual.dumpBytes` / `tableHash` / `sequence` | Virtual tabela em S |
+| `projected.table` / `tree` | Projected tabela + árvore |
+| `projected.cssomSheetDump` | CSSOM texto (styleSheets + adopted) |
+| `projected.layoutProbe` | geometria, imgs, dual style+adopted |
+
+CLI oficial: `gecko-engine/devpath/lab-same-s-oracle.mjs` (runner `_run-same-s-oracle.sh`).  
+Saída em `gecko-engine/devpath/captures/same-s-*` (repo, não só `/tmp`).
+
+Veredito do oracle classifica H1–H6 (DOM / ATTR / CSSOM / dual / asset / Virtual). **Não** corrija produto até o plano falhar neste pacote.
+
 ## Lab = caller
 
 O lab sobe o par, consome o WS do supervisor, demuxa, traduz para protocol v1. Decode Virtual mora em `Speculum.Supervisor` (Wire/Control); o lab não é fonte paralela de verdade do plano Virtual.

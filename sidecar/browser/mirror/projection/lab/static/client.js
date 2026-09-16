@@ -3550,7 +3550,7 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.ProjectedApplyGate = exports.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK = exports.PROJECTED_APPLY_GATE_MAX_PENDING = void 0;
-      exports.PROJECTED_APPLY_GATE_MAX_PENDING = 64;
+      exports.PROJECTED_APPLY_GATE_MAX_PENDING = 256;
       exports.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK = 3;
       var ProjectedApplyGate = class {
         flightDepth = 0;
@@ -4282,6 +4282,10 @@
         resyncBackoffTimer = null;
         resyncTimeoutTimer = null;
         lastSequence = 0;
+        /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
+        highestSeenSequence = 0;
+        /** Gate overflowed during a long rebuild — request another resync after swap, do not wipe live. */
+        lagCatchUp = false;
         generation = 1;
         armed = false;
         /**
@@ -4553,6 +4557,8 @@
           this.persistentStrings = new decode_1.PersistentStringTable();
           this.assembler = new decode_1.FramePartAssembler();
           this.lastSequence = 0;
+          this.highestSeenSequence = 0;
+          this.lagCatchUp = false;
           this.generation = 1;
           this.armed = false;
           this.everArmed = false;
@@ -4602,6 +4608,7 @@
           this.applyAssembled(assembled);
         }
         applyAssembled(frame) {
+          this.highestSeenSequence = Math.max(this.highestSeenSequence, frame.sequence);
           if (this.applyGate.blocked) {
             this.applyGate.push(frame);
             return;
@@ -4617,6 +4624,7 @@
         handleApplyGateOverflow(info) {
           this.applyGateOverflowStreak++;
           const streak = this.applyGateOverflowStreak;
+          this.lagCatchUp = true;
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: frame_1.CONTEXT_ID_ROOT,
@@ -4628,6 +4636,10 @@
             attemptedDepth: info.attemptedDepth,
             streak
           });
+          if (this.everArmed) {
+            this.applyGateOverflowStreak = 0;
+            return;
+          }
           if (streak >= projectedApplyGate_1.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
             this.resyncExhausted = true;
             this.onTelemetry?.({
@@ -4692,9 +4704,16 @@
           const target = this.resync ?? this.live;
           target.applier.enqueue(frame);
         }
-        /** Ordinary frames are dropped (not applied) while a desync episode is open — see applyAssembledNow. */
+        /** Ordinary frames are dropped while the live table is corrupt — not for gap/lag catch-up. */
         shouldHoldOrdinaryFrameWhileRecovering() {
-          return this.lastDesyncReason !== null || this.resync !== null;
+          if (this.resync !== null)
+            return true;
+          const reason = this.lastDesyncReason;
+          if (reason === null)
+            return false;
+          if (reason === "sequence_gap" || reason === "lag")
+            return false;
+          return true;
         }
         /**
          * New document install (runtime-redesign.md §7): teardown by object lifetime. The previous
@@ -4797,6 +4816,10 @@
             onApplied: (frame, applyMs) => {
               if (state.swapped) {
                 this.lastSequence = frame.sequence;
+                if (this.lastDesyncReason === "sequence_gap" || this.lastDesyncReason === "lag") {
+                  this.lastDesyncReason = null;
+                  this.lagCatchUp = false;
+                }
                 this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
                 this.auditPendingNestedHostBindings(applier);
                 if (!this.armed)
@@ -4869,6 +4892,23 @@
           });
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
           this.notifyLiveSurfaceReady();
+          this.maybeRequestLagCatchUp();
+        }
+        /**
+         * Producer kept ticking while a wholesale rebuild ran (or the apply gate overflowed). Live
+         * surface still matches `lastSequence`; request another resync without wiping it.
+         */
+        maybeRequestLagCatchUp() {
+          const behind = this.highestSeenSequence > this.lastSequence;
+          if (!behind && !this.lagCatchUp)
+            return;
+          this.lagCatchUp = false;
+          if (!behind)
+            return;
+          if (this.lastDesyncReason === null) {
+            this.lastDesyncReason = "lag";
+          }
+          this.scheduleResyncAttempt("lag");
         }
         /** Live document is interactive (cold arm or post-swap). Idempotent armed flag; callback may re-fire. */
         notifyLiveSurfaceReady() {
@@ -4998,7 +5038,7 @@
           if (firstInEpisode) {
             this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
             this.assembler.reset();
-            if (reason !== "sequence_gap") {
+            if (reason !== "sequence_gap" && reason !== "lag") {
               this.armed = false;
               this.live.applier.reset();
             }
@@ -8804,6 +8844,131 @@
   var import_projected3 = __toESM(require_projected());
   var import_domTreeSnapshot = __toESM(require_domTreeSnapshot());
   var import_formControlSnapshot = __toESM(require_formControlSnapshot());
+
+  // browser/mirror/projection/lab/probes/layoutRootCauseProbe.ts
+  var DEFAULT_SELECTORS = [
+    "header",
+    '[class*="header"]',
+    "nav",
+    "main",
+    "body",
+    '[class*="search"]',
+    "form",
+    ".container",
+    "#onetrust-banner-sdk"
+  ];
+  function probeLayoutRootCause(doc, win, selectors = DEFAULT_SELECTORS) {
+    const pick = (sel) => {
+      const el2 = doc.querySelector(sel);
+      if (!el2) return { sel, missing: true };
+      const cs = win.getComputedStyle(el2);
+      const r = el2.getBoundingClientRect();
+      return {
+        sel,
+        tag: el2.tagName,
+        className: String(el2.className || "").slice(0, 120),
+        display: cs.display,
+        position: cs.position,
+        flex: `${cs.flexDirection}/${cs.justifyContent}/${cs.alignItems}`,
+        grid: cs.gridTemplateColumns,
+        width: cs.width,
+        height: cs.height,
+        rect: { x: r.x, y: r.y, w: r.width, h: r.height },
+        bg: cs.backgroundColor
+      };
+    };
+    const samples = selectors.map(pick);
+    const nodes = [
+      ...doc.querySelectorAll('header, nav, [class*="header"], [class*="Header"], a, button')
+    ].slice(0, 80);
+    const rects = nodes.map((el2) => el2.getBoundingClientRect()).filter((r) => r.width > 10 && r.height > 8);
+    let overlaps = 0;
+    const n = Math.min(rects.length, 40);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = rects[i];
+        const b = rects[j];
+        const hit = !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+        if (hit) overlaps++;
+      }
+    }
+    const sheets = [];
+    let adoptedRules = 0;
+    let docSheetRules = 0;
+    const walk = (list, origin) => {
+      const len = list.length;
+      for (let i = 0; i < len; i++) {
+        const s = list[i];
+        let ruleCount = null;
+        let err = null;
+        const ruleTextSample = [];
+        try {
+          const rules = s.cssRules;
+          ruleCount = rules.length;
+          for (let j = 0; j < Math.min(rules.length, 8); j++) {
+            ruleTextSample.push(rules.item(j)?.cssText?.slice(0, 160) ?? "");
+          }
+          if (origin === "document.adoptedStyleSheets") adoptedRules += rules.length;
+          else docSheetRules += rules.length;
+        } catch (e) {
+          err = e instanceof Error ? e.message : String(e);
+        }
+        const owner = s.ownerNode;
+        sheets.push({
+          origin,
+          href: s.href || null,
+          owner: owner?.nodeName ?? null,
+          ownerId: owner && "id" in owner ? String(owner.id || "") || null : null,
+          ruleCount,
+          err,
+          ruleTextSample
+        });
+      }
+    };
+    try {
+      walk(doc.styleSheets, "document.styleSheets");
+    } catch {
+    }
+    try {
+      if (doc.adoptedStyleSheets?.length) {
+        walk(doc.adoptedStyleSheets, "document.adoptedStyleSheets");
+      }
+    } catch {
+    }
+    const imgs = [...doc.images].slice(0, 40).map((img) => ({
+      src: (img.currentSrc || img.src || "").slice(0, 160),
+      srcset: (img.getAttribute("srcset") || "").slice(0, 160),
+      complete: img.complete,
+      naturalWidth: img.naturalWidth,
+      width: img.width
+    }));
+    const brokenImgs = imgs.filter((i) => i.complete && i.naturalWidth === 0).length;
+    const styleEls = doc.querySelectorAll("style").length;
+    const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;
+    const adoptedSheetCount = doc.adoptedStyleSheets?.length ?? 0;
+    return {
+      ok: true,
+      samples,
+      overlapPairsAmong40: overlaps,
+      styleEls,
+      linkCss,
+      adoptedSheetCount,
+      docSheetCount: doc.styleSheets.length,
+      adoptedRules,
+      docSheetRules,
+      sheets,
+      brokenImgs,
+      imgsSample: imgs.slice(0, 12),
+      bodyBg: doc.body ? win.getComputedStyle(doc.body).backgroundColor : null,
+      dualHint: {
+        styleElCount: styleEls,
+        adoptedSheetCount,
+        bothPlanesSubstantial: docSheetRules >= 50 && adoptedRules >= 50
+      }
+    };
+  }
+
+  // browser/mirror/projection/lab/client/main.ts
   var import_decode2 = __toESM(require_decode());
   var import_telemetry = __toESM(require_telemetry());
   var import_frame4 = __toESM(require_frame());
@@ -8817,8 +8982,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 111,
-    builtAt: "2026-09-16T03:50:10.315Z"
+    seq: 113,
+    builtAt: "2026-09-16T19:45:12.008Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -10256,7 +10421,9 @@
       if (!ws || ws.readyState !== WebSocket.OPEN || !sessionLive || snapInFlight) return;
       snapInFlight = true;
       syncButtons();
-      ws.send(JSON.stringify({ type: "client.snapshot", label }));
+      const type = isGeckoLab() ? "client.sameS" : "client.snapshot";
+      ws.send(JSON.stringify({ type, label, contextId: 1 }));
+      logActivity(isGeckoLab() ? `same-S capture\u2026 (${label ?? "manual"})` : `snap\u2026 (${label ?? "manual"})`);
     }
     function startAutoSnap() {
       stopAutoSnap();
@@ -10834,9 +11001,11 @@
           const cssomSheetDumpReq = typeof sheetDumpRaw === "object" && sheetDumpRaw !== null ? {
             nestedContextId: typeof sheetDumpRaw.nestedContextId === "number" ? sheetDumpRaw.nestedContextId : void 0
           } : void 0;
+          const layoutRootCause = msg.layoutRootCause === true;
           void ensureProjection().then(async (p) => {
             const ctx = p.snapshotContext(contextId);
             const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+            const win = contextId === 1 ? p.document?.defaultView ?? null : p.nestedDocument(contextId)?.defaultView ?? null;
             const tree = doc ? (0, import_domTreeSnapshot.snapshotTree)(doc) : null;
             const cascade = doc ? probeCssomPaintBoundary(doc) : null;
             const formProps = doc ? (0, import_formControlSnapshot.snapshotFormControls)(doc) : null;
@@ -10856,7 +11025,8 @@
                 widgetPaintReason: paint.reason
               };
             }
-            const cssomSheetDump = cssomSheetDumpReq ? p.probeCssomSheetDump(cssomSheetDumpReq.nestedContextId ?? contextId) : void 0;
+            const cssomSheetDump = cssomSheetDumpReq || layoutRootCause ? p.probeCssomSheetDump(cssomSheetDumpReq?.nestedContextId ?? contextId) : void 0;
+            const layoutProbe = layoutRootCause && doc && win ? probeLayoutRootCause(doc, win) : void 0;
             ws?.send(
               JSON.stringify({
                 type: "client.snapshotResult",
@@ -10875,7 +11045,8 @@
                 ...registryProbe !== void 0 ? { registryProbe } : {},
                 ...rectLadder !== void 0 ? { rectLadder } : {},
                 ...paintProbe !== void 0 ? { paintProbe } : {},
-                ...cssomSheetDump !== void 0 ? { cssomSheetDump } : {}
+                ...cssomSheetDump !== void 0 ? { cssomSheetDump } : {},
+                ...layoutProbe !== void 0 ? { layoutProbe } : {}
               })
             );
           });
@@ -11083,6 +11254,21 @@
           const pass = msg.allPass === true ? "pass" : "fail";
           logActivity(
             `snap stored ${msg.id}${msg.label ? ` (${msg.label})` : ""} seq=${msg.sequence ?? "\u2014"} ${pass} (n=${browseSnapCount})`
+          );
+          syncButtons();
+          return;
+        }
+        if (msg.type === "lab.sameSResult") {
+          snapInFlight = false;
+          browseSnapCount += 1;
+          $("streamSnaps").textContent = String(browseSnapCount);
+          const ok = msg.ok === true;
+          const same = msg.sameSequence === true;
+          const vSeq = msg.virtualSequence ?? "\u2014";
+          const pSeq = msg.projectedSequence ?? "\u2014";
+          const err = typeof msg.error === "string" ? msg.error : "";
+          logActivity(
+            `same-S ${ok ? "ok" : "fail"} vSeq=${vSeq} pSeq=${pSeq} sameSeq=${same}${err ? ` err=${err}` : ""} (n=${browseSnapCount})`
           );
           syncButtons();
           return;

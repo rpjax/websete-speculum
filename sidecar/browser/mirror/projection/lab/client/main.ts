@@ -21,6 +21,7 @@ import {
 } from '@speculum/page-projection/projected';
 import { snapshotTree } from '@speculum/page-projection/core/snapshot/domTreeSnapshot';
 import { snapshotFormControls } from '@speculum/page-projection/projected/formControlSnapshot';
+import { probeLayoutRootCause } from '../probes/layoutRootCauseProbe';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '@speculum/page-projection/core/telemetry';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
@@ -516,7 +517,11 @@ export function bootLabClient(): void {
     if (!ws || ws.readyState !== WebSocket.OPEN || !sessionLive || snapInFlight) return;
     snapInFlight = true;
     syncButtons();
-    ws.send(JSON.stringify({ type: 'client.snapshot', label }));
+    // Gecko: same-S oficial (Halt→Flush→Snapshot Virtual + Projected multiplano).
+    // Chromium lab host ignora client.sameS se não implementar — gecko lab trata.
+    const type = isGeckoLab() ? 'client.sameS' : 'client.snapshot';
+    ws.send(JSON.stringify({ type, label, contextId: 1 }));
+    logActivity(isGeckoLab() ? `same-S capture… (${label ?? 'manual'})` : `snap… (${label ?? 'manual'})`);
   }
 
   function startAutoSnap(): void {
@@ -1210,9 +1215,14 @@ export function bootLabClient(): void {
                     : undefined,
               }
             : undefined;
+        const layoutRootCause = msg.layoutRootCause === true;
         void ensureProjection().then(async (p) => {
           const ctx = p.snapshotContext(contextId);
           const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+          const win =
+            contextId === 1
+              ? p.document?.defaultView ?? null
+              : p.nestedDocument(contextId)?.defaultView ?? null;
           const tree = doc ? snapshotTree(doc) : null;
           const cascade = doc ? probeCssomPaintBoundary(doc) : null;
           const formProps = doc ? snapshotFormControls(doc) : null;
@@ -1244,9 +1254,12 @@ export function bootLabClient(): void {
               widgetPaintReason: paint.reason,
             };
           }
-          const cssomSheetDump = cssomSheetDumpReq
-            ? p.probeCssomSheetDump(cssomSheetDumpReq.nestedContextId ?? contextId)
-            : undefined;
+          const cssomSheetDump =
+            cssomSheetDumpReq || layoutRootCause
+              ? p.probeCssomSheetDump(cssomSheetDumpReq?.nestedContextId ?? contextId)
+              : undefined;
+          const layoutProbe =
+            layoutRootCause && doc && win ? probeLayoutRootCause(doc, win) : undefined;
           ws?.send(
             JSON.stringify({
               type: 'client.snapshotResult',
@@ -1266,6 +1279,7 @@ export function bootLabClient(): void {
               ...(rectLadder !== undefined ? { rectLadder } : {}),
               ...(paintProbe !== undefined ? { paintProbe } : {}),
               ...(cssomSheetDump !== undefined ? { cssomSheetDump } : {}),
+              ...(layoutProbe !== undefined ? { layoutProbe } : {}),
             }),
           );
         });
@@ -1481,6 +1495,21 @@ export function bootLabClient(): void {
         const pass = msg.allPass === true ? 'pass' : 'fail';
         logActivity(
           `snap stored ${msg.id}${msg.label ? ` (${msg.label})` : ''} seq=${msg.sequence ?? '—'} ${pass} (n=${browseSnapCount})`,
+        );
+        syncButtons();
+        return;
+      }
+      if (msg.type === 'lab.sameSResult') {
+        snapInFlight = false;
+        browseSnapCount += 1;
+        $('streamSnaps').textContent = String(browseSnapCount);
+        const ok = msg.ok === true;
+        const same = msg.sameSequence === true;
+        const vSeq = msg.virtualSequence ?? '—';
+        const pSeq = msg.projectedSequence ?? '—';
+        const err = typeof msg.error === 'string' ? msg.error : '';
+        logActivity(
+          `same-S ${ok ? 'ok' : 'fail'} vSeq=${vSeq} pSeq=${pSeq} sameSeq=${same}${err ? ` err=${err}` : ''} (n=${browseSnapCount})`,
         );
         syncButtons();
         return;

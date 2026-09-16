@@ -190,10 +190,34 @@ public sealed record LabStats(
 
 public sealed record RequestSnapshotHost(
     [property: JsonPropertyName("contextId")] int ContextId,
-    [property: JsonPropertyName("includeNestedPeek")] bool IncludeNestedPeek = false)
+    [property: JsonPropertyName("includeNestedPeek")] bool IncludeNestedPeek = false,
+    /// <summary>Pedido de dump CSSOM (objeto vazio = liga o probe no client).</summary>
+    [property: JsonPropertyName("cssomSheetDump")] object? CssomSheetDump = null,
+    /// <summary>Probe multiplano de layout (geometria + attrs/img + CSSOM sheets).</summary>
+    [property: JsonPropertyName("layoutRootCause")] bool LayoutRootCause = false)
 {
     [JsonPropertyName("type")]
     public string Type => "requestSnapshot";
+}
+
+/// <summary>
+/// Resultado oficial same-S (Halt→Flush→Snapshot Virtual + requestSnapshot Projected).
+/// Um ato; planos para localizar causa de layout/CSSOM/DOM/asset — não telemetria.
+/// </summary>
+public sealed record LabSameSResult(
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("contextId")] uint ContextId,
+    [property: JsonPropertyName("virtualSequence")] uint? VirtualSequence,
+    [property: JsonPropertyName("projectedSequence")] uint? ProjectedSequence,
+    [property: JsonPropertyName("sameSequence")] bool? SameSequence,
+    [property: JsonPropertyName("virtualTableHash")] string? VirtualTableHash,
+    [property: JsonPropertyName("projectedTableHash")] string? ProjectedTableHash,
+    [property: JsonPropertyName("virtual")] object? Virtual,
+    [property: JsonPropertyName("projected")] object? Projected)
+{
+    [JsonPropertyName("type")]
+    public string Type => "lab.sameSResult";
 }
 
 public sealed record LabError(string Message, string? Code = null)

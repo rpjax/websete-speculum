@@ -44,6 +44,16 @@ public sealed class LabSessionConnection
     private bool _capMetrics;
     private bool _bootedReady;
 
+    /// <summary>Same-S em voo: completa no SnapshotServed com o correlation pedido.</summary>
+    private TaskCompletionSource<GeckoSnapshotServed>? _pendingVirtualSnap;
+    private uint _pendingVirtualSnapCorr;
+
+    /// <summary>Same-S em voo: completa no client.snapshotResult rico.</summary>
+    private TaskCompletionSource<JsonElement>? _pendingProjectedSnap;
+
+    private readonly object _sameSGate = new();
+    private bool _sameSInFlight;
+
     public long FramesForwarded => Interlocked.Read(ref _framesForwarded);
 
     public bool BootedReady => _bootedReady;
@@ -131,6 +141,12 @@ public sealed class LabSessionConnection
                             Convert.ToBase64String(snap.Dump));
                         _journal.StoreVirtualSnapshot(msg);
                         Send(msg);
+                        var pending = _pendingVirtualSnap;
+                        if (pending is not null && snap.CorrelationId == _pendingVirtualSnapCorr)
+                        {
+                            pending.TrySetResult(msg);
+                        }
+
                         break;
                     }
                     case ControlOpCode.Fault:
@@ -337,19 +353,20 @@ public sealed class LabSessionConnection
             }
 
             case "client.snapshot":
+            case "client.sameS":
             {
                 if (!_bootedReady)
                 {
                     _logger.LogInformation(
-                        "{Id} client.snapshot ignorado — sessão ainda não booted", Id);
+                        "{Id} same-S ignorado — sessão ainda não booted", Id);
+                    Send(new LabSameSResult(
+                        false, "session_not_booted", message.ContextId ?? 1,
+                        null, null, null, null, null, null, null));
                     break;
                 }
 
-                var contextId = message.ContextId ?? 0;
-                var corr = NextCorrelation();
-                _logger.LogInformation("{Id} client.snapshot ctx={ContextId} corr={Corr}", Id, contextId, corr);
-                var command = ControlCommand.Snapshot(corr, contextId);
-                _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                var contextId = message.ContextId ?? 1;
+                _ = RunSameSAsync(contextId, CancellationToken.None);
                 break;
             }
 
@@ -366,18 +383,11 @@ public sealed class LabSessionConnection
 
             case "client.snapshotResult":
             {
-                _journal.StoreProjectedSnapshot(new
-                {
-                    contextId = message.ContextId,
-                    sequence = message.Sequence,
-                    generation = message.Generation,
-                    desynced = message.Desynced,
-                    applyError = message.ApplyError,
-                    armed = message.Armed,
-                    label = message.Label,
-                    hasTable = message.Table is not null,
-                    hasTree = message.Tree is not null,
-                });
+                // Envelope tipado perde probes extras — guardar o JSON cru.
+                using var raw = JsonDocument.Parse(payload);
+                var root = raw.RootElement.Clone();
+                _journal.StoreProjectedSnapshot(root);
+                _pendingProjectedSnap?.TrySetResult(root);
                 break;
             }
 
@@ -485,6 +495,167 @@ public sealed class LabSessionConnection
 
         // Pedir snapshot projected ao client assim que a superfície existir (F5).
         Send(new RequestSnapshotHost(1));
+    }
+
+    /// <summary>
+    /// Same-S oficial (doc 20 / lab-debug-surface): Halt → Flush → espera apply →
+    /// Snapshot Virtual → requestSnapshot Projected (CSSOM + layout) → Resume.
+    /// </summary>
+    private async Task RunSameSAsync(uint contextId, CancellationToken cancellationToken)
+    {
+        lock (_sameSGate)
+        {
+            if (_sameSInFlight)
+            {
+                Send(new LabSameSResult(
+                    false, "same_s_in_flight", contextId,
+                    null, null, null, null, null, null, null));
+                return;
+            }
+
+            _sameSInFlight = true;
+        }
+
+        var ctx = contextId == 0 ? 1u : contextId;
+        GeckoSnapshotServed? virtualSnap = null;
+        JsonElement? projectedSnap = null;
+        string? error = null;
+
+        try
+        {
+            _logger.LogInformation("{Id} same-S start ctx={ContextId}", Id, ctx);
+
+            await _upstream.SendCommandAsync(
+                ControlCommand.HaltClocks(NextCorrelation()), cancellationToken).ConfigureAwait(false);
+            await _upstream.SendCommandAsync(
+                ControlCommand.FlushFrame(NextCorrelation(), ctx), cancellationToken).ConfigureAwait(false);
+
+            // Flush emite o frame S; espera o Projected aplicar antes do dump.
+            await Task.Delay(1500, cancellationToken).ConfigureAwait(false);
+
+            var snapCorr = NextCorrelation();
+            var virtualTcs = new TaskCompletionSource<GeckoSnapshotServed>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingVirtualSnapCorr = snapCorr;
+            _pendingVirtualSnap = virtualTcs;
+
+            await _upstream.SendCommandAsync(
+                ControlCommand.Snapshot(snapCorr, ctx), cancellationToken).ConfigureAwait(false);
+
+            var projectedTcs = new TaskCompletionSource<JsonElement>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingProjectedSnap = projectedTcs;
+
+            Send(new RequestSnapshotHost(
+                ContextId: (int)ctx,
+                IncludeNestedPeek: false,
+                CssomSheetDump: new { },
+                LayoutRootCause: true));
+
+            var virtualTask = virtualTcs.Task.WaitAsync(TimeSpan.FromSeconds(8), cancellationToken);
+            var projectedTask = projectedTcs.Task.WaitAsync(TimeSpan.FromSeconds(8), cancellationToken);
+            try
+            {
+                await Task.WhenAll(virtualTask, projectedTask).ConfigureAwait(false);
+                virtualSnap = await virtualTask.ConfigureAwait(false);
+                projectedSnap = await projectedTask.ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                error = "same_s_timeout";
+                if (virtualTcs.Task.IsCompletedSuccessfully)
+                {
+                    virtualSnap = virtualTcs.Task.Result;
+                }
+
+                if (projectedTcs.Task.IsCompletedSuccessfully)
+                {
+                    projectedSnap = projectedTcs.Task.Result;
+                }
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            _logger.LogWarning("{Id} same-S falhou: {Reason}", Id, ex.Message);
+        }
+        finally
+        {
+            _pendingVirtualSnap = null;
+            _pendingProjectedSnap = null;
+            try
+            {
+                await _upstream.SendCommandAsync(
+                    ControlCommand.ResumeClocks(NextCorrelation()), CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // resume best-effort
+            }
+
+            lock (_sameSGate)
+            {
+                _sameSInFlight = false;
+            }
+        }
+
+        uint? projectedSeq = null;
+        string? projectedHash = null;
+        object? projectedObj = null;
+        if (projectedSnap is { } pe)
+        {
+            projectedObj = JsonSerializer.Deserialize<object>(pe.GetRawText());
+            if (pe.TryGetProperty("sequence", out var seqEl) && seqEl.TryGetUInt32(out var seq))
+            {
+                projectedSeq = seq;
+            }
+
+            if (pe.TryGetProperty("table", out var table)
+                && table.ValueKind == JsonValueKind.Object)
+            {
+                if (table.TryGetProperty("tableHash", out var th))
+                {
+                    projectedHash = th.ToString();
+                }
+                else if (table.TryGetProperty("hash", out var h))
+                {
+                    projectedHash = h.ToString();
+                }
+            }
+            else if (pe.TryGetProperty("tableHash", out var thRoot))
+            {
+                projectedHash = thRoot.ToString();
+            }
+        }
+
+        var sameSeq = virtualSnap is not null && projectedSeq is not null
+            && virtualSnap.Sequence == projectedSeq;
+
+        Send(new LabSameSResult(
+            Ok: error is null && virtualSnap is not null && projectedSnap is not null,
+            Error: error,
+            ContextId: ctx,
+            VirtualSequence: virtualSnap?.Sequence,
+            ProjectedSequence: projectedSeq,
+            SameSequence: sameSeq,
+            VirtualTableHash: virtualSnap?.TableHash,
+            ProjectedTableHash: projectedHash,
+            Virtual: virtualSnap,
+            Projected: projectedObj));
+
+        _logger.LogInformation(
+            "{Id} same-S done ok={Ok} vSeq={VSeq} pSeq={PSeq} sameSeq={Same} err={Err}",
+            Id,
+            error is null && virtualSnap is not null,
+            virtualSnap?.Sequence,
+            projectedSeq,
+            sameSeq,
+            error ?? "");
     }
 
     private uint NextCorrelation() => Interlocked.Increment(ref _correlation);

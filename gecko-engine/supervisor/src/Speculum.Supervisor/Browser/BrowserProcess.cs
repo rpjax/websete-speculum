@@ -73,7 +73,20 @@ public sealed class BrowserProcess : IDisposable
         // O filho encontra o supervisor por aqui. Mesma variável que o sink em
         // ContentParent lê para escolher o destino do frame.
         info.Environment["SPECULUM_BROWSER_SOCKET"] = _options.BrowserSocketPath;
-        info.Environment["MOZ_CRASHREPORTER_DISABLE"] = "1";
+        // Lab: SPECULUM_ENABLE_CRASHREPORTER=1 grava minidump no perfil (139).
+        if (string.Equals(
+                Environment.GetEnvironmentVariable("SPECULUM_ENABLE_CRASHREPORTER"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            info.Environment.Remove("MOZ_CRASHREPORTER_DISABLE");
+            info.Environment["MOZ_CRASHREPORTER"] = "1";
+            info.Environment["MOZ_CRASHREPORTER_NO_REPORT"] = "1";
+        }
+        else
+        {
+            info.Environment["MOZ_CRASHREPORTER_DISABLE"] = "1";
+        }
         // Caps lidos uma vez no start do Firefox (SpeculumCaps). Launch params.
         info.Environment["SPECULUM_CAP_EVENTS"] = _options.CapEvents ? "1" : "0";
         info.Environment["SPECULUM_CAP_METRICS"] = _options.CapMetrics ? "1" : "0";

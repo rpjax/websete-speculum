@@ -38,6 +38,7 @@
 #include "nsISimpleEnumerator.h"
 #include "nsIWidget.h"
 #include "nsIInterfaceRequestorUtils.h"
+#include "nsFocusManager.h"
 #include "nsNetUtil.h"
 #include "nsDocShellLoadState.h"
 #include "nsDocShellLoadTypes.h"
@@ -279,41 +280,53 @@ void EnforceSoleNavigatorBrowser(mozIDOMWindowProxy* aKeep) {
     if (!outer) {
       continue;
     }
-    // ForceClose dispara o caminho de chrome; se a janela ainda contar no
-    // mediator, Destroy no base window encerra o widget.
+    // Só ForceClose. Ele agenda FinalClose → ReallyCloseWindow → Destroy.
+    // Destroy sync aqui = double-destroy / UAF (SIGSEGV 139).
     outer->ForceClose();
-    if (nsIDocShell* chromeShell = outer->GetDocShell()) {
-      nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
-      chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
-      if (nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner)) {
-        (void)base->Destroy();
-      }
-    }
   }
 }
 
-void RaiseSpeculumBrowserChrome(mozIDOMWindowProxy* aWindow) {
+// Raise pelo caminho do Gecko (nsFocusManager::RaiseWindow): Show + SizeMode
+// + widget SetFocus(Raise::Yes). Sem isto o Virtual fica hidden e timers
+// (Akamai) estrangulam. Nunca SetFocus em widget destruído / não realizado.
+MOZ_CAN_RUN_SCRIPT_BOUNDARY void RaiseSpeculumBrowserChrome(
+    mozIDOMWindowProxy* aWindow) {
   nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
   if (!outer) {
     return;
   }
-  // Sem raise real o Virtual fica atrás da New Tab: documento hidden →
-  // timers estrangulados (Akamai “trava” até foco humano).
-  outer->Focus(mozilla::dom::CallerType::System);
   nsIDocShell* chromeShell = outer->GetDocShell();
   if (!chromeShell) {
     return;
   }
-  nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
-  chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
-  nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner);
+  // Mesmo QI que FocusManager::RaiseWindow — DocShell como nsIBaseWindow.
+  nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(chromeShell);
+  if (!base) {
+    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+    chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+    base = do_QueryInterface(treeOwner);
+  }
   if (!base) {
     return;
   }
   (void)base->SetVisibility(true);
   (void)base->SetEnabled(true);
-  if (nsCOMPtr<nsIWidget> widget = base->GetMainWidget()) {
-    widget->SetFocus(nsIWidget::Raise::Yes, mozilla::dom::CallerType::System);
+
+  nsCOMPtr<nsIWidget> widget;
+  (void)base->GetMainWidget(getter_AddRefs(widget));
+  if (!widget || widget->Destroyed()) {
+    SPECULUM_LOG("[SPECULUM-CTX] raise skipped — no live widget winId=%llu",
+                 static_cast<unsigned long long>(OuterWindowId(aWindow)));
+    return;
+  }
+  if (widget->SizeMode() == nsSizeMode_Minimized) {
+    widget->SetSizeMode(nsSizeMode_Normal);
+  }
+  widget->Show(true);
+
+  if (RefPtr<nsFocusManager> fm = nsFocusManager::GetFocusManager()) {
+    fm->RaiseWindow(outer, mozilla::dom::CallerType::System,
+                    nsFocusManager::GenerateFocusActionId());
   }
 }
 
@@ -689,32 +702,32 @@ struct SpeculumProjectionRuntime::Impl {
       if (!mImpl || !mImpl->soleChrome || !aWindow) {
         return NS_OK;
       }
-      // onOpen chega antes da janela no enumerator — fecha pelo docshell.
+      // Nunca ForceClose/Destroy DENTRO do OnOpenWindow — reentrância no
+      // mediator. Fecha no tick seguinte; ForceClose já agenda o Destroy.
       nsCOMPtr<nsIDocShell> ds;
-      if (NS_SUCCEEDED(aWindow->GetDocShell(getter_AddRefs(ds))) && ds) {
-        nsCOMPtr<nsPIDOMWindowOuter> outer = do_GetInterface(ds);
-        if (outer) {
-          const uint64_t openedId = OuterWindowId(outer);
-          const uint64_t keepId = OuterWindowId(mImpl->soleChrome);
-          if (openedId != 0 && openedId != keepId) {
-            SPECULUM_LOG(
-                "[SPECULUM-CTX] extra chrome winId=%llu — ForceClose (keep=%llu)",
-                static_cast<unsigned long long>(openedId),
-                static_cast<unsigned long long>(keepId));
-            outer->ForceClose();
-            if (nsIDocShell* shell = outer->GetDocShell()) {
-              nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
-              shell->GetTreeOwner(getter_AddRefs(treeOwner));
-              if (nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner)) {
-                (void)base->Destroy();
-              }
-            }
-          }
-        }
+      if (NS_FAILED(aWindow->GetDocShell(getter_AddRefs(ds))) || !ds) {
+        return NS_OK;
       }
+      nsCOMPtr<nsPIDOMWindowOuter> outer = do_GetInterface(ds);
+      if (!outer) {
+        return NS_OK;
+      }
+      const uint64_t openedId = OuterWindowId(outer);
+      const uint64_t keepId = OuterWindowId(mImpl->soleChrome);
+      if (openedId == 0 || openedId == keepId) {
+        return NS_OK;
+      }
+      SPECULUM_LOG(
+          "[SPECULUM-CTX] extra chrome winId=%llu — defer ForceClose (keep=%llu)",
+          static_cast<unsigned long long>(openedId),
+          static_cast<unsigned long long>(keepId));
       Impl* impl = mImpl;
+      nsCOMPtr<nsPIDOMWindowOuter> toClose = outer;
       NS_DispatchToMainThread(NS_NewRunnableFunction(
-          "SpeculumEnforceSoleAfterOpen", [impl]() {
+          "SpeculumCloseExtraChrome", [impl, toClose]() {
+            if (toClose) {
+              toClose->ForceClose();
+            }
             if (impl) {
               impl->EnforceAndRaiseSoleSessionChrome();
             }

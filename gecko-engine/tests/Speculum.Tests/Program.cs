@@ -19,6 +19,7 @@ var code = layer switch
     "l2" => await TransportTests.RunAsync(),
     "l3" => await RunL3Async(),
     "l4" => await StackTests.RunAsync(),
+    "catalog" => RunCatalog(),
     "all" => await RunAllAsync(golden),
     _ => Unknown(layer),
 };
@@ -53,9 +54,16 @@ static async Task<int> RunL3Async()
     return wiring + extra == 0 ? 0 : 1;
 }
 
+static int RunCatalog()
+{
+    var report = new Report("catalog");
+    CatalogTelemetryTests.Run(report);
+    return report.Finish();
+}
+
 static int Unknown(string layer)
 {
-    Console.Error.WriteLine($"degrau desconhecido: '{layer}'. Use l1, l2, l3, l4 ou all.");
+    Console.Error.WriteLine($"degrau desconhecido: '{layer}'. Use l1, l2, l3, l4, catalog ou all.");
     return 2;
 }
 

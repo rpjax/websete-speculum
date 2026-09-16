@@ -10,4 +10,9 @@ namespace Speculum.Supervisor;
 [JsonSerializable(typeof(HealthResponse))]
 internal sealed partial class SupervisorJsonContext : JsonSerializerContext;
 
-internal sealed record HealthResponse(bool Ok, int Consumers);
+internal sealed record HealthResponse(
+    bool Ok,
+    int Consumers,
+    long FramesDropped,
+    bool CapEvents,
+    bool CapMetrics);

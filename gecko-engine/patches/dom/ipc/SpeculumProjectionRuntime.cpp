@@ -32,6 +32,12 @@
 #include "nsIWebProgress.h"
 #include "nsIWebProgressListener.h"
 #include "nsIWindowWatcher.h"
+#include "nsIWindowMediator.h"
+#include "nsIWindowMediatorListener.h"
+#include "nsIAppWindow.h"
+#include "nsISimpleEnumerator.h"
+#include "nsIWidget.h"
+#include "nsIInterfaceRequestorUtils.h"
 #include "nsNetUtil.h"
 #include "nsDocShellLoadState.h"
 #include "nsDocShellLoadTypes.h"
@@ -163,12 +169,190 @@ uint32_t ReadU32LE(const uint8_t* aBytes) {
          (static_cast<uint32_t>(aBytes[3]) << 24);
 }
 
-nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
-                                   mozIDOMWindowProxy** aOutWindow) {
+already_AddRefed<BrowsingContext> PrimaryContentTop(
+    mozIDOMWindowProxy* aWindow) {
+  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
+  if (!outer) {
+    return nullptr;
+  }
+  nsIDocShell* chromeShell = outer->GetDocShell();
+  if (!chromeShell) {
+    return nullptr;
+  }
+  nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+  chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+  if (!treeOwner) {
+    return nullptr;
+  }
+  RefPtr<BrowsingContext> contentBc;
+  treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
+  if (!contentBc) {
+    return nullptr;
+  }
+  RefPtr<BrowsingContext> top = contentBc->Top();
+  return top.forget();
+}
+
+// ---------------------------------------------------------------------------
+// Lei (doc 03-embedder / 17-runtime): um processo ⇒ uma navigator:browser.
+// Chamado no main thread ANTES do Ready. ContextCreate só associa a sessão.
+// ---------------------------------------------------------------------------
+
+uint64_t OuterWindowId(mozIDOMWindowProxy* aWindow) {
+  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
+  return outer ? outer->WindowID() : 0;
+}
+
+already_AddRefed<mozIDOMWindowProxy> MostRecentNavigatorBrowser() {
+  nsCOMPtr<nsIWindowMediator> wm = do_GetService(NS_WINDOWMEDIATOR_CONTRACTID);
+  if (!wm) {
+    return nullptr;
+  }
+  nsCOMPtr<mozIDOMWindowProxy> win;
+  wm->GetMostRecentWindow(u"navigator:browser", getter_AddRefs(win));
+  return win.forget();
+}
+
+uint32_t CountNavigatorBrowserWindows() {
+  nsCOMPtr<nsIWindowMediator> wm = do_GetService(NS_WINDOWMEDIATOR_CONTRACTID);
+  if (!wm) {
+    return 0;
+  }
+  nsCOMPtr<nsISimpleEnumerator> en;
+  if (NS_FAILED(wm->GetEnumerator(u"navigator:browser", getter_AddRefs(en))) ||
+      !en) {
+    return 0;
+  }
+  uint32_t n = 0;
+  bool more = false;
+  while (NS_SUCCEEDED(en->HasMoreElements(&more)) && more) {
+    nsCOMPtr<nsISupports> supp;
+    if (NS_FAILED(en->GetNext(getter_AddRefs(supp))) || !supp) {
+      continue;
+    }
+    ++n;
+  }
+  return n;
+}
+
+void EnforceSoleNavigatorBrowser(mozIDOMWindowProxy* aKeep) {
+  if (!aKeep) {
+    return;
+  }
+  const uint64_t keepId = OuterWindowId(aKeep);
+  nsCOMPtr<nsIWindowMediator> wm = do_GetService(NS_WINDOWMEDIATOR_CONTRACTID);
+  if (!wm) {
+    return;
+  }
+  nsCOMPtr<nsISimpleEnumerator> en;
+  if (NS_FAILED(wm->GetEnumerator(u"navigator:browser", getter_AddRefs(en))) ||
+      !en) {
+    return;
+  }
+
+  std::vector<nsCOMPtr<mozIDOMWindowProxy>> extras;
+  bool more = false;
+  while (NS_SUCCEEDED(en->HasMoreElements(&more)) && more) {
+    nsCOMPtr<nsISupports> supp;
+    if (NS_FAILED(en->GetNext(getter_AddRefs(supp))) || !supp) {
+      continue;
+    }
+    nsCOMPtr<mozIDOMWindowProxy> win = do_QueryInterface(supp);
+    if (!win) {
+      continue;
+    }
+    if (keepId != 0 && OuterWindowId(win) == keepId) {
+      continue;
+    }
+    extras.push_back(win);
+  }
+
+  if (!extras.empty()) {
+    SPECULUM_LOG(
+        "[SPECULUM-CTX] enforce sole chrome keepId=%llu closing=%zu browsers=%u",
+        static_cast<unsigned long long>(keepId), extras.size(),
+        CountNavigatorBrowserWindows());
+  }
+
+  for (const auto& win : extras) {
+    nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(win);
+    if (!outer) {
+      continue;
+    }
+    // ForceClose dispara o caminho de chrome; se a janela ainda contar no
+    // mediator, Destroy no base window encerra o widget.
+    outer->ForceClose();
+    if (nsIDocShell* chromeShell = outer->GetDocShell()) {
+      nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+      chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+      if (nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner)) {
+        (void)base->Destroy();
+      }
+    }
+  }
+}
+
+void RaiseSpeculumBrowserChrome(mozIDOMWindowProxy* aWindow) {
+  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
+  if (!outer) {
+    return;
+  }
+  // Sem raise real o Virtual fica atrás da New Tab: documento hidden →
+  // timers estrangulados (Akamai “trava” até foco humano).
+  outer->Focus(mozilla::dom::CallerType::System);
+  nsIDocShell* chromeShell = outer->GetDocShell();
+  if (!chromeShell) {
+    return;
+  }
+  nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+  chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+  nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner);
+  if (!base) {
+    return;
+  }
+  (void)base->SetVisibility(true);
+  (void)base->SetEnabled(true);
+  if (nsCOMPtr<nsIWidget> widget = base->GetMainWidget()) {
+    widget->SetFocus(nsIWidget::Raise::Yes, mozilla::dom::CallerType::System);
+  }
+}
+
+void ResizeSpeculumBrowserChrome(mozIDOMWindowProxy* aWindow, int32_t aWidth,
+                                 int32_t aHeight) {
+  if (!aWindow || aWidth <= 0 || aHeight <= 0) {
+    return;
+  }
+  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
+  if (!outer) {
+    return;
+  }
+  nsIDocShell* chromeShell = outer->GetDocShell();
+  if (!chromeShell) {
+    return;
+  }
+  nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+  chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
+  nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner);
+  if (!base) {
+    return;
+  }
+  int32_t x = 0;
+  int32_t y = 0;
+  int32_t cx = 0;
+  int32_t cy = 0;
+  if (NS_FAILED(base->GetPositionAndSize(&x, &y, &cx, &cy))) {
+    return;
+  }
+  (void)base->SetPositionAndSize(x, y, aWidth, aHeight, true);
+}
+
+// Abre a chrome da sessão (about:blank). Só quando o Firefox ainda não
+// entregou nenhuma navigator:browser após a espera de boot.
+nsresult CreateSoleBrowserChrome(int32_t aWidth, int32_t aHeight,
+                                 mozIDOMWindowProxy** aOutWindow) {
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_NewURI(getter_AddRefs(uri), "about:blank"_ns);
   NS_ENSURE_SUCCESS(rv, rv);
-
   nsAutoCString uriToLoad;
   rv = uri->GetSpec(uriToLoad);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -180,14 +364,14 @@ nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsISupportsPRBool> nsFalse =
-      do_CreateInstance(NS_SUPPORTS_PRBOOL_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
+      do_CreateInstance(NS_SUPPORTS_PRBOOL_CONTRACTID);
+  NS_ENSURE_TRUE(nsFalse, NS_ERROR_FAILURE);
   rv = nsFalse->SetData(false);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsISupportsPRUint32> userContextId =
-      do_CreateInstance(NS_SUPPORTS_PRUINT32_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
+      do_CreateInstance(NS_SUPPORTS_PRUINT32_CONTRACTID);
+  NS_ENSURE_TRUE(userContextId, NS_ERROR_FAILURE);
   rv = userContextId->SetData(0);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -224,28 +408,84 @@ nsresult OpenSpeculumBrowserWindow(int32_t aWidth, int32_t aHeight,
                         "_blank"_ns, features, args, aOutWindow);
 }
 
-already_AddRefed<BrowsingContext> PrimaryContentTop(
-    mozIDOMWindowProxy* aWindow) {
-  nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(aWindow);
-  if (!outer) {
-    return nullptr;
+// Boot (doc 03 / 17): exatamente uma navigator:browser antes do Ready.
+//
+// Algoritmo:
+//  1. Se já há chrome (startup do Firefox): adotar a mais recente.
+//  2. Se não há: criar about:blank.
+//  3. Nunca OpenWindow quando já existe uma (segunda chrome = Beleza sem foco).
+//  4. Fechar extras até browsers=1 (ForceClose é async — espera o settle).
+//  5. Raise: documento visível (timers / antibot não estrangulam).
+// Pós-Ready: SoleChromeGuard mantém o invariante se nascer chrome extra.
+nsresult EnsureSoleSessionChrome(int32_t aWidth, int32_t aHeight,
+                                 mozIDOMWindowProxy** aOutWindow,
+                                 bool* aCreated) {
+  *aOutWindow = nullptr;
+  if (aCreated) {
+    *aCreated = false;
   }
-  nsIDocShell* chromeShell = outer->GetDocShell();
-  if (!chromeShell) {
-    return nullptr;
+
+  nsCOMPtr<mozIDOMWindowProxy> win;
+  bool created = false;
+  if (CountNavigatorBrowserWindows() == 0) {
+    nsresult rv = CreateSoleBrowserChrome(aWidth, aHeight, getter_AddRefs(win));
+    if (NS_FAILED(rv) || !win) {
+      return NS_FAILED(rv) ? rv : NS_ERROR_FAILURE;
+    }
+    created = true;
+  } else {
+    win = MostRecentNavigatorBrowser();
+    if (!win) {
+      return NS_ERROR_FAILURE;
+    }
   }
-  nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
-  chromeShell->GetTreeOwner(getter_AddRefs(treeOwner));
-  if (!treeOwner) {
-    return nullptr;
+
+  RefPtr<BrowsingContext> contentTop;
+  const mozilla::TimeStamp contentDeadline =
+      mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromSeconds(15);
+  (void)mozilla::SpinEventLoopUntil("SpeculumWaitSoleContent"_ns, [&]() {
+    contentTop = PrimaryContentTop(win);
+    return contentTop || mozilla::TimeStamp::Now() >= contentDeadline;
+  });
+  if (!contentTop) {
+    SPECULUM_LOG(
+        "[SPECULUM-CTX] no primary content created=%d browsers=%u",
+        created ? 1 : 0, CountNavigatorBrowserWindows());
+    return NS_ERROR_FAILURE;
   }
-  RefPtr<BrowsingContext> contentBc;
-  treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
-  if (!contentBc) {
-    return nullptr;
+
+  EnforceSoleNavigatorBrowser(win);
+  const mozilla::TimeStamp soleDeadline =
+      mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromSeconds(5);
+  (void)mozilla::SpinEventLoopUntil("SpeculumWaitSoleCount"_ns, [&]() {
+    if (CountNavigatorBrowserWindows() == 1) {
+      return true;
+    }
+    EnforceSoleNavigatorBrowser(win);
+    return mozilla::TimeStamp::Now() >= soleDeadline;
+  });
+  if (CountNavigatorBrowserWindows() != 1) {
+    SPECULUM_LOG(
+        "[SPECULUM-CTX] sole chrome failed browsers=%u keepId=%llu",
+        CountNavigatorBrowserWindows(),
+        static_cast<unsigned long long>(OuterWindowId(win)));
+    return NS_ERROR_FAILURE;
   }
-  RefPtr<BrowsingContext> top = contentBc->Top();
-  return top.forget();
+
+  ResizeSpeculumBrowserChrome(win, aWidth, aHeight);
+  RaiseSpeculumBrowserChrome(win);
+
+  if (aCreated) {
+    *aCreated = created;
+  }
+
+  SPECULUM_LOG(
+      "[SPECULUM-CTX] sole chrome winId=%llu created=%d browsers=%u",
+      static_cast<unsigned long long>(OuterWindowId(win)), created ? 1 : 0,
+      CountNavigatorBrowserWindows());
+
+  win.forget(aOutWindow);
+  return NS_OK;
 }
 
 }  // namespace
@@ -273,6 +513,11 @@ struct SpeculumProjectionRuntime::Impl {
   std::map<uint32_t, RefPtr<BrowsingContext>> contextToRootBc;
   std::map<uint64_t, uint32_t> bcIdToContextId;
   std::map<uint32_t, nsCOMPtr<mozIDOMWindowProxy>> contextToWindow;
+  // Uma chrome por processo — preparada antes do Ready (doc 03 / 17).
+  // ContextCreate só associa a sessão; não abre janela.
+  nsCOMPtr<mozIDOMWindowProxy> soleChrome;
+  // Fecha qualquer navigator:browser que nasça depois do Ready (startup tardio).
+  nsCOMPtr<nsIWindowMediatorListener> soleChromeGuard;
   std::map<uint32_t, Epoch> epochs;
   // HistoryGo do pai precisa de época > a que o SHIP tem, senão
   // sameEpoch=true e o passo some ("not in same doc").
@@ -291,23 +536,43 @@ struct SpeculumProjectionRuntime::Impl {
       mCreatedCorrelation = aCorrelationId;
       mWaitingCreated = true;
     }
-    void WaitForNavigated(uint32_t aCorrelationId) {
+    void WaitForNavigated(uint32_t aCorrelationId, const nsACString& aExpected) {
       mNavigatedCorrelation = aCorrelationId;
       mWaitingNavigated = true;
       mSawLoadStart = false;
+      mSawExpectedLocation = false;
+      mNavigateRetried = false;
+      mExpectedSpec.Assign(aExpected);
     }
     void CancelWaitForNavigated() {
       mWaitingNavigated = false;
       mSawLoadStart = false;
+      mSawExpectedLocation = false;
+      mNavigateRetried = false;
+      mExpectedSpec.Truncate();
     }
+    bool IsWaitingNavigated() const { return mWaitingNavigated; }
+    bool HasRetriedNavigate() const { return mNavigateRetried; }
+    void MarkNavigateRetried() { mNavigateRetried = true; }
+    const nsCString& ExpectedSpec() const { return mExpectedSpec; }
+    void CompleteNavigatedFromLiveUri(const nsACString& aSpec) {
+      if (!mWaitingNavigated) {
+        return;
+      }
+      mSawExpectedLocation = true;
+      mSawLoadStart = true;
+      mLastLocation.Assign(aSpec);
+      FinishNavigatedIfReady(aSpec, NS_OK);
+    }
+    void FinishNavigatedIfReady(const nsACString& aSpec, nsresult aStatus);
     void SetProgress(nsIWebProgress* aProgress) { mProgress = aProgress; }
     void DetachFromProgress() {
       if (mProgress) {
         (void)mProgress->RemoveProgressListener(this);
         mProgress = nullptr;
       }
-      mWaitingCreated = false;
-      mWaitingNavigated = false;
+      // Rebind troca o nsIWebProgress; não cancela WaitForNavigated /
+      // WaitForCreated. CancelWaitForNavigated é o cancelamento explícito.
     }
 
    private:
@@ -319,10 +584,14 @@ struct SpeculumProjectionRuntime::Impl {
     bool mWaitingCreated = false;
     bool mWaitingNavigated = false;
     bool mSawLoadStart = false;
+    bool mSawExpectedLocation = false;
+    bool mNavigateRetried = false;
     uint32_t mCreatedCorrelation = 0;
     uint32_t mNavigatedCorrelation = 0;
     nsCOMPtr<nsIWebProgress> mProgress;
     nsCString mLastLocation;
+    nsCString mExpectedSpec;
+    nsCString mLastCommittedSpec;
   };
 
   std::map<uint32_t, RefPtr<ProgressSink>> progressSinks;
@@ -340,6 +609,13 @@ struct SpeculumProjectionRuntime::Impl {
   }
 
   ~Impl() {
+    if (soleChromeGuard) {
+      if (nsCOMPtr<nsIWindowMediator> wm =
+              do_GetService(NS_WINDOWMEDIATOR_CONTRACTID)) {
+        (void)wm->RemoveListener(soleChromeGuard);
+      }
+      soleChromeGuard = nullptr;
+    }
     stopRead = true;
     {
       mozilla::MutexAutoLock lock(sendMutex);
@@ -384,20 +660,114 @@ struct SpeculumProjectionRuntime::Impl {
       close(sock);
       FatalRuntime("hello send failed");
     }
+    // Hello na thread da ponte; Ready só no main thread DEPOIS da chrome única
+    // existir. Senão o supervisor manda ContextCreate cedo e nasce a 2ª Nightly.
+    fd = sock;
+    SPECULUM_LOG("[SPECULUM-RUNTIME] ponte conectada em %s", socketPath.c_str());
+    NS_DispatchToMainThread(NS_NewRunnableFunction(
+        "SpeculumPrepareSoleChromeAndReady", [this]() {
+          PrepareSoleChromeAndSendReady();
+        }));
+  }
+
+  void EnforceAndRaiseSoleSessionChrome() {
+    if (!soleChrome) {
+      return;
+    }
+    EnforceSoleNavigatorBrowser(soleChrome);
+    RaiseSpeculumBrowserChrome(soleChrome);
+  }
+
+  // Invariante pós-Ready (doc 17): uma navigator:browser pela vida do processo.
+  // Qualquer chrome nova (UI do Firefox, _blank escapado) não é a sessão.
+  class SoleChromeGuard final : public nsIWindowMediatorListener {
+   public:
+    NS_DECL_ISUPPORTS
+    explicit SoleChromeGuard(Impl* aImpl) : mImpl(aImpl) {}
+
+    NS_IMETHOD OnOpenWindow(nsIAppWindow* aWindow) override {
+      if (!mImpl || !mImpl->soleChrome || !aWindow) {
+        return NS_OK;
+      }
+      // onOpen chega antes da janela no enumerator — fecha pelo docshell.
+      nsCOMPtr<nsIDocShell> ds;
+      if (NS_SUCCEEDED(aWindow->GetDocShell(getter_AddRefs(ds))) && ds) {
+        nsCOMPtr<nsPIDOMWindowOuter> outer = do_GetInterface(ds);
+        if (outer) {
+          const uint64_t openedId = OuterWindowId(outer);
+          const uint64_t keepId = OuterWindowId(mImpl->soleChrome);
+          if (openedId != 0 && openedId != keepId) {
+            SPECULUM_LOG(
+                "[SPECULUM-CTX] extra chrome winId=%llu — ForceClose (keep=%llu)",
+                static_cast<unsigned long long>(openedId),
+                static_cast<unsigned long long>(keepId));
+            outer->ForceClose();
+            if (nsIDocShell* shell = outer->GetDocShell()) {
+              nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+              shell->GetTreeOwner(getter_AddRefs(treeOwner));
+              if (nsCOMPtr<nsIBaseWindow> base = do_QueryInterface(treeOwner)) {
+                (void)base->Destroy();
+              }
+            }
+          }
+        }
+      }
+      Impl* impl = mImpl;
+      NS_DispatchToMainThread(NS_NewRunnableFunction(
+          "SpeculumEnforceSoleAfterOpen", [impl]() {
+            if (impl) {
+              impl->EnforceAndRaiseSoleSessionChrome();
+            }
+          }));
+      return NS_OK;
+    }
+
+    NS_IMETHOD OnCloseWindow(nsIAppWindow*) override { return NS_OK; }
+
+   private:
+    ~SoleChromeGuard() = default;
+    Impl* mImpl;
+  };
+
+  void InstallSoleChromeGuard() {
+    if (soleChromeGuard) {
+      return;
+    }
+    nsCOMPtr<nsIWindowMediator> wm = do_GetService(NS_WINDOWMEDIATOR_CONTRACTID);
+    if (!wm) {
+      return;
+    }
+    RefPtr<SoleChromeGuard> guard = new SoleChromeGuard(this);
+    if (NS_SUCCEEDED(wm->AddListener(guard))) {
+      soleChromeGuard = guard;
+    }
+  }
+
+  void PrepareSoleChromeAndSendReady() {
+    nsCOMPtr<mozIDOMWindowProxy> win;
+    bool created = false;
+    // Viewport provisório; ContextCreate aplica o tamanho da sessão.
+    if (NS_FAILED(EnsureSoleSessionChrome(1280, 800, getter_AddRefs(win),
+                                          &created)) ||
+        !win) {
+      FatalRuntime("sole chrome before Ready failed");
+    }
+    (void)created;
+    soleChrome = win;
+    InstallSoleChromeGuard();
+
     uint8_t readyPayload[kSpeculumControlHeaderBytes];
     SpeculumControlWriter readyWriter(
         readyPayload, sizeof(readyPayload), SpeculumControlOpCode::Ready, 0);
     if (!readyWriter.Ok()) {
-      close(sock);
       FatalRuntime("ready encode failed");
     }
-    if (!SendEnvelope(sock, kKindEvent, 0, readyPayload,
-                      static_cast<uint32_t>(readyWriter.Length()))) {
-      close(sock);
+    if (!SendEvent(readyPayload, static_cast<uint32_t>(readyWriter.Length()))) {
       FatalRuntime("ready send failed");
     }
-    fd = sock;
-    SPECULUM_LOG("[SPECULUM-RUNTIME] ponte conectada em %s", socketPath.c_str());
+    SPECULUM_LOG("[SPECULUM-RUNTIME] Ready — sole chrome winId=%llu browsers=%u",
+                 static_cast<unsigned long long>(OuterWindowId(win)),
+                 CountNavigatorBrowserWindows());
   }
 
   bool SendEvent(const uint8_t* aPayload, uint32_t aLength) {
@@ -442,6 +812,7 @@ struct SpeculumProjectionRuntime::Impl {
 
   void SendNavigated(uint32_t aCorrelationId, uint32_t aContextId,
                      const nsACString& aUrl) {
+    EnforceAndRaiseSoleSessionChrome();
     uint8_t buffer[4096];
     SpeculumControlWriter writer(buffer, sizeof(buffer),
                                  SpeculumControlOpCode::Navigated,
@@ -554,8 +925,45 @@ struct SpeculumProjectionRuntime::Impl {
         remapped = true;
       }
     }
-    RebindProgressSink(aContextId, aLive);
-    (void)remapped;
+    // O mesmo WebProgress não precisa rebind. Rebind no meio do Navigate
+    // matava WaitForNavigated (Detach limpava o wait) e o Navigated nunca saía.
+    if (remapped) {
+      RebindProgressSink(aContextId, aLive);
+      // Process switch / COOP: o LOCATION pode ter caído no WebProgress velho.
+      // Se a URI viva já é real, fecha o Navigated sem esperar outro evento.
+      TryCompleteNavigatedFromLiveUri(aContextId, aLive);
+    }
+  }
+
+  void TryCompleteNavigatedFromLiveUri(uint32_t aContextId,
+                                       BrowsingContext* aLive) {
+    if (!aLive) {
+      return;
+    }
+    const auto found = progressSinks.find(aContextId);
+    if (found == progressSinks.end() || !found->second) {
+      return;
+    }
+    ProgressSink* sink = found->second;
+    if (!sink->IsWaitingNavigated()) {
+      return;
+    }
+    CanonicalBrowsingContext* canonical = aLive->Canonical();
+    if (!canonical) {
+      return;
+    }
+    nsCOMPtr<nsIURI> uri = canonical->GetCurrentURI();
+    if (!uri) {
+      return;
+    }
+    nsAutoCString spec;
+    if (NS_FAILED(uri->GetSpec(spec)) || spec.IsEmpty() ||
+        spec.EqualsLiteral("about:blank")) {
+      return;
+    }
+    SPECULUM_LOG("[SPECULUM-CTRL] Navigated via live URI after remap ctx=%u url=%s",
+                 aContextId, spec.get());
+    sink->CompleteNavigatedFromLiveUri(spec);
   }
 
   already_AddRefed<BrowsingContext> ResolveLiveRoot(uint32_t aContextId) {
@@ -599,16 +1007,14 @@ struct SpeculumProjectionRuntime::Impl {
       }
     }
 
-    // Abrir a janela e esperar a content BC ficam FORA do lock: a espera roda o
-    // event loop, e segurar o StaticMutex durante isso poderia travar contra
-    // qualquer outro caminho que o pegue no main thread.
-    nsCOMPtr<mozIDOMWindowProxy> window;
-    nsresult rv =
-        OpenSpeculumBrowserWindow(aWidth, aHeight, getter_AddRefs(window));
-    if (NS_FAILED(rv) || !window) {
-      SendFault(aCorrelationId, aContextId, "OpenWindow failed");
+    // Ready já deixou exatamente uma chrome. Associa a sessão + foco.
+    nsCOMPtr<mozIDOMWindowProxy> window = soleChrome;
+    if (!window) {
+      SendFault(aCorrelationId, aContextId, "sole chrome missing after Ready");
       return;
     }
+    ResizeSpeculumBrowserChrome(window, aWidth, aHeight);
+    EnforceAndRaiseSoleSessionChrome();
 
     nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(window);
     if (!outer) {
@@ -616,10 +1022,6 @@ struct SpeculumProjectionRuntime::Impl {
       return;
     }
 
-    // A janela aberta é o CHROME (browser.xhtml). O documento projetado vive na
-    // BrowsingContext de CONTEÚDO da aba — e é a top BC do conteúdo que o produtor
-    // usa como chave (SpeculumAttachMutationObserverToDocument). Registrar a BC do
-    // chrome nunca casa com a do conteúdo: por isso nenhum frame subia.
     nsIDocShell* chromeShell = outer->GetDocShell();
     if (!chromeShell) {
       SendFault(aCorrelationId, aContextId, "no chrome docshell");
@@ -633,27 +1035,19 @@ struct SpeculumProjectionRuntime::Impl {
     }
 
     RefPtr<BrowsingContext> chromeBc = outer->GetBrowsingContext();
-
-    // A aba de conteúdo não existe no instante em que OpenWindow retorna; ela
-    // aparece um tique depois. Espera a primary content BC surgir, com teto.
     RefPtr<BrowsingContext> contentBc;
-    const mozilla::TimeStamp deadline =
-        mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromSeconds(10);
-    (void)mozilla::SpinEventLoopUntil(
-        "SpeculumWaitContentBrowsingContext"_ns, [&]() -> bool {
-          treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
-          return contentBc || mozilla::TimeStamp::Now() >= deadline;
-        });
-
-    SPECULUM_LOG("[SPECULUM-CTX] ctx=%u chromeBc=%llu contentBc=%llu",
-            aContextId,
-            static_cast<unsigned long long>(chromeBc ? chromeBc->Id() : 0),
-            static_cast<unsigned long long>(contentBc ? contentBc->Id() : 0));
-
+    treeOwner->GetPrimaryContentBrowsingContext(getter_AddRefs(contentBc));
     if (!contentBc) {
       SendFault(aCorrelationId, aContextId, "no primary content browsing context");
       return;
     }
+
+    SPECULUM_LOG(
+        "[SPECULUM-CTX] ctx=%u chromeBc=%llu contentBc=%llu browsers=%u",
+        aContextId,
+        static_cast<unsigned long long>(chromeBc ? chromeBc->Id() : 0),
+        static_cast<unsigned long long>(contentBc->Id()),
+        CountNavigatorBrowserWindows());
 
     RefPtr<BrowsingContext> bc = contentBc->Top();
     if (!bc) {
@@ -812,7 +1206,7 @@ struct SpeculumProjectionRuntime::Impl {
     }
     // Armar ANTES do LoadURI: o START pode chegar síncrono. Sem isto o STOP
     // da carga anterior (about:blank, página velha) vira Navigated falso.
-    foundSink->second->WaitForNavigated(aCorrelationId);
+    foundSink->second->WaitForNavigated(aCorrelationId, spec);
 
     // LoadURI no pai, sem documento-fonte. Navigate() usa a janela incumbente
     // (chrome) como origem e, depois de HistoryGo, CanNavigate/SendLoadURI
@@ -827,10 +1221,56 @@ struct SpeculumProjectionRuntime::Impl {
                  aContextId, static_cast<unsigned long long>(canonical->Id()),
                  canonical->GetContentParent(), int(canonical->IsReplaced()));
     rv = bc->LoadURI(loadState);
+    EnforceAndRaiseSoleSessionChrome();
     if (NS_FAILED(rv)) {
       foundSink->second->CancelWaitForNavigated();
       SendFault(aCorrelationId, aContextId, "navigate failed");
     }
+  }
+
+  // LOAD_STOP_CONTENT aborta o about:blank (STOP aborted). Em alguns HTTPS
+  // (Beleza) o LoadURI seguinte não emite START — URI fica blank e Navigated
+  // nunca fecha. Uma retentativa com LOAD_NORMAL destrava o caminho desenhado.
+  void RetryLoadURIAfterAbort(uint32_t aContextId) {
+    const auto foundSink = progressSinks.find(aContextId);
+    if (foundSink == progressSinks.end() || !foundSink->second) {
+      return;
+    }
+    ProgressSink* sink = foundSink->second;
+    if (!sink->IsWaitingNavigated() || sink->HasRetriedNavigate()) {
+      return;
+    }
+    if (sink->ExpectedSpec().IsEmpty() ||
+        sink->ExpectedSpec().EqualsLiteral("about:blank")) {
+      return;
+    }
+
+    RefPtr<BrowsingContext> bc = ResolveLiveRoot(aContextId);
+    if (!bc || bc->IsDiscarded() || !bc->IsTargetable()) {
+      return;
+    }
+    CanonicalBrowsingContext* canonical = bc->Canonical();
+    if (!canonical || canonical->IsReplaced()) {
+      return;
+    }
+
+    nsCOMPtr<nsIURI> uri;
+    if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), sink->ExpectedSpec())) || !uri) {
+      return;
+    }
+
+    sink->MarkNavigateRetried();
+    RebindProgressSink(aContextId, bc);
+
+    RefPtr<nsDocShellLoadState> loadState = new nsDocShellLoadState(uri);
+    RefPtr<nsIPrincipal> systemPrincipal = SystemPrincipal::Get();
+    loadState->SetTriggeringPrincipal(systemPrincipal);
+    loadState->SetFirstParty(true);
+    loadState->SetLoadType(LOAD_NORMAL);
+    loadState->SetLoadFlags(nsIWebNavigation::LOAD_FLAGS_NONE);
+    SPECULUM_LOG("[SPECULUM-CTRL] retry LoadURI after abort ctx=%u url=%s",
+                 aContextId, sink->ExpectedSpec().get());
+    (void)bc->LoadURI(loadState);
   }
 
   BrowsingContext* FindBySpeculumContextId(BrowsingContext* aRoot,
@@ -1488,6 +1928,9 @@ struct SpeculumProjectionRuntime::Impl {
 NS_IMPL_ISUPPORTS(SpeculumProjectionRuntime::Impl::ProgressSink,
                   nsIWebProgressListener, nsISupportsWeakReference)
 
+NS_IMPL_ISUPPORTS(SpeculumProjectionRuntime::Impl::SoleChromeGuard,
+                  nsIWindowMediatorListener)
+
 NS_IMETHODIMP
 SpeculumProjectionRuntime::Impl::ProgressSink::OnStateChange(
     nsIWebProgress* aWebProgress, nsIRequest*, uint32_t aStateFlags,
@@ -1500,24 +1943,46 @@ SpeculumProjectionRuntime::Impl::ProgressSink::OnStateChange(
     return NS_OK;
   }
   const bool isWindow = aStateFlags & nsIWebProgressListener::STATE_IS_WINDOW;
+  const bool isDocument =
+      aStateFlags & nsIWebProgressListener::STATE_IS_DOCUMENT;
   const bool isNetwork = aStateFlags & nsIWebProgressListener::STATE_IS_NETWORK;
-  if (!isWindow || !isNetwork) {
+  // Antes exigia WINDOW∧NETWORK — em process-switch / HTTPS o STOP às vezes
+  // chega só como WINDOW|DOCUMENT e o Navigated nunca fechava (Beleza cold).
+  if (!(isWindow || isDocument)) {
+    return NS_OK;
+  }
+  if (!isWindow && !isNetwork) {
+    // DOCUMENT-only sem rede: ruído de subrecursos.
     return NS_OK;
   }
 
   if (aStateFlags & nsIWebProgressListener::STATE_START) {
-    mSawLoadStart = true;
-    mImpl->SendLoadState(mContextId, kLoadStateStart);
+    if (isWindow || isNetwork) {
+      mSawLoadStart = true;
+      mImpl->SendLoadState(mContextId, kLoadStateStart);
+    }
     return NS_OK;
   }
   if (!(aStateFlags & nsIWebProgressListener::STATE_STOP)) {
+    return NS_OK;
+  }
+  if (!isWindow) {
     return NS_OK;
   }
 
   mImpl->SendLoadState(mContextId, kLoadStateStop);
 
   // Carga substituída — o STOP abortado não é o commit. Espera o próximo.
+  // Se a URI ainda é blank, o LoadURI pedido pode ter morrido com o abort
+  // (medido em Beleza cold): retenta uma vez.
   if (aStatus == NS_BINDING_ABORTED) {
+    SPECULUM_LOG("[SPECULUM-CTRL] STOP aborted ctx=%u waitingNav=%d",
+                 mContextId, int(mWaitingNavigated));
+    if (mWaitingNavigated &&
+        (mLastLocation.IsEmpty() ||
+         mLastLocation.EqualsLiteral("about:blank"))) {
+      mImpl->RetryLoadURIAfterAbort(mContextId);
+    }
     return NS_OK;
   }
 
@@ -1527,14 +1992,7 @@ SpeculumProjectionRuntime::Impl::ProgressSink::OnStateChange(
     return NS_OK;
   }
 
-  if (!mWaitingNavigated || !mSawLoadStart) {
-    return NS_OK;
-  }
-  mWaitingNavigated = false;
-  mSawLoadStart = false;
-
-  if (NS_FAILED(aStatus)) {
-    mImpl->SendFault(mNavigatedCorrelation, mContextId, "load failed");
+  if (!mWaitingNavigated) {
     return NS_OK;
   }
 
@@ -1543,33 +2001,74 @@ SpeculumProjectionRuntime::Impl::ProgressSink::OnStateChange(
     if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(win)) {
       if (mozilla::dom::BrowsingContext* docBc = outer->GetBrowsingContext()) {
         mImpl->AdoptLiveRootBc(mContextId, docBc->Top());
+        if (CanonicalBrowsingContext* canonical = docBc->Canonical()) {
+          if (nsCOMPtr<nsIURI> uri = canonical->GetCurrentURI()) {
+            nsAutoCString live;
+            if (NS_SUCCEEDED(uri->GetSpec(live)) && !live.IsEmpty()) {
+              mLastLocation = live;
+            }
+          }
+        }
       }
     }
   }
 
   nsAutoCString spec(mLastLocation);
   if (spec.IsEmpty()) {
-    RefPtr<BrowsingContext> bc;
-    {
-      StaticMutexAutoLock lock(mImpl->projectedMutex);
-      const auto found = mImpl->contextToRootBc.find(mContextId);
-      if (found != mImpl->contextToRootBc.end()) {
-        bc = found->second;
-      }
+    spec.AssignLiteral("about:blank");
+  }
+  if (!spec.EqualsLiteral("about:blank")) {
+    mSawExpectedLocation = true;
+  }
+  FinishNavigatedIfReady(spec, aStatus);
+
+  // Document replace depois do Navigated pedido (challenge → página final).
+  if (!mWaitingNavigated && !mWaitingCreated &&
+      !spec.EqualsLiteral("about:blank") &&
+      !mLastCommittedSpec.IsEmpty() && !spec.Equals(mLastCommittedSpec)) {
+    SPECULUM_LOG("[SPECULUM-CTRL] follow-on Navigated ctx=%u url=%s",
+                 mContextId, spec.get());
+    mLastCommittedSpec = spec;
+    mImpl->SendNavigated(/*correlation*/ 0, mContextId, spec);
+  }
+  return NS_OK;
+}
+
+void SpeculumProjectionRuntime::Impl::ProgressSink::FinishNavigatedIfReady(
+    const nsACString& aSpec, nsresult aStatus) {
+  if (!mImpl || !mWaitingNavigated) {
+    return;
+  }
+  // URL já é a pedida (ou qualquer não-blank depois do LoadURI): o START
+  // pode ter caído no listener antigo no rebind. Location é o commit.
+  // STOP leftover de about:blank não passa daqui — mSawExpectedLocation
+  // fica falso até OnLocationChange ver um spec real.
+  if (!mSawExpectedLocation) {
+    if (!mSawLoadStart) {
+      return;
     }
-    if (bc && !bc->IsDiscarded()) {
-      if (CanonicalBrowsingContext* canonical = bc->Canonical()) {
-        if (nsCOMPtr<nsIURI> uri = canonical->GetCurrentURI()) {
-          (void)uri->GetSpec(spec);
-        }
-      }
+    if (!mExpectedSpec.IsEmpty() &&
+        !mExpectedSpec.EqualsLiteral("about:blank")) {
+      return;
     }
   }
+
+  mWaitingNavigated = false;
+  mSawLoadStart = false;
+  mSawExpectedLocation = false;
+  mExpectedSpec.Truncate();
+
+  if (NS_FAILED(aStatus)) {
+    mImpl->SendFault(mNavigatedCorrelation, mContextId, "load failed");
+    return;
+  }
+
+  nsCString spec(aSpec);
   if (spec.IsEmpty()) {
     spec.AssignLiteral("about:blank");
   }
   mImpl->SendNavigated(mNavigatedCorrelation, mContextId, spec);
-  return NS_OK;
+  mLastCommittedSpec = spec;
 }
 
 NS_IMETHODIMP
@@ -1593,6 +2092,12 @@ SpeculumProjectionRuntime::Impl::ProgressSink::OnLocationChange(
     return NS_OK;
   }
   (void)aLocation->GetSpec(mLastLocation);
+  if (!mExpectedSpec.IsEmpty() &&
+      !mExpectedSpec.EqualsLiteral("about:blank") &&
+      !mLastLocation.IsEmpty() &&
+      !mLastLocation.EqualsLiteral("about:blank")) {
+    mSawExpectedLocation = true;
+  }
   nsCOMPtr<mozIDOMWindowProxy> win;
   if (NS_SUCCEEDED(aWebProgress->GetDOMWindow(getter_AddRefs(win))) && win) {
     if (nsCOMPtr<nsPIDOMWindowOuter> outer = nsPIDOMWindowOuter::From(win)) {
@@ -1601,6 +2106,11 @@ SpeculumProjectionRuntime::Impl::ProgressSink::OnLocationChange(
       }
     }
   }
+  if (mWaitingNavigated) {
+    SPECULUM_LOG("[SPECULUM-CTRL] OnLocationChange ctx=%u url=%s sawExpected=%d",
+                 mContextId, mLastLocation.get(), int(mSawExpectedLocation));
+  }
+  // Navigated do pedido fecha no STOP. Aqui só atualiza location.
   return NS_OK;
 }
 

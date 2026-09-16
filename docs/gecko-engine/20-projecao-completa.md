@@ -372,7 +372,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Lei | `ViewportSet` na ABI. Zoom do cliente **proibido** (quebra hit-test). Geometria por sessão (K2). |
 | Gancho | `HeadlessWidget` / tamanho interno da BC. |
 | Prova | mesmo viewport nos dois lados; layout 1:1. Larguras diferentes invalidam a medição. |
-| Estado | **há.** Pai aplica `SetPositionAndSize` no widget da aba. |
+| Estado | **ABI e L3 há.** Pai aplica `SetPositionAndSize` no widget da aba. **Lab: resize da superfície não chega** — [open.md](../page-projection/spec/open.md) **GECKO-VIEWPORT-RESIZE**. |
 
 ### 2.16 Scroll e foco
 
@@ -415,7 +415,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Cliente | UI do produto decide; não o Gecko. |
 | Prova | um alerta, um deny de permissão, um download recusado — efeito no Virtual. |
 | Proibido | auto-ok no C++ “temporário”. |
-| Estado | **há.** `alert`/`confirm`/`prompt` no hunk da janela (`SpeculumTryAskDialog`). Pedido conteúdo→pai é **sync** (o `*Requested` sai no WS antes do spin). Permissão e download no `ContentParent`; recusa = `Send__delete__`. Sem auto-ok. Sem cair no prompt nativo se a aba é projetada (headless trava). |
+| Estado | **há o pedido.** `alert`/`confirm`/`prompt` no hunk da janela (`SpeculumTryAskDialog`). Pedido conteúdo→pai é **sync** (o `*Requested` sai no WS antes do spin). Permissão e download no `ContentParent`; recusa = `Send__delete__`. Sem auto-ok. Sem cair no prompt nativo se a aba é projetada (headless trava). **Geo ainda furo:** o cliente precisa responder o RPC e o Gecko precisa usar a posição do usuário — [open.md](../page-projection/spec/open.md) **GECKO-GEO-RPC**. |
 
 ### 2.21 Pressão e item O
 
@@ -734,4 +734,9 @@ A primeira versão deste doc cobria o desenho e deixava a cola como “ainda nã
 Ainda **de propósito aberto** (não chutar):
 
 - Canvas e print: **1.1**, spec já estacionou. Não entram neste V1.
+- Geolocalização: o pedido existe (`PermissionRequested`); falta RPC no cliente + relay da posição do usuário no Gecko. Betano lab 2026-09-15. Tracker: [open.md](../page-projection/spec/open.md) **GECKO-GEO-RPC**.
+- Beleza na Web no lab não sobe (`projected blank` + CSP no console). Tracker: **GECKO-BELEZA-COLD**.
+- Eneba: navegar **dentro** do site quebra a superfície (chrome do lab no meio da loja, CSS `403` denied, `projected blank`). Tracker: **GECKO-ENEBA-NAV**.
+- Resize da superfície no lab não muda o Virtual. Tracker: **GECKO-VIEWPORT-RESIZE**.
+- Console do site no Virtual não aparece no DevTools do cliente (feature velha, ficou de fora no Gecko). Tracker: **GECKO-CONSOLE-RELAY**.
 

@@ -1,5 +1,9 @@
 # Supervisor e Lab (Gecko)
 
+**Debug / parity só de fora:** [docs/gecko-engine/lab-debug-surface.md](../../docs/gecko-engine/lab-debug-surface.md).
+A API de observação Virtual é o WS do consumidor do supervisor; o lab é o primeiro caller.
+`capture.sh` / `doctor.sh` são fork/build — não bar de accept.
+
 Fase **F1** do plano do supervisor: o frame sai do processo pai do Gecko, atravessa
 o supervisor e chega ao cliente projetado aberto no seu navegador.
 
@@ -65,8 +69,11 @@ supervisor é cego ao frame; o frame é carga opaca.
 | `SPECULUM_SUPERVISOR_BIN` | binário publicado do supervisor | lab |
 | `SPECULUM_BROWSER_URL` | `about:blank` | supervisor (vem do lab por sessão) |
 | `SPECULUM_BROWSER_PROFILE` | perfil temporário por execução | supervisor |
-| `SPECULUM_BROWSER_HEADLESS` | `1` (`0` para janela visível) | supervisor |
+| *(prefs de produto)* | em todo launch o supervisor escreve no `user.js` do perfil o bloco *single session tab* (sem Privacy Notice / welcome; `window.open`/`_blank` → mesma aba) | `ProductProfilePrefs` |
+| `SPECULUM_BROWSER_HEADLESS` | lab: default `0` (janela); `1` = headless. Supervisor sem env = headless | lab → supervisor |
 | `SPECULUM_BROWSER_SOCKET` | `/tmp/speculum-browser.sock` | supervisor |
+| `SPECULUM_CAP_EVENTS` | off (ausente/`0`) | supervisor → Firefox (Kind `0x05`; lab liga no `browse.start`) |
+| `SPECULUM_CAP_METRICS` | off | supervisor → Firefox (`buildMs` se events on) |
 | `SPECULUM_SUPERVISOR_PORT` | `4100` | supervisor |
 | `SPECULUM_LAB_HOST` | `127.0.0.1` | lab |
 | `SPECULUM_LAB_PORT` | `4077` | lab |
@@ -107,11 +114,14 @@ carrega a restrição de AOT.
 
 ## Estado
 
-Implementado: F1 — o supervisor conduz a sessão e o frame chega ao cliente projetado.
+Instrumentação do par (debug só de fora): ver
+[`docs/gecko-engine/lab-debug-surface.md`](../../docs/gecko-engine/lab-debug-surface.md).
 
-Ainda não: `requestSnapshot`, input, runner de blueprints. O `LabSessionConnection`
-aceita em silêncio as mensagens do protocolo v1 dessas fases em vez de responder
-erro — para não ensinar o cliente a desconfiar de mensagem correta.
+Implementado: caps EVENTS/METRICS no create; SnapshotServed/Fault no lab;
+telemetria Kind `0x05` decode no supervisor; journal Projected; boot honesto;
+`/lab/health` com caps.
+
+Ainda não: runner de blueprints DAG.
 
 ## Limitação conhecida
 

@@ -15,6 +15,7 @@
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
 #include "nsIPrincipal.h"
+#include "nsIRequest.h"
 #include "nsIStreamListener.h"
 #include "nsITraceableChannel.h"
 #include "nsIPrincipal.h"
@@ -53,6 +54,7 @@ std::string KeyOf(uint32_t aContextId, const nsACString& aUrl,
 
 struct TeeBody {
   std::vector<uint8_t> bytes;
+  std::string mime;
   bool complete = false;
   bool failed = false;
 };
@@ -106,9 +108,25 @@ void EmitFromBody(const SpeculumAssetRegistry::Emit& aEmit, uint32_t aContextId,
              aBody.bytes.data() + aOffset, left);
   }
   if (aBody.complete) {
+    const auto* mime = aBody.mime.empty()
+                           ? nullptr
+                           : reinterpret_cast<const uint8_t*>(aBody.mime.data());
     EmitWire(aEmit, aContextId, aStreamId, kPhaseComplete,
-             static_cast<uint64_t>(aBody.bytes.size()), nullptr, 0);
+             static_cast<uint64_t>(aBody.bytes.size()), mime,
+             static_cast<uint32_t>(aBody.mime.size()));
   }
+}
+
+void NoteMime(const std::string& aKey, nsIRequest* aRequest) {
+  nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
+  if (!channel) {
+    return;
+  }
+  nsAutoCString type;
+  if (NS_FAILED(channel->GetContentType(type)) || type.IsEmpty()) {
+    return;
+  }
+  State().Ensure(aKey).mime.assign(type.BeginReading(), type.Length());
 }
 
 void AppendTee(const std::string& aKey, uint64_t aOffset, const uint8_t* aData,
@@ -171,7 +189,10 @@ class OpenListener final : public nsIStreamListener {
 NS_IMPL_ISUPPORTS(OpenListener, nsIStreamListener, nsIRequestObserver)
 
 NS_IMETHODIMP
-OpenListener::OnStartRequest(nsIRequest*) { return NS_OK; }
+OpenListener::OnStartRequest(nsIRequest* aRequest) {
+  NoteMime(mKey, aRequest);
+  return NS_OK;
+}
 
 NS_IMETHODIMP
 OpenListener::OnStopRequest(nsIRequest*, nsresult aStatus) {
@@ -222,6 +243,7 @@ NS_IMPL_ISUPPORTS(TeeTap, nsIStreamListener, nsIRequestObserver)
 
 NS_IMETHODIMP
 TeeTap::OnStartRequest(nsIRequest* aRequest) {
+  NoteMime(mKey, aRequest);
   return mNext ? mNext->OnStartRequest(aRequest) : NS_OK;
 }
 

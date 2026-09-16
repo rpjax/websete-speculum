@@ -253,6 +253,7 @@ export function bootLabClient(): void {
         contextId?: number,
       ) => ReturnType<LabProjectedHarness['forceLoadAfterDropRaceForDiag']> | null;
       __speculumLabDumpInputClick?: () => void;
+      __labDiagDomApplyBins?: (urls?: string[]) => Promise<unknown>;
     }
   ).__labDiagProjectedPeek = () => (projection ? projection.peekNestedHosts() : null);
   (
@@ -268,6 +269,14 @@ export function bootLabClient(): void {
   ).__speculumLabDumpInputClick = () => {
     /* replaced once sendInputClickDiag is defined */
   };
+  void import('./diagDomApply').then(({ diagDomApplyFrameUrls }) => {
+    (
+      window as unknown as {
+        __labDiagDomApplyBins?: (urls?: string[]) => Promise<unknown>;
+      }
+    ).__labDiagDomApplyBins = (urls) =>
+      diagDomApplyFrameUrls(urls ?? ['/lab/diag-f1.bin', '/lab/diag-f3.bin']);
+  });
 
   function disposeViewportSync(): void {
     viewportSync?.dispose();
@@ -957,11 +966,35 @@ export function bootLabClient(): void {
           $('streamOps').textContent = String(m.opCount);
         }
         if (m.kind === 'desynced' || m.kind === 'desync') {
+          const tel = msg as { errorCode?: string; op?: string; message?: string };
+          const detail = [tel.errorCode ?? m.kind, tel.op ? `op=${tel.op}` : '', tel.message ?? '']
+            .filter(Boolean)
+            .join(' ');
+          logActivity(ctxId === CONTEXT_ID_ROOT ? `desync ${detail}` : `ctx${ctxId} desync ${detail}`);
+        }
+        if (m.kind === 'resyncFailed') {
+          const tel = msg as {
+            reason?: string;
+            exhausted?: boolean;
+            attempt?: number;
+            op?: string;
+            id?: number;
+            message?: string;
+          };
+          const detail = [
+            tel.reason ?? '',
+            tel.op ? `op=${tel.op}` : '',
+            typeof tel.id === 'number' ? `id=${tel.id}` : '',
+            tel.message ?? '',
+          ]
+            .filter(Boolean)
+            .join(' ');
           logActivity(
-            ctxId === CONTEXT_ID_ROOT
-              ? `desync ${(msg as { errorCode?: string }).errorCode ?? m.kind}`
-              : `ctx${ctxId} desync ${(msg as { errorCode?: string }).errorCode ?? m.kind}`,
+            `resync failed attempt=${tel.attempt ?? '?'} exhausted=${tel.exhausted === true} ${detail}`,
           );
+        }
+        if (m.kind === 'resyncCompleted') {
+          logActivity(`resync completed seq=${(msg as { sequence?: number }).sequence ?? '?'}`);
         }
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'client.telemetry', message: msg }));
@@ -1111,13 +1144,13 @@ export function bootLabClient(): void {
     });
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') {
+        const bytes = new Uint8Array(ev.data as ArrayBuffer);
+        const hdr = peekFrameHeader(bytes);
+        const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : CONTEXT_ID_ROOT;
+        ctxStats(ctxId).wireFrames += 1;
+        updateStream();
         void ensureProjection().then((p) => {
-          const bytes = new Uint8Array(ev.data as ArrayBuffer);
-          const hdr = peekFrameHeader(bytes);
-          const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : CONTEXT_ID_ROOT;
-          ctxStats(ctxId).wireFrames += 1;
           p.ingest(bytes);
-          updateStream();
         });
         return;
       }

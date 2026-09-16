@@ -86,10 +86,19 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
         {
             if (!consumer.TryEnqueue(frame))
             {
-                logger.LogWarning("consumidor {ConsumerId} descartou frame ctx={ContextId}", consumer.Id, contextId);
+                Interlocked.Increment(ref _framesDropped);
+                logger.LogWarning(
+                    "consumidor {ConsumerId} descartou frame ctx={ContextId} drops={Drops}",
+                    consumer.Id,
+                    contextId,
+                    FramesDropped);
             }
         }
     }
+
+    public long FramesDropped => Interlocked.Read(ref _framesDropped);
+
+    private long _framesDropped;
 
     public void BroadcastEnvelope(EnvelopeKind kind, uint contextId, byte[] payload)
     {

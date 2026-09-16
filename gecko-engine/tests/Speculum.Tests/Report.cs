@@ -79,6 +79,9 @@ public sealed class Report(string layer)
         Fail(what, $"{expected}", $"{actual}");
     }
 
+    /// <summary>Alias usado pelos degraus L3 (case histórico).</summary>
+    public void equal<T>(string what, T expected, T actual) => Equal(what, expected, actual);
+
     public int Finish()
     {
         Console.WriteLine();

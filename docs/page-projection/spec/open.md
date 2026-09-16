@@ -77,6 +77,36 @@ DOM-table path was green through seal lab. **PP-TABLE-SUBTREE-WALK** (recursive 
 
 Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 2026-08-28 — `lab-assets-stress.js` 4/4 (assets-matrix, demo, Superbet, Eneba; desync 0; fixture 9 virtual attrs). This row remains the Unico/XFO pin only.
 
+### BUG — Gecko geolocation is chrome prompt, not client RPC (OPEN 2026-09-15)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **GECKO-GEO-RPC** | Lab Betano: native `permission` dialog on `127.0.0.1:4077` (OK/Cancelar). Site asks geolocation; Projected chrome answers, Gecko does not get the **user’s** position. | Designed path: client RPC (`PermissionRequested` / `PermissionRespond`) + relay coords into Gecko so Virtual geolocation **emulates the consumer**. Do **not** auto-ok in C++. Marionette already asks; last hop is client decision + position. Observed 2026-09-15 `demo.betano.bet.br`. Not 1.1 — V1. |
+
+### BUG — Beleza na Web does not surface in Gecko lab (OPEN 2026-09-15)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **GECKO-BELEZA-COLD** | Lab Start Virtual on `https://www.belezanaweb.com.br/` — surface unusable. | **Fixed 2026-09-16.** (1) Cold LoadURI abort → RetryLoadURIAfterAbort. (2) Resync malformed: skip Gecko `svg:use` impl-shadow + top-level `::-moz-*` (Projected=Chromium; design NIT in shadow.md). (3) sequence_gap: claim `lastSequence` on enqueue; soft gap; lag catch-up; gate cap 256. (4) **INSERT id missing:** `onInserted` reserved id before `NODE_NEW`; `describeAndInsertChildren` treated identity hit as indexed (§5.5). Fix: describe when table row missing; `linkAfter` no stub rows. Unit: `producer_lifecycle` pai+filho mesmo tick. **Prova:** capture pós-fix 73 frames → table apply OK (19403 rows) + `projected-replay` applyOk=73 desynced=false armed bodyLen≈1.3M. |
+
+### BUG — Eneba in-site navigation (OPEN 2026-09-15)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **GECKO-ENEBA-NAV** | Opening Eneba is not enough: **navigating inside** the site breaks the surface. Lab chrome (“Projected surface empty”, connect/browse instructions) leaks into the store page. Console: same nested `projected blank` 5000ms class; CSP inline noise; `static.eneba.games` CSS `403` `speculum-denied` (asset path — separate). | Observed 2026-09-15 after in-site nav. Shares nested-host establish failure class with BELEZA until proven otherwise; gen-bump resync may also need apply-gate (Chromium Eneba dossier). Do not treat DESYNC 0 / APPLY+ as accept. |
+
+### BUG — Gecko lab viewport resize (OPEN 2026-09-15)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **GECKO-VIEWPORT-RESIZE** | Resizing the lab/Projected surface does not update Virtual geometry. Layout / hit-test drift. | Designed: `client.resize` → `ViewportSet` → `HeadlessWidget` / BC size ([20](../../gecko-engine/20-projecao-completa.md) §2.15). ABI and L3 journal exist; last hop live on the lab surface does not. Zoom on the client remains forbidden. Observed 2026-09-15. |
+
+### BUG — Virtual console not relayed to client DevTools (OPEN 2026-09-15)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **GECKO-CONSOLE-RELAY** | Page `console.*` from Virtual Gecko does not show in the user’s/lab client console. Old Chromium-lab feature; well-defined; dropped on the Gecko path. | Designed: Virtual console → Kind `0x05` / session events → client `console`. Not a new invention. Wire last hop; do not scrape CDP `page.evaluate`. Observed 2026-09-15. |
+
 ### LAB — B5c iso oracle false red (OPEN 2026-08-31)
 
 | Id | Symptom | Notes |

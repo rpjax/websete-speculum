@@ -32,6 +32,7 @@ export type NestedProjectedApplyOptions = {
     generation: number;
     sequence: number;
     reason: string;
+    attempt?: number;
   }) => void;
   getToken?: () => string | undefined;
   getAssetBaseUrl?: () => string | undefined;
@@ -220,6 +221,7 @@ export class NestedProjectedApply {
       onNestedHostDrop: (childScopeId) => this.onNestedHostDropCb?.(childScopeId),
       onApplied: (frame, applyMs) => {
         if (state.swapped) {
+          this.lastSequence = frame.sequence;
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
           if (!this.armed) {
             this.armed = true;
@@ -342,6 +344,10 @@ export class NestedProjectedApply {
       }
     }
 
+    if (!frame.resync && this.shouldHoldOrdinaryFrameWhileRecovering()) {
+      return;
+    }
+
     if (frame.sequence !== this.lastSequence + 1) {
       this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
       return;
@@ -349,6 +355,10 @@ export class NestedProjectedApply {
     this.lastSequence = frame.sequence;
     const target = this.resync ?? this.live;
     target.applier.enqueue(frame);
+  }
+
+  private shouldHoldOrdinaryFrameWhileRecovering(): boolean {
+    return this.lastDesyncReason !== null || this.resync !== null;
   }
 
   private async recreateForGenerationAsync(frame: AssembledFrame): Promise<void> {
@@ -372,7 +382,6 @@ export class NestedProjectedApply {
       this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
       return;
     }
-    this.lastSequence = frame.sequence;
     this.live.applier.enqueue(frame);
     this.live.applier.flush();
   }
@@ -394,10 +403,9 @@ export class NestedProjectedApply {
     const applier = this.createApplier(doc, registry, false);
     this.resync = { applier, registry, attempt: this.resyncAttempts };
     if (frame.sequence !== this.lastSequence + 1) {
-      this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+      this.failResyncAttempt('sequence_gap');
       return;
     }
-    this.lastSequence = frame.sequence;
     applier.enqueue(frame);
     applier.flush();
   }
@@ -410,6 +418,9 @@ export class NestedProjectedApply {
     this.resync = null;
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
+    this.lastDesyncReason = null;
+    this.lastDesyncMessage = null;
+    this.lastSequence = frame.sequence;
     this.onTelemetry?.({
       v: TELEMETRY_WIRE_VERSION,
       contextId: this.contextId,
@@ -500,6 +511,7 @@ export class NestedProjectedApply {
         generation: this.generation,
         sequence: this.lastSequence,
         reason,
+        attempt,
       });
       this.resyncTimeoutTimer = setTimeout(() => {
         this.resyncTimeoutTimer = null;
@@ -544,13 +556,19 @@ export class NestedProjectedApply {
       requestResync?: boolean;
     },
   ): void {
-    if (this.lastDesyncReason === null) {
+    const firstInEpisode = this.lastDesyncReason === null;
+    if (!firstInEpisode && reason === 'precondition') {
+      return;
+    }
+    if (firstInEpisode) {
       this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
       this.lastDesyncMessage = extra?.message ?? null;
+      this.assembler.reset();
+      if (reason !== 'sequence_gap') {
+        this.armed = false;
+        this.live.applier.reset();
+      }
     }
-    this.armed = false;
-    this.assembler.reset();
-    this.live.applier.reset();
     this.onTelemetry?.({
       v: TELEMETRY_WIRE_VERSION,
       contextId: this.contextId,

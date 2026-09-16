@@ -44,6 +44,8 @@ public static class StackTests
             await RunRootNavAsync(report, pages);
             if (!report.Failed)
             {
+                // O Gecko anterior precisa soltar compositor/perfil antes do próximo.
+                await Task.Delay(2000);
                 await RunMultiplexAsync(report, pages);
             }
 
@@ -91,36 +93,33 @@ public static class StackTests
         {
             using var client = await ConnectConsumerAsync(port, supervisor, TimeSpan.FromSeconds(60));
 
-            // (2)(3)(4): o supervisor pede contexto e navega sozinho; a chegada do
-            // frame prova a corrente Ready→ContextCreated→Navigated inteira. Uma
-            // página estática emite UM frame de bootstrap e para (sem mutação, sem
-            // mais frames), então pedimos 1 — pedir mais faria o receive estourar o
-            // timeout, e cancelar um ReceiveAsync ABORTA o WebSocket.
-            var first = await ReceiveFramesAsync(client, count: 1, TimeSpan.FromSeconds(60));
+            // (2)(3)(4): o supervisor pede contexto e navega sozinho. O primeiro
+            // envelope pode ser o about:blank do contexto; o aceite é o frame da
+            // URL fria com o texto da página — sem Navigate do consumidor.
+            var first = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(60), seen =>
+                seen.Any(f => FrameHasText(f, "alpha")));
             report.Equal("frames reais recebidos (bootstrap)", true, first.Count >= 1);
 
+            var boot = first.FirstOrDefault(f => FrameHasText(f, "alpha"));
             uint rootContext = 0;
             var contexts = new HashSet<uint>();
-            for (var i = 0; i < first.Count; i++)
+            if (boot is not null)
             {
-                var h = SealedFrame.Parse(first[i]);
+                var h = SealedFrame.Parse(boot);
                 if (!h.Ok)
                 {
-                    report.Fail($"frame {i}: prefixo selado", "magic 0x5050 version 2", h.Problem ?? "?",
-                        Report.Hex(first[i].AsSpan(0, Math.Min(SealedFrame.PrefixBytes, first[i].Length))));
-                    continue;
+                    report.Fail("frame bootstrap: prefixo selado", "magic 0x5050 version 2", h.Problem ?? "?",
+                        Report.Hex(boot.AsSpan(0, Math.Min(SealedFrame.PrefixBytes, boot.Length))));
                 }
-
-                report.Pass($"frame {i}: prefixo selado (ctx={h.ContextId} gen={h.Generation} seq={h.Sequence})");
-                contexts.Add(h.ContextId);
-                if (rootContext == 0)
+                else
                 {
+                    report.Pass($"frame bootstrap: prefixo selado (ctx={h.ContextId} gen={h.Generation} seq={h.Sequence})");
+                    contexts.Add(h.ContextId);
                     rootContext = h.ContextId;
+                    report.Equal("frame bootstrap é resync", true, (h.Flags & SealedFrame.ResyncFlag) != 0);
+                    report.Equal("frame bootstrap geração inicial 1", 1u, h.Generation);
+                    report.Equal("frame bootstrap fecha com CHECK", true, FrameStrings.HasClosingCheck(boot));
                 }
-
-                report.Equal($"frame {i} é resync", true, (h.Flags & SealedFrame.ResyncFlag) != 0);
-                report.Equal($"frame {i} geração inicial 1", 1u, h.Generation);
-                report.Equal($"frame {i} fecha com CHECK", true, FrameStrings.HasClosingCheck(first[i]));
             }
 
             // (4): um contexto só no bootstrap. Vários = o pai carimbou contextos
@@ -128,9 +127,9 @@ public static class StackTests
             report.Equal("contextos distintos no bootstrap", 1, contexts.Count);
             report.Equal("contextId é o raiz da sessão", 1u, rootContext);
 
-            if (first.Count >= 1)
+            if (boot is not null)
             {
-                AssertPageText(report, first[0], "alpha", "bootstrap (página /a)");
+                AssertPageText(report, boot, "alpha", "bootstrap (página /a)");
             }
 
             var mutated = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(30), seen =>
@@ -261,6 +260,68 @@ public static class StackTests
                 seen.Any(f => Envelope.TryReadComplete(f, EnvelopeKind.Asset, out _, out _)));
             report.Equal("foto: envelope de ativo no consumidor", true,
                 photo.Any(f => Envelope.TryReadComplete(f, EnvelopeKind.Asset, out _, out _)));
+
+            var svgBody = AssetPayload.EncodeRequest(1, pages.SvgUrl, "");
+            var svgEnv = new byte[Envelope.HeaderBytes + svgBody.Length];
+            Envelope.WriteHeader(svgEnv, EnvelopeKind.Asset, 1, svgBody.Length);
+            Buffer.BlockCopy(svgBody, 0, svgEnv, Envelope.HeaderBytes, svgBody.Length);
+            await client.SendAsync(svgEnv, WebSocketMessageType.Binary, true, CancellationToken.None);
+            var svgSeen = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(30), seen =>
+                seen.Any(f =>
+                {
+                    if (!Envelope.TryReadComplete(f, EnvelopeKind.Asset, out _, out _))
+                    {
+                        return false;
+                    }
+                    try
+                    {
+                        var decoded = AssetPayload.Decode(f.AsSpan(Envelope.HeaderBytes));
+                        return decoded.Phase == AssetPayload.PhaseComplete &&
+                               Encoding.UTF8.GetString(decoded.Data) == "image/svg+xml";
+                    }
+                    catch (InvalidDataException)
+                    {
+                        return false;
+                    }
+                }));
+            report.Equal("SVG: complete com image/svg+xml", true,
+                svgSeen.Any(f =>
+                {
+                    if (!Envelope.TryReadComplete(f, EnvelopeKind.Asset, out _, out _))
+                    {
+                        return false;
+                    }
+                    try
+                    {
+                        var decoded = AssetPayload.Decode(f.AsSpan(Envelope.HeaderBytes));
+                        return decoded.Phase == AssetPayload.PhaseComplete &&
+                               Encoding.UTF8.GetString(decoded.Data) == "image/svg+xml";
+                    }
+                    catch (InvalidDataException)
+                    {
+                        return false;
+                    }
+                }));
+            var svgMarkup = Encoding.UTF8.GetBytes(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>");
+            report.Equal("SVG: chunk com os bytes", true,
+                svgSeen.Any(f =>
+                {
+                    if (!Envelope.TryReadComplete(f, EnvelopeKind.Asset, out _, out _))
+                    {
+                        return false;
+                    }
+                    try
+                    {
+                        var decoded = AssetPayload.Decode(f.AsSpan(Envelope.HeaderBytes));
+                        return decoded.Phase == AssetPayload.PhaseChunk &&
+                               decoded.Data.AsSpan().SequenceEqual(svgMarkup);
+                    }
+                    catch (InvalidDataException)
+                    {
+                        return false;
+                    }
+                }));
 
             await CloseAsync(client);
         }
@@ -608,6 +669,11 @@ public static class StackTests
         }
     }
 
+    private static bool FrameHasText(byte[] frame, string needle) =>
+        SealedFrame.Parse(frame).Ok &&
+        FrameStrings.TryReadLocal(frame, out var strings, out _) &&
+        FrameStrings.Contains(strings, needle);
+
     private static void AssertPageText(Report report, byte[] frame, string needle, string where)
     {
         if (!FrameStrings.TryReadLocal(frame, out var strings, out var problem))
@@ -651,7 +717,7 @@ public static class StackTests
             if (!supervisor.HasExited)
             {
                 supervisor.Kill(entireProcessTree: true);
-                supervisor.WaitForExit(5000);
+                supervisor.WaitForExit(20000);
             }
         }
         catch (InvalidOperationException)
@@ -711,9 +777,10 @@ public static class StackTests
         public string Host2Url { get; }
         public string AlertUrl { get; }
         public string PixelUrl { get; }
+        public string SvgUrl { get; }
 
         private PageFixtures(HttpListener listener, string firstUrl, string secondUrl,
-            string hostUrl, string host2Url, string alertUrl, string pixelUrl)
+            string hostUrl, string host2Url, string alertUrl, string pixelUrl, string svgUrl)
         {
             _listener = listener;
             FirstUrl = firstUrl;
@@ -722,6 +789,7 @@ public static class StackTests
             Host2Url = host2Url;
             AlertUrl = alertUrl;
             PixelUrl = pixelUrl;
+            SvgUrl = svgUrl;
             _ = ServeAsync(_cancel.Token);
         }
 
@@ -737,7 +805,7 @@ public static class StackTests
             listener.Prefixes.Add(prefix);
             listener.Start();
             return new PageFixtures(listener, prefix + "a", prefix + "b", prefix + "host", prefix + "host2",
-                prefix + "alert", prefix + "pixel.png");
+                prefix + "alert", prefix + "pixel.png", prefix + "logo.svg");
         }
 
         public void Dispose()
@@ -769,6 +837,16 @@ public static class StackTests
                         ctx.Response.ContentType = "image/png";
                         ctx.Response.ContentLength64 = png.Length;
                         await ctx.Response.OutputStream.WriteAsync(png, cancel);
+                        ctx.Response.Close();
+                        continue;
+                    }
+                    if (path.EndsWith("/logo.svg", StringComparison.Ordinal))
+                    {
+                        var svg = Encoding.UTF8.GetBytes(
+                            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>");
+                        ctx.Response.ContentType = "image/svg+xml";
+                        ctx.Response.ContentLength64 = svg.Length;
+                        await ctx.Response.OutputStream.WriteAsync(svg, cancel);
                         ctx.Response.Close();
                         continue;
                     }

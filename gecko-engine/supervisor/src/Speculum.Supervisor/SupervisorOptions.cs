@@ -33,6 +33,14 @@ public sealed record SupervisorOptions
     /// <summary>Porta do plano de consumo.</summary>
     public required int ConsumerPort { get; init; }
 
+    /// <summary>
+    /// Launch param: Kind 0x05 no Gecko. Default off se ausente (produto quieto).
+    /// </summary>
+    public required bool CapEvents { get; init; }
+
+    /// <summary>Launch param: buildMs. Só faz efeito com CapEvents.</summary>
+    public required bool CapMetrics { get; init; }
+
     public static SupervisorOptions FromEnvironment()
     {
         var executable = Environment.GetEnvironmentVariable("SPECULUM_BROWSER_BIN");
@@ -55,7 +63,15 @@ public sealed record SupervisorOptions
             ViewportWidth = ReadPort("SPECULUM_VIEWPORT_WIDTH", 1280),
             ViewportHeight = ReadPort("SPECULUM_VIEWPORT_HEIGHT", 800),
             ConsumerPort = ReadPort("SPECULUM_SUPERVISOR_PORT", 4100),
+            CapEvents = EnvFlagOn("SPECULUM_CAP_EVENTS"),
+            CapMetrics = EnvFlagOn("SPECULUM_CAP_METRICS"),
         };
+    }
+
+    private static bool EnvFlagOn(string name)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return !string.IsNullOrEmpty(raw) && raw[0] != '0';
     }
 
     private static int ReadPort(string name, int fallback)

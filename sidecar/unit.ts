@@ -67,6 +67,9 @@ import { runPortCarrierUnitTests } from './browser/mirror/projection/bus/portCar
 import { runMintHoldUnitTests } from './browser/mirror/projection/bus/mintHold.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
 import { runProjectedApplyGateUnitTests } from './browser/mirror/projection/projected/projectedApplyGate.unit';
+import { runPendingNestedHostAuditUnitTests } from './browser/mirror/projection/projected/pendingNestedHostAudit.unit';
+import { runPendingNestedHostAuditUnitTests } from './browser/mirror/projection/projected/pendingNestedHostAudit.unit';
+import { runNestedNavUnitTests } from './browser/mirror/projection/projected/nestedNav.unit';
 import { runProjectedK5UnitTests } from './browser/mirror/projection/projected/projectedK5.unit';
 import { runProjectedNativeGuardUnitTests } from './browser/mirror/projection/input/projectedNativeGuard.unit';
 import { runCdpConsoleRelayUnitTests } from './browser/patchright/cdpConsoleRelay.unit';
@@ -4463,6 +4466,8 @@ async function main(): Promise<void> {
   await runMintHoldUnitTests();
   runScriptingOnPaintParityUnitTests();
   await runProjectedApplyGateUnitTests();
+  runPendingNestedHostAuditUnitTests();
+  runNestedNavUnitTests();
   await runProjectedK5UnitTests();
   runProjectedNativeGuardUnitTests();
   runCdpConsoleRelayUnitTests();

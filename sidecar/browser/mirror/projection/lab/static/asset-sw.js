@@ -68,8 +68,11 @@ async function pageClient() {
   return clientList[0] ?? null;
 }
 
-function assetResponse(request, bytes) {
+function assetResponse(request, bytes, contentType) {
   const headers = new Headers();
+  if (contentType) {
+    headers.set('Content-Type', contentType);
+  }
   if (token) {
     headers.set(TOKEN_HEADER, token);
   }
@@ -111,5 +114,5 @@ async function proxy(request, clientId) {
   if (!msg.ok) {
     return new Response('', { status: 404, statusText: String(msg.error || 'denied') });
   }
-  return assetResponse(request, msg.bytes);
+  return assetResponse(request, msg.bytes, msg.contentType || '');
 }

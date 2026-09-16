@@ -28,6 +28,7 @@
 #include "mozilla/ServoCSSRuleList.h"
 #include "nsCOMPtr.h"
 #include "nsFrameLoaderOwner.h"
+#include "nsGkAtoms.h"
 #include "nsIDocShell.h"
 #include "nsIPrincipal.h"
 #include "nsString.h"
@@ -197,7 +198,24 @@ bool SpeculumNodeSource::isUaOwned(const void* node) const {
   if (IsCssom(node)) {
     return false;
   }
-  return AsNode(node)->IsInNativeAnonymousSubtree();
+  nsINode* n = AsNode(node);
+  if (n->IsInNativeAnonymousSubtree()) {
+    return true;
+  }
+  // shadow.md NIT: UA / SVG <use> impl shadows must not ride the author ShadowRoot wire.
+  // Gecko builds <use> via AttachShadowWithoutNameChecks (closed) without SetIsUAWidget —
+  // Chrome cannot attachShadow on svg:use; the consumer browser recreates the use tree.
+  if (auto* sr = mozilla::dom::ShadowRoot::FromNode(n)) {
+    if (sr->IsUAWidget()) {
+      return true;
+    }
+    if (Element* host = sr->GetHost()) {
+      if (host->IsSVGElement(nsGkAtoms::use)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 bool SpeculumNodeSource::isNestedHost(const void* node) const {
@@ -244,7 +262,14 @@ const void* SpeculumNodeSource::shadowRootOf(const void* host) const {
     return nullptr;
   }
   Element* el = Element::FromNode(AsNode(host));
-  return el ? el->GetShadowRoot() : nullptr;
+  if (!el) {
+    return nullptr;
+  }
+  mozilla::dom::ShadowRoot* sr = el->GetShadowRoot();
+  if (!sr || isUaOwned(sr)) {
+    return nullptr;
+  }
+  return sr;
 }
 
 const void* SpeculumNodeSource::shadowHostOf(const void* shadowRoot) const {
@@ -367,10 +392,12 @@ void SpeculumNodeSource::CaptureLiveCssom() {
     }
     if (node->IsElement()) {
       if (mozilla::dom::ShadowRoot* sr = node->AsElement()->GetShadowRoot()) {
-        walkRoot(sr);
-        for (nsIContent* child = sr->GetFirstChild(); child;
-             child = child->GetNextSibling()) {
-          self(self, child);
+        if (!isUaOwned(sr)) {
+          walkRoot(sr);
+          for (nsIContent* child = sr->GetFirstChild(); child;
+               child = child->GetNextSibling()) {
+            self(self, child);
+          }
         }
       }
     }
@@ -432,6 +459,24 @@ void SpeculumNodeSource::NoteRule(const void* aSheet, const void* aRule,
                                   const std::string& aText) {
   if (!aRule) {
     return;
+  }
+  // Projected applies on Chromium. Firefox-only selectors/at-rules fail
+  // CSSStyleSheet.insertRule there and abort the whole resync frame.
+  // Nested under @media/@supports Chromium still parses the wrapper; skip only
+  // top-level offenders. Paint for these rules stays Virtual-only (NIT gap).
+  {
+    size_t i = 0;
+    while (i < aText.size() &&
+           (aText[i] == ' ' || aText[i] == '\n' || aText[i] == '\r' ||
+            aText[i] == '\t')) {
+      ++i;
+    }
+    const bool topLevelAt = i < aText.size() && aText[i] == '@';
+    if ((!topLevelAt && (aText.find("::-moz-") != std::string::npos ||
+                         aText.find(":-moz-") != std::string::npos)) ||
+        (i + 6 <= aText.size() && aText.compare(i, 6, "@-moz-") == 0)) {
+      return;
+    }
   }
   mRuleSheet[aRule] = aSheet;
   mRuleText[aRule] = aText;

@@ -102,6 +102,9 @@ class Producer {
   std::vector<uint8_t> emitResyncFrame() {
     discardPending();
     adoptReadyPendingHosts();
+    // Force 0 (mapa intacto) também precisa das sheets vivas que o source
+    // acabou de capturar — senão só entra o que já passou por onSheetAdded.
+    allocateCssom();
 
     const uint32_t seq = sequence_ + 1;
     table_.reset();
@@ -421,14 +424,25 @@ class Producer {
     return kInsertAtEnd;
   }
 
+  // "Já indexado" (§5.5) = linha na tabela com NODE_NEW, não só id em onInserted.
+  // onInserted reserva o id cedo; sem esta distinção o walk do pai emite INSERT
+  // do filho antes do NODE_NEW (Beleza/criteo: pai+filho no mesmo tick).
   void ensureDescribed(const void* node) {
     if (ids_.known(node, KeySpace::Node)) {
       const uint32_t id = ids_.idOf(node, KeySpace::Node);
       const Row* row = table_.getRow(id);
       const auto kind = static_cast<uint32_t>(source_.kindOf(node));
       if (row && row->kind == kind) return;
-      // Mesmo endereço, outro nó: o alocador reusou o ponteiro. Id velho não cola.
-      retireDetached(id);
+      if (row) {
+        // Mesmo endereço, outro nó: o alocador reusou o ponteiro. Id velho não cola.
+        retireDetached(id);
+      } else {
+        // Id reservado em onInserted; ainda sem NODE_NEW — emite com o id já mintado.
+        emitNodeNew(node, id);
+        attachShadow(node);
+        describeAndInsertChildren(node, id);
+        return;
+      }
     }
     describe(node);
     describeAndInsertChildren(node, ids_.idOf(node, KeySpace::Node));
@@ -617,10 +631,9 @@ class Producer {
   void attachShadow(const void* host) {
     const void* sr = source_.shadowRootOf(host);
     if (!sr || source_.isUaOwned(sr)) return;
-    if (!ids_.known(sr, KeySpace::Node)) {
-      describe(sr);
-      describeAndInsertChildren(sr, ids_.idOf(sr, KeySpace::Node));
-    }
+    const uint32_t id = ids_.idOf(sr, KeySpace::Node);
+    if (id != kNone && table_.getRow(id)) return;
+    ensureDescribed(sr);
   }
 
   void retireDetached(uint32_t id) {
@@ -799,11 +812,16 @@ class Producer {
         notePendingHost(parent, child);
         continue;
       }
-      if (!ids_.known(child, KeySpace::Node)) {
-        describe(child);
-        describeAndInsertChildren(child, ids_.idOf(child, KeySpace::Node));
+      // §5.5: identity hit só conta se a linha já existe (NODE_NEW feito).
+      // Id só de onInserted ainda precisa de describe antes do INSERT.
+      uint32_t id = ids_.idOf(child, KeySpace::Node);
+      const Row* row = id != kNone ? table_.getRow(id) : nullptr;
+      if (!row || row->kind != static_cast<uint32_t>(source_.kindOf(child))) {
+        ensureDescribed(child);
+        id = ids_.idOf(child, KeySpace::Node);
+        if (id == kNone || !table_.getRow(id)) continue;
       }
-      batch.push_back(ids_.idOf(child, KeySpace::Node));
+      batch.push_back(id);
     }
     if (batch.empty()) return;
     builder_.insert(parentId, kInsertAtEnd, batch);

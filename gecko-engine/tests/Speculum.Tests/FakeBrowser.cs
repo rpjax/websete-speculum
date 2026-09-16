@@ -486,11 +486,17 @@ public static class FakeBrowser
         var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
         await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(1, AssetPayload.PhaseChunk, 0, png), token)
             .ConfigureAwait(false);
-        await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(1, AssetPayload.PhaseComplete, (ulong)png.Length, []), token)
+        await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(1, AssetPayload.PhaseComplete, (ulong)png.Length, "image/png"u8.ToArray()), token)
+            .ConfigureAwait(false);
+        var svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>"u8.ToArray();
+        await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(4, AssetPayload.PhaseChunk, 0, svg), token)
+            .ConfigureAwait(false);
+        await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(4, AssetPayload.PhaseComplete, (ulong)svg.Length, "image/svg+xml"u8.ToArray()), token)
             .ConfigureAwait(false);
         await writer.WriteAsync(EnvelopeKind.Asset, contextId, AssetPayload.Encode(2, AssetPayload.PhaseDenied, 0, "text/html"u8.ToArray()), token)
             .ConfigureAwait(false);
         journal.Write("asset-chunk", "png");
+        journal.Write("asset-complete-mime", "image/svg+xml");
         journal.Write("asset-denied", "html");
     }
 

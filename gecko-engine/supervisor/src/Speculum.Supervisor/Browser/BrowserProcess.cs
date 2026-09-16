@@ -46,6 +46,10 @@ public sealed class BrowserProcess : IDisposable
         }
 
         var profile = _options.BrowserProfile ?? _temporaryProfile!;
+        // Toda sessão: prefs de produto (uma aba / sem first-run). Lab overlays
+        // (ex. webgl-normal) ficam no user.js do perfil; o bloco de produto é
+        // reescrito no fim para não depender de path de lab.
+        ProductProfilePrefs.EnsureInProfile(profile);
 
         var info = new ProcessStartInfo(_options.BrowserExecutable)
         {
@@ -70,6 +74,9 @@ public sealed class BrowserProcess : IDisposable
         // ContentParent lê para escolher o destino do frame.
         info.Environment["SPECULUM_BROWSER_SOCKET"] = _options.BrowserSocketPath;
         info.Environment["MOZ_CRASHREPORTER_DISABLE"] = "1";
+        // Caps lidos uma vez no start do Firefox (SpeculumCaps). Launch params.
+        info.Environment["SPECULUM_CAP_EVENTS"] = _options.CapEvents ? "1" : "0";
+        info.Environment["SPECULUM_CAP_METRICS"] = _options.CapMetrics ? "1" : "0";
 
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

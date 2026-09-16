@@ -69,6 +69,18 @@ const PROJECTED_DOCUMENT_BASE_ATTR = 'data-speculum-document-base';
  * environment, not a replicated node. Relative `src`/`href`/`url()` then
  * resolve to the site origin so the asset SW can intercept (doc 13).
  */
+/** Init for `new CSSStyleSheet({ baseURL })` — same origin the `<base>` stamps. */
+export function constructedStyleSheetInit(
+  pageUrl?: string,
+): { baseURL: string } | undefined {
+  if (!pageUrl) return undefined;
+  try {
+    return { baseURL: new URL(pageUrl).href };
+  } catch {
+    return undefined;
+  }
+}
+
 export function ensureProjectedDocumentBase(doc: Document, pageUrl: string): void {
   if (!pageUrl) return;
   const head = doc.head;
@@ -162,11 +174,14 @@ export function whenProjectedStandardsReady(
   return new Promise((resolve, reject) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let raf = 0;
 
     const settle = (fn: () => void): void => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
+      raf = 0;
       iframe.removeEventListener('load', onLoad);
       signal?.removeEventListener('abort', onAbort);
       fn();
@@ -182,6 +197,9 @@ export function whenProjectedStandardsReady(
 
     const onLoad = (): void => {
       if (adopt()) return;
+      // First load is often the transient about:blank before srcdoc commits.
+      // Same-value srcdoc restamp is a no-op — keep waiting, do not fail-closed.
+      if (iframe.srcdoc === PROJECTED_STANDARDS_SRCDOC) return;
       settle(() =>
         reject(
           fault(
@@ -212,6 +230,18 @@ export function whenProjectedStandardsReady(
 
     iframe.addEventListener('load', onLoad);
     signal?.addEventListener('abort', onAbort, { once: true });
+
+    // `load` can fire before this waiter is attached (NODE_NEW stamp → INSERT
+    // → then installNestedHost). Poll the skeleton predicate until birth or timeout.
+    const poke = (): void => {
+      if (settled) return;
+      if (adopt()) return;
+      if (typeof requestAnimationFrame === 'function') {
+        raf = requestAnimationFrame(poke);
+      }
+    };
+    poke();
+
     timer = setTimeout(() => {
       settle(() =>
         reject(

@@ -305,7 +305,43 @@ int main() {
     if (stillSheet && stillSheet->kind == static_cast<uint32_t>(NodeKind::Element)) {
       return Fail("ATTR_SET reescreveu a sheet como ELEMENT");
     }
+    if (p2.identity().keyOf(sheetId).space != KeySpace::Sheet) {
+      return Fail("sheetId nao e KeySpace::Sheet");
+    }
+    if (p2.identity().keyOf(nodeId).space != KeySpace::Node) {
+      return Fail("nodeId nao e KeySpace::Node");
+    }
   }
   std::cout << "ok: ponteiro reusado CSSOM/DOM nao cola id\n";
+
+  {
+    FakeDom quiet;
+    FakeNode* document = quiet.makeElement("#document");
+    FakeNode* html = quiet.makeElement("html");
+    quiet.setDocument(document);
+    quiet.append(document, html);
+    Producer p3(quiet, kContextIdRoot, 0);
+    if (p3.resyncVirtual(document).empty()) return Fail("quiet boot vazio");
+    FakeNode* late = quiet.makeSheet("late");
+    FakeNode* lateRule = quiet.makeRule(late, "body { margin: 0; }");
+    (void)lateRule;
+    auto force0 = p3.emitResyncFrame();
+    if (force0.empty()) return Fail("force0 sem onSheetAdded saiu vazio");
+    const uint32_t lateId = p3.identity().idOf(late, KeySpace::Sheet);
+    if (lateId == kNone) return Fail("force0 nao mintou sheet viva");
+    const Row* lateRow = p3.table().getRow(lateId);
+    if (!lateRow || lateRow->kind != static_cast<uint32_t>(NodeKind::Sheet)) {
+      return Fail("force0 nao descreveu a sheet viva");
+    }
+    bool sawSheet = false;
+    for (uint8_t b : force0) {
+      if (b == static_cast<uint8_t>(Op::SheetNew)) {
+        sawSheet = true;
+        break;
+      }
+    }
+    if (!sawSheet) return Fail("force0 nao emitiu SHEET_NEW");
+  }
+  std::cout << "ok: resync force 0 descreve CSSOM que nao passou por onSheetAdded\n";
   return 0;
 }

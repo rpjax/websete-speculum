@@ -30,6 +30,8 @@ export SPECULUM_BROWSER_BIN="$FIREFOX"
 export SPECULUM_SUPERVISOR_BIN="$WRAP"
 export SPECULUM_LAB_HOST=127.0.0.1
 export SPECULUM_LAB_PORT=4077
+# Lab: Virtual com janela. Headless só se o caller exportar 1.
+export SPECULUM_BROWSER_HEADLESS="${SPECULUM_BROWSER_HEADLESS:-0}"
 
-echo "lab: http://127.0.0.1:4077/  firefox=$FIREFOX"
+echo "lab: http://127.0.0.1:4077/  firefox=$FIREFOX  headless=$SPECULUM_BROWSER_HEADLESS"
 exec /root/.dotnet/dotnet run --project src/Speculum.Lab --no-build -c Release

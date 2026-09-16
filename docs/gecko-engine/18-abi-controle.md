@@ -26,7 +26,7 @@ u32  Length        bytes de payload
 | 0x02 | Event | browser → supervisor | mensagem de controle (§2) |
 | 0x03 | Hello | browser → supervisor | vazio |
 | 0x04 | Command | supervisor → browser | mensagem de controle (§2) |
-| 0x05 | Telemetry | browser → supervisor | `u16 catalogId` + `bytes` opacos. Supervisor encaminha; não parseia. Default off (`SPECULUM_CAP_EVENTS`). |
+| 0x05 | Telemetry | browser → supervisor | `u16 catalogId` + `bytes` opacos. Supervisor encaminha; não parseia. Default off (`SPECULUM_CAP_EVENTS`). Caps = **launch params** no create do par (lab/`browse.start.telemetry` → env supervisor → Firefox); sem toggle runtime. Ver [lab-debug-surface.md](lab-debug-surface.md). |
 | 0x06 | Asset | **mão dupla** | `u32 streamId`, `u8` fase (`0 request` / `1 chunk` / `2 denied` / `3 complete`), `u64 offset`, `bytes`. Recusa HTML/JS/CSS/XHR é fase `denied` no falso/Gecko, não MIME no supervisor. |
 
 O `ContextId` viaja **no envelope**. É isso que permite ao supervisor rotear sem

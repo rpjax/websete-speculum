@@ -37,11 +37,15 @@ app.Map("/session", async (HttpContext context) =>
     await hub.ServeAsync(socket, context.RequestAborted);
 });
 
-app.MapGet("/health", () => TypedResults.Json(new HealthResponse(true, hub.Count), SupervisorJsonContext.Default.HealthResponse));
+app.MapGet("/health", () => TypedResults.Json(
+    new HealthResponse(true, hub.Count, hub.FramesDropped, options.CapEvents, options.CapMetrics),
+    SupervisorJsonContext.Default.HealthResponse));
 
 app.Logger.LogInformation(
-    "supervisor: consumidores em :{Port}/session · browser em {Socket}",
+    "supervisor: consumidores em :{Port}/session · browser em {Socket} · caps.events={Events} caps.metrics={Metrics}",
     options.ConsumerPort,
-    options.BrowserSocketPath);
+    options.BrowserSocketPath,
+    options.CapEvents,
+    options.CapMetrics);
 
 app.Run();

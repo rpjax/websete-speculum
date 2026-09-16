@@ -50,7 +50,11 @@ let gecko = false;
 let corr = 1;
 const pendingAssets = new Map<
   number,
-  { chunks: Uint8Array[]; resolve: (r: Response) => void; reject: (e: Error) => void }
+  {
+    chunks: Uint8Array[];
+    resolve: (r: Response) => void;
+    reject: (e: Error) => void;
+  }
 >();
 let nextStream = 1;
 let swReg: ServiceWorkerRegistration | null = null;
@@ -179,7 +183,12 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
       body.set(c, o);
       o += c.length;
     }
-    pending.resolve(new Response(body));
+    const mime = data.length ? new TextDecoder().decode(data) : '';
+    const headers = new Headers();
+    if (mime) {
+      headers.set('Content-Type', mime);
+    }
+    pending.resolve(new Response(body, { headers }));
   }
 }
 
@@ -203,7 +212,11 @@ export function wireGeckoSwFetch(ws: WebSocket, ctx: number): void {
     void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? '', msg.range ?? '').then(
       async (res) => {
         const buf = new Uint8Array(await res.arrayBuffer());
-        ev.source?.postMessage({ type: 'asset', id: msg.id, ok: true, bytes: buf.buffer }, { transfer: [buf.buffer] });
+        const contentType = res.headers.get('Content-Type') || '';
+        ev.source?.postMessage(
+          { type: 'asset', id: msg.id, ok: true, bytes: buf.buffer, contentType },
+          { transfer: [buf.buffer] },
+        );
       },
       (err: Error) => {
         ev.source?.postMessage({ type: 'asset', id: msg.id, ok: false, error: err.message });

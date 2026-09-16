@@ -23,6 +23,17 @@ public sealed class BrowserLink(
     private readonly ContextTable _contexts = new();
     private ControlChannel? _control;
     private CancellationToken _sessionToken;
+    /// <summary>
+    /// Root document commit (Navigated) completed. Resync before this dumps about:blank;
+    /// resync on every consumer attach + every Navigated duplicates wholesale rebuilds
+    /// and collides with the live tick stream (Eneba/Beleza-class desync storms).
+    /// </summary>
+    private bool _rootNavigationCommitted;
+    /// <summary>One wholesale resync per navigation intent — not every redirect Navigated.</summary>
+    private bool _awaitingRootNavigatedResync;
+
+    /// <summary>Última URL de Navigated na raiz — follow-on (challenge→loja) também resynca.</summary>
+    private string _lastRootNavigatedUrl = "";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -170,26 +181,52 @@ public sealed class BrowserLink(
                     "contexto {ContextId} criado (browsingContext {Bc})",
                     message.ContextId,
                     message.BrowsingContextId);
+                consumers.BroadcastEnvelope(EnvelopeKind.BrowserEvent, message.ContextId, payload);
 
                 var url = _contexts.TryGet(message.ContextId, out var entry) && entry.Url.Length > 0
                     ? entry.Url
                     : options.BrowserUrl;
+                MarkRootNavigationPending(message.ContextId);
+                logger.LogInformation(
+                    "Navigate frio após ContextCreated ctx={ContextId} url={Url}",
+                    message.ContextId,
+                    url);
                 _ = NavigateAsync(message.ContextId, url);
-                if (consumers.Count > 0)
-                {
-                    _ = ResyncAsync(message.ContextId);
-                }
-
                 break;
             }
 
             case ControlOpCode.ContextDestroyed:
+                if (_contexts.TryGetRoot(out var destroyed) && destroyed.ContextId == message.ContextId)
+                {
+                    _rootNavigationCommitted = false;
+                }
                 _contexts.Remove(message.ContextId);
                 logger.LogInformation("contexto {ContextId} destruído", message.ContextId);
                 break;
 
             case ControlOpCode.Navigated:
                 logger.LogInformation("contexto {ContextId} navegou para {Url}", message.ContextId, message.Text);
+                // Consumidor precisa ver a URL commitada (oráculo de estado / lab).
+                consumers.BroadcastEnvelope(EnvelopeKind.BrowserEvent, message.ContextId, payload);
+                // O resync no ContextCreated dumpava about:blank. A tabela viva
+                // só existe depois do Navigate ter commitado.
+                if (_contexts.TryGetRoot(out var rootNav) && rootNav.ContextId == message.ContextId)
+                {
+                    _rootNavigationCommitted = true;
+                    var url = message.Text ?? "";
+                    var urlChanged = !string.Equals(url, _lastRootNavigatedUrl, StringComparison.Ordinal);
+                    _lastRootNavigatedUrl = url;
+                    if (consumers.Count > 0 &&
+                        (_awaitingRootNavigatedResync || urlChanged))
+                    {
+                        _awaitingRootNavigatedResync = false;
+                        _ = ResyncAsync(message.ContextId);
+                    }
+                }
+                else if (consumers.Count > 0)
+                {
+                    _ = ResyncAsync(message.ContextId);
+                }
                 break;
 
             case ControlOpCode.Fault:
@@ -248,6 +285,7 @@ public sealed class BrowserLink(
                 }
 
                 logger.LogInformation("consumidor pediu navegação do contexto {ContextId} para {Url}", requested, url);
+                MarkRootNavigationPending(requested);
                 _ = NavigateAsync(requested, url);
                 break;
             }
@@ -391,7 +429,13 @@ public sealed class BrowserLink(
 
         try
         {
-            var command = ControlCommand.Navigate(channel.NextId(), contextId, url);
+            var correlationId = channel.NextId();
+            logger.LogInformation(
+                "Navigate enviado corr={CorrelationId} ctx={ContextId} url={Url}",
+                correlationId,
+                contextId,
+                url);
+            var command = ControlCommand.Navigate(correlationId, contextId, url);
             await channel.SendAsync(command, contextId, _sessionToken).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -402,9 +446,26 @@ public sealed class BrowserLink(
 
     private void OnConsumerAttached()
     {
+        // Late attach: consumer missed the Navigated resync — one wholesale map now.
+        // Before root commit, Navigated will resync; skip about:blank dump here.
+        if (!_rootNavigationCommitted)
+        {
+            return;
+        }
+
         if (_contexts.TryGetRoot(out var root) && root.BrowsingContextId != 0)
         {
             _ = ResyncAsync(root.ContextId);
+        }
+    }
+
+    private void MarkRootNavigationPending(uint contextId)
+    {
+        if (_contexts.TryGetRoot(out var root) && root.ContextId == contextId)
+        {
+            _rootNavigationCommitted = false;
+            _awaitingRootNavigatedResync = true;
+            _lastRootNavigatedUrl = "";
         }
     }
 

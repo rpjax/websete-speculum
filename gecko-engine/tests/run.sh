@@ -93,6 +93,10 @@ if [ -f "$HERE/projected-sw/assetSw.test.ts" ]; then
   banner "K5 — SW projected (unit)"
   npx --yes tsx "$HERE/projected-sw/assetSw.test.ts"
 fi
+if [ -f "$HERE/projected-sw/documentBase.test.ts" ]; then
+  banner "K5 — base da pagina projetada"
+  npx --yes tsx "$HERE/projected-sw/documentBase.test.ts"
+fi
 
 # ---- L1 (C++): o codec REAL compilado fora do Gecko contra os vetores de ouro ----
 banner "L1 (C++) — ABI de controle standalone"

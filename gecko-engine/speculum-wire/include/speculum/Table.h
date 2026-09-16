@@ -330,11 +330,16 @@ class ReplicatedTable {
     setRow(id, row->kind, row->parent, prevSibling, row->contentHash);
   }
 
+  // INSERT exige linha já criada por NODE_NEW (frame-protocol.md §4.3 / §5.5).
+  // Criar stub aqui mascara o bug do produtor (id reservado sem NODE_NEW) e o
+  // cliente rejeita o fio com "INSERT id missing".
   void linkAfter(uint32_t id, uint32_t parent, uint32_t prevId) {
-    const Row* row = getRow(id);
-    uint32_t kind = row ? row->kind : static_cast<uint32_t>(NodeKind::Element);
-    uint64_t contentHash = row ? row->contentHash : 0;
-    setRow(id, kind, parent, prevId, contentHash);
+    Row* row = mutableRow(id);
+    if (!row) {
+      SPECULUM_FATAL("ReplicatedTable: INSERT de id sem NODE_NEW (frame-protocol.md §4.3)");
+      return;
+    }
+    setRow(id, row->kind, parent, prevId, row->contentHash);
     if (prevId != kNone) nextSiblingOf_[prevId] = id;
   }
 

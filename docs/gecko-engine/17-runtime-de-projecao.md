@@ -108,9 +108,13 @@ sabe.
 - a escuta de progresso da aba (`nsIWebProgress` da Canonical): `ContextCreated`
   quando a aba está quieta, `Navigated` no commit da carga pedida (START+STOP,
   não o STOP da carga anterior), `LoadStateChanged` no vai-e-vem da rede.
-  A janela abre **sem** URI de conteúdo: `arguments[0]` preenchido (mesmo
-  `about:blank`) faz o chrome carregar depois do `ContextCreated` e mata o
-  `Navigate` da sessão.
+  **Boot (doc 03):** a aplicação deixa **exatamente uma** `navigator:browser`
+  pronta e só então manda `Ready`. No Firefox: adotar a chrome de startup se já
+  existir, senão criar `about:blank`; fechar extras até `browsers=1`; raise/foco;
+  aí `Ready`. Depois do Ready o invariante continua (chrome nova que não é a da
+  sessão fecha). O supervisor, ao ouvir `Ready`, pede `ContextCreate` — que
+  **associa** a sessão a essa chrome (viewport + `C`), sem abrir janela. Quem
+  navega é o `Navigate` (com raise para o documento ficar visível).
 - a entrada de frames vindos dos processos de conteúdo
 - o vocabulário de controle nos dois sentidos (`12-ponte-controle-vocabulario.md`)
 - o ciclo de vida da sessão

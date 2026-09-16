@@ -40,6 +40,8 @@ app.MapGet("/", () => ServeStatic(options.StaticDirectory, "client.html", MediaT
 app.MapGet("/index.html", () => ServeStatic(options.StaticDirectory, "client.html", MediaTypeNames.Text.Html));
 app.MapGet("/client.js", () => ServeStatic(options.StaticDirectory, "client.js", "text/javascript"));
 app.MapGet("/lab/client.js", () => ServeStatic(options.StaticDirectory, "client.js", "text/javascript"));
+app.MapGet("/lab/diag-f1.bin", () => ServeStatic(options.StaticDirectory, "diag-f1.bin", "application/octet-stream"));
+app.MapGet("/lab/diag-f3.bin", () => ServeStatic(options.StaticDirectory, "diag-f3.bin", "application/octet-stream"));
 app.MapGet("/lab/asset-sw.js", async (HttpContext http) =>
 {
     var root = Path.GetFullPath(options.StaticDirectory);
@@ -78,21 +80,35 @@ app.MapGet("/favicon.ico", () => Results.NoContent());
 
 // Diagnóstico do F1 em um GET. Quem responde "chegou frame?" é a ferramenta,
 // não a pessoa olhando a tela.
-app.MapGet("/lab/health", () => Results.Json(new
+app.MapGet("/lab/health", () =>
 {
-    ok = true,
-    protocolVersion = Speculum.Lab.Protocol.LabProtocol.Version,
-    supervisor = upstream.Connected ? "connected" : "disconnected",
-    sessionRunning = sessions.Running,
-    framesFromSupervisor = upstream.FramesReceived,
-    bytesFromSupervisor = upstream.BytesReceived,
-    sessions = liveSessions.Values.Select(s => new
+    var launch = sessions.LastLaunch;
+    return Results.Json(new
     {
-        id = s.Id,
-        streaming = s.Streaming,
-        framesForwarded = s.FramesForwarded,
-    }).ToArray(),
-}));
+        ok = true,
+        protocolVersion = Speculum.Lab.Protocol.LabProtocol.Version,
+        engine = "gecko",
+        supervisor = upstream.Connected ? "connected" : "disconnected",
+        sessionRunning = sessions.Running,
+        messagesFromSupervisor = upstream.MessagesReceived,
+        projectionFramesFromSupervisor = upstream.ProjectionFramesReceived,
+        telemetryEnvelopesFromSupervisor = upstream.TelemetryEnvelopesReceived,
+        bytesFromSupervisor = upstream.BytesReceived,
+        framesFromSupervisor = upstream.ProjectionFramesReceived,
+        caps = launch is null
+            ? null
+            : new { events = launch.CapEvents, metrics = launch.CapMetrics },
+        sessions = liveSessions.Values.Select(s => new
+        {
+            id = s.Id,
+            streaming = s.Streaming,
+            framesForwarded = s.FramesForwarded,
+            bootedReady = s.BootedReady,
+            caps = new { events = s.CapEvents, metrics = s.CapMetrics },
+            journal = s.Journal.Stats(s.CapEvents, s.CapMetrics),
+        }).ToArray(),
+    });
+});
 
 app.MapGet("/lab/config.json", () => Results.Json(new { crossOriginOrigin = (string?)null }));
 

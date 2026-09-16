@@ -240,6 +240,19 @@ export async function createLabServer(opts: LabServerOptions): Promise<LabServer
         fs.createReadStream(clientJs).pipe(res);
         return;
       }
+      if (/^\/lab\/diag-f\d+\.bin$/.test(pathname)) {
+        const file = path.join(staticDir, path.basename(pathname));
+        if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+          res.writeHead(404).end('not found');
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Cache-Control': 'no-store',
+        });
+        fs.createReadStream(file).pipe(res);
+        return;
+      }
       if (pathname.startsWith('/virtual.js') || pathname.startsWith('/__speculum/virtual.js')) {
         const candidates = [
           path.join(process.cwd(), 'dist', 'browser', 'mirror', 'projection', 'virtual.js'),

@@ -32,7 +32,7 @@ export {
   type FrameOp,
 } from './frame';
 export { ContextIdMint } from './contextIdMint';
-export { isNestedHostNavAttr } from './nestedNav';
+export { ensureNestedHostSandboxAccess, isNestedHostNavAttr } from './nestedNav';
 export {
   decodeFramePart,
   peekFrameHeader,

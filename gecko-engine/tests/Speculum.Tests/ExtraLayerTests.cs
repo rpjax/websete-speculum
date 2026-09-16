@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using Speculum.Supervisor.Control;
 using Speculum.Supervisor.Wire;
 
@@ -20,6 +21,8 @@ public static class ExtraLayerTests
         Console.WriteLine("L3 extra — tee, PP, input, marionete, ativos");
 
         TeeUnit(report);
+        LabSnapshotMap(report);
+        CatalogTelemetryTests.Run(report);
         await LayerAsync(report, "pp", PpAsync);
         await LayerAsync(report, "marionette", MarionetteAsync);
         await LayerAsync(report, "assets", AssetsAsync);
@@ -64,8 +67,28 @@ public static class ExtraLayerTests
         report.Equal("tee buraco no offset lanca", true, threw);
     }
 
+    /// <summary>
+    /// JSON do lab (`client.snapshot`) vira o mesmo ABI que o L4 já manda.
+    /// LabSessionConnection chama exatamente este encode.
+    /// </summary>
+    private static void LabSnapshotMap(Report report)
+    {
+        using var doc = JsonDocument.Parse("""{"type":"client.snapshot","contextId":4}""");
+        report.Equal("lab snapshot type", "client.snapshot", doc.RootElement.GetProperty("type").GetString());
+        var contextId = doc.RootElement.GetProperty("contextId").GetUInt32();
+        var command = ControlCommand.Snapshot(0, contextId);
+        var reader = new ControlReader(command);
+        report.Equal("lab snapshot opcode", ControlOpCode.Snapshot, reader.OpCode);
+        report.Equal("lab snapshot ctx", 4u, reader.ReadUInt32());
+    }
+
     private static async Task PpAsync(Report report, Session s)
     {
+        report.Equal("primeiro navigate é a URL do env", true,
+            await s.WaitJournal("navigate", "url=https://wiring.test/extra", TimeSpan.FromSeconds(15)));
+        report.Equal("primeiro navigate não é blank", true,
+            !(await s.WaitJournal("navigate", "about:blank", TimeSpan.FromMilliseconds(0))));
+
         var frame = await ReceiveUntilAsync(s.Client, bytes => bytes.Length >= 4 && bytes[0] == 0x50 && bytes[1] == 0x50, TimeSpan.FromSeconds(15));
         report.Equal("L3-PP frame PP no WS", true, frame is not null);
 
@@ -75,9 +98,12 @@ public static class ExtraLayerTests
         await s.Client.SendAsync(ControlCommand.FlushFrame(2, 0), WebSocketMessageType.Binary, true, CancellationToken.None);
         report.Equal("Flush chega ao browser", true, await s.WaitJournal("flush", "", TimeSpan.FromSeconds(10)));
 
-        await s.Client.SendAsync(ControlCommand.Snapshot(3, 0), WebSocketMessageType.Binary, true, CancellationToken.None);
+        using var labSnap = JsonDocument.Parse("""{"type":"client.snapshot","contextId":0}""");
+        var labCtx = labSnap.RootElement.GetProperty("contextId").GetUInt32();
+        await s.Client.SendAsync(ControlCommand.Snapshot(3, labCtx), WebSocketMessageType.Binary, true, CancellationToken.None);
         var snap = await ReceiveUntilAsync(s.Client, IsOpcode(ControlOpCode.SnapshotServed), TimeSpan.FromSeconds(10));
         report.Equal("SnapshotServed no WS", true, snap is not null);
+        report.Equal("snapshot no diário", true, await s.WaitJournal("snapshot", "", TimeSpan.FromSeconds(10)));
         if (snap is not null)
         {
             var payload = UnwrapEvent(snap);
@@ -149,6 +175,23 @@ public static class ExtraLayerTests
     {
         var chunk = await ReceiveUntilAsync(s.Client, IsKind(EnvelopeKind.Asset, AssetPayload.PhaseChunk), TimeSpan.FromSeconds(15));
         report.Equal("asset chunk no WS", true, chunk is not null);
+        var complete = await ReceiveUntilAsync(s.Client, IsKind(EnvelopeKind.Asset, AssetPayload.PhaseComplete), TimeSpan.FromSeconds(10));
+        report.Equal("asset complete no WS", true, complete is not null);
+        if (complete is not null)
+        {
+            var decoded = AssetPayload.Decode(UnwrapKind(complete));
+            report.Equal("complete MIME", "image/png", Encoding.UTF8.GetString(decoded.Data));
+        }
+        var svgComplete = await ReceiveUntilAsync(s.Client, bytes =>
+        {
+            if (!IsKind(EnvelopeKind.Asset, AssetPayload.PhaseComplete)(bytes))
+            {
+                return false;
+            }
+            var decoded = AssetPayload.Decode(UnwrapKind(bytes));
+            return Encoding.UTF8.GetString(decoded.Data) == "image/svg+xml";
+        }, TimeSpan.FromSeconds(10));
+        report.Equal("SVG complete MIME", true, svgComplete is not null);
         var denied = await ReceiveUntilAsync(s.Client, IsKind(EnvelopeKind.Asset, AssetPayload.PhaseDenied), TimeSpan.FromSeconds(10));
         report.Equal("HTML denied no WS", true, denied is not null);
         if (denied is not null)
@@ -247,6 +290,8 @@ public static class ExtraLayerTests
         info.ArgumentList.Add(supervisorDll);
         info.Environment["SPECULUM_BROWSER_BIN"] = browserBin;
         info.Environment["SPECULUM_BROWSER_URL"] = "https://wiring.test/extra";
+        info.Environment["SPECULUM_CAP_EVENTS"] = "1";
+        info.Environment["SPECULUM_CAP_METRICS"] = "1";
         info.Environment["SPECULUM_SUPERVISOR_PORT"] = port.ToString();
         info.Environment["SPECULUM_BROWSER_SOCKET"] = socketPath;
         info.Environment["SPECULUM_TESTS_ROLE"] = "fake-browser";

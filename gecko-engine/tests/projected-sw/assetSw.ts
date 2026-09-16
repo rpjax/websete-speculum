@@ -15,6 +15,18 @@ export function stampAssetHeaders(
   return { ...headers, [ASSET_TOKEN_HEADER]: token };
 }
 
+/** MIME do canal no complete — sem isto SVG no <img> fica 0×0. */
+export function assetResponseHeaders(
+  token: string,
+  contentType: string,
+): Record<string, string> {
+  const headers = stampAssetHeaders({}, token);
+  if (contentType) {
+    headers['content-type'] = contentType;
+  }
+  return headers;
+}
+
 /** Destino do pedido (SW). Dúvida = 0 = recusa no pai. */
 export function classifyFetchDestination(destination: string): number {
   switch (destination) {

@@ -307,6 +307,36 @@ int main() {
   }
   std::cout << "ok: PROP amostrado no drain\n";
 
+  // --- Pai + filho no mesmo tick: onInserted reserva id do filho antes do NODE_NEW.
+  // describeAndInsertChildren do pai NÃO pode INSERT sem NODE_NEW (§5.5 / Beleza criteo). ---
+  {
+    FakeNode* wrap = dom.makeElement("wrap-same-tick");
+    FakeNode* inner = dom.makeElement("inner-same-tick");
+    FakeNode* leaf = dom.makeText("leaf-same-tick");
+    dom.append(inner, leaf);
+    dom.append(wrap, inner);
+    dom.append(body, wrap);
+    p.onInserted(body, wrap);
+    p.onInserted(wrap, inner);
+    p.onInserted(inner, leaf);
+    auto f = p.emitFrame();
+    if (f.empty()) return Fail("pai+filho mesmo tick nao emitiu");
+    const uint32_t wrapId = p.identity().idOf(wrap);
+    const uint32_t innerId = p.identity().idOf(inner);
+    const uint32_t leafId = p.identity().idOf(leaf);
+    if (wrapId == kNone || innerId == kNone || leafId == kNone) {
+      return Fail("pai+filho mesmo tick sem id");
+    }
+    if (!p.table().getRow(wrapId) || !p.table().getRow(innerId) || !p.table().getRow(leafId)) {
+      return Fail("pai+filho mesmo tick sem linha (NODE_NEW faltou)");
+    }
+    auto kids = p.table().orderedChildIds(wrapId);
+    if (kids.size() != 1 || kids[0] != innerId) return Fail("wrap sem inner na tabela");
+    auto innerKids = p.table().orderedChildIds(innerId);
+    if (innerKids.size() != 1 || innerKids[0] != leafId) return Fail("inner sem leaf na tabela");
+  }
+  std::cout << "ok: pai+filho mesmo tick NODE_NEW antes de INSERT\n";
+
   std::cout << "produtor lifecycle: ok\n";
   return 0;
 }

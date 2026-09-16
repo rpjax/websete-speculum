@@ -25,16 +25,30 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
     /// <summary>Ativo Kind 0x06, payload sem o envelope.</summary>
     public event Action<uint, byte[]>? AssetReceived;
 
+    /// <summary>Telemetria Kind 0x05, payload sem o envelope (catálogo Gecko).</summary>
+    public event Action<uint, byte[]>? TelemetryReceived;
+
     public bool Connected { get; private set; }
 
-    /// <summary>Frames recebidos do supervisor desde que o lab subiu.</summary>
-    public long FramesReceived => Interlocked.Read(ref _framesReceived);
+    /// <summary>Todo binário recebido do supervisor (PP + telemetria + ativo no fio).</summary>
+    public long MessagesReceived => Interlocked.Read(ref _messagesReceived);
+
+    /// <summary>Frames de projeção (Kind 0x01, carga PP sem envelope).</summary>
+    public long ProjectionFramesReceived => Interlocked.Read(ref _projectionFramesReceived);
+
+    /// <summary>Envelopes de telemetria decodificados.</summary>
+    public long TelemetryEnvelopesReceived => Interlocked.Read(ref _telemetryEnvelopesReceived);
 
     /// <summary>Bytes recebidos do supervisor desde que o lab subiu.</summary>
     public long BytesReceived => Interlocked.Read(ref _bytesReceived);
 
-    private long _framesReceived;
+    private long _messagesReceived;
+    private long _projectionFramesReceived;
+    private long _telemetryEnvelopesReceived;
     private long _bytesReceived;
+
+    /// <summary>Compat: mesmo que <see cref="MessagesReceived"/>.</summary>
+    public long FramesReceived => MessagesReceived;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -119,13 +133,22 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
             }
 
             var frame = assembled.ToArray();
-            Interlocked.Increment(ref _framesReceived);
+            Interlocked.Increment(ref _messagesReceived);
             Interlocked.Add(ref _bytesReceived, frame.LongLength);
             if (Envelope.TryReadComplete(frame, EnvelopeKind.Asset, out var assetCtx, out var assetLen))
             {
                 var body = new byte[assetLen];
                 Buffer.BlockCopy(frame, Envelope.HeaderBytes, body, 0, assetLen);
                 AssetReceived?.Invoke(assetCtx, body);
+                continue;
+            }
+
+            if (Envelope.TryReadComplete(frame, EnvelopeKind.Telemetry, out var telCtx, out var telLen))
+            {
+                var body = new byte[telLen];
+                Buffer.BlockCopy(frame, Envelope.HeaderBytes, body, 0, telLen);
+                Interlocked.Increment(ref _telemetryEnvelopesReceived);
+                TelemetryReceived?.Invoke(telCtx, body);
                 continue;
             }
 
@@ -137,6 +160,7 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
                 continue;
             }
 
+            Interlocked.Increment(ref _projectionFramesReceived);
             FrameReceived?.Invoke(frame);
         }
     }

@@ -382,6 +382,11 @@ export type TelemetryResyncFailed = {
   attempt: number;
   reason: string;
   exhausted: boolean;
+  /** Present when the standby apply itself failed (not timeout / sequence_gap). */
+  op?: string;
+  id?: number;
+  message?: string;
+  phase?: TelemetryPhase;
 };
 
 export type ProjectionTelemetryMessage =

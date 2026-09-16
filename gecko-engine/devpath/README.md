@@ -1,5 +1,10 @@
 # devpath — como se trabalha neste projeto
 
+**Parity / site debug (Beleza etc.): só via lab.**  
+Contrato: [`docs/gecko-engine/lab-debug-surface.md`](../../docs/gecko-engine/lab-debug-surface.md).  
+Ferramentas: `lab-diagnose.mjs`, `lab-beleza.mjs`, `lab-wire-probe.mjs`, `lab-ws-capture.mjs` → `http://127.0.0.1:4077`.  
+`capture.sh` / `doctor.sh` = **fork/build only** — não bar de accept nem de desync de site.
+
 Escrito depois de um dia em que a gente queimou horas por um motivo bobo: o
 checkout do Gecko fica fora do repo, ninguém além de quem está naquela máquina
 consegue ler o código, e o diagnóstico virou adivinhação por prompt — cinco

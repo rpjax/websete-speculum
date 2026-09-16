@@ -236,7 +236,7 @@ void SpeculumMutationObserver::MaybeObserveShadow(nsIContent* aChild) {
     return;
   }
   mozilla::dom::ShadowRoot* sr = el->GetShadowRoot();
-  if (!sr) {
+  if (!sr || mState->source.isUaOwned(sr)) {
     return;
   }
   sr->AddMutationObserver(this);

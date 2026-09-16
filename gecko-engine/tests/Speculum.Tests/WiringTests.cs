@@ -152,6 +152,8 @@ public static class WiringTests
         info.Environment["SPECULUM_BROWSER_URL"] = BootUrl;
         info.Environment["SPECULUM_SUPERVISOR_PORT"] = port.ToString();
         info.Environment["SPECULUM_BROWSER_SOCKET"] = socketPath;
+        info.Environment["SPECULUM_CAP_EVENTS"] = "1";
+        info.Environment["SPECULUM_CAP_METRICS"] = "1";
         info.Environment["SPECULUM_TESTS_ROLE"] = "fake-browser";
         info.Environment["SPECULUM_FAKE_JOURNAL"] = journalPath;
 
@@ -335,6 +337,11 @@ public static class WiringTests
         RequireEntry(report, entries, "context-create", "ctx=1 w=1280 h=800");
         RequireEntry(report, entries, "context-created", null);
         RequireEntry(report, entries, "navigate", $"ctx=1 url={BootUrl}");
+        if (entries.TryGetValue("navigate", out var nav) &&
+            nav.Contains("about:blank", StringComparison.Ordinal))
+        {
+            report.Fail("diário: primeiro navigate não é about:blank", BootUrl, nav);
+        }
         RequireEntry(report, entries, "navigated", null);
         RequireEntry(report, entries, "frames-started", "ctx=1");
     }

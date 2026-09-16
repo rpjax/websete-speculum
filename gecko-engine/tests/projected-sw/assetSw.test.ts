@@ -1,5 +1,6 @@
 import {
   ASSET_TOKEN_HEADER,
+  assetResponseHeaders,
   classifyFetchDestination,
   stampAssetHeaders,
   swReadyMessage,
@@ -38,4 +39,19 @@ if (classifyFetchDestination('weird') !== 0) {
   fail('dest dúvida');
 }
 
-console.log('ok: SW projected ready + token em header');
+const svgHeaders = assetResponseHeaders('tok-1', 'image/svg+xml');
+if (svgHeaders['content-type'] !== 'image/svg+xml') {
+  fail(`MIME SVG: ${svgHeaders['content-type']}`);
+}
+if (svgHeaders[ASSET_TOKEN_HEADER] !== 'tok-1') {
+  fail('token sumiu com MIME');
+}
+const pngHeaders = assetResponseHeaders('', 'image/png');
+if (pngHeaders['content-type'] !== 'image/png') {
+  fail('PNG sem token perdeu MIME');
+}
+if (ASSET_TOKEN_HEADER in pngHeaders) {
+  fail('token vazio no MIME');
+}
+
+console.log('ok: SW projected ready + token em header + MIME');

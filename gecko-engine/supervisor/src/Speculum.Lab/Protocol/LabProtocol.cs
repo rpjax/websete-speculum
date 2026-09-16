@@ -43,8 +43,44 @@ public sealed record LabClientEnvelope
     [JsonPropertyName("contextId")]
     public uint? ContextId { get; init; }
 
+    [JsonPropertyName("attempt")]
+    public int? Attempt { get; init; }
+
     [JsonPropertyName("bytes")]
     public string? Bytes { get; init; }
+
+    [JsonPropertyName("telemetry")]
+    public JsonElement? Telemetry { get; init; }
+
+    [JsonPropertyName("message")]
+    public JsonElement? Message { get; init; }
+
+    [JsonPropertyName("exportDossier")]
+    public bool? ExportDossier { get; init; }
+
+    [JsonPropertyName("label")]
+    public string? Label { get; init; }
+
+    [JsonPropertyName("desynced")]
+    public bool? Desynced { get; init; }
+
+    [JsonPropertyName("applyError")]
+    public string? ApplyError { get; init; }
+
+    [JsonPropertyName("armed")]
+    public bool? Armed { get; init; }
+
+    [JsonPropertyName("sequence")]
+    public uint? Sequence { get; init; }
+
+    [JsonPropertyName("generation")]
+    public uint? Generation { get; init; }
+
+    [JsonPropertyName("table")]
+    public JsonElement? Table { get; init; }
+
+    [JsonPropertyName("tree")]
+    public JsonElement? Tree { get; init; }
 }
 
 public sealed record SessionHello(string SessionId, string SessionToken)
@@ -59,13 +95,22 @@ public sealed record SessionHello(string SessionId, string SessionToken)
     public string Engine => "gecko";
 }
 
-public sealed record SessionBooted(string SessionId, string Mode, string Url, string DossierDir)
+public sealed record SessionBooted(
+    string SessionId,
+    string Mode,
+    string Url,
+    string DossierDir,
+    bool CapEvents,
+    bool CapMetrics)
 {
     [JsonPropertyName("type")]
     public string Type => "session.booted";
+
+    [JsonPropertyName("caps")]
+    public object Caps => new { events = CapEvents, metrics = CapMetrics };
 }
 
-public sealed record SessionStopped(string SessionId, string Reason)
+public sealed record SessionStopped(string SessionId, string Reason, string? DossierDir = null)
 {
     [JsonPropertyName("type")]
     public string Type => "session.stopped";
@@ -97,8 +142,68 @@ public sealed record GeckoAsset(
     public string Type => "gecko.asset";
 }
 
+public sealed record GeckoSnapshotServed(
+    [property: JsonPropertyName("correlationId")] uint CorrelationId,
+    [property: JsonPropertyName("contextId")] uint ContextId,
+    [property: JsonPropertyName("sequence")] uint Sequence,
+    [property: JsonPropertyName("generation")] uint Generation,
+    [property: JsonPropertyName("tableHash")] string TableHash,
+    [property: JsonPropertyName("dumpBytes")] string DumpBytes)
+{
+    [JsonPropertyName("type")]
+    public string Type => "gecko.snapshotServed";
+}
+
+public sealed record GeckoFault(
+    [property: JsonPropertyName("correlationId")] uint CorrelationId,
+    [property: JsonPropertyName("contextId")] uint ContextId,
+    [property: JsonPropertyName("errorCode")] string ErrorCode,
+    [property: JsonPropertyName("phase")] string Phase,
+    [property: JsonPropertyName("message")] string Message)
+{
+    [JsonPropertyName("type")]
+    public string Type => "gecko.fault";
+}
+
+public sealed record GeckoNavigated(
+    [property: JsonPropertyName("contextId")] uint ContextId,
+    [property: JsonPropertyName("url")] string Url)
+{
+    [JsonPropertyName("type")]
+    public string Type => "gecko.navigated";
+}
+
+public sealed record GeckoContextCreated(
+    [property: JsonPropertyName("contextId")] uint ContextId,
+    [property: JsonPropertyName("browsingContextId")] ulong BrowsingContextId)
+{
+    [JsonPropertyName("type")]
+    public string Type => "gecko.contextCreated";
+}
+
+public sealed record LabStats(
+    [property: JsonPropertyName("payload")] object Payload)
+{
+    [JsonPropertyName("type")]
+    public string Type => "stats";
+}
+
+public sealed record RequestSnapshotHost(
+    [property: JsonPropertyName("contextId")] int ContextId,
+    [property: JsonPropertyName("includeNestedPeek")] bool IncludeNestedPeek = false)
+{
+    [JsonPropertyName("type")]
+    public string Type => "requestSnapshot";
+}
+
 public sealed record LabError(string Message, string? Code = null)
 {
     [JsonPropertyName("type")]
     public string Type => "error";
+}
+
+public sealed record LabTelemetryRelay(object Message)
+{
+    [JsonPropertyName("type")]
+    public string Type => "telemetry";
 }

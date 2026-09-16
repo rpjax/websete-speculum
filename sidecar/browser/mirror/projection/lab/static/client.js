@@ -9031,7 +9031,13 @@
       const s = img.currentSrc || img.src || "";
       return /logo\.svg/i.test(s) || /\/logo(\.|$)/i.test(s);
     });
-    const brokenList = allImgs.filter((i) => i.complete && i.naturalWidth === 0);
+    const isTrackerImgUrl = (s) => /bat\.bing\.com/i.test(s) || /\/action\/0(\?|$)/i.test(s) || /pixel\.(facebook|google|adnxs)/i.test(s);
+    const brokenList = allImgs.filter((i) => {
+      if (!(i.complete && i.naturalWidth === 0)) return false;
+      const s = i.currentSrc || i.src || "";
+      if (isTrackerImgUrl(s)) return false;
+      return true;
+    });
     const mapImg = (img) => ({
       src: (img.currentSrc || img.src || "").slice(0, 220),
       srcset: (img.getAttribute("srcset") || "").slice(0, 160),
@@ -9206,8 +9212,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 131,
-    builtAt: "2026-09-16T23:00:27.755Z"
+    seq: 132,
+    builtAt: "2026-09-16T23:35:26.486Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -10126,6 +10132,19 @@
   // browser/mirror/projection/lab/client/geckoLabWire.ts
   var import_core = __toESM(require_core());
   var import_frame2 = __toESM(require_frame());
+  function isobmffImageBrand(body) {
+    if (body.length < 12) return null;
+    const brands = /* @__PURE__ */ new Set(["avif", "avis", "mif1", "msf1", "heic", "heif", "heim", "heis"]);
+    const ascii = (o) => String.fromCharCode(body[o], body[o + 1], body[o + 2], body[o + 3]);
+    if (ascii(4) !== "ftyp") return null;
+    const major = ascii(8);
+    if (brands.has(major)) return major;
+    for (let o = 16; o + 4 <= Math.min(body.length, 64); o += 4) {
+      const b = ascii(o);
+      if (brands.has(b)) return b;
+    }
+    return null;
+  }
   function classifyFetchDestination(destination) {
     switch (destination) {
       case "image":
@@ -10311,6 +10330,13 @@
           mime = "image/gif";
         } else if (body.length >= 12 && body[0] === 82 && body[8] === 87 && body[9] === 69 && body[10] === 66 && body[11] === 80) {
           mime = "image/webp";
+        } else {
+          const brand = isobmffImageBrand(body);
+          if (brand === "avif" || brand === "avis" || brand === "mif1" || brand === "msf1") {
+            mime = "image/avif";
+          } else if (brand === "heic" || brand === "heif" || brand === "heim" || brand === "heis") {
+            mime = "image/heic";
+          }
         }
       }
       if (urlWorthTracing(pending.url)) {

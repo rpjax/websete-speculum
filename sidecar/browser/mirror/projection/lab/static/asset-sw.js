@@ -5,6 +5,7 @@ let pageClientId = '';
 let nextId = 1;
 const pending = new Map();
 const ctxByClient = new Map();
+let traceAll = false;
 
 function nowMs() {
   return Math.round(
@@ -30,7 +31,7 @@ function bodyFnv16(bytes) {
 }
 
 function urlWorthTracing(url) {
-  return /logo\.svg/i.test(url || '');
+  return traceAll || /logo\.svg/i.test(url || '');
 }
 
 async function emitTrace(event) {
@@ -63,6 +64,10 @@ self.addEventListener('message', (event) => {
     if (event.source && typeof event.source.id === 'string') {
       pageClientId = event.source.id;
     }
+    return;
+  }
+  if (msg.type === 'asset-trace-enable') {
+    traceAll = msg.enable !== false;
     return;
   }
   if (msg.type === 'ctx' && typeof msg.contextId === 'number' && event.source && typeof event.source.id === 'string') {
@@ -119,6 +124,22 @@ async function pageClient() {
   return clientList[0] ?? null;
 }
 
+function isobmffImageBrand(u8) {
+  // ISO BMFF: size(4) + 'ftyp'(4) + major_brand(4) … also scan compatible brands.
+  if (!u8 || u8.byteLength < 12) return null;
+  const brands = new Set(['avif', 'avis', 'mif1', 'msf1', 'heic', 'heif', 'heim', 'heis']);
+  const ascii = (o) =>
+    String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]);
+  if (ascii(4) !== 'ftyp') return null;
+  const major = ascii(8);
+  if (brands.has(major)) return major;
+  for (let o = 16; o + 4 <= Math.min(u8.byteLength, 64); o += 4) {
+    const b = ascii(o);
+    if (brands.has(b)) return b;
+  }
+  return null;
+}
+
 function looksLikeImageBody(bytes, contentType) {
   if (!bytes || bytes.byteLength < 3) return false;
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -135,6 +156,7 @@ function looksLikeImageBody(bytes, contentType) {
   ) {
     return true;
   }
+  if (isobmffImageBrand(u8)) return true;
   const head = new TextDecoder().decode(u8.slice(0, Math.min(256, u8.byteLength))).toLowerCase();
   if (head.includes('<svg') || head.includes('<!doctype svg')) return true;
   const ct = (contentType || '').toLowerCase();

@@ -173,20 +173,33 @@ export function probeLayoutRootCause(
     const s = img.currentSrc || img.src || '';
     return /logo\.svg/i.test(s) || /\/logo(\.|$)/i.test(s);
   });
-  const imgs = [
-    ...logoImgs,
-    ...allImgs.filter((img) => !logoImgs.includes(img)),
-  ]
-    .slice(0, 40)
-    .map((img) => ({
-      src: (img.currentSrc || img.src || '').slice(0, 160),
-      srcset: (img.getAttribute('srcset') || '').slice(0, 160),
-      complete: img.complete,
-      naturalWidth: img.naturalWidth,
-      width: img.width,
-    }));
-  // broken = complete ∩ nw0 over the full document, not just the sample window
-  const brokenImgs = allImgs.filter((i) => i.complete && i.naturalWidth === 0).length;
+  const isTrackerImgUrl = (s: string) =>
+    /bat\.bing\.com/i.test(s) ||
+    /\/action\/0(\?|$)/i.test(s) ||
+    /pixel\.(facebook|google|adnxs)/i.test(s);
+  const brokenList = allImgs.filter((i) => {
+    if (!(i.complete && i.naturalWidth === 0)) return false;
+    const s = i.currentSrc || i.src || '';
+    if (isTrackerImgUrl(s)) return false;
+    return true;
+  });
+  const mapImg = (img: HTMLImageElement) => ({
+    src: (img.currentSrc || img.src || '').slice(0, 220),
+    srcset: (img.getAttribute('srcset') || '').slice(0, 160),
+    complete: img.complete,
+    naturalWidth: img.naturalWidth,
+    width: img.width,
+  });
+  // Logo + todos os broken (cap 80) — sample curto não basta pra classificar H5.
+  const seen = new Set<HTMLImageElement>();
+  const imgs: ReturnType<typeof mapImg>[] = [];
+  for (const img of [...logoImgs, ...brokenList]) {
+    if (seen.has(img)) continue;
+    seen.add(img);
+    imgs.push(mapImg(img));
+    if (imgs.length >= 80) break;
+  }
+  const brokenImgs = brokenList.length;
 
   const styleEls = doc.querySelectorAll('style').length;
   const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;
@@ -221,7 +234,7 @@ export function probeLayoutRootCause(
     docSheetRules,
     sheets,
     brokenImgs,
-    imgsSample: imgs.slice(0, 12),
+    imgsSample: imgs,
     bodyBg: doc.body ? win.getComputedStyle(doc.body).backgroundColor : null,
     dualHint: {
       styleElCount: styleEls,

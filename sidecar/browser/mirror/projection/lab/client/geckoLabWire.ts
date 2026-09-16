@@ -17,9 +17,26 @@ import type { UnifiedIntent } from '@speculum/page-projection/core/input/unified
 import {
   bodyFnv16,
   bodyHeadAscii,
+  enableAssetTraceAll,
   pushAssetTrace,
   urlWorthTracing,
 } from './assetTrace';
+
+/** ISO BMFF ftyp major/compatible brand → AVIF/HEIF family. */
+function isobmffImageBrand(body: Uint8Array): string | null {
+  if (body.length < 12) return null;
+  const brands = new Set(['avif', 'avis', 'mif1', 'msf1', 'heic', 'heif', 'heim', 'heis']);
+  const ascii = (o: number) =>
+    String.fromCharCode(body[o]!, body[o + 1]!, body[o + 2]!, body[o + 3]!);
+  if (ascii(4) !== 'ftyp') return null;
+  const major = ascii(8);
+  if (brands.has(major)) return major;
+  for (let o = 16; o + 4 <= Math.min(body.length, 64); o += 4) {
+    const b = ascii(o);
+    if (brands.has(b)) return b;
+  }
+  return null;
+}
 
 function classifyFetchDestination(destination: string): number {
   switch (destination) {
@@ -144,6 +161,15 @@ export async function ensureGeckoAssetSw(token: string): Promise<void> {
   const sw = navigator.serviceWorker.controller ?? swReg.active;
   sw?.postMessage({ type: 'token', token });
   sw?.postMessage({ type: 'ctx', contextId: CONTEXT_ID_ROOT });
+  if ((globalThis as { __SPECULUM_ASSET_TRACE?: boolean }).__SPECULUM_ASSET_TRACE) {
+    sw?.postMessage({ type: 'asset-trace-enable', enable: true });
+  }
+}
+
+export function enableGeckoAssetTraceAll(): void {
+  enableAssetTraceAll();
+  const sw = navigator.serviceWorker.controller ?? swReg?.active;
+  sw?.postMessage({ type: 'asset-trace-enable', enable: true });
 }
 
 /** Carimba C no cliente que pede o ativo. Sem isto o join no pai erra no iframe. */
@@ -262,6 +288,13 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
         body[11] === 0x50
       ) {
         mime = 'image/webp';
+      } else {
+        const brand = isobmffImageBrand(body);
+        if (brand === 'avif' || brand === 'avis' || brand === 'mif1' || brand === 'msf1') {
+          mime = 'image/avif';
+        } else if (brand === 'heic' || brand === 'heif' || brand === 'heim' || brand === 'heis') {
+          mime = 'image/heic';
+        }
       }
     }
     if (urlWorthTracing(pending.url)) {

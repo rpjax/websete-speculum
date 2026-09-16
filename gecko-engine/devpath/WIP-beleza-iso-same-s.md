@@ -127,6 +127,35 @@ Iso cold (`captures/same-s-iso-latest/`):
 
 **Não** Fixed / 1:1. Residual: AVIF completa com `nw=0` apesar da URL correta (fora deste slice).
 
+### P10 — residual diag one-shot — **causas fechadas (não Fixed)**
+
+CLI: `_run-residual-diag.sh` / `lab-residual-diag.mjs` → `captures/residual-latest/` (`root-cause.json`).
+
+1. **AVIF `nw=0` (≈31):** bytes OK (`image/avif`, `ftyp avif`), iframe fetch 200 — falha de **decode no Chromium Projected**, não truncamento/srcset.
+2. **1 other:** `bat.bing.com` tracker `emit_empty` text/plain — fora do accept de imgs do site.
+3. **CSSOM hash:** counts iguais (4656); 227×227 só diferem por **serialização Gecko×Chromium** (`border:` vs `border-width:` / animation / quotes). Assert de hash cssText cru é o problema do iso, não paint faltando.
+
+### P11 — AVIF decode fork — **causa fechada**
+
+`_run-avif-decode-probe.sh` → `captures/avif-decode-20260916-231809Z/`:
+- `fetch` 200 `image/avif` + `createImageBitmap` / blob `Image` → **nw=2440**
+- `<img>` da página → `EncodingError` / **nw=0**
+
+**Raiz:** Chromium **decoda** AVIF. O elemento da página ficou com decode falho sticky (load ruim anterior / src apply sem reload). Próximo fix: garantir primeiro load com bytes bons **ou** rearmar `<img>` quando o corpo válido chega — sem workaround de cache-bust cosmético.
+
+### P12 — residual fix — **iso cold PASS checks; sem claim 1:1 site**
+
+Fixes:
+1. SW `looksLikeImageBody` + `geckoLabWire` sniff `ftyp` avif/avis/heic (antes 502 em AVIF válido → sticky).
+2. Iso: hash cssText só diagnóstico; gate = count.
+3. `brokenImgs` ignora `bat.bing.com`.
+
+Prova:
+- AVIF probe: pageImg **nw=2440** (`avif-decode-20260916-233713Z`)
+- same-S iso: **PASS** all checks; `brokenImgs=0`; logo 120; header 60; hashMatch=false diagnosticOnly
+
+**Não** declarar Fixed de accept 1:1 visual do site — só checks same-S + ativos deste residual.
+
 ---
 
 ## Anti-padrões — proibido neste fio

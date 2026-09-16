@@ -14,6 +14,12 @@ import {
 } from '@speculum/page-projection/core';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes';
+import {
+  bodyFnv16,
+  bodyHeadAscii,
+  pushAssetTrace,
+  urlWorthTracing,
+} from './assetTrace';
 
 function classifyFetchDestination(destination: string): number {
   switch (destination) {
@@ -54,6 +60,11 @@ const pendingAssets = new Map<
     chunks: Uint8Array[];
     resolve: (r: Response) => void;
     reject: (e: Error) => void;
+    url: string;
+    contextId: number;
+    range: string;
+    dest: string;
+    fetchId?: number;
   }
 >();
 let nextStream = 1;
@@ -151,12 +162,35 @@ export function sendGeckoAssetFetch(
   url: string,
   dest: string,
   range: string,
+  fetchId?: number,
 ): Promise<Response> {
   const streamId = nextStream++;
   const destCode = classifyFetchDestination(dest);
   const payload = encodeAssetRequest(streamId, destCode, url, range, 0);
+  if (urlWorthTracing(url)) {
+    pushAssetTrace({
+      hop: 'lab.request',
+      streamId,
+      fetchId,
+      contextId: ctx,
+      url: url.slice(0, 300),
+      range,
+      dest,
+      destCode,
+      payloadLen: payload.byteLength,
+    });
+  }
   return new Promise((resolve, reject) => {
-    pendingAssets.set(streamId, { chunks: [], resolve, reject });
+    pendingAssets.set(streamId, {
+      chunks: [],
+      resolve,
+      reject,
+      url,
+      contextId: ctx,
+      range,
+      dest,
+      fetchId,
+    });
     ws.send(JSON.stringify({ type: 'client.asset', contextId: ctx, bytes: bytesToBase64(payload) }));
   });
 }
@@ -168,6 +202,21 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
   }
   if (phase === 2) {
     pendingAssets.delete(streamId);
+    if (urlWorthTracing(pending.url)) {
+      pushAssetTrace({
+        hop: 'lab.response',
+        streamId,
+        fetchId: pending.fetchId,
+        contextId: pending.contextId,
+        url: pending.url.slice(0, 300),
+        range: pending.range,
+        dest: pending.dest,
+        phase: 'denied',
+        why: why || 'denied',
+        chunkTotal: 0,
+        bodySha16: bodyFnv16(null),
+      });
+    }
     console.warn('[gecko-asset] denied', streamId, why || 'denied');
     pending.reject(new Error(why || 'denied'));
     return;
@@ -184,7 +233,8 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
       body.set(c, o);
       o += c.length;
     }
-    let mime = data.length ? new TextDecoder().decode(data) : '';
+    const mimeIn = data.length ? new TextDecoder().decode(data) : '';
+    let mime = mimeIn;
     const genericMime =
       !mime ||
       mime === 'application/octet-stream' ||
@@ -194,7 +244,6 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
       mime === 'text/html' ||
       !mime.toLowerCase().split(';')[0]!.trim().startsWith('image/');
     if (genericMime && body.length) {
-      // Defesa: Chromium SVG exige Content-Type útil (mesmo sniff do pai).
       const head = new TextDecoder().decode(body.slice(0, Math.min(256, body.length))).toLowerCase();
       if (head.includes('<svg') || head.includes('<!doctype svg')) {
         mime = 'image/svg+xml';
@@ -215,8 +264,23 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
         mime = 'image/webp';
       }
     }
-    if (total === 0 || (genericMime && !mime.startsWith('image/'))) {
-      console.warn('[gecko-asset] complete-suspect', streamId, { total, mime, why: 'empty_or_generic' });
+    if (urlWorthTracing(pending.url)) {
+      pushAssetTrace({
+        hop: 'lab.response',
+        streamId,
+        fetchId: pending.fetchId,
+        contextId: pending.contextId,
+        url: pending.url.slice(0, 300),
+        range: pending.range,
+        dest: pending.dest,
+        phase: 'complete',
+        chunkTotal: total,
+        mimeIn,
+        mimeOut: mime,
+        genericMime,
+        bodySha16: bodyFnv16(body),
+        bodyHead: bodyHeadAscii(body),
+      });
     }
     const headers = new Headers();
     if (mime) {
@@ -235,7 +299,13 @@ export function wireGeckoSwFetch(ws: WebSocket, ctx: number): void {
       range?: string;
       id?: number;
       contextId?: number;
+      hop?: string;
+      event?: Record<string, unknown>;
     };
+    if (msg?.type === 'asset-trace' && msg.event && typeof msg.event === 'object') {
+      pushAssetTrace(msg.event as Parameters<typeof pushAssetTrace>[0]);
+      return;
+    }
     if (msg?.type !== 'asset-fetch' || typeof msg.url !== 'string' || typeof msg.id !== 'number') {
       return;
     }
@@ -243,7 +313,7 @@ export function wireGeckoSwFetch(ws: WebSocket, ctx: number): void {
       typeof msg.contextId === 'number' && Number.isInteger(msg.contextId) && msg.contextId >= 1
         ? msg.contextId
         : ctx;
-    void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? '', msg.range ?? '').then(
+    void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? '', msg.range ?? '', msg.id).then(
       async (res) => {
         const buf = new Uint8Array(await res.arrayBuffer());
         const contentType = res.headers.get('Content-Type') || '';

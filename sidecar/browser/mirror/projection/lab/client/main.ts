@@ -22,6 +22,12 @@ import {
 import { snapshotTree } from '@speculum/page-projection/core/snapshot/domTreeSnapshot';
 import { snapshotFormControls } from '@speculum/page-projection/projected/formControlSnapshot';
 import { probeLayoutRootCause } from '../probes/layoutRootCauseProbe';
+import {
+  clearAssetTrace,
+  drainAssetTrace,
+  installImgTrace,
+  sampleImgStates,
+} from './assetTrace';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '@speculum/page-projection/core/telemetry';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
@@ -227,6 +233,7 @@ export function bootLabClient(): void {
 
   let ws: WebSocket | null = null;
   let projection: LabProjectedHarness | null = null;
+  let disposeImgTrace: (() => void) | null = null;
   const inputDetachers = new Map<number, () => void>();
   /** Shared across root + nested surfaces — Stop dumps into dossier. */
   let inputCaptureMetrics = new ProjectedInputCaptureMetrics();
@@ -954,6 +961,8 @@ export function bootLabClient(): void {
       getDocumentBaseUrl: () => (isGeckoLab() ? documentBaseUrl : ''),
       onArmed: () => {
         bindInputSurfaces(projection!);
+        disposeImgTrace?.();
+        disposeImgTrace = installImgTrace(projection!.document);
       },
       onTelemetry: (msg) => {
         observeStreamTelemetry(msg);
@@ -1024,6 +1033,8 @@ export function bootLabClient(): void {
         logActivity(`desync ${reason}`);
       },
     });
+    disposeImgTrace?.();
+    disposeImgTrace = installImgTrace(projection.document);
     setSurfaceEmpty(false);
     if (canonicalViewport.width > 0 && canonicalViewport.height > 0) {
       projection.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
@@ -1260,6 +1271,10 @@ export function bootLabClient(): void {
               : undefined;
           const layoutProbe =
             layoutRootCause && doc && win ? probeLayoutRootCause(doc, win) : undefined;
+          if (doc && isGeckoLab()) {
+            sampleImgStates(doc, 'sameS');
+          }
+          const assetTrace = isGeckoLab() ? drainAssetTrace() : undefined;
           ws?.send(
             JSON.stringify({
               type: 'client.snapshotResult',
@@ -1280,6 +1295,7 @@ export function bootLabClient(): void {
               ...(paintProbe !== undefined ? { paintProbe } : {}),
               ...(cssomSheetDump !== undefined ? { cssomSheetDump } : {}),
               ...(layoutProbe !== undefined ? { layoutProbe } : {}),
+              ...(assetTrace !== undefined ? { assetTrace } : {}),
             }),
           );
         });
@@ -1636,6 +1652,9 @@ export function bootLabClient(): void {
       }
       const p = await ensureProjection();
       await p.resetSurface();
+      clearAssetTrace();
+      disposeImgTrace?.();
+      disposeImgTrace = installImgTrace(p.document);
       p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
       resetStreamCounters();
       logActivity(

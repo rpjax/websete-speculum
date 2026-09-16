@@ -24,7 +24,8 @@ Se código e papel divergem: **primeira frase.**
 **Isonomia de estado DOM same-S: PASS** (dump Virtual × fio × tree Projected filtrada).  
 **CSSOM plano: PASS** (Rule count wire ≈ adopted; dump ok; sem double-author).  
 **CSSOM texto hash: FAIL** (contagem 4656=4656; hash Gecko wire ≠ Chromium `cssText` — serialização).  
-**Ativo / layout H5: FAIL** no cold (logo `nw=0`, header **344**, `brokenImgs≈68`).  
+**Ativo / layout H5: logo PASS no cold** (V1–V10 true; `nw=120`) após decode `br` no tee.  
+`brokenImgs` ainda ~61 (outros assets, ex. avif) — **não** é accept 1:1 total.  
 **Accept 1:1: NÃO.**
 
 One-liner típico P3/P4 re-prova:
@@ -63,6 +64,45 @@ Prova diag ativo (iframe): `fetch`+blob → 120×51; `?cachebust` no `<img>` →
 
 ### P5 — papel — **este arquivo + open.md**
 
+### P6 — H5 absolute diag (instrumento) — **dossier no disco; NÃO Fixed**
+
+Dossier: `gecko-engine/devpath/captures/asset-h5-20260916-222117Z/`  
+(também `…/asset-h5-latest/` · run hex: `root-cause.json`)
+
+CLI: `lab-asset-h5-trace.mjs` / `_run-asset-h5-trace.sh`  
+Traço: C++ `/tmp/speculum-asset-trace.ndjson` + client `assetTrace` no same-S.
+
+| Id | Resultado |
+|----|-----------|
+| V1 sw.intercept | true |
+| V2 lab.request ctx=1 | true |
+| V3 join ≠ denied_pre | true |
+| **V4 emit body SVG/magic** | **false** ← **primeiro falso** |
+| V5 mime image/* | true (MIME mente) |
+| V6 sw 200∧looksLikeImage | false (502, corpo rejeitado) |
+| V7 sha gecko=lab=sw | false (sw vazio pós-502) |
+| V8 first img nw>0 | false (same-S nw=0) |
+| V9 same-S interpret | false |
+| V10 tee key == request | true |
+
+#### Raiz objetiva (hex + encoding) — fechada
+
+`root-cause.json`:
+- `contentEncoding`: **`br`** (brotli) em `ensure` / `tap_attach_ok` / `tap_start`
+- `applyConversion`: **`1`** (Gecko ainda ia decodificar para o listener seguinte)
+- `bodyHeadHex`: `c19047002096a8d1aa7675d43bbf217e` — **não** é SVG/`1f8b`/PNG; é payload brotli cru
+- `mimeOnComplete`: `image/svg+xml` com `dataLen=1029` = tamanho **comprimido**
+
+**Causa:** o `TeeTap` grava/emite o corpo **antes** da conversão `Content-Encoding` (br). O Projected recebe brotli rotulado como SVG → SW 502 / `nw=0`.
+
+**Fix na raiz (feito):** decode **só no tee** (`EnsureLogicalBody` / brotli|gzip) antes do emit — o Virtual child continua a receber o wire comprimido (`HttpChannelParent` desliga `ApplyConversion`). `SetNewListener(true)` sozinho **não** basta no parent e10s.
+
+### P7 — prova cold pós-fix — **logo H5 fechado; não 1:1 site**
+
+Dossier: `gecko-engine/devpath/captures/asset-h5-20260916-223633Z/`  
+V1–V10 **todos true**. Logo `naturalWidth=120`. `bodyHead` = `<svg …`. sha gecko=lab=sw.  
+`brokenImgs=61` (residual outros MIME/assets). **Não** declarar Fixed de accept.
+
 ---
 
 ## Anti-padrões — proibido neste fio
@@ -80,5 +120,6 @@ Prova diag ativo (iframe): `fetch`+blob → 120×51; `?cachebust` no `<img>` →
 - Accept: `docs/page-projection/spec/acceptance.md`
 - Open: `docs/page-projection/spec/open.md` (GECKO-ASSET-SVG-MIME residual)
 - CLI: `_run-same-s-iso.sh` / `lab-same-s-iso.mjs`
+- H5 asset diag: `_run-asset-h5-trace.sh` / `lab-asset-h5-trace.mjs` → `captures/asset-h5-latest/`
 
 **Não esquecer:** tabela verde ≠ página 1:1.

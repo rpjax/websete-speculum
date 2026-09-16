@@ -5917,16 +5917,16 @@
           this.emitted += 1;
           const key = type || "unknown";
           this.emittedByType[key] = (this.emittedByType[key] ?? 0) + 1;
-          const now = Date.now();
+          const now2 = Date.now();
           if (this.lastEmitWallMs != null) {
-            const gap = now - this.lastEmitWallMs;
+            const gap = now2 - this.lastEmitWallMs;
             if (Number.isFinite(gap) && gap >= 0) {
               this.intervalSamples.push(gap);
               if (this.intervalSamples.length > SAMPLE_CAP)
                 this.intervalSamples.shift();
             }
           }
-          this.lastEmitWallMs = now;
+          this.lastEmitWallMs = now2;
         }
         noteMoveCoalesce() {
           this.moveCoalesced += 1;
@@ -9006,6 +9006,98 @@
     };
   }
 
+  // browser/mirror/projection/lab/client/assetTrace.ts
+  var MAX = 8e3;
+  var events = [];
+  function now() {
+    return typeof performance !== "undefined" && performance.now ? Math.round(performance.timeOrigin + performance.now()) : Date.now();
+  }
+  function bodyFnv16(bytes) {
+    const u8 = bytes instanceof Uint8Array ? bytes : bytes ? new Uint8Array(bytes) : new Uint8Array(0);
+    let h = 14695981039346656037n;
+    const prime = 1099511628211n;
+    for (let i = 0; i < u8.length; i++) {
+      h ^= BigInt(u8[i]);
+      h = BigInt.asUintN(64, h * prime);
+    }
+    return h.toString(16).padStart(16, "0");
+  }
+  function bodyHeadAscii(bytes, n = 64) {
+    const m = Math.min(bytes.length, n);
+    let s = "";
+    for (let i = 0; i < m; i++) {
+      const c = bytes[i];
+      s += c >= 32 && c < 127 ? String.fromCharCode(c) : ".";
+    }
+    return s;
+  }
+  function pushAssetTrace(partial) {
+    const ev = { t: partial.t ?? now(), ...partial };
+    events.push(ev);
+    if (events.length > MAX) events.splice(0, events.length - MAX);
+  }
+  function drainAssetTrace() {
+    return events.slice();
+  }
+  function clearAssetTrace() {
+    events.length = 0;
+  }
+  function urlWorthTracing(url) {
+    return /logo\.svg/i.test(url) || !!globalThis.__SPECULUM_ASSET_TRACE;
+  }
+  function installImgTrace(doc) {
+    const seen = /* @__PURE__ */ new WeakSet();
+    const onEvent = (type) => (ev) => {
+      const t = ev.target;
+      if (!(t instanceof HTMLImageElement)) return;
+      if (seen.has(t) && type === "load") return;
+      const src = t.currentSrc || t.src || "";
+      if (!urlWorthTracing(src) && !(t.complete && t.naturalWidth === 0)) {
+        if (!/logo\.svg/i.test(src)) return;
+      }
+      seen.add(t);
+      pushAssetTrace({
+        hop: "img.state",
+        url: src.slice(0, 300),
+        contextId: 1,
+        event: type,
+        complete: t.complete,
+        naturalWidth: t.naturalWidth,
+        naturalHeight: t.naturalHeight,
+        currentSrc: (t.currentSrc || "").slice(0, 300)
+      });
+    };
+    const onLoad = onEvent("load");
+    const onError = onEvent("error");
+    doc.addEventListener("load", onLoad, true);
+    doc.addEventListener("error", onError, true);
+    return () => {
+      doc.removeEventListener("load", onLoad, true);
+      doc.removeEventListener("error", onError, true);
+    };
+  }
+  function sampleImgStates(doc, event = "sameS") {
+    const imgs = [...doc.images];
+    let broken = 0;
+    for (const img of imgs) {
+      const src = img.currentSrc || img.src || "";
+      const isLogo = /logo\.svg/i.test(src);
+      const isBroken = img.complete && img.naturalWidth === 0;
+      if (!isLogo && !(isBroken && broken < 20)) continue;
+      if (isBroken && !isLogo) broken++;
+      pushAssetTrace({
+        hop: "img.state",
+        url: src.slice(0, 300),
+        contextId: 1,
+        event,
+        complete: img.complete,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        currentSrc: (img.currentSrc || "").slice(0, 300)
+      });
+    }
+  }
+
   // browser/mirror/projection/lab/client/main.ts
   var import_decode2 = __toESM(require_decode());
   var import_telemetry = __toESM(require_telemetry());
@@ -9020,8 +9112,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 123,
-    builtAt: "2026-09-16T21:50:19.085Z"
+    seq: 124,
+    builtAt: "2026-09-16T22:09:28.744Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -9777,11 +9869,11 @@
     });
     let lastGrabTap = 0;
     opts.grabber.addEventListener("click", () => {
-      const now = Date.now();
-      if (now - lastGrabTap < 320) {
+      const now2 = Date.now();
+      if (now2 - lastGrabTap < 320) {
         setSnap(snap === "collapsed" ? "peek" : snap === "peek" ? "expanded" : "collapsed");
       }
-      lastGrabTap = now;
+      lastGrabTap = now2;
     });
     window.addEventListener("resize", () => {
       applyHeight(snapHeight(snap, window.innerHeight));
@@ -10033,12 +10125,34 @@
       (reg.active ?? win.navigator.serviceWorker.controller)?.postMessage({ type: "ctx", contextId });
     });
   }
-  function sendGeckoAssetFetch(ws, ctx, url, dest, range) {
+  function sendGeckoAssetFetch(ws, ctx, url, dest, range, fetchId) {
     const streamId = nextStream++;
     const destCode = classifyFetchDestination(dest);
     const payload = (0, import_core.encodeAssetRequest)(streamId, destCode, url, range, 0);
+    if (urlWorthTracing(url)) {
+      pushAssetTrace({
+        hop: "lab.request",
+        streamId,
+        fetchId,
+        contextId: ctx,
+        url: url.slice(0, 300),
+        range,
+        dest,
+        destCode,
+        payloadLen: payload.byteLength
+      });
+    }
     return new Promise((resolve, reject) => {
-      pendingAssets.set(streamId, { chunks: [], resolve, reject });
+      pendingAssets.set(streamId, {
+        chunks: [],
+        resolve,
+        reject,
+        url,
+        contextId: ctx,
+        range,
+        dest,
+        fetchId
+      });
       ws.send(JSON.stringify({ type: "client.asset", contextId: ctx, bytes: (0, import_core.bytesToBase64)(payload) }));
     });
   }
@@ -10049,6 +10163,21 @@
     }
     if (phase === 2) {
       pendingAssets.delete(streamId);
+      if (urlWorthTracing(pending.url)) {
+        pushAssetTrace({
+          hop: "lab.response",
+          streamId,
+          fetchId: pending.fetchId,
+          contextId: pending.contextId,
+          url: pending.url.slice(0, 300),
+          range: pending.range,
+          dest: pending.dest,
+          phase: "denied",
+          why: why || "denied",
+          chunkTotal: 0,
+          bodySha16: bodyFnv16(null)
+        });
+      }
       console.warn("[gecko-asset] denied", streamId, why || "denied");
       pending.reject(new Error(why || "denied"));
       return;
@@ -10065,7 +10194,8 @@
         body.set(c, o);
         o += c.length;
       }
-      let mime = data.length ? new TextDecoder().decode(data) : "";
+      const mimeIn = data.length ? new TextDecoder().decode(data) : "";
+      let mime = mimeIn;
       const genericMime = !mime || mime === "application/octet-stream" || mime === "binary/octet-stream" || mime === "text/plain" || mime === "application/force-download" || mime === "text/html" || !mime.toLowerCase().split(";")[0].trim().startsWith("image/");
       if (genericMime && body.length) {
         const head = new TextDecoder().decode(body.slice(0, Math.min(256, body.length))).toLowerCase();
@@ -10081,8 +10211,23 @@
           mime = "image/webp";
         }
       }
-      if (total === 0 || genericMime && !mime.startsWith("image/")) {
-        console.warn("[gecko-asset] complete-suspect", streamId, { total, mime, why: "empty_or_generic" });
+      if (urlWorthTracing(pending.url)) {
+        pushAssetTrace({
+          hop: "lab.response",
+          streamId,
+          fetchId: pending.fetchId,
+          contextId: pending.contextId,
+          url: pending.url.slice(0, 300),
+          range: pending.range,
+          dest: pending.dest,
+          phase: "complete",
+          chunkTotal: total,
+          mimeIn,
+          mimeOut: mime,
+          genericMime,
+          bodySha16: bodyFnv16(body),
+          bodyHead: bodyHeadAscii(body)
+        });
       }
       const headers = new Headers();
       if (mime) {
@@ -10094,11 +10239,15 @@
   function wireGeckoSwFetch(ws, ctx) {
     navigator.serviceWorker.addEventListener("message", (ev) => {
       const msg = ev.data;
+      if (msg?.type === "asset-trace" && msg.event && typeof msg.event === "object") {
+        pushAssetTrace(msg.event);
+        return;
+      }
       if (msg?.type !== "asset-fetch" || typeof msg.url !== "string" || typeof msg.id !== "number") {
         return;
       }
       const fetchCtx = typeof msg.contextId === "number" && Number.isInteger(msg.contextId) && msg.contextId >= 1 ? msg.contextId : ctx;
-      void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? "", msg.range ?? "").then(
+      void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? "", msg.range ?? "", msg.id).then(
         async (res) => {
           const buf = new Uint8Array(await res.arrayBuffer());
           const contentType = res.headers.get("Content-Type") || "";
@@ -10244,6 +10393,7 @@
     $("chipBuild").title = `${buildLabel}${labBuildStamp_default.builtAt ? ` \xB7 ${labBuildStamp_default.builtAt}` : ""}`;
     let ws = null;
     let projection = null;
+    let disposeImgTrace = null;
     const inputDetachers = /* @__PURE__ */ new Map();
     let inputCaptureMetrics = new import_projected2.ProjectedInputCaptureMetrics();
     let sessionToken = "";
@@ -10844,6 +10994,8 @@
         getDocumentBaseUrl: () => isGeckoLab() ? documentBaseUrl : "",
         onArmed: () => {
           bindInputSurfaces(projection);
+          disposeImgTrace?.();
+          disposeImgTrace = installImgTrace(projection.document);
         },
         onTelemetry: (msg) => {
           observeStreamTelemetry(msg);
@@ -10901,6 +11053,8 @@
           logActivity(`desync ${reason}`);
         }
       });
+      disposeImgTrace?.();
+      disposeImgTrace = installImgTrace(projection.document);
       setSurfaceEmpty(false);
       if (canonicalViewport.width > 0 && canonicalViewport.height > 0) {
         projection.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
@@ -11084,6 +11238,10 @@
             }
             const cssomSheetDump = cssomSheetDumpReq || layoutRootCause ? p.probeCssomSheetDump(cssomSheetDumpReq?.nestedContextId ?? contextId) : void 0;
             const layoutProbe = layoutRootCause && doc && win ? probeLayoutRootCause(doc, win) : void 0;
+            if (doc && isGeckoLab()) {
+              sampleImgStates(doc, "sameS");
+            }
+            const assetTrace = isGeckoLab() ? drainAssetTrace() : void 0;
             ws?.send(
               JSON.stringify({
                 type: "client.snapshotResult",
@@ -11103,7 +11261,8 @@
                 ...rectLadder !== void 0 ? { rectLadder } : {},
                 ...paintProbe !== void 0 ? { paintProbe } : {},
                 ...cssomSheetDump !== void 0 ? { cssomSheetDump } : {},
-                ...layoutProbe !== void 0 ? { layoutProbe } : {}
+                ...layoutProbe !== void 0 ? { layoutProbe } : {},
+                ...assetTrace !== void 0 ? { assetTrace } : {}
               })
             );
           });
@@ -11443,6 +11602,9 @@
         }
         const p = await ensureProjection();
         await p.resetSurface();
+        clearAssetTrace();
+        disposeImgTrace?.();
+        disposeImgTrace = installImgTrace(p.document);
         p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
         resetStreamCounters();
         logActivity(

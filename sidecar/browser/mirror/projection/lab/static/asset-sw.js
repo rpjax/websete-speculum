@@ -6,6 +6,45 @@ let nextId = 1;
 const pending = new Map();
 const ctxByClient = new Map();
 
+function nowMs() {
+  return Math.round(
+    (typeof performance !== 'undefined' && performance.timeOrigin
+      ? performance.timeOrigin + performance.now()
+      : Date.now()),
+  );
+}
+
+function bodyFnv16(bytes) {
+  const u8 = !bytes
+    ? new Uint8Array(0)
+    : bytes instanceof Uint8Array
+      ? bytes
+      : new Uint8Array(bytes);
+  let h = 14695981039346656037n;
+  const prime = 1099511628211n;
+  for (let i = 0; i < u8.length; i++) {
+    h ^= BigInt(u8[i]);
+    h = BigInt.asUintN(64, h * prime);
+  }
+  return h.toString(16).padStart(16, '0');
+}
+
+function urlWorthTracing(url) {
+  return /logo\.svg/i.test(url || '');
+}
+
+async function emitTrace(event) {
+  const payload = { t: nowMs(), ...event };
+  try {
+    const client = await pageClient();
+    if (client) {
+      client.postMessage({ type: 'asset-trace', event: payload });
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
 });
@@ -53,6 +92,18 @@ self.addEventListener('fetch', (event) => {
   if (!destOk(dest)) {
     event.respondWith(new Response('', { status: 403, statusText: 'speculum-denied' }));
     return;
+  }
+  if (urlWorthTracing(event.request.url)) {
+    void emitTrace({
+      hop: 'sw.intercept',
+      url: event.request.url.slice(0, 300),
+      range: event.request.headers.get('Range') || '',
+      dest,
+      controlled: true,
+      clientId: event.clientId || '',
+      escaped: false,
+      contextId: (event.clientId && ctxByClient.get(event.clientId)) || 1,
+    });
   }
   event.respondWith(proxy(event.request, event.clientId));
 });
@@ -102,24 +153,44 @@ function assetResponse(request, bytes, contentType) {
   headers.set('Cache-Control', 'no-store');
   const dest = request.destination;
   const wantImage = dest === 'image' || dest === '' || (contentType || '').toLowerCase().startsWith('image/');
-  if (wantImage && !looksLikeImageBody(bytes, contentType)) {
+  const looks = looksLikeImageBody(bytes, contentType);
+  if (wantImage && !looks) {
     headers.set('Cache-Control', 'no-store');
-    return new Response('', { status: 502, statusText: 'speculum-bad-image', headers });
+    return {
+      response: new Response('', { status: 502, statusText: 'speculum-bad-image', headers }),
+      status: 502,
+      looksLikeImage: false,
+      byteLength: 0,
+      bodySha16: bodyFnv16(null),
+    };
   }
   if (token) {
     headers.set(TOKEN_HEADER, token);
   }
   const range = request.headers.get('Range') || '';
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
   if (!range) {
-    return new Response(bytes, { status: 200, headers });
+    return {
+      response: new Response(bytes, { status: 200, headers }),
+      status: 200,
+      looksLikeImage: looks,
+      byteLength: u8.byteLength,
+      bodySha16: bodyFnv16(u8),
+    };
   }
   const m = /^bytes=(\d+)-(\d+)?$/i.exec(range.trim());
   const start = m ? Number(m[1]) : 0;
-  const end = start + bytes.byteLength - 1;
+  const end = start + u8.byteLength - 1;
   headers.set('Accept-Ranges', 'bytes');
   headers.set('Content-Range', `bytes ${start}-${end}/*`);
-  headers.set('Content-Length', String(bytes.byteLength));
-  return new Response(bytes, { status: 206, headers });
+  headers.set('Content-Length', String(u8.byteLength));
+  return {
+    response: new Response(bytes, { status: 206, headers }),
+    status: 206,
+    looksLikeImage: looks,
+    byteLength: u8.byteLength,
+    bodySha16: bodyFnv16(u8),
+  };
 }
 
 async function proxy(request, clientId) {
@@ -145,7 +216,41 @@ async function proxy(request, clientId) {
   });
   const msg = await reply;
   if (!msg.ok) {
+    if (urlWorthTracing(request.url)) {
+      void emitTrace({
+        hop: 'sw.respond',
+        fetchId: id,
+        contextId,
+        url: request.url.slice(0, 300),
+        range,
+        dest: request.destination,
+        status: 404,
+        contentType: '',
+        cacheControl: '',
+        byteLength: 0,
+        looksLikeImage: false,
+        bodySha16: bodyFnv16(null),
+        why: String(msg.error || 'denied'),
+      });
+    }
     return new Response('', { status: 404, statusText: String(msg.error || 'denied') });
   }
-  return assetResponse(request, msg.bytes, msg.contentType || '');
+  const built = assetResponse(request, msg.bytes, msg.contentType || '');
+  if (urlWorthTracing(request.url)) {
+    void emitTrace({
+      hop: 'sw.respond',
+      fetchId: id,
+      contextId,
+      url: request.url.slice(0, 300),
+      range,
+      dest: request.destination,
+      status: built.status,
+      contentType: msg.contentType || '',
+      cacheControl: 'no-store',
+      byteLength: built.byteLength,
+      looksLikeImage: built.looksLikeImage,
+      bodySha16: built.bodySha16,
+    });
+  }
+  return built.response;
 }

@@ -11,6 +11,7 @@ import {
   SessionAuthQueryParam,
   SessionCacheBustQueryParam,
   stampAuthInServedBody,
+  stampSrcsetAuth,
   appendSessionAuth,
 } from '@speculum/page-projection/projected/sessionBindingAuth';
 import { VIRTUAL_ASSETS_PREFIX } from '../../assets/urlForms';
@@ -58,6 +59,30 @@ export function testLabVirtualAssetsServeHelpers(): void {
 
   const ugly = appendSessionAuth(`${VIRTUAL_ASSETS_PREFIX}h/a.png`, 'a&=b', '');
   assert.ok(ugly.includes(`${SessionAuthQueryParam}=a%26%3Db`));
+
+  // Cloudinary transforms use commas inside the URL — must not become candidate separators.
+  const belezaSrcset =
+    'https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/hero.jpg 1220w, '
+    + 'https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_800/v1/banner/hero.jpg 800w';
+  const stampedBeleza = stampSrcsetAuth(belezaSrcset, 'tok', '');
+  assert.ok(
+    stampedBeleza.includes('f_avif,fl_progressive,q_auto:eco,w_iw'),
+    `Cloudinary commas must stay inside URL: ${stampedBeleza}`,
+  );
+  assert.ok(!stampedBeleza.includes('f_avif, fl_progressive'), stampedBeleza);
+  assert.ok(!stampedBeleza.includes('/f_avif 1220w'), stampedBeleza);
+  assert.equal(stampedBeleza, belezaSrcset, 'non-virtual candidates leave auth untouched');
+
+  const virtualSrcset =
+    `${VIRTUAL_ASSETS_PREFIX}res.cloudinary.com/demo/image/upload/f_avif,q_auto,w_400/icon.png 1x, `
+    + `${VIRTUAL_ASSETS_PREFIX}res.cloudinary.com/demo/image/upload/f_avif,q_auto,w_800/icon.png 2x`;
+  const stampedVirtual = stampSrcsetAuth(virtualSrcset, 'sess-9', '');
+  assert.ok(stampedVirtual.includes('f_avif,q_auto,w_400'), stampedVirtual);
+  assert.ok(stampedVirtual.includes('f_avif,q_auto,w_800'), stampedVirtual);
+  assert.ok(!stampedVirtual.includes('f_avif, q_auto'), stampedVirtual);
+  assert.ok(stampedVirtual.includes(`${SessionAuthQueryParam}=sess-9`), stampedVirtual);
+  assert.ok(stampedVirtual.includes(' 1x, '), stampedVirtual);
+  assert.ok(stampedVirtual.endsWith(' 2x'), stampedVirtual);
 
   console.log('[unit] lab virtual assets serve helpers ok');
 }

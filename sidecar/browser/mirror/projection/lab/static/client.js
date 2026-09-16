@@ -3366,12 +3366,99 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/srcsetParse.js
+  var require_srcsetParse = __commonJS({
+    "../packages/page-projection/dist/projected/srcsetParse.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.mapSrcset = exports.parseSrcset = void 0;
+      function isAsciiWhitespace(c) {
+        return c === " " || c === "	" || c === "\n" || c === "\r" || c === "\f";
+      }
+      function parseSrcset(input) {
+        const candidates = [];
+        let pos = 0;
+        const len = input.length;
+        while (pos < len) {
+          while (pos < len && (input[pos] === "," || isAsciiWhitespace(input[pos])))
+            pos += 1;
+          if (pos >= len)
+            break;
+          const urlStart = pos;
+          while (pos < len && !isAsciiWhitespace(input[pos]))
+            pos += 1;
+          let url = input.slice(urlStart, pos);
+          if (url.endsWith(",")) {
+            url = url.replace(/,+$/, "");
+            if (url)
+              candidates.push({ url, descriptor: "" });
+            continue;
+          }
+          while (pos < len && isAsciiWhitespace(input[pos]))
+            pos += 1;
+          const descParts = [];
+          let current = "";
+          let state = "in";
+          while (pos < len) {
+            const c = input[pos];
+            if (state === "in") {
+              if (isAsciiWhitespace(c)) {
+                if (current) {
+                  descParts.push(current);
+                  current = "";
+                  state = "after";
+                }
+                pos += 1;
+              } else if (c === ",") {
+                if (current)
+                  descParts.push(current);
+                current = "";
+                pos += 1;
+                break;
+              } else if (c === "(") {
+                current += c;
+                state = "parens";
+                pos += 1;
+              } else {
+                current += c;
+                pos += 1;
+              }
+            } else if (state === "parens") {
+              current += c;
+              if (c === ")")
+                state = "in";
+              pos += 1;
+            } else if (isAsciiWhitespace(c)) {
+              pos += 1;
+            } else {
+              state = "in";
+            }
+          }
+          if (current)
+            descParts.push(current);
+          if (url)
+            candidates.push({ url, descriptor: descParts.join(" ") });
+        }
+        return candidates;
+      }
+      exports.parseSrcset = parseSrcset;
+      function mapSrcset(input, mapUrl) {
+        return parseSrcset(input).map((c) => {
+          const u = mapUrl(c.url);
+          return c.descriptor ? `${u} ${c.descriptor}` : u;
+        }).join(", ");
+      }
+      exports.mapSrcset = mapSrcset;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/sessionBindingAuth.js
   var require_sessionBindingAuth = __commonJS({
     "../packages/page-projection/dist/projected/sessionBindingAuth.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.stampAttrAuth = exports.stampAuthInServedBody = exports.stampCssTextAuth = exports.stampSrcsetAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = void 0;
+      var srcsetParse_1 = require_srcsetParse();
       exports.SessionAuthQueryParam = "speculum-session-token";
       exports.SessionCacheBustQueryParam = "speculum-cache-bust";
       function isVirtualAssetUrl(url) {
@@ -3419,16 +3506,7 @@
       function stampSrcsetAuth(value, token, assetBaseUrl) {
         if (!token || !value)
           return value;
-        return value.split(",").map((part) => {
-          const trimmed = part.trim();
-          if (!trimmed)
-            return part;
-          const bits = trimmed.split(/\s+/);
-          const u = bits[0];
-          const rest = bits.slice(1).join(" ");
-          const stamped = appendSessionAuth(u, token, assetBaseUrl);
-          return rest ? `${stamped} ${rest}` : stamped;
-        }).join(", ");
+        return (0, srcsetParse_1.mapSrcset)(value, (u) => appendSessionAuth(u, token, assetBaseUrl));
       }
       exports.stampSrcsetAuth = stampSrcsetAuth;
       function stampCssTextAuth(css, token, assetBaseUrl) {
@@ -8953,17 +9031,23 @@
       const s = img.currentSrc || img.src || "";
       return /logo\.svg/i.test(s) || /\/logo(\.|$)/i.test(s);
     });
-    const imgs = [
-      ...logoImgs,
-      ...allImgs.filter((img) => !logoImgs.includes(img))
-    ].slice(0, 40).map((img) => ({
-      src: (img.currentSrc || img.src || "").slice(0, 160),
+    const brokenList = allImgs.filter((i) => i.complete && i.naturalWidth === 0);
+    const mapImg = (img) => ({
+      src: (img.currentSrc || img.src || "").slice(0, 220),
       srcset: (img.getAttribute("srcset") || "").slice(0, 160),
       complete: img.complete,
       naturalWidth: img.naturalWidth,
       width: img.width
-    }));
-    const brokenImgs = allImgs.filter((i) => i.complete && i.naturalWidth === 0).length;
+    });
+    const seen = /* @__PURE__ */ new Set();
+    const imgs = [];
+    for (const img of [...logoImgs, ...brokenList]) {
+      if (seen.has(img)) continue;
+      seen.add(img);
+      imgs.push(mapImg(img));
+      if (imgs.length >= 80) break;
+    }
+    const brokenImgs = brokenList.length;
     const styleEls = doc.querySelectorAll("style").length;
     const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;
     const adoptedSheetCount = doc.adoptedStyleSheets?.length ?? 0;
@@ -8995,7 +9079,7 @@
       docSheetRules,
       sheets,
       brokenImgs,
-      imgsSample: imgs.slice(0, 12),
+      imgsSample: imgs,
       bodyBg: doc.body ? win.getComputedStyle(doc.body).backgroundColor : null,
       dualHint: {
         styleElCount: styleEls,
@@ -9007,10 +9091,16 @@
   }
 
   // browser/mirror/projection/lab/client/assetTrace.ts
-  var MAX = 8e3;
+  var MAX = 2e4;
   var events = [];
   function now() {
     return typeof performance !== "undefined" && performance.now ? Math.round(performance.timeOrigin + performance.now()) : Date.now();
+  }
+  function traceAllEnabled() {
+    return !!globalThis.__SPECULUM_ASSET_TRACE;
+  }
+  function enableAssetTraceAll() {
+    globalThis.__SPECULUM_ASSET_TRACE = true;
   }
   function bodyFnv16(bytes) {
     const u8 = bytes instanceof Uint8Array ? bytes : bytes ? new Uint8Array(bytes) : new Uint8Array(0);
@@ -9043,7 +9133,7 @@
     events.length = 0;
   }
   function urlWorthTracing(url) {
-    return /logo\.svg/i.test(url) || !!globalThis.__SPECULUM_ASSET_TRACE;
+    return /logo\.svg/i.test(url) || traceAllEnabled();
   }
   function installImgTrace(doc) {
     const seen = /* @__PURE__ */ new WeakSet();
@@ -9078,13 +9168,17 @@
   }
   function sampleImgStates(doc, event = "sameS") {
     const imgs = [...doc.images];
+    const allBroken = traceAllEnabled();
     let broken = 0;
     for (const img of imgs) {
       const src = img.currentSrc || img.src || "";
       const isLogo = /logo\.svg/i.test(src);
       const isBroken = img.complete && img.naturalWidth === 0;
-      if (!isLogo && !(isBroken && broken < 20)) continue;
-      if (isBroken && !isLogo) broken++;
+      if (!isLogo && !isBroken) continue;
+      if (isBroken && !isLogo && !allBroken) {
+        if (broken >= 20) continue;
+        broken++;
+      }
       pushAssetTrace({
         hop: "img.state",
         url: src.slice(0, 300),
@@ -9112,8 +9206,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 124,
-    builtAt: "2026-09-16T22:09:28.744Z"
+    seq: 131,
+    builtAt: "2026-09-16T23:00:27.755Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -10116,6 +10210,14 @@
     const sw = navigator.serviceWorker.controller ?? swReg.active;
     sw?.postMessage({ type: "token", token });
     sw?.postMessage({ type: "ctx", contextId: import_frame2.CONTEXT_ID_ROOT });
+    if (globalThis.__SPECULUM_ASSET_TRACE) {
+      sw?.postMessage({ type: "asset-trace-enable", enable: true });
+    }
+  }
+  function enableGeckoAssetTraceAll() {
+    enableAssetTraceAll();
+    const sw = navigator.serviceWorker.controller ?? swReg?.active;
+    sw?.postMessage({ type: "asset-trace-enable", enable: true });
   }
   function registerGeckoAssetContext(contextId, win = window) {
     if (!("serviceWorker" in win.navigator)) {
@@ -10415,6 +10517,9 @@
     void Promise.resolve().then(() => (init_diagDomApply(), diagDomApply_exports)).then(({ diagDomApplyFrameUrls: diagDomApplyFrameUrls2 }) => {
       window.__labDiagDomApplyBins = (urls) => diagDomApplyFrameUrls2(urls ?? ["/lab/diag-f1.bin", "/lab/diag-f3.bin"]);
     });
+    window.__speculumEnableAssetTraceAll = () => {
+      enableGeckoAssetTraceAll();
+    };
     function disposeViewportSync() {
       viewportSync?.dispose();
       viewportSync = null;

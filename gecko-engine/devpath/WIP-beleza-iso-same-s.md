@@ -103,6 +103,30 @@ Dossier: `gecko-engine/devpath/captures/asset-h5-20260916-223633Z/`
 V1–V10 **todos true**. Logo `naturalWidth=120`. `bodyHead` = `<svg …`. sha gecko=lab=sw.  
 `brokenImgs=61` (residual outros MIME/assets). **Não** declarar Fixed de accept.
 
+### P8 — brokenImgs 61 — **causa classificada (não Fixed)**
+
+Iso cold pós-logo: header 60 PASS; logo PASS; fail `asset_broken_imgs_zero` + hash CSSOM texto.
+
+Classificação (`asset-h5-20260916-225115Z/broken-classify.json`):
+- **34 AVIF** + **26 WEBP** Cloudinary + 1 pixel tracker
+- Tee Virtual: `tap_stop_ok` na URL **completa**; Projected pede `.../upload/f_avif` (truncado) → `join/open` → `open-failed`
+- Provável: **srcset** com vírgulas de transform Cloudinary interpretadas como separador de candidatos
+
+Próximo fix: serialização/apply de `srcset` (não decode).
+
+### P9 — `stampSrcsetAuth` Cloudinary — **raiz do truncamento fechada; não 1:1**
+
+Fix: [`sessionBindingAuth.ts`](../../packages/page-projection/src/projected/sessionBindingAuth.ts) usa `mapSrcset` (WHATWG) em vez de `.split(',')`. Parser em [`srcsetParse.ts`](../../packages/page-projection/src/projected/srcsetParse.ts). Unit Beleza-shaped no sidecar.
+
+Iso cold (`captures/same-s-iso-latest/`):
+- `truncatedCount=0` / `attrs_img_src_sane` PASS
+- `imgsSample`: **zero** `f_avif, fl_` e **zero** `src` truncado em `/f_avif`
+- `brokenImgs` **61 → 35** (34 AVIF com URL **intacta** + 1 other; bucket WEBP sumiu do sample quebrado)
+- Ainda FAIL: `asset_broken_imgs_zero`, `cssom_rule_text_hash_wire_vs_adopted`
+- Logo + header 60 PASS
+
+**Não** Fixed / 1:1. Residual: AVIF completa com `nw=0` apesar da URL correta (fora deste slice).
+
 ---
 
 ## Anti-padrões — proibido neste fio

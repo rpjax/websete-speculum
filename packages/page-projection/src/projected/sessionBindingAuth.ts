@@ -6,6 +6,8 @@
  * would normalize percent-encoding and change the L1 key.
  */
 
+import { mapSrcset } from './srcsetParse';
+
 export const SessionAuthQueryParam = 'speculum-session-token';
 export const SessionCacheBustQueryParam = 'speculum-cache-bust';
 
@@ -67,19 +69,7 @@ function setReservedParam(url: string, name: string, value: string): string {
 /** Stamp every virtual-asset URL token inside srcset / imagesrcset. */
 export function stampSrcsetAuth(value: string, token: string, assetBaseUrl: string): string {
   if (!token || !value) return value;
-  // Coarse: rewrite each candidate URL (WHATWG-ish — URL until whitespace).
-  return value
-    .split(',')
-    .map((part) => {
-      const trimmed = part.trim();
-      if (!trimmed) return part;
-      const bits = trimmed.split(/\s+/);
-      const u = bits[0]!;
-      const rest = bits.slice(1).join(' ');
-      const stamped = appendSessionAuth(u, token, assetBaseUrl);
-      return rest ? `${stamped} ${rest}` : stamped;
-    })
-    .join(', ');
+  return mapSrcset(value, (u) => appendSessionAuth(u, token, assetBaseUrl));
 }
 
 /** Stamp virtual URLs inside cssText / style (url(), @import, image-set). */

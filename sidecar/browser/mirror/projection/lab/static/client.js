@@ -8270,34 +8270,36 @@
   }
 
   // browser/mirror/projection/lab/probes/cssomSheetDump.ts
-  var CSSOM_SHEET_DUMP_EXPR = `(() => {
   function dumpSheetList(list, scope, hostId) {
     const out = [];
-    for (let i = 0; i < list.length; i++) {
+    if (!list) return out;
+    const len = list.length;
+    for (let i = 0; i < len; i++) {
       const s = list[i];
       if (!s) continue;
-      let rules = '<<ERROR>>';
+      let rules = "<<ERROR>>";
       let ruleCount = 0;
       try {
         const arr = [];
-        for (let j = 0; j < s.cssRules.length; j++) arr.push(s.cssRules[j].cssText);
+        for (let j = 0; j < s.cssRules.length; j++) {
+          arr.push(s.cssRules.item(j)?.cssText ?? "");
+        }
         rules = arr;
         ruleCount = arr.length;
       } catch {
-        rules = '<<CROSS-ORIGIN>>';
+        rules = "<<CROSS-ORIGIN>>";
       }
       const owner = s.ownerNode;
-      const dataClass =
-        owner && owner.dataset && owner.dataset.class ? String(owner.dataset.class) : null;
+      const dataClass = owner && "dataset" in owner && owner.dataset?.class ? String(owner.dataset.class) : null;
       out.push({
         href: s.href || null,
-        ownerNode: owner ? owner.tagName + (owner.id ? '#' + owner.id : '') : null,
+        ownerNode: owner ? owner.tagName + (owner.id ? "#" + owner.id : "") : null,
         dataClass,
         ruleCount,
         rules,
-        adopted: scope === 'shadow' || !owner,
+        adopted: scope === "shadow" || !owner,
         scope,
-        shadowHostId: hostId || null,
+        shadowHostId: hostId || null
       });
     }
     return out;
@@ -8306,72 +8308,101 @@
     const hostId = hostEl.id || hostEl.tagName.toLowerCase();
     const out = [];
     try {
-      out.push(...dumpSheetList(root.adoptedStyleSheets || [], 'shadow', hostId));
-    } catch {}
+      out.push(...dumpSheetList(root.adoptedStyleSheets, "shadow", hostId));
+    } catch {
+    }
     const queue = [root];
     while (queue.length) {
       const n = queue.shift();
-      for (const c of n.childNodes) {
-        if (c.nodeType !== 1) continue;
-        const el = c;
-        if (el.shadowRoot) {
-          out.push(...dumpSheetList(el.shadowRoot.adoptedStyleSheets || [], 'shadow', el.id || el.tagName));
-          queue.push(el.shadowRoot);
+      const children = "childNodes" in n ? n.childNodes : [];
+      for (let i = 0; i < children.length; i++) {
+        const c = children.item(i);
+        if (!c || c.nodeType !== 1) continue;
+        const el2 = c;
+        if (el2.shadowRoot) {
+          out.push(
+            ...dumpSheetList(
+              el2.shadowRoot.adoptedStyleSheets,
+              "shadow",
+              el2.id || el2.tagName
+            )
+          );
+          queue.push(el2.shadowRoot);
         }
-        queue.push(el);
+        queue.push(el2);
       }
     }
     return out;
   }
-  const entries = dumpSheetList(document.styleSheets, 'document', null);
-  const closedFixture = globalThis.__speculumClosedRoot;
-  if (closedFixture) {
+  function dumpCssomSheets(doc) {
     try {
-      entries.push(...dumpSheetList(closedFixture.styleSheets, 'shadow', 'shadow-host'));
-    } catch {}
-    try {
-      entries.push(...dumpSheetList(closedFixture.adoptedStyleSheets || [], 'shadow', 'shadow-host'));
-    } catch {}
-  }
-  const hosts = document.querySelectorAll('*');
-  for (const h of hosts) {
-    const sr = h.shadowRoot || (globalThis.__speculumResolveShadowRoot ? globalThis.__speculumResolveShadowRoot(h) : null);
-    if (sr) entries.push(...collectShadowSheets(sr, h));
-  }
-  let totalRules = 0;
-  for (const e of entries) {
-    if (Array.isArray(e.rules)) totalRules += e.rules.length;
-  }
-  return JSON.stringify({
-    ok: true,
-    documentUrl: document.URL,
-    entries,
-    styleSheetCount: entries.filter((e) => !e.adopted).length,
-    adoptedCount: entries.filter((e) => e.adopted).length,
-    totalRules,
-  });
-})()`;
-  function parseCssomSheetDump(raw) {
-    if (typeof raw === "string") {
+      const entries = dumpSheetList(doc.styleSheets, "document", null);
       try {
-        raw = JSON.parse(raw);
+        if (doc.adoptedStyleSheets?.length) {
+          const adopted = dumpSheetList(
+            doc.adoptedStyleSheets,
+            "document",
+            null
+          );
+          for (const e of adopted) {
+            e.adopted = true;
+            entries.push(e);
+          }
+        }
       } catch {
-        return { ok: false, reason: "invalid_json", entries: [], styleSheetCount: 0, adoptedCount: 0, totalRules: 0 };
       }
+      const g = globalThis;
+      const closedFixture = g.__speculumClosedRoot;
+      if (closedFixture) {
+        try {
+          entries.push(
+            ...dumpSheetList(
+              closedFixture.styleSheets,
+              "shadow",
+              "shadow-host"
+            )
+          );
+        } catch {
+        }
+        try {
+          entries.push(
+            ...dumpSheetList(
+              closedFixture.adoptedStyleSheets,
+              "shadow",
+              "shadow-host"
+            )
+          );
+        } catch {
+        }
+      }
+      const hosts = doc.querySelectorAll("*");
+      for (let i = 0; i < hosts.length; i++) {
+        const h = hosts[i];
+        const sr = h.shadowRoot || (g.__speculumResolveShadowRoot ? g.__speculumResolveShadowRoot(h) : null);
+        if (sr) entries.push(...collectShadowSheets(sr, h));
+      }
+      let totalRules = 0;
+      for (const e of entries) {
+        if (Array.isArray(e.rules)) totalRules += e.rules.length;
+      }
+      return {
+        ok: true,
+        documentUrl: doc.URL,
+        entries,
+        styleSheetCount: entries.filter((e) => !e.adopted).length,
+        adoptedCount: entries.filter((e) => e.adopted).length,
+        totalRules
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : String(err),
+        entries: [],
+        styleSheetCount: 0,
+        adoptedCount: 0,
+        totalRules: 0
+      };
     }
-    if (!raw || typeof raw !== "object") {
-      return { ok: false, reason: "empty", entries: [], styleSheetCount: 0, adoptedCount: 0, totalRules: 0 };
-    }
-    const o = raw;
-    return {
-      ok: o.ok === true,
-      reason: o.reason,
-      documentUrl: o.documentUrl,
-      entries: Array.isArray(o.entries) ? o.entries : [],
-      styleSheetCount: typeof o.styleSheetCount === "number" ? o.styleSheetCount : 0,
-      adoptedCount: typeof o.adoptedCount === "number" ? o.adoptedCount : 0,
-      totalRules: typeof o.totalRules === "number" ? o.totalRules : 0
-    };
   }
 
   // browser/mirror/projection/lab/client/LabProjectedHarness.ts
@@ -8548,25 +8579,7 @@
           totalRules: 0
         };
       }
-      try {
-        const fn = new Function(`return (${CSSOM_SHEET_DUMP_EXPR})`);
-        const prevDoc = globalThis.document;
-        globalThis.document = doc;
-        try {
-          return parseCssomSheetDump(fn());
-        } finally {
-          if (prevDoc) globalThis.document = prevDoc;
-        }
-      } catch (err) {
-        return {
-          ok: false,
-          reason: err instanceof Error ? err.message : String(err),
-          entries: [],
-          styleSheetCount: 0,
-          adoptedCount: 0,
-          totalRules: 0
-        };
-      }
+      return dumpCssomSheets(doc);
     }
     /**
      * Lab diag — rect ladder from nested widget up to root projected surface.
@@ -8935,14 +8948,22 @@
       }
     } catch {
     }
-    const imgs = [...doc.images].slice(0, 40).map((img) => ({
+    const allImgs = [...doc.images];
+    const logoImgs = allImgs.filter((img) => {
+      const s = img.currentSrc || img.src || "";
+      return /logo\.svg/i.test(s) || /\/logo(\.|$)/i.test(s);
+    });
+    const imgs = [
+      ...logoImgs,
+      ...allImgs.filter((img) => !logoImgs.includes(img))
+    ].slice(0, 40).map((img) => ({
       src: (img.currentSrc || img.src || "").slice(0, 160),
       srcset: (img.getAttribute("srcset") || "").slice(0, 160),
       complete: img.complete,
       naturalWidth: img.naturalWidth,
       width: img.width
     }));
-    const brokenImgs = imgs.filter((i) => i.complete && i.naturalWidth === 0).length;
+    const brokenImgs = allImgs.filter((i) => i.complete && i.naturalWidth === 0).length;
     const styleEls = doc.querySelectorAll("style").length;
     const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;
     const adoptedSheetCount = doc.adoptedStyleSheets?.length ?? 0;
@@ -8999,8 +9020,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 116,
-    builtAt: "2026-09-16T20:18:58.570Z"
+    seq: 123,
+    builtAt: "2026-09-16T21:50:19.085Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -10028,6 +10049,7 @@
     }
     if (phase === 2) {
       pendingAssets.delete(streamId);
+      console.warn("[gecko-asset] denied", streamId, why || "denied");
       pending.reject(new Error(why || "denied"));
       return;
     }
@@ -10044,7 +10066,8 @@
         o += c.length;
       }
       let mime = data.length ? new TextDecoder().decode(data) : "";
-      if (!mime && body.length) {
+      const genericMime = !mime || mime === "application/octet-stream" || mime === "binary/octet-stream" || mime === "text/plain" || mime === "application/force-download" || mime === "text/html" || !mime.toLowerCase().split(";")[0].trim().startsWith("image/");
+      if (genericMime && body.length) {
         const head = new TextDecoder().decode(body.slice(0, Math.min(256, body.length))).toLowerCase();
         if (head.includes("<svg") || head.includes("<!doctype svg")) {
           mime = "image/svg+xml";
@@ -10052,7 +10075,14 @@
           mime = "image/jpeg";
         } else if (body[0] === 137 && body[1] === 80) {
           mime = "image/png";
+        } else if (body[0] === 71 && body[1] === 73 && body[2] === 70) {
+          mime = "image/gif";
+        } else if (body.length >= 12 && body[0] === 82 && body[8] === 87 && body[9] === 69 && body[10] === 66 && body[11] === 80) {
+          mime = "image/webp";
         }
+      }
+      if (total === 0 || genericMime && !mime.startsWith("image/")) {
+        console.warn("[gecko-asset] complete-suspect", streamId, { total, mime, why: "empty_or_generic" });
       }
       const headers = new Headers();
       if (mime) {

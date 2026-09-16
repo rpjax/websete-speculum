@@ -100,9 +100,29 @@ void EmitDenied(const SpeculumAssetRegistry::Emit& aEmit, uint32_t aContextId,
            static_cast<uint32_t>(strlen(aWhy)));
 }
 
-/** Chromium recusa SVG sem Content-Type (nw=0). Sniff se o canal não deu mime. */
+/** Chromium recusa SVG sem Content-Type útil (nw=0). Sniff se mime vazio, genérico ou não-image. */
+bool MimeNeedsSniff(const std::string& aMime) {
+  if (aMime.empty()) {
+    return true;
+  }
+  // Gecko / proxies frequentemente caem nestes quando o CDN omite tipo.
+  if (aMime == "application/octet-stream" || aMime == "binary/octet-stream" ||
+      aMime == "text/plain" || aMime == "application/force-download" ||
+      aMime == "text/html") {
+    return true;
+  }
+  // Content-Type com parâmetros (ex. charset) — compara o tipo base.
+  const size_t semi = aMime.find(';');
+  const std::string base =
+      semi == std::string::npos ? aMime : aMime.substr(0, semi);
+  if (base.rfind("image/", 0) != 0) {
+    return true;
+  }
+  return false;
+}
+
 void EnsureMime(TeeBody& aBody) {
-  if (!aBody.mime.empty() || aBody.bytes.empty()) {
+  if (aBody.bytes.empty() || !MimeNeedsSniff(aBody.mime)) {
     return;
   }
   size_t i = 0;
@@ -127,6 +147,10 @@ void EnsureMime(TeeBody& aBody) {
   if (n >= 12 && p[0] == 'R' && p[1] == 'I' && p[2] == 'F' && p[3] == 'F' &&
       p[8] == 'W' && p[9] == 'E' && p[10] == 'B' && p[11] == 'P') {
     aBody.mime = "image/webp";
+    return;
+  }
+  if (n >= 3 && p[0] == 'G' && p[1] == 'I' && p[2] == 'F') {
+    aBody.mime = "image/gif";
     return;
   }
   if (n >= 5 && p[0] == '<') {
@@ -161,6 +185,11 @@ void EmitFromBody(const SpeculumAssetRegistry::Emit& aEmit, uint32_t aContextId,
   }
   const uint32_t left =
       static_cast<uint32_t>(aBody.bytes.size() - static_cast<size_t>(aOffset));
+  // Imagem vazia como 200 → Chromium cacheia decode falho (nw=0) pra URL.
+  if (left == 0 && aBody.mime.rfind("image/", 0) == 0) {
+    EmitDenied(aEmit, aContextId, aStreamId, "empty-image");
+    return;
+  }
   if (left > 0) {
     EmitWire(aEmit, aContextId, aStreamId, kPhaseChunk, aOffset,
              aBody.bytes.data() + aOffset, left);
@@ -493,15 +522,20 @@ void SpeculumAssetRegistry::OnConsumerRequest(uint32_t aContextId,
 
   const std::string key = KeyOf(aContextId, url, range);
   if (TeeBody* existing = State().Find(key)) {
-    if (existing->complete || existing->failed) {
+    if (existing->complete) {
       EmitFromBody(aEmit, aContextId, msg.streamId, msg.offset, *existing);
       return;
     }
-    // Tee em voo — espera OnStop (doc 13). Não emitir parcial sem mime/complete
-    // (SVG sem Content-Type → nw=0 e alt text estoura o header).
-    existing->waiters.push_back(
-        PendingReader{aContextId, msg.streamId, msg.offset, aEmit});
-    return;
+    if (existing->failed) {
+      // Falha anterior não pode prender o URL pra sempre — retry via open (doc 13).
+      State().bodies.erase(key);
+    } else {
+      // Tee em voo — espera OnStop (doc 13). Não emitir parcial sem mime/complete
+      // (SVG sem Content-Type → nw=0 e alt text estoura o header).
+      existing->waiters.push_back(
+          PendingReader{aContextId, msg.streamId, msg.offset, aEmit});
+      return;
+    }
   }
 
   nsCOMPtr<nsIURI> uri;

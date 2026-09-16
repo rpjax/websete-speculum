@@ -24,7 +24,163 @@ export type CssomSheetDumpResult = {
   totalRules: number;
 };
 
-/** In-page dump script body — paste into evaluate or client harness. */
+function dumpSheetList(
+  list: StyleSheetList | CSSStyleSheet[] | null | undefined,
+  scope: 'document' | 'shadow',
+  hostId: string | null,
+): CssomSheetDumpEntry[] {
+  const out: CssomSheetDumpEntry[] = [];
+  if (!list) return out;
+  const len = list.length;
+  for (let i = 0; i < len; i++) {
+    const s = list[i] as CSSStyleSheet | null | undefined;
+    if (!s) continue;
+    let rules: string[] | '<<CROSS-ORIGIN>>' | '<<ERROR>>' = '<<ERROR>>';
+    let ruleCount = 0;
+    try {
+      const arr: string[] = [];
+      for (let j = 0; j < s.cssRules.length; j++) {
+        arr.push(s.cssRules.item(j)?.cssText ?? '');
+      }
+      rules = arr;
+      ruleCount = arr.length;
+    } catch {
+      rules = '<<CROSS-ORIGIN>>';
+    }
+    const owner = s.ownerNode as Element | null;
+    const dataClass =
+      owner && 'dataset' in owner && (owner as HTMLElement).dataset?.class
+        ? String((owner as HTMLElement).dataset.class)
+        : null;
+    out.push({
+      href: s.href || null,
+      ownerNode: owner ? owner.tagName + (owner.id ? '#' + owner.id : '') : null,
+      dataClass,
+      ruleCount,
+      rules,
+      adopted: scope === 'shadow' || !owner,
+      scope,
+      shadowHostId: hostId || null,
+    });
+  }
+  return out;
+}
+
+function collectShadowSheets(root: ShadowRoot, hostEl: Element): CssomSheetDumpEntry[] {
+  const hostId = hostEl.id || hostEl.tagName.toLowerCase();
+  const out: CssomSheetDumpEntry[] = [];
+  try {
+    out.push(...dumpSheetList(root.adoptedStyleSheets as unknown as CSSStyleSheet[], 'shadow', hostId));
+  } catch {
+    /* ignore */
+  }
+  const queue: Array<Document | ShadowRoot | Element> = [root];
+  while (queue.length) {
+    const n = queue.shift()!;
+    const children = 'childNodes' in n ? n.childNodes : [];
+    for (let i = 0; i < children.length; i++) {
+      const c = children.item(i);
+      if (!c || c.nodeType !== 1) continue;
+      const el = c as Element;
+      if (el.shadowRoot) {
+        out.push(
+          ...dumpSheetList(
+            el.shadowRoot.adoptedStyleSheets as unknown as CSSStyleSheet[],
+            'shadow',
+            el.id || el.tagName,
+          ),
+        );
+        queue.push(el.shadowRoot);
+      }
+      queue.push(el);
+    }
+  }
+  return out;
+}
+
+/**
+ * Dump CSSOM for a concrete Document — no globalThis.document hijack.
+ * Used by Projected lab harness (iframe contentDocument).
+ */
+export function dumpCssomSheets(doc: Document): CssomSheetDumpResult {
+  try {
+    const entries = dumpSheetList(doc.styleSheets, 'document', null);
+    try {
+      if (doc.adoptedStyleSheets?.length) {
+        const adopted = dumpSheetList(
+          doc.adoptedStyleSheets as unknown as CSSStyleSheet[],
+          'document',
+          null,
+        );
+        for (const e of adopted) {
+          e.adopted = true;
+          entries.push(e);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    const g = globalThis as {
+      __speculumClosedRoot?: Document | ShadowRoot;
+      __speculumResolveShadowRoot?: (el: Element) => ShadowRoot | null;
+    };
+    const closedFixture = g.__speculumClosedRoot;
+    if (closedFixture) {
+      try {
+        entries.push(
+          ...dumpSheetList(
+            (closedFixture as Document).styleSheets,
+            'shadow',
+            'shadow-host',
+          ),
+        );
+      } catch {
+        /* ignore */
+      }
+      try {
+        entries.push(
+          ...dumpSheetList(
+            (closedFixture as ShadowRoot).adoptedStyleSheets as unknown as CSSStyleSheet[],
+            'shadow',
+            'shadow-host',
+          ),
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+    const hosts = doc.querySelectorAll('*');
+    for (let i = 0; i < hosts.length; i++) {
+      const h = hosts[i]!;
+      const sr =
+        h.shadowRoot || (g.__speculumResolveShadowRoot ? g.__speculumResolveShadowRoot(h) : null);
+      if (sr) entries.push(...collectShadowSheets(sr, h));
+    }
+    let totalRules = 0;
+    for (const e of entries) {
+      if (Array.isArray(e.rules)) totalRules += e.rules.length;
+    }
+    return {
+      ok: true,
+      documentUrl: doc.URL,
+      entries,
+      styleSheetCount: entries.filter((e) => !e.adopted).length,
+      adoptedCount: entries.filter((e) => e.adopted).length,
+      totalRules,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+      entries: [],
+      styleSheetCount: 0,
+      adoptedCount: 0,
+      totalRules: 0,
+    };
+  }
+}
+
+/** In-page dump script body — Virtual evaluate only (uses page `document`). */
 export const CSSOM_SHEET_DUMP_EXPR = `(() => {
   function dumpSheetList(list, scope, hostId) {
     const out = [];
@@ -79,6 +235,12 @@ export const CSSOM_SHEET_DUMP_EXPR = `(() => {
     return out;
   }
   const entries = dumpSheetList(document.styleSheets, 'document', null);
+  try {
+    if (document.adoptedStyleSheets && document.adoptedStyleSheets.length) {
+      const adopted = dumpSheetList(document.adoptedStyleSheets, 'document', null);
+      for (const e of adopted) { e.adopted = true; entries.push(e); }
+    }
+  } catch {}
   const closedFixture = globalThis.__speculumClosedRoot;
   if (closedFixture) {
     try {

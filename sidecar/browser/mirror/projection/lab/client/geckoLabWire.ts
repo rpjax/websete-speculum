@@ -168,6 +168,7 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
   }
   if (phase === 2) {
     pendingAssets.delete(streamId);
+    console.warn('[gecko-asset] denied', streamId, why || 'denied');
     pending.reject(new Error(why || 'denied'));
     return;
   }
@@ -184,8 +185,16 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
       o += c.length;
     }
     let mime = data.length ? new TextDecoder().decode(data) : '';
-    if (!mime && body.length) {
-      // Defesa: Chromium SVG exige Content-Type (mesmo sniff do pai).
+    const genericMime =
+      !mime ||
+      mime === 'application/octet-stream' ||
+      mime === 'binary/octet-stream' ||
+      mime === 'text/plain' ||
+      mime === 'application/force-download' ||
+      mime === 'text/html' ||
+      !mime.toLowerCase().split(';')[0]!.trim().startsWith('image/');
+    if (genericMime && body.length) {
+      // Defesa: Chromium SVG exige Content-Type útil (mesmo sniff do pai).
       const head = new TextDecoder().decode(body.slice(0, Math.min(256, body.length))).toLowerCase();
       if (head.includes('<svg') || head.includes('<!doctype svg')) {
         mime = 'image/svg+xml';
@@ -193,7 +202,21 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
         mime = 'image/jpeg';
       } else if (body[0] === 0x89 && body[1] === 0x50) {
         mime = 'image/png';
+      } else if (body[0] === 0x47 && body[1] === 0x49 && body[2] === 0x46) {
+        mime = 'image/gif';
+      } else if (
+        body.length >= 12 &&
+        body[0] === 0x52 &&
+        body[8] === 0x57 &&
+        body[9] === 0x45 &&
+        body[10] === 0x42 &&
+        body[11] === 0x50
+      ) {
+        mime = 'image/webp';
       }
+    }
+    if (total === 0 || (genericMime && !mime.startsWith('image/'))) {
+      console.warn('[gecko-asset] complete-suspect', streamId, { total, mime, why: 'empty_or_generic' });
     }
     const headers = new Headers();
     if (mime) {

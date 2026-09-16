@@ -168,14 +168,25 @@ export function probeLayoutRootCause(
     /* ignore */
   }
 
-  const imgs = [...doc.images].slice(0, 40).map((img) => ({
-    src: (img.currentSrc || img.src || '').slice(0, 160),
-    srcset: (img.getAttribute('srcset') || '').slice(0, 160),
-    complete: img.complete,
-    naturalWidth: img.naturalWidth,
-    width: img.width,
-  }));
-  const brokenImgs = imgs.filter((i) => i.complete && i.naturalWidth === 0).length;
+  const allImgs = [...doc.images];
+  const logoImgs = allImgs.filter((img) => {
+    const s = img.currentSrc || img.src || '';
+    return /logo\.svg/i.test(s) || /\/logo(\.|$)/i.test(s);
+  });
+  const imgs = [
+    ...logoImgs,
+    ...allImgs.filter((img) => !logoImgs.includes(img)),
+  ]
+    .slice(0, 40)
+    .map((img) => ({
+      src: (img.currentSrc || img.src || '').slice(0, 160),
+      srcset: (img.getAttribute('srcset') || '').slice(0, 160),
+      complete: img.complete,
+      naturalWidth: img.naturalWidth,
+      width: img.width,
+    }));
+  // broken = complete ∩ nw0 over the full document, not just the sample window
+  const brokenImgs = allImgs.filter((i) => i.complete && i.naturalWidth === 0).length;
 
   const styleEls = doc.querySelectorAll('style').length;
   const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;

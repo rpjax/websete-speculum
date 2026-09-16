@@ -68,10 +68,43 @@ async function pageClient() {
   return clientList[0] ?? null;
 }
 
+function looksLikeImageBody(bytes, contentType) {
+  if (!bytes || bytes.byteLength < 3) return false;
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (u8[0] === 0xff && u8[1] === 0xd8) return true;
+  if (u8[0] === 0x89 && u8[1] === 0x50) return true;
+  if (u8[0] === 0x47 && u8[1] === 0x49 && u8[2] === 0x46) return true;
+  if (
+    u8.byteLength >= 12 &&
+    u8[0] === 0x52 &&
+    u8[8] === 0x57 &&
+    u8[9] === 0x45 &&
+    u8[10] === 0x42 &&
+    u8[11] === 0x50
+  ) {
+    return true;
+  }
+  const head = new TextDecoder().decode(u8.slice(0, Math.min(256, u8.byteLength))).toLowerCase();
+  if (head.includes('<svg') || head.includes('<!doctype svg')) return true;
+  const ct = (contentType || '').toLowerCase();
+  // Tipo image/* com corpo que não cheira — recusar (evita cache de decode falho).
+  if (ct.startsWith('image/')) return false;
+  return bytes.byteLength > 0;
+}
+
 function assetResponse(request, bytes, contentType) {
   const headers = new Headers();
   if (contentType) {
     headers.set('Content-Type', contentType);
+  }
+  // Sem isto o Chromium gruda o primeiro body vazio/errado do cold race e o <img> fica nw=0
+  // mesmo depois do tee completo (fetch/blob novos funcionam; o src original não).
+  headers.set('Cache-Control', 'no-store');
+  const dest = request.destination;
+  const wantImage = dest === 'image' || dest === '' || (contentType || '').toLowerCase().startsWith('image/');
+  if (wantImage && !looksLikeImageBody(bytes, contentType)) {
+    headers.set('Cache-Control', 'no-store');
+    return new Response('', { status: 502, statusText: 'speculum-bad-image', headers });
   }
   if (token) {
     headers.set(TOKEN_HEADER, token);

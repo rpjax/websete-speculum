@@ -8946,6 +8946,22 @@
     const styleEls = doc.querySelectorAll("style").length;
     const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;
     const adoptedSheetCount = doc.adoptedStyleSheets?.length ?? 0;
+    const docSamples = /* @__PURE__ */ new Set();
+    const adoSamples = /* @__PURE__ */ new Set();
+    for (const s of sheets) {
+      for (const t of s.ruleTextSample) {
+        if (!t) continue;
+        if (s.origin === "document.styleSheets") docSamples.add(t.slice(0, 80));
+        else adoSamples.add(t.slice(0, 80));
+      }
+    }
+    let duplicateAuthorRules = false;
+    for (const t of docSamples) {
+      if (adoSamples.has(t)) {
+        duplicateAuthorRules = true;
+        break;
+      }
+    }
     return {
       ok: true,
       samples,
@@ -8963,7 +8979,8 @@
       dualHint: {
         styleElCount: styleEls,
         adoptedSheetCount,
-        bothPlanesSubstantial: docSheetRules >= 50 && adoptedRules >= 50
+        bothPlanesSubstantial: docSheetRules >= 50 && adoptedRules >= 50,
+        duplicateAuthorRules
       }
     };
   }
@@ -8982,8 +8999,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 113,
-    builtAt: "2026-09-16T19:45:12.008Z"
+    seq: 116,
+    builtAt: "2026-09-16T20:18:58.570Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -10026,7 +10043,17 @@
         body.set(c, o);
         o += c.length;
       }
-      const mime = data.length ? new TextDecoder().decode(data) : "";
+      let mime = data.length ? new TextDecoder().decode(data) : "";
+      if (!mime && body.length) {
+        const head = new TextDecoder().decode(body.slice(0, Math.min(256, body.length))).toLowerCase();
+        if (head.includes("<svg") || head.includes("<!doctype svg")) {
+          mime = "image/svg+xml";
+        } else if (body[0] === 255 && body[1] === 216) {
+          mime = "image/jpeg";
+        } else if (body[0] === 137 && body[1] === 80) {
+          mime = "image/png";
+        }
+      }
       const headers = new Headers();
       if (mime) {
         headers.set("Content-Type", mime);

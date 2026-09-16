@@ -183,7 +183,18 @@ export function onGeckoAssetMessage(streamId: number, phase: number, data: Uint8
       body.set(c, o);
       o += c.length;
     }
-    const mime = data.length ? new TextDecoder().decode(data) : '';
+    let mime = data.length ? new TextDecoder().decode(data) : '';
+    if (!mime && body.length) {
+      // Defesa: Chromium SVG exige Content-Type (mesmo sniff do pai).
+      const head = new TextDecoder().decode(body.slice(0, Math.min(256, body.length))).toLowerCase();
+      if (head.includes('<svg') || head.includes('<!doctype svg')) {
+        mime = 'image/svg+xml';
+      } else if (body[0] === 0xff && body[1] === 0xd8) {
+        mime = 'image/jpeg';
+      } else if (body[0] === 0x89 && body[1] === 0x50) {
+        mime = 'image/png';
+      }
+    }
     const headers = new Headers();
     if (mime) {
       headers.set('Content-Type', mime);

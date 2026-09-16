@@ -56,6 +56,8 @@ export type LayoutRootCauseProbeResult = {
     adoptedSheetCount: number;
     /** True when both planes carry substantial rules — cascade risk. */
     bothPlanesSubstantial: boolean;
+    /** True when the same rule text appears in styleSheets and adopted — real double-paint. */
+    duplicateAuthorRules: boolean;
   };
 };
 
@@ -179,6 +181,23 @@ export function probeLayoutRootCause(
   const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;
   const adoptedSheetCount = doc.adoptedStyleSheets?.length ?? 0;
 
+  const docSamples = new Set<string>();
+  const adoSamples = new Set<string>();
+  for (const s of sheets) {
+    for (const t of s.ruleTextSample) {
+      if (!t) continue;
+      if (s.origin === 'document.styleSheets') docSamples.add(t.slice(0, 80));
+      else adoSamples.add(t.slice(0, 80));
+    }
+  }
+  let duplicateAuthorRules = false;
+  for (const t of docSamples) {
+    if (adoSamples.has(t)) {
+      duplicateAuthorRules = true;
+      break;
+    }
+  }
+
   return {
     ok: true,
     samples,
@@ -197,6 +216,7 @@ export function probeLayoutRootCause(
       styleElCount: styleEls,
       adoptedSheetCount,
       bothPlanesSubstantial: docSheetRules >= 50 && adoptedRules >= 50,
+      duplicateAuthorRules,
     },
   };
 }

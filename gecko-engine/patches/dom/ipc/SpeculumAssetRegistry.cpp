@@ -27,6 +27,7 @@
 #include "nsStringStream.h"
 #include "nsThreadUtils.h"
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <string>
@@ -52,11 +53,19 @@ std::string KeyOf(uint32_t aContextId, const nsACString& aUrl,
   return key;
 }
 
+struct PendingReader {
+  uint32_t contextId = 0;
+  uint32_t streamId = 0;
+  uint64_t offset = 0;
+  SpeculumAssetRegistry::Emit emit;
+};
+
 struct TeeBody {
   std::vector<uint8_t> bytes;
   std::string mime;
   bool complete = false;
   bool failed = false;
+  std::vector<PendingReader> waiters;
 };
 
 class RegistryState {
@@ -91,12 +100,61 @@ void EmitDenied(const SpeculumAssetRegistry::Emit& aEmit, uint32_t aContextId,
            static_cast<uint32_t>(strlen(aWhy)));
 }
 
+/** Chromium recusa SVG sem Content-Type (nw=0). Sniff se o canal não deu mime. */
+void EnsureMime(TeeBody& aBody) {
+  if (!aBody.mime.empty() || aBody.bytes.empty()) {
+    return;
+  }
+  size_t i = 0;
+  while (i < aBody.bytes.size() &&
+         (aBody.bytes[i] == ' ' || aBody.bytes[i] == '\n' ||
+          aBody.bytes[i] == '\r' || aBody.bytes[i] == '\t')) {
+    ++i;
+  }
+  if (i >= aBody.bytes.size()) {
+    return;
+  }
+  const uint8_t* p = aBody.bytes.data() + i;
+  const size_t n = aBody.bytes.size() - i;
+  if (n >= 3 && p[0] == 0xff && p[1] == 0xd8 && p[2] == 0xff) {
+    aBody.mime = "image/jpeg";
+    return;
+  }
+  if (n >= 8 && p[0] == 0x89 && p[1] == 'P' && p[2] == 'N' && p[3] == 'G') {
+    aBody.mime = "image/png";
+    return;
+  }
+  if (n >= 12 && p[0] == 'R' && p[1] == 'I' && p[2] == 'F' && p[3] == 'F' &&
+      p[8] == 'W' && p[9] == 'E' && p[10] == 'B' && p[11] == 'P') {
+    aBody.mime = "image/webp";
+    return;
+  }
+  if (n >= 5 && p[0] == '<') {
+    std::string head(reinterpret_cast<const char*>(p),
+                     std::min<size_t>(n, 256));
+    for (char& c : head) {
+      if (c >= 'A' && c <= 'Z') {
+        c = static_cast<char>(c - 'A' + 'a');
+      }
+    }
+    if (head.find("<svg") != std::string::npos ||
+        head.find("<!doctype svg") != std::string::npos) {
+      aBody.mime = "image/svg+xml";
+    }
+  }
+}
+
 void EmitFromBody(const SpeculumAssetRegistry::Emit& aEmit, uint32_t aContextId,
-                  uint32_t aStreamId, uint64_t aOffset, const TeeBody& aBody) {
+                  uint32_t aStreamId, uint64_t aOffset, TeeBody& aBody) {
   if (aBody.failed) {
     EmitDenied(aEmit, aContextId, aStreamId, "channel-failed");
     return;
   }
+  if (!aBody.complete) {
+    EmitDenied(aEmit, aContextId, aStreamId, "incomplete");
+    return;
+  }
+  EnsureMime(aBody);
   if (aOffset > aBody.bytes.size()) {
     EmitDenied(aEmit, aContextId, aStreamId, "offset-past-end");
     return;
@@ -107,14 +165,12 @@ void EmitFromBody(const SpeculumAssetRegistry::Emit& aEmit, uint32_t aContextId,
     EmitWire(aEmit, aContextId, aStreamId, kPhaseChunk, aOffset,
              aBody.bytes.data() + aOffset, left);
   }
-  if (aBody.complete) {
-    const auto* mime = aBody.mime.empty()
-                           ? nullptr
-                           : reinterpret_cast<const uint8_t*>(aBody.mime.data());
-    EmitWire(aEmit, aContextId, aStreamId, kPhaseComplete,
-             static_cast<uint64_t>(aBody.bytes.size()), mime,
-             static_cast<uint32_t>(aBody.mime.size()));
-  }
+  const auto* mime = aBody.mime.empty()
+                         ? nullptr
+                         : reinterpret_cast<const uint8_t*>(aBody.mime.data());
+  EmitWire(aEmit, aContextId, aStreamId, kPhaseComplete,
+           static_cast<uint64_t>(aBody.bytes.size()), mime,
+           static_cast<uint32_t>(aBody.mime.size()));
 }
 
 void NoteMime(const std::string& aKey, nsIRequest* aRequest) {
@@ -127,6 +183,18 @@ void NoteMime(const std::string& aKey, nsIRequest* aRequest) {
     return;
   }
   State().Ensure(aKey).mime.assign(type.BeginReading(), type.Length());
+}
+
+void FlushWaiters(const std::string& aKey) {
+  TeeBody* body = State().Find(aKey);
+  if (!body || (!body->complete && !body->failed)) {
+    return;
+  }
+  EnsureMime(*body);
+  std::vector<PendingReader> waiters = std::move(body->waiters);
+  for (PendingReader& w : waiters) {
+    EmitFromBody(w.emit, w.contextId, w.streamId, w.offset, *body);
+  }
 }
 
 void AppendTee(const std::string& aKey, uint64_t aOffset, const uint8_t* aData,
@@ -195,14 +263,17 @@ OpenListener::OnStartRequest(nsIRequest* aRequest) {
 }
 
 NS_IMETHODIMP
-OpenListener::OnStopRequest(nsIRequest*, nsresult aStatus) {
+OpenListener::OnStopRequest(nsIRequest* aRequest, nsresult aStatus) {
+  NoteMime(mKey, aRequest);
   AppendTee(mKey, 0, nullptr, 0, NS_SUCCEEDED(aStatus), NS_FAILED(aStatus));
   TeeBody* body = State().Find(mKey);
   if (!body || body->failed) {
     EmitDenied(mEmit, mContextId, mStreamId, "open-failed");
+    FlushWaiters(mKey);
     return NS_OK;
   }
   EmitFromBody(mEmit, mContextId, mStreamId, mOffset, *body);
+  FlushWaiters(mKey);
   return NS_OK;
 }
 
@@ -249,7 +320,9 @@ TeeTap::OnStartRequest(nsIRequest* aRequest) {
 
 NS_IMETHODIMP
 TeeTap::OnStopRequest(nsIRequest* aRequest, nsresult aStatus) {
+  NoteMime(mKey, aRequest);
   AppendTee(mKey, 0, nullptr, 0, NS_SUCCEEDED(aStatus), NS_FAILED(aStatus));
+  FlushWaiters(mKey);
   return mNext ? mNext->OnStopRequest(aRequest, aStatus) : NS_OK;
 }
 
@@ -420,10 +493,15 @@ void SpeculumAssetRegistry::OnConsumerRequest(uint32_t aContextId,
 
   const std::string key = KeyOf(aContextId, url, range);
   if (TeeBody* existing = State().Find(key)) {
-    if (existing->complete || !existing->bytes.empty()) {
+    if (existing->complete || existing->failed) {
       EmitFromBody(aEmit, aContextId, msg.streamId, msg.offset, *existing);
       return;
     }
+    // Tee em voo — espera OnStop (doc 13). Não emitir parcial sem mime/complete
+    // (SVG sem Content-Type → nw=0 e alt text estoura o header).
+    existing->waiters.push_back(
+        PendingReader{aContextId, msg.streamId, msg.offset, aEmit});
+    return;
   }
 
   nsCOMPtr<nsIURI> uri;

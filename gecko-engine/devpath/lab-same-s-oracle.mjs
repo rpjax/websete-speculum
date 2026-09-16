@@ -107,7 +107,7 @@ function classify(sameS, layout, wireKinds) {
       ));
 
   const assetsBroken = (layout?.brokenImgs ?? 0) >= 5;
-  const dual = layout?.dualHint?.bothPlanesSubstantial === true;
+  const dual = layout?.dualHint?.duplicateAuthorRules === true;
 
   const vRules = wireKinds?.Rule ?? sameS?.virtualKinds?.Rule ?? null;
   const pAdopted = layout?.adoptedRules ?? null;

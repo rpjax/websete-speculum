@@ -8,6 +8,7 @@
 #include "Element.h"
 #include "NameSpaceConstants.h"
 #include "mozilla/dom/CharacterData.h"
+#include "SpeculumCssom.h"
 #include "SpeculumMutationObserver.h"
 #include "nsAttrName.h"
 #include "nsAttrValue.h"
@@ -347,6 +348,10 @@ void SpeculumNodeSource::CaptureLiveCssom() {
   }
 
   auto noteSheet = [this](mozilla::StyleSheet& aSheet) {
+    // C6: `<style>` ownerNode → DOM only (no double-emit into adopted).
+    if (!SpeculumIsCssomPlaneSheet(&aSheet)) {
+      return;
+    }
     NoteSheet(&aSheet);
     // Motor lendo o CSSOM próprio — não o cssRules do JS da página.
     // GetCssRules(principal) recusa sheet incompleto e CORS; o bootstrap

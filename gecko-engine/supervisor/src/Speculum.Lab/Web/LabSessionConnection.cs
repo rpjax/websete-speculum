@@ -373,12 +373,21 @@ public sealed class LabSessionConnection
             {
                 var width = message.Width ?? 0;
                 var height = message.Height ?? 0;
-                if (width > 0 && height > 0)
+                if (width <= 0 || height <= 0)
                 {
-                    var command = ControlCommand.ViewportSet(NextCorrelation(), 0, width, height);
-                    TrySendUpstream(command, "client.resize");
+                    Send(new SessionResized(false, 0, 0, "bad_request", "client.resize width/height required"));
+                    break;
                 }
 
+                var command = ControlCommand.ViewportSet(NextCorrelation(), 0, width, height);
+                if (!TrySendUpstream(command, "client.resize"))
+                {
+                    Send(new SessionResized(false, width, height, "not_streaming", "aba não é dona da sessão"));
+                    break;
+                }
+
+                _logger.LogInformation("{Id} ViewportSet {Width}x{Height}", Id, width, height);
+                Send(new SessionResized(true, width, height));
                 break;
             }
 

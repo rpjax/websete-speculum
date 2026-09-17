@@ -373,7 +373,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Lei | `ViewportSet` na ABI. Zoom do cliente **proibido** (quebra hit-test). Geometria por sessão (K2). |
 | Gancho | `HeadlessWidget` / tamanho interno da BC. |
 | Prova | mesmo viewport nos dois lados; layout 1:1. Larguras diferentes invalidam a medição. |
-| Estado | **ABI e L3 há.** Pai aplica `SetPositionAndSize` no widget da aba. **Lab: resize da superfície não chega** — [open.md](../page-projection/spec/open.md) **GECKO-VIEWPORT-RESIZE**. |
+| Estado | **ABI, L3 e hop do lab há** (`client.resize` → ViewportSet → `session.resized`). Pai aplica `SetPositionAndSize` no widget da aba. Visual 1:1 ainda com Rodrigo — [open.md](../page-projection/spec/open.md) **GECKO-VIEWPORT-RESIZE**. |
 
 ### 2.16 Scroll e foco
 
@@ -752,6 +752,5 @@ Ainda **de propósito aberto** (não chutar):
 - Geolocalização: o pedido existe (`PermissionRequested`); falta RPC no cliente + relay da posição do usuário no Gecko. Betano lab 2026-09-15. Tracker: [open.md](../page-projection/spec/open.md) **GECKO-GEO-RPC**.
 - Beleza na Web no lab não sobe (`projected blank` + CSP no console). Tracker: **GECKO-BELEZA-COLD**.
 - Eneba: navegar **dentro** do site quebra a superfície (chrome do lab no meio da loja, CSS `403` denied, `projected blank`). Tracker: **GECKO-ENEBA-NAV**.
-- Resize da superfície no lab não muda o Virtual. Tracker: **GECKO-VIEWPORT-RESIZE**.
 - Console do site no Virtual não aparece no DevTools do cliente (feature velha, ficou de fora no Gecko). Tracker: **GECKO-CONSOLE-RELAY**.
 

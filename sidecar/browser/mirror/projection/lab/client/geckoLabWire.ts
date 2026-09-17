@@ -10,7 +10,6 @@ import {
   encodeDialogRespond,
   encodeDownloadRespond,
   encodePermissionRespond,
-  encodeViewportSet,
 } from '@speculum/page-projection/core';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
 import type { UnifiedIntent } from '@speculum/page-projection/core/input/unifiedIntentTypes';
@@ -113,8 +112,13 @@ export function sendGeckoIntent(ws: WebSocket, intent: UnifiedIntent, ctx: numbe
   return true;
 }
 
+/** Lab JSON hop — Speculum.Lab vira ViewportSet ABI. Não mandar no client.control. */
+export function geckoViewportResizeMessage(width: number, height: number): string {
+  return JSON.stringify({ type: 'client.resize', width, height });
+}
+
 export function sendGeckoViewport(ws: WebSocket, width: number, height: number): void {
-  sendGeckoControl(ws, encodeViewportSet(nextGeckoCorr(), 0, width, height));
+  ws.send(geckoViewportResizeMessage(width, height));
 }
 
 export function answerGeckoRequest(

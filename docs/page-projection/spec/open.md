@@ -155,7 +155,7 @@ Auditoria do produtor C++ contra o produtor TS fechado. Mesmo algoritmo, sensor 
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **GECKO-VIEWPORT-RESIZE** | Resizing the lab/Projected surface does not update Virtual geometry. Layout / hit-test drift. | Designed: `client.resize` → `ViewportSet` → `HeadlessWidget` / BC size ([20](../../gecko-engine/20-projecao-completa.md) §2.15). ABI and L3 journal exist; last hop live on the lab surface does not. Zoom on the client remains forbidden. Observed 2026-09-15. |
+| **GECKO-VIEWPORT-RESIZE** | Resizing the lab/Projected surface does not update Virtual geometry. Layout / hit-test drift. | Designed: `client.resize` → `ViewportSet` → `HeadlessWidget` / BC size ([20](../../gecko-engine/20-projecao-completa.md) §2.15). **Hop do lab estava morto:** o cliente Gecko mandava ViewportSet no `client.control` e o ViewportSync esperava `session.resized`, que o Speculum.Lab nunca emitia — primeiro resize travava `resizeInFlight` e o resto nem saía. **Fix 2026-09-17:** mesmo `client.resize` do Chromium; lab encaminha ViewportSet e acks `session.resized`. Native `HandleViewportSet` já existia. Visual 1:1 / hit-test ainda com Rodrigo. Zoom no cliente continua proibido. |
 
 ### BUG — Virtual console not relayed to client DevTools (OPEN 2026-09-15)
 

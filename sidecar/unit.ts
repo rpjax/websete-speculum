@@ -69,6 +69,7 @@ import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/
 import { runProjectedApplyGateUnitTests } from './browser/mirror/projection/projected/projectedApplyGate.unit';
 import { runLagCatchUpOrderUnitTests } from './browser/mirror/projection/projected/lagCatchUpOrder.unit';
 import { runUnsolicitedResyncSwapUnitTests } from './browser/mirror/projection/projected/unsolicitedResyncSwap.unit';
+import { runGeckoViewportResizeUnitTests } from './browser/mirror/projection/lab/client/geckoViewportResize.unit';
 import { runPendingNestedHostAuditUnitTests } from './browser/mirror/projection/projected/pendingNestedHostAudit.unit';
 import { runNestedNavUnitTests } from './browser/mirror/projection/projected/nestedNav.unit';
 import { runOwnedStylesheetLinkUnitTests } from './browser/mirror/projection/projected/ownedStylesheetLink.unit';
@@ -4470,6 +4471,7 @@ async function main(): Promise<void> {
   await runProjectedApplyGateUnitTests();
   await runLagCatchUpOrderUnitTests();
   runUnsolicitedResyncSwapUnitTests();
+  runGeckoViewportResizeUnitTests();
   runPendingNestedHostAuditUnitTests();
   runNestedNavUnitTests();
   runOwnedStylesheetLinkUnitTests();

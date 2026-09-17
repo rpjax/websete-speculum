@@ -122,6 +122,21 @@ public sealed record SessionFault(string SessionId, string Message, string? Erro
     public string Type => "session.fault";
 }
 
+/// <summary>
+/// Ack do ViewportSet. ViewportSync só libera o próximo resize depois disto —
+/// sem isto o primeiro gesto trava o lockstep (resizeInFlight).
+/// </summary>
+public sealed record SessionResized(
+    bool Applied,
+    int Width,
+    int Height,
+    string? ErrorCode = null,
+    string? Message = null)
+{
+    [JsonPropertyName("type")]
+    public string Type => "session.resized";
+}
+
 public sealed record GeckoRequested(
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("contextId")] uint ContextId,

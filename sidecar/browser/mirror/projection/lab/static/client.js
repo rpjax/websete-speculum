@@ -7783,7 +7783,7 @@
         return buf;
       }
       exports.encodeHistoryGo = encodeHistoryGo;
-      function encodeViewportSet2(corr2, ctx, width, height) {
+      function encodeViewportSet(corr2, ctx, width, height) {
         const buf = new Uint8Array(HEADER + 4 + 4 + 4);
         let off = header(buf, exports.GECKO_OP_VIEWPORT_SET, corr2);
         off = writeU32(buf, off, ctx);
@@ -7791,7 +7791,7 @@
         writeI32(buf, off, height);
         return buf;
       }
-      exports.encodeViewportSet = encodeViewportSet2;
+      exports.encodeViewportSet = encodeViewportSet;
       function encodeDialogRespond2(corr2, ctx, requestId, answer) {
         const buf = new Uint8Array(HEADER + 4 + 4 + strSize(answer));
         let off = header(buf, exports.GECKO_OP_DIALOG_RESPOND, corr2);
@@ -9495,8 +9495,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 143,
-    builtAt: "2026-09-17T18:20:47.801Z"
+    seq: 144,
+    builtAt: "2026-09-17T18:45:28.385Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -10474,8 +10474,11 @@
   function sendGeckoControl(ws, bytes) {
     ws.send(JSON.stringify({ type: "client.control", bytes: (0, import_core.bytesToBase64)(bytes) }));
   }
+  function geckoViewportResizeMessage(width, height) {
+    return JSON.stringify({ type: "client.resize", width, height });
+  }
   function sendGeckoViewport(ws, width, height) {
-    sendGeckoControl(ws, (0, import_core.encodeViewportSet)(nextGeckoCorr(), 0, width, height));
+    ws.send(geckoViewportResizeMessage(width, height));
   }
   function answerGeckoRequest(ws, kind, contextId, requestId, yes, text) {
     const c = nextGeckoCorr();

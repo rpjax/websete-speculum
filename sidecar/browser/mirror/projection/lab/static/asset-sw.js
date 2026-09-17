@@ -165,6 +165,18 @@ function looksLikeImageBody(bytes, contentType) {
   return bytes.byteLength > 0;
 }
 
+function headHex16(bytes) {
+  const u8 = !bytes
+    ? new Uint8Array(0)
+    : bytes instanceof Uint8Array
+      ? bytes
+      : new Uint8Array(bytes);
+  const n = Math.min(16, u8.byteLength);
+  let out = '';
+  for (let i = 0; i < n; i++) out += u8[i].toString(16).padStart(2, '0');
+  return out;
+}
+
 function assetResponse(request, bytes, contentType) {
   const headers = new Headers();
   if (contentType) {
@@ -176,6 +188,7 @@ function assetResponse(request, bytes, contentType) {
   const dest = request.destination;
   const wantImage = dest === 'image' || dest === '' || (contentType || '').toLowerCase().startsWith('image/');
   const looks = looksLikeImageBody(bytes, contentType);
+  const u8in = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
   if (wantImage && !looks) {
     headers.set('Cache-Control', 'no-store');
     return {
@@ -184,13 +197,16 @@ function assetResponse(request, bytes, contentType) {
       looksLikeImage: false,
       byteLength: 0,
       bodySha16: bodyFnv16(null),
+      inputByteLength: u8in.byteLength,
+      inputHeadHex: headHex16(u8in),
+      why: u8in.byteLength === 0 ? 'empty_body' : 'sniff_reject',
     };
   }
   if (token) {
     headers.set(TOKEN_HEADER, token);
   }
   const range = request.headers.get('Range') || '';
-  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  const u8 = u8in;
   if (!range) {
     return {
       response: new Response(bytes, { status: 200, headers }),
@@ -198,6 +214,8 @@ function assetResponse(request, bytes, contentType) {
       looksLikeImage: looks,
       byteLength: u8.byteLength,
       bodySha16: bodyFnv16(u8),
+      inputByteLength: u8.byteLength,
+      inputHeadHex: headHex16(u8),
     };
   }
   const m = /^bytes=(\d+)-(\d+)?$/i.exec(range.trim());
@@ -212,6 +230,8 @@ function assetResponse(request, bytes, contentType) {
     looksLikeImage: looks,
     byteLength: u8.byteLength,
     bodySha16: bodyFnv16(u8),
+    inputByteLength: u8.byteLength,
+    inputHeadHex: headHex16(u8),
   };
 }
 
@@ -237,8 +257,9 @@ async function proxy(request, clientId) {
     token,
   });
   const msg = await reply;
+  const traceAlways = urlWorthTracing(request.url) || !msg.ok;
   if (!msg.ok) {
-    if (urlWorthTracing(request.url)) {
+    if (traceAlways) {
       void emitTrace({
         hop: 'sw.respond',
         fetchId: id,
@@ -258,7 +279,7 @@ async function proxy(request, clientId) {
     return new Response('', { status: 404, statusText: String(msg.error || 'denied') });
   }
   const built = assetResponse(request, msg.bytes, msg.contentType || '');
-  if (urlWorthTracing(request.url)) {
+  if (urlWorthTracing(request.url) || built.status >= 400) {
     void emitTrace({
       hop: 'sw.respond',
       fetchId: id,
@@ -272,6 +293,9 @@ async function proxy(request, clientId) {
       byteLength: built.byteLength,
       looksLikeImage: built.looksLikeImage,
       bodySha16: built.bodySha16,
+      inputByteLength: built.inputByteLength ?? null,
+      inputHeadHex: built.inputHeadHex ?? null,
+      why: built.why || null,
     });
   }
   return built.response;

@@ -89,39 +89,54 @@ nsIWidget* RootWidget(Document* aDocument) {
 
 void DispatchMouse(Document* aDocument, Element* aElement, bool aDown,
                    uint16_t aLocalX, uint16_t aLocalY, uint8_t aButton) {
+  aDocument->FlushPendingNotifications(mozilla::FlushType::Layout);
   PresShell* pres = aDocument->GetPresShell();
   nsIWidget* widget = RootWidget(aDocument);
-  if (!pres || !widget) {
+  nsPresContext* pc = pres ? pres->GetPresContext() : nullptr;
+  if (!pres || !widget || !pc) {
     return;
   }
-
-  RefPtr<mozilla::dom::DOMRect> rect = aElement->GetBoundingClientRect();
-  speculum::Box box{static_cast<float>(rect->X()),
-                    static_cast<float>(rect->Y()),
-                    static_cast<float>(rect->Width()),
-                    static_cast<float>(rect->Height())};
-  speculum::Point hit = speculum::HitInBox(box, aLocalX, aLocalY);
 
   if (nsFocusManager* fm = nsFocusManager::GetFocusManager()) {
     fm->SetFocus(aElement, 0);
   }
 
-  nsPresContext* pc = pres->GetPresContext();
-  nsIFrame* root = pres->GetRootFrame();
-  if (!pc || !root) {
-    return;
-  }
+  // nodeId + local% on the named element. Hit-testing from the root frame
+  // misses under overlay/scale/scroll — same class Chromium banned.
+  nsIFrame* frame = aElement->GetPrimaryFrame();
   nsPoint appOffset;
-  nsIWidget* nearest = root->GetNearestWidget(appOffset);
+  nsIWidget* nearest = nullptr;
+  mozilla::LayoutDeviceIntPoint ref;
+  const int32_t au = pc->AppUnitsPerDevPixel();
+  if (frame) {
+    nearest = frame->GetNearestWidget(appOffset);
+    const float fx = float(aLocalX) / 65535.f;
+    const float fy = float(aLocalY) / 65535.f;
+    const nsSize size = frame->GetSize();
+    const nsPoint local(NSToCoordRound(size.width * fx),
+                        NSToCoordRound(size.height * fy));
+    ref = mozilla::LayoutDeviceIntPoint::FromAppUnitsToNearest(appOffset + local,
+                                                               au);
+  } else {
+    nsIFrame* root = pres->GetRootFrame();
+    if (!root) {
+      return;
+    }
+    nearest = root->GetNearestWidget(appOffset);
+    RefPtr<mozilla::dom::DOMRect> rect = aElement->GetBoundingClientRect();
+    speculum::Box box{static_cast<float>(rect->X()),
+                      static_cast<float>(rect->Y()),
+                      static_cast<float>(rect->Width()),
+                      static_cast<float>(rect->Height())};
+    speculum::Point hit = speculum::HitInBox(box, aLocalX, aLocalY);
+    ref = mozilla::LayoutDeviceIntPoint::FromAppUnitsToNearest(appOffset, au);
+    const mozilla::CSSToLayoutDeviceScale scale = pc->CSSToDevPixelScale();
+    ref.x += NSToIntRound(hit.x * scale.scale);
+    ref.y += NSToIntRound(hit.y * scale.scale);
+  }
   if (!nearest) {
     nearest = widget;
   }
-  const mozilla::CSSToLayoutDeviceScale scale = pc->CSSToDevPixelScale();
-  mozilla::LayoutDeviceIntPoint ref =
-      mozilla::LayoutDeviceIntPoint::FromAppUnitsToNearest(
-          appOffset, pc->AppUnitsPerDevPixel());
-  ref.x += NSToIntRound(hit.x * scale.scale);
-  ref.y += NSToIntRound(hit.y * scale.scale);
 
   WidgetMouseEvent event(true, aDown ? eMouseDown : eMouseUp, nearest,
                          WidgetMouseEvent::eReal);
@@ -132,7 +147,27 @@ void DispatchMouse(Document* aDocument, Element* aElement, bool aDown,
   event.mClickCount = 1;
   event.mInputSource = mozilla::dom::MouseEvent_Binding::MOZ_SOURCE_MOUSE;
   nsEventStatus status = nsEventStatus_eIgnore;
-  pres->HandleEvent(pres->GetRootFrame(), &event, false, &status);
+  pres->HandleEventWithTarget(&event, frame, aElement, &status);
+}
+
+void FillKeyEvent(WidgetKeyboardEvent& aEvent, const nsCString& aKey,
+                  const nsCString& aCode, uint8_t aMods) {
+  aEvent.mKeyNameIndex = KEY_NAME_INDEX_USE_STRING;
+  aEvent.mCodeNameIndex = CODE_NAME_INDEX_USE_STRING;
+  CopyUTF8toUTF16(aKey, aEvent.mKeyValue);
+  CopyUTF8toUTF16(aCode, aEvent.mCodeValue);
+  if (aMods & 1) {
+    aEvent.mModifiers |= mozilla::MODIFIER_CONTROL;
+  }
+  if (aMods & 2) {
+    aEvent.mModifiers |= mozilla::MODIFIER_SHIFT;
+  }
+  if (aMods & 4) {
+    aEvent.mModifiers |= mozilla::MODIFIER_ALT;
+  }
+  if (aMods & 8) {
+    aEvent.mModifiers |= mozilla::MODIFIER_META;
+  }
 }
 
 void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
@@ -140,35 +175,34 @@ void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
   aDocument->FlushPendingNotifications(mozilla::FlushType::Layout);
   RefPtr<PresShell> pres = aDocument->GetPresShell();
   nsIWidget* widget = RootWidget(aDocument);
-  Element* target = aDocument->GetDocumentElement();
+  Element* target = nullptr;
+  if (Element* focused = nsFocusManager::GetFocusedElementStatic()) {
+    if (focused->OwnerDoc() == aDocument && focused->IsInComposedDoc()) {
+      target = focused;
+    }
+  }
+  if (!target) {
+    target = aDocument->GetDocumentElement();
+  }
   if (!pres || !widget || !target || !target->IsInComposedDoc()) {
     SPECULUM_LOG("[SPECULUM-INPUT] tecla sem presshell/widget/root");
     return;
   }
 
-  WidgetKeyboardEvent event(true, aDown ? eKeyDown : eKeyUp, widget);
-  event.mKeyNameIndex = KEY_NAME_INDEX_USE_STRING;
-  event.mCodeNameIndex = CODE_NAME_INDEX_USE_STRING;
-  CopyUTF8toUTF16(aKey, event.mKeyValue);
-  CopyUTF8toUTF16(aCode, event.mCodeValue);
-  if (aMods & 1) {
-    event.mModifiers |= mozilla::MODIFIER_CONTROL;
+  auto fire = [&](mozilla::EventMessage msg) {
+    WidgetKeyboardEvent event(true, msg, widget);
+    FillKeyEvent(event, aKey, aCode, aMods);
+    (void)widget->AttachNativeKeyEvent(event);
+    nsEventStatus status = nsEventStatus_eIgnore;
+    pres->HandleEventWithTarget(&event, target->GetPrimaryFrame(), target,
+                                &status);
+  };
+  // HandleEvent() retargets keys to chrome. Deliver to the focused node in
+  // this document (search/input), not <html>.
+  fire(aDown ? eKeyDown : eKeyUp);
+  if (aDown && (aKey.Length() == 1 || aKey.EqualsLiteral("Enter"))) {
+    fire(eKeyPress);
   }
-  if (aMods & 2) {
-    event.mModifiers |= mozilla::MODIFIER_SHIFT;
-  }
-  if (aMods & 4) {
-    event.mModifiers |= mozilla::MODIFIER_ALT;
-  }
-  if (aMods & 8) {
-    event.mModifiers |= mozilla::MODIFIER_META;
-  }
-  (void)widget->AttachNativeKeyEvent(event);
-  // HandleEvent() retargeta tecla para a janela focada (chrome). O opcode já
-  // nomeou este documento — mesmo API que o nsDOMWindowUtils usa para tecla
-  // confiável neste PresShell, sem EventDispatcher no Document.
-  nsEventStatus status = nsEventStatus_eIgnore;
-  pres->HandleEventWithTarget(&event, nullptr, target, &status);
 }
 
 void ApplyScroll(Document* aDocument, uint32_t aNodeId, uint16_t aFracX,

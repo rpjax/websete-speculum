@@ -31,4 +31,7 @@ void SpeculumEmitInput(uint32_t aContextId, uint8_t aType, bool aAdmitted);
 void SpeculumEmitProducerFault(uint32_t aContextId, const char* aCode,
                                const char* aPhase);
 
+void SpeculumSetFatalContext(uint32_t aContextId);
+[[noreturn]] void SpeculumProducerAbort(const char* aMsg);
+
 #endif

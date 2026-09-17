@@ -1,0 +1,23 @@
+/* Folha externa injetada DEPOIS do load — GECKO-CSSOM-FOLHA-TARDIA.
+   Marcador procurável no fio: HTTPMARK. */
+#http-marker { background-color: rgb(230, 120, 0); color: rgb(255, 255, 255); outline: 3px solid rgb(230, 120, 0); }
+.httpmark-1 { --HTTPMARK: 1; }
+.httpmark-2 { --HTTPMARK: 2; }
+.httpmark-3 { --HTTPMARK: 3; }
+.httpmark-4 { --HTTPMARK: 4; }
+.httpmark-5 { --HTTPMARK: 5; }
+.httpmark-6 { --HTTPMARK: 6; }
+.httpmark-7 { --HTTPMARK: 7; }
+.httpmark-8 { --HTTPMARK: 8; }
+.httpmark-9 { --HTTPMARK: 9; }
+.httpmark-10 { --HTTPMARK: 10; }
+.httpmark-11 { --HTTPMARK: 11; }
+.httpmark-12 { --HTTPMARK: 12; }
+.httpmark-13 { --HTTPMARK: 13; }
+.httpmark-14 { --HTTPMARK: 14; }
+.httpmark-15 { --HTTPMARK: 15; }
+.httpmark-16 { --HTTPMARK: 16; }
+.httpmark-17 { --HTTPMARK: 17; }
+.httpmark-18 { --HTTPMARK: 18; }
+.httpmark-19 { --HTTPMARK: 19; }
+.httpmark-20 { --HTTPMARK: 20; }

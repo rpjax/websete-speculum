@@ -519,11 +519,14 @@ class ContentParent final : public PContentParent,
   }
 
   mozilla::ipc::IPCResult RecvSpeculumMintContextId(uint32_t* aContextId);
+  mozilla::ipc::IPCResult RecvSpeculumClaimGeneration(const uint32_t& aContextId,
+                                                      uint32_t* aGeneration);
 
-  mozilla::ipc::IPCResult RecvSpeculumFrame(const uint64_t& aDocToken,
-                                              const uint32_t& aContextId,
-                                              const uint32_t& aSequence,
-                                              nsTArray<uint8_t>&& aFrame);
+  mozilla::ipc::IPCResult RecvSpeculumFrame(
+      const uint32_t& aContextId, const uint32_t& aSequence,
+      nsTArray<uint8_t>&& aFrame, nsTArray<uint32_t>&& aPublishedNestedIds);
+  mozilla::ipc::IPCResult RecvSpeculumContextStandby(
+      const uint32_t& aContextId);
   mozilla::ipc::IPCResult RecvSpeculumSnapshotDump(
       const uint32_t& aContextId, const uint32_t& aCorrelationId,
       const uint32_t& aSequence, const uint32_t& aGeneration,

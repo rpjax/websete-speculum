@@ -5,6 +5,8 @@
 #include "SpeculumControlAbi.h"
 #include "SpeculumLog.h"
 #include "SpeculumMarionette.h"
+#include "SpeculumTelemetry.h"
+#include "mozilla/CondVar.h"
 #include "mozilla/SystemPrincipal.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BrowsingContext.h"
@@ -56,7 +58,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include <sys/socket.h>
@@ -504,15 +508,9 @@ nsresult EnsureSoleSessionChrome(int32_t aWidth, int32_t aHeight,
 }  // namespace
 
 struct SpeculumProjectionRuntime::Impl {
-  // Um documento de topo, uma geração. Guardado por contexto e protegido pelo
-  // sendMutex, que é o lock do caminho do frame.
-  struct Epoch {
-    uint64_t docToken;
-    uint32_t generation;
-  };
-
   mozilla::Mutex mintMutex{"SpeculumMint"};
   uint32_t nextNestedContextId = 2;
+  std::map<uint32_t, uint32_t> generations;
 
   uint32_t MintNestedContextId() {
     mozilla::MutexAutoLock lock(mintMutex);
@@ -520,6 +518,11 @@ struct SpeculumProjectionRuntime::Impl {
       nextNestedContextId = 2;
     }
     return nextNestedContextId++;
+  }
+
+  uint32_t ClaimGeneration(uint32_t aContextId) {
+    mozilla::MutexAutoLock lock(mintMutex);
+    return ++generations[aContextId];
   }
 
   StaticMutex projectedMutex;
@@ -531,7 +534,6 @@ struct SpeculumProjectionRuntime::Impl {
   nsCOMPtr<mozIDOMWindowProxy> soleChrome;
   // Fecha qualquer navigator:browser que nasça depois do Ready (startup tardio).
   nsCOMPtr<nsIWindowMediatorListener> soleChromeGuard;
-  std::map<uint32_t, Epoch> epochs;
   // HistoryGo do pai precisa de época > a que o SHIP tem, senão
   // sameEpoch=true e o passo some ("not in same doc").
   uint64_t nextHistoryEpoch = 1;
@@ -612,12 +614,25 @@ struct SpeculumProjectionRuntime::Impl {
   std::string socketPath;
   int fd = -1;
   mozilla::Mutex sendMutex{"SpeculumProjectionRuntime"};
+  mozilla::CondVar sendCv{sendMutex, "SpeculumSendCv"};
+  struct Outgoing {
+    uint8_t kind = 0;
+    uint32_t contextId = 0;
+    nsTArray<uint8_t> payload;
+    bool* done = nullptr;
+    bool* ok = nullptr;
+  };
+  std::deque<Outgoing> controlQ;
+  std::deque<Outgoing> dataQ;
   std::atomic<bool> stopRead{false};
+  std::atomic<bool> stopWrite{false};
   std::thread readThread;
+  std::thread writeThread;
 
   explicit Impl(std::string aPath) : socketPath(std::move(aPath)) {
     ConnectOrDie();
     SpeculumAssetRegistry::Get();
+    writeThread = std::thread([this]() { WriteLoop(); });
     readThread = std::thread([this]() { ReadLoop(); });
   }
 
@@ -629,12 +644,17 @@ struct SpeculumProjectionRuntime::Impl {
       }
       soleChromeGuard = nullptr;
     }
+    stopWrite = true;
     stopRead = true;
     {
       mozilla::MutexAutoLock lock(sendMutex);
+      sendCv.NotifyAll();
       if (fd >= 0) {
         shutdown(fd, SHUT_RDWR);
       }
+    }
+    if (writeThread.joinable()) {
+      writeThread.join();
     }
     if (readThread.joinable()) {
       readThread.join();
@@ -650,6 +670,101 @@ struct SpeculumProjectionRuntime::Impl {
     if (fd >= 0) {
       close(fd);
       fd = -1;
+    }
+  }
+
+  [[noreturn]] void FailCataloguedImpl(uint32_t aContextId, const char* aCode,
+                                       const char* aPhase, const char* aMsg) {
+    SpeculumEmitProducerFault(aContextId, aCode, aPhase);
+    FatalRuntime(aMsg);
+  }
+
+  void EnqueueUnlocked(uint8_t aKind, uint32_t aContextId, const uint8_t* aPayload,
+                       uint32_t aLength, bool aControl, bool* aDone, bool* aOk) {
+    Outgoing env;
+    env.kind = aKind;
+    env.contextId = aContextId;
+    if (aLength && aPayload) {
+      env.payload.AppendElements(aPayload, aLength);
+    }
+    env.done = aDone;
+    env.ok = aOk;
+    if (aControl) {
+      controlQ.push_back(std::move(env));
+    } else {
+      dataQ.push_back(std::move(env));
+    }
+    sendCv.NotifyAll();
+  }
+
+  bool SendSync(uint8_t aKind, uint32_t aContextId, const uint8_t* aPayload,
+                uint32_t aLength, bool aControl) {
+    bool done = false;
+    bool ok = false;
+    {
+      mozilla::MutexAutoLock lock(sendMutex);
+      if (fd < 0) {
+        return false;
+      }
+      EnqueueUnlocked(aKind, aContextId, aPayload, aLength, aControl, &done, &ok);
+      while (!done) {
+        sendCv.Wait();
+      }
+    }
+    return ok;
+  }
+
+  void SendAsync(uint8_t aKind, uint32_t aContextId, const uint8_t* aPayload,
+                 uint32_t aLength, bool aControl) {
+    mozilla::MutexAutoLock lock(sendMutex);
+    if (fd < 0) {
+      return;
+    }
+    EnqueueUnlocked(aKind, aContextId, aPayload, aLength, aControl, nullptr,
+                    nullptr);
+  }
+
+  void WriteLoop() {
+    while (true) {
+      Outgoing env;
+      int sock = -1;
+      {
+        mozilla::MutexAutoLock lock(sendMutex);
+        while (!stopWrite && controlQ.empty() && dataQ.empty()) {
+          sendCv.Wait();
+        }
+        if (stopWrite && controlQ.empty() && dataQ.empty()) {
+          return;
+        }
+        if (!controlQ.empty()) {
+          env = std::move(controlQ.front());
+          controlQ.pop_front();
+        } else if (!dataQ.empty()) {
+          env = std::move(dataQ.front());
+          dataQ.pop_front();
+        } else {
+          continue;
+        }
+        sock = fd;
+      }
+      bool ok = false;
+      if (sock >= 0) {
+        ok = SendEnvelope(sock, env.kind, env.contextId, env.payload.Elements(),
+                          env.payload.Length());
+      }
+      {
+        mozilla::MutexAutoLock lock(sendMutex);
+        if (!ok && fd >= 0) {
+          CloseFdUnlocked();
+        }
+        if (env.ok) {
+          *env.ok = ok;
+        }
+        if (env.done) {
+          *env.done = true;
+        }
+        sendCv.NotifyAll();
+      }
     }
   }
 
@@ -784,16 +899,7 @@ struct SpeculumProjectionRuntime::Impl {
   }
 
   bool SendEvent(const uint8_t* aPayload, uint32_t aLength) {
-    mozilla::MutexAutoLock lock(sendMutex);
-    if (fd < 0) {
-      return false;
-    }
-    if (!SendEnvelope(fd, kKindEvent, 0, aPayload, aLength)) {
-      LogBridgeErr("event send failed");
-      CloseFdUnlocked();
-      return false;
-    }
-    return true;
+    return SendSync(kKindEvent, 0, aPayload, aLength, /*aControl=*/true);
   }
 
   void SendFault(uint32_t aCorrelationId, uint32_t aContextId,
@@ -1389,6 +1495,47 @@ struct SpeculumProjectionRuntime::Impl {
     return canonical->GetContentParent();
   }
 
+  std::set<uint32_t> nestedHostPublished;
+  std::set<uint32_t> nestedEmitAllowedSent;
+
+  void TryAllowNested(uint32_t aContextId) {
+    if (aContextId < 2) {
+      return;
+    }
+    if (nestedEmitAllowedSent.count(aContextId)) {
+      return;
+    }
+    if (!nestedHostPublished.count(aContextId)) {
+      return;
+    }
+    ContentParent* cp = ContentParentOf(aContextId);
+    if (!cp) {
+      SPECULUM_LOG("[SPECULUM-NESTED] allow wait no-cp ctx=%u", aContextId);
+      return;
+    }
+    if (!cp->SendSpeculumNestedEmitAllow(aContextId)) {
+      SPECULUM_LOG("[SPECULUM-NESTED] allow send failed ctx=%u", aContextId);
+      return;
+    }
+    nestedEmitAllowedSent.insert(aContextId);
+    SPECULUM_LOG("[SPECULUM-NESTED] allow sent ctx=%u", aContextId);
+  }
+
+  void NotePublishedNested(const nsTArray<uint32_t>& aChildContextIds) {
+    for (uint32_t childId : aChildContextIds) {
+      if (childId < 2) {
+        continue;
+      }
+      nestedHostPublished.insert(childId);
+      TryAllowNested(childId);
+    }
+  }
+
+  void NoteNestedStandby(uint32_t aContextId) {
+    SPECULUM_LOG("[SPECULUM-NESTED] standby recv ctx=%u", aContextId);
+    TryAllowNested(aContextId);
+  }
+
   void HandleHaltClocks() {
     std::vector<uint32_t> roots;
     {
@@ -1580,29 +1727,13 @@ struct SpeculumProjectionRuntime::Impl {
 
   bool SendAssetEnvelope(uint32_t aContextId, const uint8_t* aPayload,
                          uint32_t aLength) {
-    mozilla::MutexAutoLock lock(sendMutex);
-    if (fd < 0) {
-      return false;
-    }
-    if (!SendEnvelope(fd, kKindAsset, aContextId, aPayload, aLength)) {
-      LogBridgeErr("asset send failed");
-      CloseFdUnlocked();
-      return false;
-    }
+    SendAsync(kKindAsset, aContextId, aPayload, aLength, /*aControl=*/false);
     return true;
   }
 
   bool SendTelemetryEnvelope(uint32_t aContextId, const uint8_t* aPayload,
                              uint32_t aLength) {
-    mozilla::MutexAutoLock lock(sendMutex);
-    if (fd < 0) {
-      return false;
-    }
-    if (!SendEnvelope(fd, kKindTelemetry, aContextId, aPayload, aLength)) {
-      LogBridgeErr("telemetry send failed");
-      CloseFdUnlocked();
-      return false;
-    }
+    SendAsync(kKindTelemetry, aContextId, aPayload, aLength, /*aControl=*/true);
     return true;
   }
 
@@ -1895,44 +2026,13 @@ struct SpeculumProjectionRuntime::Impl {
     }
   }
 
-  // Época por contextId: cada Document daquele C é uma geração. O processo de
-  // conteúdo nasce com o documento e não sabe quantos vieram antes; quem vê
-  // todos os frames do contexto é o runtime. Iframe e aba têm relógios
-  // independentes. Sem isto, a página nova chega como continuação da anterior.
-  void StampGenerationLocked(uint32_t aContextId, uint64_t aDocToken,
-                             nsTArray<uint8_t>& aFrame) {
-    constexpr size_t kGenerationOffset = 8;
-    if (aFrame.Length() < kGenerationOffset + sizeof(uint32_t)) {
-      return;
-    }
-
-    auto found = epochs.find(aContextId);
-    if (found == epochs.end()) {
-      found = epochs.emplace(aContextId, Epoch{aDocToken, 1}).first;
-    } else if (found->second.docToken != aDocToken) {
-      found->second.docToken = aDocToken;
-      found->second.generation++;
-    }
-
-    const uint32_t generation = found->second.generation;
-    uint8_t* p = aFrame.Elements() + kGenerationOffset;
-    p[0] = static_cast<uint8_t>(generation & 0xffu);
-    p[1] = static_cast<uint8_t>((generation >> 8) & 0xffu);
-    p[2] = static_cast<uint8_t>((generation >> 16) & 0xffu);
-    p[3] = static_cast<uint8_t>((generation >> 24) & 0xffu);
-  }
-
-  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t,
-                    base::ProcessId, nsTArray<uint8_t>& aFrame) {
-    mozilla::MutexAutoLock lock(sendMutex);
-    StampGenerationLocked(aContextId, aDocToken, aFrame);
-    if (fd < 0) {
-      return;
-    }
+  void DeliverFrame(uint32_t aContextId, uint32_t, base::ProcessId,
+                    nsTArray<uint8_t>& aFrame) {
     const uint32_t len = static_cast<uint32_t>(aFrame.Length());
-    if (!SendEnvelope(fd, kKindFrame, aContextId, aFrame.Elements(), len)) {
-      LogBridgeErr("frame send failed");
-      CloseFdUnlocked();
+    if (!SendSync(kKindFrame, aContextId, aFrame.Elements(), len,
+                  /*aControl=*/false)) {
+      FailCataloguedImpl(aContextId, "bridge_down", "deliver",
+                         "frame not delivered");
     }
   }
 
@@ -2174,9 +2274,32 @@ SpeculumProjectionRuntime& SpeculumProjectionRuntime::Get() {
 }
 
 void SpeculumProjectionRuntime::DeliverFrame(
-    uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
-    base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame) {
-  mImpl->DeliverFrame(aContextId, aDocToken, aSequence, aChildPid, aFrame);
+    uint32_t aContextId, uint32_t aSequence, base::ProcessId aChildPid,
+    nsTArray<uint8_t>& aFrame) {
+  mImpl->DeliverFrame(aContextId, aSequence, aChildPid, aFrame);
+}
+
+void SpeculumProjectionRuntime::NotePublishedNested(
+    const nsTArray<uint32_t>& aChildContextIds) {
+  mImpl->NotePublishedNested(aChildContextIds);
+}
+
+void SpeculumProjectionRuntime::NoteNestedStandby(uint32_t aContextId) {
+  mImpl->NoteNestedStandby(aContextId);
+}
+
+uint32_t SpeculumProjectionRuntime::ClaimGeneration(uint32_t aContextId) {
+  return mImpl->ClaimGeneration(aContextId);
+}
+
+[[noreturn]] void SpeculumProjectionRuntime::FailCatalogued(
+    uint32_t aContextId, const char* aCode, const char* aPhase,
+    const char* aMsg) {
+  if (sRuntime && sRuntime->mImpl) {
+    sRuntime->mImpl->FailCataloguedImpl(aContextId, aCode, aPhase, aMsg);
+  }
+  SpeculumEmitProducerFault(aContextId, aCode, aPhase);
+  FatalRuntime(aMsg);
 }
 
 void SpeculumProjectionRuntime::DeliverSnapshot(

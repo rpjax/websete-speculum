@@ -8,13 +8,22 @@ export type AssetTraceEvent = Record<string, unknown> & {
   hop: string;
 };
 
-const MAX = 8000;
+const MAX = 20000;
 const events: AssetTraceEvent[] = [];
 
 function now(): number {
   return typeof performance !== 'undefined' && performance.now
     ? Math.round(performance.timeOrigin + performance.now())
     : Date.now();
+}
+
+function traceAllEnabled(): boolean {
+  return !!(globalThis as { __SPECULUM_ASSET_TRACE?: boolean }).__SPECULUM_ASSET_TRACE;
+}
+
+/** Liga traço de todos os ativos (lab diag). Sem isto, só logo.svg. */
+export function enableAssetTraceAll(): void {
+  (globalThis as { __SPECULUM_ASSET_TRACE?: boolean }).__SPECULUM_ASSET_TRACE = true;
 }
 
 /** FNV-1a 64-bit → 16 hex — same algorithm as SpeculumAssetRegistry.cpp BodyFnv16. */
@@ -59,7 +68,7 @@ export function clearAssetTrace(): void {
 }
 
 export function urlWorthTracing(url: string): boolean {
-  return /logo\.svg/i.test(url) || !!(globalThis as { __SPECULUM_ASSET_TRACE?: boolean }).__SPECULUM_ASSET_TRACE;
+  return /logo\.svg/i.test(url) || traceAllEnabled();
 }
 
 /** Capture first load/error on imgs in a Projected document. */
@@ -71,7 +80,6 @@ export function installImgTrace(doc: Document): () => void {
     if (seen.has(t) && type === 'load') return;
     const src = t.currentSrc || t.src || '';
     if (!urlWorthTracing(src) && !(t.complete && t.naturalWidth === 0)) {
-      // still record first 20 broken later via sameS; logo always
       if (!/logo\.svg/i.test(src)) return;
     }
     seen.add(t);
@@ -98,13 +106,17 @@ export function installImgTrace(doc: Document): () => void {
 
 export function sampleImgStates(doc: Document, event = 'sameS'): void {
   const imgs = [...doc.images];
+  const allBroken = traceAllEnabled();
   let broken = 0;
   for (const img of imgs) {
     const src = img.currentSrc || img.src || '';
     const isLogo = /logo\.svg/i.test(src);
     const isBroken = img.complete && img.naturalWidth === 0;
-    if (!isLogo && !(isBroken && broken < 20)) continue;
-    if (isBroken && !isLogo) broken++;
+    if (!isLogo && !isBroken) continue;
+    if (isBroken && !isLogo && !allBroken) {
+      if (broken >= 20) continue;
+      broken++;
+    }
     pushAssetTrace({
       hop: 'img.state',
       url: src.slice(0, 300),

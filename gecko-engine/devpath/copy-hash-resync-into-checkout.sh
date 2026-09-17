@@ -68,4 +68,16 @@ if grep -q 'SpeculumNotifyRuleAdded' "$TARGET"; then
 else
   patch -d "$GECKO" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
 fi
+HUNK="$REPO/gecko-engine/patches/dom/base/Element.cpp.patch"
+TARGET="$GECKO/dom/base/Element.cpp"
+[ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
+[ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
+if grep -q 'SpeculumNotifyShadowAttached' "$TARGET"; then
+  echo "attachShadow hunk already applied"
+else
+  patch -d "$GECKO" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK") || \
+    python3 "$REPO/gecko-engine/devpath/_apply-attachshadow-hook-to-checkout.py" "$GECKO"
+fi
+python3 "$REPO/gecko-engine/devpath/_apply-cssom-hooks-to-checkout.py" "$GECKO"
+python3 "$REPO/gecko-engine/devpath/_apply-sync-messages-to-checkout.py" "$GECKO"
 echo DONE

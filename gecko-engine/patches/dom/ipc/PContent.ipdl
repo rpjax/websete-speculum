@@ -1989,6 +1989,10 @@ parent:
     // não por frame. 0 = fecha sem inventar.
     sync SpeculumMintContextId() returns (uint32_t aContextId);
 
+    // Época do documento: um claim por Document desta instância. O produtor
+    // escreve o valor; o pai não remenda o payload.
+    sync SpeculumClaimGeneration(uint32_t aContextId) returns (uint32_t aGeneration);
+
     // Pedido de marionete: sync para o pai emitir *Requested no WS antes do
     // conteúdo girar à espera do Respond. Mesma direção do prompt nativo.
     sync SpeculumDialogRequested(uint32_t aContextId, uint32_t aRequestId,
@@ -1998,8 +2002,10 @@ parent:
     sync SpeculumDownloadRequested(uint32_t aContextId, uint32_t aRequestId,
                                    nsCString aDescription);
 
-    async SpeculumFrame(uint64_t aDocToken, uint32_t aContextId,
-                        uint32_t aSequence, uint8_t[] aFrame);
+    async SpeculumFrame(uint32_t aContextId,
+                        uint32_t aSequence, uint8_t[] aFrame,
+                        uint32_t[] aPublishedNestedIds);
+    async SpeculumContextStandby(uint32_t aContextId);
 
 child:
     async SpeculumResync(uint32_t aContextId, uint8_t aForce);
@@ -2010,6 +2016,9 @@ child:
     async SpeculumInput(uint32_t aContextId, uint8_t[] aEvent);
     async SpeculumDialogRespond(uint32_t aContextId, uint32_t aRequestId,
                                 nsCString aAnswer);
+    async SpeculumFrameCredit(uint32_t aContextId, uint32_t aFrames,
+                              uint32_t aBytes);
+    async SpeculumNestedEmitAllow(uint32_t aContextId);
 
 parent:
     async SpeculumSnapshotDump(uint32_t aContextId, uint32_t aCorrelationId,

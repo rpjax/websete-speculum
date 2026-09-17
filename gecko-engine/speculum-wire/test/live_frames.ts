@@ -24,10 +24,10 @@ const rows: FrameRow[] = readFileSync(ndjsonPath, 'utf8')
   .map((line) => JSON.parse(line) as FrameRow)
   .sort((a, b) => a.ordem - b.ordem);
 
-const total = rows.length;
 const tables = new Map<number, ReplicatedTable>();
 const persistent = new PersistentStringTable();
 let aceitos = 0;
+let seen = 0;
 
 for (const row of rows) {
   const name = `f-${String(row.ordem).padStart(4, '0')}-ctx${row.contextId}-seq${row.sequence}.bin`;
@@ -39,25 +39,29 @@ for (const row of rows) {
   const bytes = new Uint8Array(readFileSync(path));
   const res = decodeFramePart(bytes, persistent);
   if (!res.ok) {
+    if (res.reason === 'malformed' && res.message.includes('bad magic')) {
+      continue;
+    }
     console.error(`live-frames: decode falhou ${name}: ${res.reason} ${res.message}`);
     process.exit(1);
   }
+  seen++;
   const p = res.part;
   if (!tables.has(row.contextId)) {
     tables.set(row.contextId, new ReplicatedTable());
   }
   const table = tables.get(row.contextId)!;
-  const r = applyFrameToTableChecked(table, p.flags?.resync ?? false, p.ops, p.sequence);
+  const r = applyFrameToTableChecked(table, p.resync, p.ops, p.sequence);
   if (r.ok) {
     aceitos++;
   } else {
     console.error(`live-frames: recusado ${name}`, r);
-    console.log(`live-frames: ${aceitos}/${total} aceitos`);
+    console.log(`live-frames: ${aceitos}/${seen} aceitos`);
     process.exit(1);
   }
 }
 
-console.log(`live-frames: ${aceitos}/${total} aceitos`);
-if (aceitos !== total) {
+console.log(`live-frames: ${aceitos}/${seen} aceitos`);
+if (seen === 0 || aceitos !== seen) {
   process.exit(1);
 }

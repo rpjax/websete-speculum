@@ -39,6 +39,7 @@ import { initLabShell, type LabShell } from './labShell';
 import { installScrollDiagHostApis, setScrollDiagSessionId } from './scrollDiagHost';
 import {
   answerGeckoRequest,
+  enableGeckoAssetTraceAll,
   ensureGeckoAssetSw,
   isGeckoLab,
   nextGeckoCorr,
@@ -285,6 +286,11 @@ export function bootLabClient(): void {
     ).__labDiagDomApplyBins = (urls) =>
       diagDomApplyFrameUrls(urls ?? ['/lab/diag-f1.bin', '/lab/diag-f3.bin']);
   });
+  (
+    window as unknown as { __speculumEnableAssetTraceAll?: () => void }
+  ).__speculumEnableAssetTraceAll = () => {
+    enableGeckoAssetTraceAll();
+  };
 
   function disposeViewportSync(): void {
     viewportSync?.dispose();

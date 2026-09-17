@@ -9266,8 +9266,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 135,
-    builtAt: "2026-09-17T00:23:03.459Z"
+    seq: 137,
+    builtAt: "2026-09-17T07:30:24.528Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts

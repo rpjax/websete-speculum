@@ -75,11 +75,15 @@ async function main(): Promise<void> {
           return;
         }
         const buf = await toBuffer(ev.data);
-        ordem++;
         const bytes = new Uint8Array(buf);
         const decoded = decodeFramePart(bytes, persistent);
-        const contextId = decoded.ok ? decoded.part.contextId : 0;
-        const sequence = decoded.ok ? decoded.part.sequence : 0;
+        if (!decoded.ok) {
+          // Kind Telemetry/Asset travel the same WS as raw PP frames.
+          return;
+        }
+        ordem++;
+        const contextId = decoded.part.contextId;
+        const sequence = decoded.part.sequence;
         const name = `f-${String(ordem).padStart(4, '0')}-ctx${contextId}-seq${sequence}.bin`;
         writeFileSync(join(outDir, name), bytes);
         appendFileSync(

@@ -2,6 +2,7 @@
 #include "SpeculumCssom.h"
 
 #include "SpeculumMutationObserver.h"
+#include "mozilla/ServoCSSRuleList.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/css/Rule.h"
 #include "mozilla/dom/Document.h"
@@ -80,6 +81,38 @@ void SpeculumNotifyRuleRemoved(mozilla::dom::Document* aDocument,
   if (SpeculumMutationObserver* obs = ObserverOf(aDocument)) {
     obs->OnRuleRemoved(aSheet, &aRule);
   }
+}
+
+void SpeculumNotifySheetApplicable(mozilla::dom::Document* aDocument,
+                                   mozilla::StyleSheet* aSheet) {
+  if (!aSheet || !aSheet->IsApplicable()) {
+    return;
+  }
+  SpeculumMutationObserver* obs = ObserverOf(aDocument);
+  if (!obs) {
+    return;
+  }
+  auto emit = [&](auto&& self, mozilla::StyleSheet* sheet) -> void {
+    if (!SpeculumIsCssomPlaneSheet(sheet)) {
+      return;
+    }
+    obs->OnSheetAdded(sheet);
+    mozilla::ServoCSSRuleList* list = sheet->GetCssRulesInternal();
+    if (list) {
+      const uint32_t n = list->Length();
+      for (uint32_t i = 0; i < n; ++i) {
+        if (mozilla::css::Rule* rule = list->Item(i)) {
+          obs->OnRuleAdded(sheet, rule, CssTextOf(*rule));
+        }
+      }
+    }
+    for (mozilla::StyleSheet* child : sheet->ChildSheets()) {
+      if (child) {
+        self(self, child);
+      }
+    }
+  };
+  emit(emit, aSheet);
 }
 
 void SpeculumNotifyRuleChanged(mozilla::dom::Document* aDocument,

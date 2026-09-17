@@ -7,11 +7,15 @@
 // fora da árvore do Gecko, e o que sobra lá dentro é cola.
 #pragma once
 #include "speculum/Identity.h"
+#include "speculum/Limits.h"
 #include "speculum/Table.h"
 #include "speculum/Wire.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace speculum {
@@ -45,15 +49,22 @@ class NodeSource {
   virtual const void* shadowRootOf(const void* /*host*/) const { return nullptr; }
   virtual const void* shadowHostOf(const void* /*shadowRoot*/) const { return nullptr; }
   virtual uint8_t shadowModeOf(const void* /*shadowRoot*/) const { return 0; }
+  virtual uint8_t shadowInitFlagsOf(const void* /*shadowRoot*/) const { return 0; }
   virtual std::vector<FormProp> formPropsOf(const void* /*node*/) const { return {}; }
   virtual std::vector<const void*> cssomSheets() const { return {}; }
   virtual std::vector<const void*> cssomRulesOf(const void* /*sheet*/) const { return {}; }
+  virtual std::vector<const void*> cssomChildSheets(const void* /*sheet*/) const { return {}; }
   virtual std::string cssomRuleTextOf(const void* /*rule*/) const { return {}; }
   virtual const void* cssomSheetOf(const void* /*rule*/) const { return nullptr; }
+  // Host element of an adopted/constructed sheet (0/null = document). Pierce.
+  virtual const void* cssomHostOf(const void* /*sheet*/) const { return nullptr; }
   // Live CSSOM set — not "this pointer was a sheet once". emitResyncFrame drops
   // Sheet/Rule ids that fail these, without casting the pointer to nsINode.
   virtual bool isSheet(const void* /*ptr*/) const { return false; }
   virtual bool isRule(const void* /*ptr*/) const { return false; }
+  // Motor holds the live object while identity names it. Gecko: AddRef. Tests: no-op.
+  virtual void retainPtr(const void* /*ptr*/, KeySpace /*space*/) {}
+  virtual void releasePtr(const void* /*ptr*/, KeySpace /*space*/) {}
 };
 
 class Producer {
@@ -63,6 +74,10 @@ class Producer {
     builder_.begin();
   }
 
+  ~Producer() { forgetAll(); }
+  Producer(const Producer&) = delete;
+  Producer& operator=(const Producer&) = delete;
+
   const ReplicatedTable& table() const { return table_; }
   const IdentityMap& identity() const { return ids_; }
   uint32_t sequence() const { return sequence_; }
@@ -70,26 +85,51 @@ class Producer {
   uint32_t generation() const { return generation_; }
   uint32_t lastFrameNewNodes() const { return lastFrameNewNodes_; }
   uint32_t lastEmittedOps() const { return lastEmittedOps_; }
+  uint32_t lastInsertIdCount() const { return lastInsertIdCount_; }
+  uint32_t lastInsertOpCount() const { return lastInsertOpCount_; }
+  bool mintHeld() const { return hasMintHold(); }
+  const std::vector<std::vector<uint8_t>>& lastFrameParts() const { return lastFrameParts_; }
+  const std::vector<uint32_t>& lastPublishedNestedIds() const {
+    return lastPublishedNestedIds_;
+  }
   bool halted() const { return halted_; }
 
   // Halt para o relógio. A fila continua; Flush chama emitFrame. Não é discard.
   void setHalted(bool halted) { halted_ = halted; }
+  void setGeneration(uint32_t generation) { generation_ = generation; }
+  void addFrameCredit(uint32_t frames, uint32_t bytes) {
+    creditFrames_ += frames;
+    creditBytes_ += bytes;
+  }
+  bool hasFrameCredit(uint32_t bytes) const {
+    return creditFrames_ > 0 && creditBytes_ >= bytes;
+  }
+  void consumeFrameCredit(uint32_t bytes) {
+    if (creditFrames_ > 0) --creditFrames_;
+    if (creditBytes_ >= bytes) creditBytes_ -= bytes;
+    else creditBytes_ = 0;
+  }
 
   // Halt do tick: ops não emitidas caem. O resync descreve o DOM vivo.
   void discardPending() {
     builder_.begin();
     pendingInserts_.clear();
+    pendingRemoves_.clear();
     pendingSheets_.clear();
     pendingRules_.clear();
+    dirtyAttrs_.clear();
+    dirtyText_.clear();
   }
 
   // §5.8 resyncVirtual: zera o mapa (geração intacta), aloca o que está ligado, emite
   // o frame de resync. Attach do documento é isto — não um caminho paralelo.
   std::vector<uint8_t> resyncVirtual(const void* documentNode) {
-    ids_.clear();
+    forgetAll();
     pendingHosts_.clear();
     pendingDrop_.clear();
     pendingInserts_.clear();
+    pendingRemoves_.clear();
+    formIndex_.clear();
     documentNode_ = documentNode;
     discardPending();
     allocateConnected(documentNode);
@@ -100,6 +140,7 @@ class Producer {
   // §5.8 emitResyncFrame: duas passagens no mapa, tabela reconstruída, flag de resync.
   // preTableHash viaja 0 — o cliente não tem estado prévio a conferir (wholesale replace).
   std::vector<uint8_t> emitResyncFrame() {
+    lastPublishedNestedIds_.clear();
     discardPending();
     adoptReadyPendingHosts();
     // Force 0 (mapa intacto) também precisa das sheets vivas que o source
@@ -152,7 +193,7 @@ class Producer {
       live.push_back(id);
       emitNodeNew(key.ptr, id);
     }
-    for (uint32_t id : drop) ids_.releaseId(id);
+    for (uint32_t id : drop) forgetId(id);
     for (uint32_t id : sheets) {
       const IdentityKey key = ids_.keyOf(id);
       if (key.ptr) emitSheetNew(key.ptr, id);
@@ -169,6 +210,7 @@ class Producer {
       if (!key.ptr || key.space != KeySpace::Node) continue;
       insertLiveChildren(key.ptr, id);
     }
+    drainFormProps();
 
     lastFrameNewNodes_ = pendingNewNodes_;
     pendingNewNodes_ = 0;
@@ -182,13 +224,13 @@ class Producer {
     h.sequence = seq;
     h.flags = kFrameFlagResync;
     h.preTableHash = 0;
-    auto bytes = builder_.finish(h);
-
+    auto parts = builder_.finishSplit(h, kMaxOpsPerFrame, kMaxFrameBytes);
     sequence_ = seq;
     preTableHash_ = table_.tableHash();
     builder_.begin();
     table_.setSequence(sequence_ + 1);
-    return bytes;
+    lastFrameParts_ = parts;
+    return parts.empty() ? std::vector<uint8_t>{} : parts.front();
   }
 
   // ---- registros do motor ----
@@ -204,57 +246,47 @@ class Producer {
     const uint32_t existing = ids_.idOf(node, KeySpace::Node);
     if (existing != kNone) {
       cancelPendingDrop(existing);
+      const Row* row = table_.getRow(existing);
+      if (row && row->kind != static_cast<uint32_t>(source_.kindOf(node))) {
+        retireDetached(existing);
+        mint(node, KeySpace::Node);
+      }
     } else {
-      ids_.assign(node, KeySpace::Node);
+      mint(node, KeySpace::Node);
     }
     pendingInserts_.push_back(PendingInsert{parent, node});
   }
+
+  void onShadowAttached(const void* host) { attachShadow(host); }
 
   void onRemoved(const void* parent, const void* node) {
     cancelPendingHost(node);
     uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
     if (cancelPendingInsert(node)) {
-      if (!table_.getRow(id)) ids_.release(node, KeySpace::Node);
+      if (!table_.getRow(id)) forget(node, KeySpace::Node);
       return;
     }
-    uint32_t parentId = idFor(parent);
-    builder_.remove(parentId, {id});
-    table_.removeBatch(parentId, {id});
-    // DROP no emitFrame, não aqui: o mesmo tick ainda pode reinserir (move).
+    // §5.6: não emite REMOVE na hora. Move no mesmo tick decide no drain
+    // contra o DOM vivo (isConnected). DROP continua no fim do tick.
+    pendingRemoves_.push_back(PendingRemove{parent, node});
     pendingDrop_.push_back(id);
   }
 
   void onAttrChanged(const void* node, const std::string& name) {
     uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
-    const Row* row = table_.getRow(id);
-    if (!row || row->kind != static_cast<uint32_t>(NodeKind::Element)) {
-      return;
+    auto& names = dirtyAttrs_[node];
+    for (const auto& n : names) {
+      if (n == name) return;
     }
-    for (const auto& a : source_.attrsOf(node)) {
-      if (a.name != name) continue;
-      builder_.attrSet(id, {a});
-      table_.setAttrs(id, {a});
-      return;
-    }
-    // Não está mais na lista viva: foi removido.
-    builder_.attrDel(id, {name});
-    table_.delAttrs(id, {name});
+    names.push_back(name);
   }
 
   void onTextChanged(const void* node) {
     uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
-    const Row* row = table_.getRow(id);
-    if (!row) return;
-    if (row->kind != static_cast<uint32_t>(NodeKind::Text) &&
-        row->kind != static_cast<uint32_t>(NodeKind::Comment)) {
-      return;
-    }
-    const std::string v = source_.valueOf(node);
-    builder_.textSet(id, v);
-    table_.setValue(id, v);
+    dirtyText_.insert(node);
   }
 
   void onPropChanged(const void* node, uint8_t propId, const PropValue& value) {
@@ -268,21 +300,30 @@ class Producer {
     table_.setProp(id, propId, value);
   }
 
-  // Reserva: nó morreu sem passar por onRemoved (ou o teste chama os dois).
-  // O caminho normal é ContentWillBeRemoved → onRemoved → DROP no emitFrame.
-  // NodeWillBeDestroyed no Document NÃO dispara por filho; não dá para pendurar nisso.
+  // Reserva: o motor avisou que o objeto morreu. Solta o ponteiro agora —
+  // isConnected no drain senão lê lixo. ContentWillBeRemoved pode não ter
+  // rodado (teardown do document).
   void onDestroyed(const void* node) {
     uint32_t id = ids_.idOf(node, KeySpace::Node);
     if (id == kNone) return;
-    const Row* row = table_.getRow(id);
-    if (row && row->parent != kNone) return;  // ainda ligada: quem remove emite REMOVE antes
     cancelPendingDrop(id);
-    if (!row) {
-      ids_.release(node, KeySpace::Node);
+    cancelPendingInsert(node);
+    cancelPendingHost(node);
+    cancelPendingRemove(node);
+    unindexForm(node);
+    dirtyAttrs_.erase(node);
+    dirtyText_.erase(node);
+    const Row* row = table_.getRow(id);
+    if (row && row->parent != kNone) {
+      builder_.remove(row->parent, {id});
+      table_.removeBatch(row->parent, {id});
+    }
+    if (row) {
+      builder_.nodeDrop({id});
+      for (uint32_t dropped : table_.dropSubtree(id)) forgetId(dropped);
       return;
     }
-    builder_.nodeDrop({id});
-    for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+    forget(node, KeySpace::Node);
   }
 
   // ---- frame ordinário ----
@@ -291,7 +332,7 @@ class Producer {
   // tabela no começo deste tick (depois do emit anterior), não o hash já mutado.
   void onSheetAdded(const void* sheet) {
     if (!sheet) return;
-    ids_.assign(sheet, KeySpace::Sheet);
+    mint(sheet, KeySpace::Sheet);
     pendingSheets_.push_back(sheet);
   }
 
@@ -300,11 +341,11 @@ class Producer {
     if (id == kNone) return;
     cancelPendingRulesOf(sheet);
     if (cancelPendingSheet(sheet)) {
-      if (!table_.getRow(id)) ids_.release(sheet, KeySpace::Sheet);
+      if (!table_.getRow(id)) forget(sheet, KeySpace::Sheet);
       return;
     }
     builder_.sheetDrop({id});
-    for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+    for (uint32_t dropped : table_.dropSubtree(id)) forgetId(dropped);
   }
 
   void onSheetOrderChanged() {
@@ -323,8 +364,8 @@ class Producer {
 
   void onRuleAdded(const void* sheet, const void* rule) {
     if (!rule) return;
-    if (sheet) ids_.assign(sheet, KeySpace::Sheet);
-    ids_.assign(rule, KeySpace::Rule);
+    if (sheet) mint(sheet, KeySpace::Sheet);
+    mint(rule, KeySpace::Rule);
     pendingRules_.push_back(PendingRule{sheet, rule});
   }
 
@@ -332,12 +373,12 @@ class Producer {
     uint32_t id = ids_.idOf(rule, KeySpace::Rule);
     if (id == kNone) return;
     if (cancelPendingRule(rule)) {
-      if (!table_.getRow(id)) ids_.release(rule, KeySpace::Rule);
+      if (!table_.getRow(id)) forget(rule, KeySpace::Rule);
       return;
     }
     uint32_t sheetId = ids_.idOf(sheet, KeySpace::Sheet);
     builder_.ruleDrop(sheetId, {id});
-    for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+    for (uint32_t dropped : table_.dropSubtree(id)) forgetId(dropped);
   }
 
   void onRuleChanged(const void* rule) {
@@ -374,13 +415,25 @@ class Producer {
     return out;
   }
 
-  // Devolve vazio quando não houve op: frame vazio não é emitido e não consome `sequence`.
+  // Devolve vazio quando não houve op, mint hold, ou frame vazio: não consome `sequence`.
   std::vector<uint8_t> emitFrame() {
+    lastInsertIdCount_ = 0;
+    lastInsertOpCount_ = 0;
+    lastFrameParts_.clear();
+    lastPublishedNestedIds_.clear();
+    createdThisTick_.clear();
+    visitedThisTick_.clear();
+    ++gcClock_;
+    table_.setSequence(gcClock_);
+    if (hasMintHold()) return {};
     drainPendingInserts();
     flushPendingHosts();
+    drainPendingRemoves();
+    drainAttrPatches();
+    drainTextPatches();
     drainCssom();
     drainFormProps();
-    flushPendingDrops();
+    emitAgedDrops();
     if (builder_.opCount() == 0) return {};
     lastFrameNewNodes_ = pendingNewNodes_;
     pendingNewNodes_ = 0;
@@ -391,18 +444,47 @@ class Producer {
     PartHeader h;
     h.contextId = contextId_;
     h.generation = generation_;
-    h.sequence = ++sequence_;
+    h.sequence = sequence_ + 1;
     h.flags = 0;
     h.preTableHash = pre;
-    auto bytes = builder_.finish(h);
-
+    lastFrameParts_ = builder_.finishSplit(h, kMaxOpsPerFrame, kMaxFrameBytes);
+    if (lastFrameParts_.empty()) {
+      builder_.begin();
+      return {};
+    }
+    sequence_ = h.sequence;
     preTableHash_ = table_.tableHash();
     builder_.begin();
-    table_.setSequence(sequence_ + 1);
-    return bytes;
+    return lastFrameParts_.front();
   }
 
  private:
+  uint32_t mint(const void* ptr, KeySpace space) {
+    if (!ptr) return kNone;
+    if (ids_.known(ptr, space)) return ids_.idOf(ptr, space);
+    source_.retainPtr(ptr, space);
+    return ids_.assign(ptr, space);
+  }
+
+  void forget(const void* ptr, KeySpace space) {
+    if (ids_.release(ptr, space) == kNone) return;
+    source_.releasePtr(ptr, space);
+  }
+
+  void forgetId(uint32_t id) {
+    const IdentityKey key = ids_.keyOf(id);
+    ids_.releaseId(id);
+    if (key.ptr) source_.releasePtr(key.ptr, key.space);
+  }
+
+  void forgetAll() {
+    for (uint32_t id : ids_.allIds()) {
+      const IdentityKey key = ids_.keyOf(id);
+      if (key.ptr) source_.releasePtr(key.ptr, key.space);
+    }
+    ids_.clear();
+  }
+
   uint32_t idFor(const void* node) const {
     if (node == documentNode_) return kDocumentId;
     return ids_.idOf(node, KeySpace::Node);
@@ -456,6 +538,14 @@ class Producer {
     pendingDrop_.resize(w);
   }
 
+  void cancelPendingRemove(const void* node) {
+    size_t w = 0;
+    for (size_t i = 0; i < pendingRemoves_.size(); ++i) {
+      if (pendingRemoves_[i].node != node) pendingRemoves_[w++] = pendingRemoves_[i];
+    }
+    pendingRemoves_.resize(w);
+  }
+
   bool cancelPendingInsert(const void* node) {
     size_t w = 0;
     bool found = false;
@@ -484,29 +574,169 @@ class Producer {
     return found;
   }
 
+  void notePublishedNested(uint32_t childScope) {
+    if (childScope < 2) return;
+    for (uint32_t c : lastPublishedNestedIds_) {
+      if (c == childScope) return;
+    }
+    lastPublishedNestedIds_.push_back(childScope);
+  }
+
+  bool hasMintHold() const {
+    for (const auto& pending : pendingHosts_) {
+      if (source_.isConnected(pending.node) && awaitingChildScope(pending.node)) return true;
+    }
+    return false;
+  }
+
+  void emitInsert(uint32_t parentId, uint32_t before, const std::vector<uint32_t>& ids) {
+    if (ids.empty()) return;
+    lastInsertIdCount_ += static_cast<uint32_t>(ids.size());
+    size_t i = 0;
+    while (i < ids.size()) {
+      const size_t n = std::min(ids.size() - i, static_cast<size_t>(kMaxChildrenPerOp));
+      std::vector<uint32_t> chunk(ids.begin() + static_cast<std::ptrdiff_t>(i),
+                                  ids.begin() + static_cast<std::ptrdiff_t>(i + n));
+      builder_.insert(parentId, before, chunk);
+      table_.insertBatch(parentId, before, chunk);
+      ++lastInsertOpCount_;
+      i += n;
+    }
+  }
+
+  void drainAttrPatches() {
+    auto dirty = dirtyAttrs_;
+    dirtyAttrs_.clear();
+    for (const auto& kv : dirty) {
+      const void* node = kv.first;
+      if (createdThisTick_.count(node)) continue;
+      if (!source_.isConnected(node)) continue;
+      uint32_t id = ids_.idOf(node, KeySpace::Node);
+      if (id == kNone) continue;
+      const Row* row = table_.getRow(id);
+      if (!row || row->kind != static_cast<uint32_t>(NodeKind::Element)) continue;
+      const auto live = source_.attrsOf(node);
+      std::vector<AttrPair> setAttrs;
+      std::vector<std::string> delNames;
+      for (const auto& name : kv.second) {
+        bool found = false;
+        for (const auto& a : live) {
+          if (a.name != name) continue;
+          setAttrs.push_back(a);
+          found = true;
+          break;
+        }
+        if (!found) delNames.push_back(name);
+      }
+      if (!setAttrs.empty()) {
+        builder_.attrSet(id, setAttrs);
+        table_.setAttrs(id, setAttrs);
+      }
+      if (!delNames.empty()) {
+        builder_.attrDel(id, delNames);
+        table_.delAttrs(id, delNames);
+      }
+    }
+  }
+
+  void drainTextPatches() {
+    auto dirty = dirtyText_;
+    dirtyText_.clear();
+    for (const void* node : dirty) {
+      if (createdThisTick_.count(node)) continue;
+      if (!source_.isConnected(node)) continue;
+      uint32_t id = ids_.idOf(node, KeySpace::Node);
+      if (id == kNone) continue;
+      const Row* row = table_.getRow(id);
+      if (!row) continue;
+      if (row->kind != static_cast<uint32_t>(NodeKind::Text) &&
+          row->kind != static_cast<uint32_t>(NodeKind::Comment)) {
+        continue;
+      }
+      const std::string v = source_.valueOf(node);
+      builder_.textSet(id, v);
+      table_.setValue(id, v);
+    }
+  }
+
+  void drainPendingRemoves() {
+    const std::vector<PendingRemove> pending = pendingRemoves_;
+    pendingRemoves_.clear();
+    for (const auto& item : pending) {
+      if (source_.isConnected(item.node)) continue;  // move: o INSERT já desligou
+      uint32_t id = ids_.idOf(item.node, KeySpace::Node);
+      if (id == kNone) continue;
+      const Row* row = table_.getRow(id);
+      if (!row || row->parent == kNone) continue;  // já saiu (INSERT moveu, ou nunca ligou)
+      uint32_t parentId = idFor(item.parent);
+      if (parentId == kNone) parentId = row->parent;
+      builder_.remove(parentId, {id});
+      table_.removeBatch(parentId, {id});
+    }
+  }
+
   void drainPendingInserts() {
     const std::vector<PendingInsert> pending = pendingInserts_;
     pendingInserts_.clear();
+    std::vector<const void*> parentOrder;
+    std::unordered_map<const void*, std::vector<const void*>> byParent;
+    std::unordered_set<const void*> pendingSet;
     for (const auto& item : pending) {
       uint32_t id = ids_.idOf(item.node, KeySpace::Node);
       if (id == kNone) continue;
       if (!source_.isConnected(item.node) || source_.isUaOwned(item.node)) {
-        if (!table_.getRow(id)) ids_.release(item.node, KeySpace::Node);
+        if (!table_.getRow(id)) forget(item.node, KeySpace::Node);
         continue;
       }
-      uint32_t parentId = idFor(item.parent);
+      if (visitedThisTick_.count(item.node)) continue;
+      if (pendingSet.insert(item.node).second) {
+        auto& list = byParent[item.parent];
+        if (list.empty()) parentOrder.push_back(item.parent);
+        list.push_back(item.node);
+      }
+    }
+    for (const void* parent : parentOrder) {
+      uint32_t parentId = idFor(parent);
       if (parentId == kNone) {
-        if (!table_.getRow(id)) ids_.release(item.node, KeySpace::Node);
+        for (const void* node : byParent[parent]) {
+          uint32_t id = ids_.idOf(node, KeySpace::Node);
+          if (id != kNone && !table_.getRow(id)) forget(node, KeySpace::Node);
+        }
         continue;
       }
-      if (!table_.getRow(id)) {
-        ensureDescribed(item.node);
-        id = ids_.idOf(item.node, KeySpace::Node);
-        if (id == kNone) continue;
+      const auto live = source_.childrenOf(parent);
+      std::unordered_set<const void*> want;
+      for (const void* n : byParent[parent]) want.insert(n);
+      std::vector<uint32_t> run;
+      const void* runLast = nullptr;
+      auto flushRun = [&]() {
+        if (run.empty() || !runLast) return;
+        emitInsert(parentId, beforeIdOf(parent, runLast), run);
+        run.clear();
+        runLast = nullptr;
+      };
+      for (const void* child : live) {
+        if (!want.count(child) || visitedThisTick_.count(child)) {
+          flushRun();
+          continue;
+        }
+        if (!table_.getRow(ids_.idOf(child, KeySpace::Node))) {
+          ensureDescribed(child);
+        }
+        uint32_t id = ids_.idOf(child, KeySpace::Node);
+        if (id == kNone || !table_.getRow(id)) {
+          flushRun();
+          continue;
+        }
+        if (visitedThisTick_.count(child)) {
+          flushRun();
+          continue;
+        }
+        visitedThisTick_.insert(child);
+        run.push_back(id);
+        runLast = child;
       }
-      uint32_t before = beforeIdOf(item.parent, item.node);
-      builder_.insert(parentId, before, {id});
-      table_.insertBatch(parentId, before, {id});
+      flushRun();
     }
   }
 
@@ -543,7 +773,7 @@ class Producer {
     for (size_t i = 0; i < pendingRules_.size(); ++i) {
       if (pendingRules_[i].sheet == sheet) {
         uint32_t id = ids_.idOf(pendingRules_[i].rule, KeySpace::Rule);
-        if (id != kNone && !table_.getRow(id)) ids_.release(pendingRules_[i].rule, KeySpace::Rule);
+        if (id != kNone && !table_.getRow(id)) forget(pendingRules_[i].rule, KeySpace::Rule);
         continue;
       }
       pendingRules_[w++] = pendingRules_[i];
@@ -556,64 +786,97 @@ class Producer {
     pendingSheets_.clear();
     const std::vector<PendingRule> queuedRules = pendingRules_;
     pendingRules_.clear();
-
-    for (const void* sheet : source_.cssomSheets()) {
+    for (const void* sheet : queuedSheets) {
       uint32_t id = ids_.idOf(sheet, KeySpace::Sheet);
       if (id == kNone) continue;
       if (!table_.getRow(id)) emitSheetNew(sheet, id);
     }
-    for (const void* sheet : source_.cssomSheets()) {
-      for (const void* rule : source_.cssomRulesOf(sheet)) {
-        uint32_t id = ids_.idOf(rule, KeySpace::Rule);
-        if (id == kNone) continue;
-        if (!table_.getRow(id)) emitRuleNew(sheet, rule, id);
-      }
-    }
-    for (const void* sheet : queuedSheets) {
-      uint32_t id = ids_.idOf(sheet, KeySpace::Sheet);
-      if (id != kNone && !table_.getRow(id)) ids_.release(sheet, KeySpace::Sheet);
-    }
     for (const auto& item : queuedRules) {
       uint32_t id = ids_.idOf(item.rule, KeySpace::Rule);
-      if (id != kNone && !table_.getRow(id)) ids_.release(item.rule, KeySpace::Rule);
+      if (id == kNone) continue;
+      if (!table_.getRow(id)) emitRuleNew(item.sheet, item.rule, id);
     }
   }
 
   void drainFormProps() {
-    const std::vector<uint32_t> ids = ids_.allIds();
-    for (uint32_t id : ids) {
-      const IdentityKey key = ids_.keyOf(id);
-      if (!key.ptr || key.space != KeySpace::Node) continue;
-      if (source_.kindOf(key.ptr) != NodeKind::Element) continue;
-      for (const FormProp& fp : source_.formPropsOf(key.ptr)) {
+    for (const void* node : formIndex_) {
+      uint32_t id = ids_.idOf(node, KeySpace::Node);
+      if (id == kNone) continue;
+      if (!source_.isConnected(node)) continue;
+      for (const FormProp& fp : source_.formPropsOf(node)) {
         const PropValue* cur = table_.getProp(id, fp.id);
         const bool same = cur && cur->isBool == fp.value.isBool &&
                           (fp.value.isBool ? cur->boolValue == fp.value.boolValue
                                            : cur->strValue == fp.value.strValue);
         if (same) continue;
-        onPropChanged(key.ptr, fp.id, fp.value);
+        onPropChanged(node, fp.id, fp.value);
       }
     }
   }
 
+  void indexForm(const void* node) {
+    if (!node) return;
+    for (const void* n : formIndex_) {
+      if (n == node) return;
+    }
+    formIndex_.push_back(node);
+  }
+
+  void unindexForm(const void* node) {
+    size_t w = 0;
+    for (size_t i = 0; i < formIndex_.size(); ++i) {
+      if (formIndex_[i] != node) formIndex_[w++] = formIndex_[i];
+    }
+    formIndex_.resize(w);
+  }
+
+  void ensureRowBudget() {
+    if (table_.size() < kMaxRows) return;
+    emitAgedDrops();
+    if (table_.size() >= kMaxRows) {
+      SPECULUM_FATAL("ReplicatedTable: MAX_ROWS exceeded (frame-protocol.md §8)");
+    }
+  }
+
   void emitSheetNew(const void* sheet, uint32_t id) {
-    const uint32_t host = 0;
-    const uint8_t scope = 0;
+    ensureRowBudget();
+    const void* hostPtr = source_.cssomHostOf(sheet);
+    uint32_t host = 0;
+    uint8_t scope = kCssomScopeMain;
+    uint32_t parent = kDocumentId;
+    if (hostPtr) {
+      host = idFor(hostPtr);
+      if (host != kNone) {
+        scope = kCssomScopePierceHost;
+        parent = host;
+      }
+    }
     const uint32_t before = kInsertAtEnd;
     builder_.sheetNew(id, scope, host, before);
     if (!table_.has(id)) table_.createLeafRow(id, NodeKind::Sheet, "");
-    table_.insertBatch(kDocumentId, before, {id});
+    table_.insertBatch(parent, before, {id});
     ++pendingNewNodes_;
-    (void)sheet;
   }
 
   void emitRuleNew(const void* sheet, const void* rule, uint32_t id) {
+    ensureRowBudget();
+    const std::string text = source_.cssomRuleTextOf(rule);
+    bool blank = true;
+    for (char c : text) {
+      if (c != ' ' && c != '\n' && c != '\r' && c != '\t') {
+        blank = false;
+        break;
+      }
+    }
+    if (blank) {
+      forget(rule, KeySpace::Rule);
+      return;
+    }
     uint32_t sheetId = ids_.idOf(sheet, KeySpace::Sheet);
-    if (sheetId == kNone && sheet) sheetId = ids_.assign(sheet, KeySpace::Sheet);
+    if (sheetId == kNone && sheet) sheetId = mint(sheet, KeySpace::Sheet);
     if (sheet && sheetId != kNone && !table_.getRow(sheetId)) {
       emitSheetNew(sheet, sheetId);
     }
-    const std::string text = source_.cssomRuleTextOf(rule);
     builder_.ruleNew(sheetId, id, kInsertAtEnd, text);
     if (!table_.has(id)) table_.createLeafRow(id, NodeKind::Rule, text);
     else table_.setValue(id, text);
@@ -622,9 +885,15 @@ class Producer {
   }
 
   void allocateCssom() {
-    for (const void* sheet : source_.cssomSheets()) {
-      ids_.assign(sheet, KeySpace::Sheet);
-      for (const void* rule : source_.cssomRulesOf(sheet)) ids_.assign(rule, KeySpace::Rule);
+    std::vector<const void*> stack = source_.cssomSheets();
+    std::unordered_set<const void*> seen;
+    while (!stack.empty()) {
+      const void* sheet = stack.back();
+      stack.pop_back();
+      if (!sheet || !seen.insert(sheet).second) continue;
+      mint(sheet, KeySpace::Sheet);
+      for (const void* rule : source_.cssomRulesOf(sheet)) mint(rule, KeySpace::Rule);
+      for (const void* child : source_.cssomChildSheets(sheet)) stack.push_back(child);
     }
   }
 
@@ -640,7 +909,7 @@ class Producer {
     cancelPendingDrop(id);
     const Row* row = table_.getRow(id);
     if (!row) {
-      ids_.releaseId(id);
+      forgetId(id);
       return;
     }
     if (row->parent != kNone) {
@@ -648,21 +917,30 @@ class Producer {
       table_.removeBatch(row->parent, {id});
     }
     builder_.nodeDrop({id});
-    for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+    for (uint32_t dropped : table_.dropSubtree(id)) forgetId(dropped);
   }
 
   void flushPendingDrops() {
-    const std::vector<uint32_t> snapshot = pendingDrop_;
-    pendingDrop_.clear();
-    for (uint32_t id : snapshot) {
+    // OPEN-2: destaque neste tick não DROP. Sweep por idade em emitAgedDrops.
+  }
+
+  void emitAgedDrops() {
+    if (table_.size() >= kMaxRows) {
+      // Pressão: GC de linha morta primeiro (ruling 2026-09-16).
+    }
+    const uint32_t seq = gcClock_ ? gcClock_ : sequence_ + 1;
+    auto droppable =
+        table_.collectDroppableIds(seq, kNodeDropAgeSequences, kMaxNodeDropsPerSweep);
+    if (table_.size() >= kMaxRows && droppable.empty()) {
+      droppable = table_.collectDroppableIds(seq, 1, kMaxNodeDropsPerSweep);
+    }
+    for (uint32_t id : droppable) {
       const Row* row = table_.getRow(id);
-      if (!row) {
-        ids_.releaseId(id);
-        continue;
-      }
-      if (row->parent != kNone) continue;  // reinseriu neste tick: move, não GC
+      if (!row || row->parent != kNone) continue;
+      const IdentityKey key = ids_.keyOf(id);
+      if (key.ptr) unindexForm(key.ptr);
       builder_.nodeDrop({id});
-      for (uint32_t dropped : table_.dropSubtree(id)) ids_.releaseId(dropped);
+      for (uint32_t dropped : table_.dropSubtree(id)) forgetId(dropped);
     }
   }
 
@@ -688,7 +966,7 @@ class Producer {
         still.push_back(pending);
         continue;
       }
-      ids_.assign(pending.node, KeySpace::Node);
+      mint(pending.node, KeySpace::Node);
     }
     pendingHosts_.swap(still);
   }
@@ -708,8 +986,7 @@ class Producer {
       if (parentId == kNone) continue;
       uint32_t before = beforeIdOf(pending.parent, pending.node);
       ensureDescribed(pending.node);
-      builder_.insert(parentId, before, {ids_.idOf(pending.node, KeySpace::Node)});
-      table_.insertBatch(parentId, before, {ids_.idOf(pending.node, KeySpace::Node)});
+      emitInsert(parentId, before, {ids_.idOf(pending.node, KeySpace::Node)});
     }
     pendingHosts_.swap(still);
   }
@@ -717,7 +994,7 @@ class Producer {
   void allocateConnected(const void* node) {
     if (node != documentNode_) {
       if (source_.isUaOwned(node) || awaitingChildScope(node)) return;
-      ids_.assign(node, KeySpace::Node);
+      mint(node, KeySpace::Node);
     }
     for (const void* child : source_.childrenOf(node)) {
       if (source_.isUaOwned(child)) continue;
@@ -732,6 +1009,7 @@ class Producer {
   }
 
   void emitNodeNew(const void* node, uint32_t id) {
+    ensureRowBudget();
     const NodeKind kind = source_.kindOf(node);
     switch (kind) {
       case NodeKind::Element: {
@@ -741,9 +1019,14 @@ class Producer {
         const auto uri = ns == ElementNs::Custom ? source_.uriOf(node) : std::string();
         const bool nestedHost = source_.isNestedHost(node);
         const uint32_t childScope = nestedHost ? source_.childScopeIdOf(node) : 0;
+        if (nestedHost && childScope >= 2) {
+          notePublishedNested(childScope);
+        }
         builder_.nodeNewElement(id, ns, name, attrs, uri, nestedHost, childScope);
         table_.createElementRow(id, name, attrs, ns, uri);
         ++pendingNewNodes_;
+        createdThisTick_.insert(node);
+        indexForm(node);
         break;
       }
       case NodeKind::Text: {
@@ -751,6 +1034,7 @@ class Producer {
         builder_.nodeNewText(id, v);
         table_.createLeafRow(id, NodeKind::Text, v);
         ++pendingNewNodes_;
+        createdThisTick_.insert(node);
         break;
       }
       case NodeKind::Comment: {
@@ -758,6 +1042,7 @@ class Producer {
         builder_.nodeNewComment(id, v);
         table_.createLeafRow(id, NodeKind::Comment, v);
         ++pendingNewNodes_;
+        createdThisTick_.insert(node);
         break;
       }
       case NodeKind::Doctype: {
@@ -771,9 +1056,11 @@ class Producer {
         const void* host = source_.shadowHostOf(node);
         uint32_t hostId = idFor(host);
         uint8_t mode = source_.shadowModeOf(node);
-        builder_.nodeNewShadowRoot(id, hostId, mode, 0);
-        table_.createShadowRootRow(id, hostId, mode, 0);
+        uint8_t flags = source_.shadowInitFlagsOf(node);
+        builder_.nodeNewShadowRoot(id, hostId, mode, flags);
+        table_.createShadowRootRow(id, hostId, mode, flags);
         ++pendingNewNodes_;
+        createdThisTick_.insert(node);
         break;
       }
       default:
@@ -782,7 +1069,7 @@ class Producer {
   }
 
   void describe(const void* node) {
-    emitNodeNew(node, ids_.assign(node, KeySpace::Node));
+    emitNodeNew(node, mint(node, KeySpace::Node));
     attachShadow(node);
   }
 
@@ -800,20 +1087,20 @@ class Producer {
       batch.push_back(id);
     }
     if (batch.empty()) return;
-    builder_.insert(parentId, kInsertAtEnd, batch);
-    table_.insertBatch(parentId, kInsertAtEnd, batch);
+    emitInsert(parentId, kInsertAtEnd, batch);
   }
 
   void describeAndInsertChildren(const void* parent, uint32_t parentId) {
     std::vector<uint32_t> batch;
+    const void* first = nullptr;
+    const void* last = nullptr;
     for (const void* child : source_.childrenOf(parent)) {
       if (source_.isUaOwned(child)) continue;
       if (awaitingChildScope(child)) {
         notePendingHost(parent, child);
         continue;
       }
-      // §5.5: identity hit só conta se a linha já existe (NODE_NEW feito).
-      // Id só de onInserted ainda precisa de describe antes do INSERT.
+      if (visitedThisTick_.count(child)) continue;
       uint32_t id = ids_.idOf(child, KeySpace::Node);
       const Row* row = id != kNone ? table_.getRow(id) : nullptr;
       if (!row || row->kind != static_cast<uint32_t>(source_.kindOf(child))) {
@@ -821,11 +1108,13 @@ class Producer {
         id = ids_.idOf(child, KeySpace::Node);
         if (id == kNone || !table_.getRow(id)) continue;
       }
+      visitedThisTick_.insert(child);
+      if (!first) first = child;
+      last = child;
       batch.push_back(id);
     }
     if (batch.empty()) return;
-    builder_.insert(parentId, kInsertAtEnd, batch);
-    table_.insertBatch(parentId, kInsertAtEnd, batch);
+    emitInsert(parentId, last ? beforeIdOf(parent, last) : kInsertAtEnd, batch);
   }
 
   struct PendingHost {
@@ -834,6 +1123,11 @@ class Producer {
   };
 
   struct PendingInsert {
+    const void* parent;
+    const void* node;
+  };
+
+  struct PendingRemove {
     const void* parent;
     const void* node;
   };
@@ -849,6 +1143,7 @@ class Producer {
   FramePartBuilder builder_;
   std::vector<PendingHost> pendingHosts_;
   std::vector<PendingInsert> pendingInserts_;
+  std::vector<PendingRemove> pendingRemoves_;
   std::vector<const void*> pendingSheets_;
   std::vector<PendingRule> pendingRules_;
   std::vector<uint32_t> pendingDrop_;
@@ -860,7 +1155,19 @@ class Producer {
   bool halted_ = false;
   uint32_t lastFrameNewNodes_ = 0;
   uint32_t lastEmittedOps_ = 0;
+  uint32_t lastInsertIdCount_ = 0;
+  uint32_t lastInsertOpCount_ = 0;
   uint32_t pendingNewNodes_ = 0;
+  uint32_t gcClock_ = 0;
+  uint32_t creditFrames_ = kCreditFramesDefault;
+  uint32_t creditBytes_ = kCreditBytesDefault;
+  std::vector<std::vector<uint8_t>> lastFrameParts_;
+  std::vector<uint32_t> lastPublishedNestedIds_;
+  std::unordered_set<const void*> createdThisTick_;
+  std::unordered_set<const void*> visitedThisTick_;
+  std::unordered_map<const void*, std::vector<std::string>> dirtyAttrs_;
+  std::unordered_set<const void*> dirtyText_;
+  std::vector<const void*> formIndex_;
 };
 
 }  // namespace speculum

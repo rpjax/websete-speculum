@@ -194,6 +194,10 @@ int main() {
     auto scopes = ChildScopes(frame);
     if (scopes.size() != 1) return Fail("esperava um childScopeId no NODE_NEW");
     if (scopes[0] != 2) return Fail("childScopeId nao e 2");
+    if (p.lastPublishedNestedIds().size() != 1 ||
+        p.lastPublishedNestedIds()[0] != 2) {
+      return Fail("lastPublishedNestedIds nao listou 2");
+    }
     if (p.lastEmittedOps() == 0) return Fail("resync zerou lastEmittedOps");
     std::cout << "ok: NODE_NEW host C=2\n";
   }
@@ -215,12 +219,23 @@ int main() {
       return Fail("host sem C emitiu NODE_NEW nested");
     }
 
+    FakeNode* span = dom.makeElement("span");
+    dom.append(body, span);
+    p.onInserted(body, span);
+    auto blocked = p.emitFrame();
+    if (!blocked.empty()) return Fail("mint hold emitiu frame com buraco");
+    if (!p.mintHeld()) return Fail("mintHeld falso com C=0");
+
     FakeDom::at(iframe)->childScopeId = 2;
     auto ready = p.emitFrame();
     if (ready.empty()) return Fail("host com C depois do hold nao emitiu");
     auto scopes = ChildScopes(ready);
     if (scopes.size() != 1 || scopes[0] != 2) {
       return Fail("hold->C=2 nao produziu um NODE_NEW com 2");
+    }
+    if (p.lastPublishedNestedIds().size() != 1 ||
+        p.lastPublishedNestedIds()[0] != 2) {
+      return Fail("hold->C=2 nao listou published nested");
     }
 
     auto again = p.emitFrame();

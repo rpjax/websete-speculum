@@ -61,6 +61,121 @@ function startsImageMime(m) {
     .startsWith('image/');
 }
 
+function classifyHex(hex) {
+  const x = String(hex || '').toLowerCase();
+  if (!x) return 'empty';
+  if (x.startsWith('1f8b')) return 'gzip';
+  if (x.startsWith('7801') || x.startsWith('789c') || x.startsWith('78da')) return 'zlib';
+  if (x.startsWith('3c7376') || x.startsWith('3c3f78') || x.startsWith('3c21')) return 'svg_or_xml';
+  if (x.startsWith('89504e47')) return 'png';
+  if (x.startsWith('ffd8ff')) return 'jpeg';
+  if (x.startsWith('474946')) return 'gif';
+  if (x.includes('66747970')) {
+    if (x.includes('61766966')) return 'avif';
+    if (x.includes('68656963') || x.includes('6d696631')) return 'heif';
+    return 'isobmff_ftyp';
+  }
+  if (x.startsWith('52494646') && x.includes('57454250')) return 'webp';
+  // brotli often starts with high-entropy bytes (seen: c19047…)
+  if (/^[89a-f]/.test(x) && !x.startsWith('89')) return 'likely_brotli_or_encrypted';
+  return 'unknown_binary';
+}
+
+function urlKey(u) {
+  return String(u || '').split('?')[0];
+}
+
+function classifyBroken(events, layoutProbe) {
+  const brokenStates = events.filter(
+    (e) =>
+      e.hop === 'img.state' &&
+      e.event === 'sameS' &&
+      e.complete === true &&
+      Number(e.naturalWidth) === 0,
+  );
+  const byUrl = new Map();
+  for (const s of brokenStates) {
+    const k = urlKey(s.url || s.currentSrc);
+    if (!k || byUrl.has(k)) continue;
+    byUrl.set(k, s);
+  }
+  // also from layout sample if present
+  for (const img of layoutProbe?.imgsSample || []) {
+    if (!(img.complete && Number(img.naturalWidth) === 0)) continue;
+    const k = urlKey(img.src || img.currentSrc);
+    if (k && !byUrl.has(k)) byUrl.set(k, { url: k, ...img, event: 'layoutSample' });
+  }
+
+  const rows = [];
+  const buckets = {};
+  for (const [url, state] of byUrl) {
+    const related = events.filter((e) => urlKey(e.url) === url);
+    const intercept = related.find((e) => e.hop === 'sw.intercept');
+    const emit = related.filter((e) => e.hop === 'gecko.emit' && e.phase === 'complete').at(-1);
+    const lab = related.filter((e) => e.hop === 'lab.response' && e.phase === 'complete').at(-1);
+    const sw = related.filter((e) => e.hop === 'sw.respond').at(-1);
+    const decodeFail = related.find((e) => e.hop === 'gecko.tee' && e.event === 'decode_fail');
+    const decodeOk = related.find((e) => e.hop === 'gecko.tee' && e.event === 'decode_ok');
+    const teeStart = related.find(
+      (e) => e.hop === 'gecko.tee' && (e.event === 'tap_start' || e.event === 'ensure'),
+    );
+    const hex = emit?.bodyHeadHex || '';
+    const magic = classifyHex(hex);
+    const enc = teeStart?.contentEncoding || '';
+    let reason = 'unknown';
+    if (!intercept && !emit && !lab) reason = 'no_asset_hops';
+    else if (!intercept) reason = 'no_sw_intercept';
+    else if (!emit) reason = 'no_gecko_emit';
+    else if (Number(emit.dataLen || 0) === 0) reason = 'emit_empty';
+    else if (decodeFail) reason = 'tee_decode_fail';
+    else if (magic === 'likely_brotli_or_encrypted' || magic === 'gzip' || magic === 'zlib')
+      reason = 'emit_still_compressed';
+    else if (magic === 'avif' || magic === 'heif' || magic === 'isobmff_ftyp')
+      reason = `container_${magic}`;
+    else if (sw && Number(sw.status) === 502) reason = 'sw_502_bad_image';
+    else if (
+      emit &&
+      lab &&
+      sw &&
+      emit.bodySha16 === lab.bodySha16 &&
+      lab.bodySha16 === sw.bodySha16 &&
+      Number(sw.status) === 200 &&
+      looksSvgOrImageHead(emit.bodyHead || '')
+    )
+      reason = 'sticky_or_browser_decode';
+    else if (startsImageMime(lab?.mimeOut || emit?.mimeOnComplete) && magic === 'unknown_binary')
+      reason = 'image_mime_unknown_body';
+    else if (!startsImageMime(lab?.mimeOut || emit?.mimeOnComplete)) reason = 'non_image_mime';
+    else reason = `magic_${magic}`;
+
+    buckets[reason] = (buckets[reason] || 0) + 1;
+    rows.push({
+      url: url.slice(0, 220),
+      reason,
+      contentEncoding: enc,
+      mime: lab?.mimeOut || emit?.mimeOnComplete || null,
+      dataLen: emit?.dataLen ?? lab?.chunkTotal ?? null,
+      bodyHeadHex: hex || null,
+      magic,
+      decodeOk: !!decodeOk,
+      decodeFail: !!decodeFail,
+      swStatus: sw?.status ?? null,
+      looksLikeImage: sw?.looksLikeImage ?? null,
+      sha: {
+        gecko: emit?.bodySha16 ?? null,
+        lab: lab?.bodySha16 ?? null,
+        sw: sw?.bodySha16 ?? null,
+      },
+    });
+  }
+  rows.sort((a, b) => a.reason.localeCompare(b.reason) || a.url.localeCompare(b.url));
+  return {
+    brokenCount: rows.length,
+    buckets,
+    rows,
+  };
+}
+
 function looksSvgOrImageHead(head) {
   const h = String(head || '');
   const low = h.toLowerCase();
@@ -284,12 +399,21 @@ await page.waitForFunction(() => !(document.getElementById('browseStart')?.disab
   timeout: 90000,
 });
 await page.waitForTimeout(400);
+await page.evaluate(() => {
+  globalThis.__SPECULUM_ASSET_TRACE = true;
+  globalThis.__speculumEnableAssetTraceAll?.();
+});
 await page.evaluate((url) => {
   const u = document.getElementById('url');
   u.value = url;
   u.dispatchEvent(new Event('input', { bubbles: true }));
 }, URL);
 await page.click('button:has-text("Start Virtual")');
+await page.waitForTimeout(1500);
+await page.evaluate(() => {
+  globalThis.__SPECULUM_ASSET_TRACE = true;
+  globalThis.__speculumEnableAssetTraceAll?.();
+});
 await page.waitForTimeout(WAIT_MS);
 await page.locator('#browseSnap').evaluate((el) => el.click());
 const deadline = Date.now() + 25000;
@@ -332,7 +456,7 @@ const sameSSlim = {
         brokenImgs: layoutProbe.brokenImgs ?? null,
         logo:
           layoutProbe.imgsSample?.find?.((i) => isLogo(i.src || i.currentSrc || '')) ?? null,
-        imgsSample: (layoutProbe.imgsSample || []).slice(0, 4),
+        imgsSample: (layoutProbe.imgsSample || []).slice(0, 80),
       }
     : null,
   assetTraceCount: clientEvents.length,
@@ -354,6 +478,9 @@ verdict.classification =
       : 'all_true_or_v9_interpret';
 
 fs.writeFileSync(path.join(OUT, 'verdict.json'), JSON.stringify(verdict, null, 2));
+
+const broken = classifyBroken(merged, layoutProbe);
+fs.writeFileSync(path.join(OUT, 'broken-classify.json'), JSON.stringify(broken, null, 2));
 
 let labBuildStamp = null;
 try {
@@ -404,6 +531,10 @@ const summary = {
   firstFalse: firstBad,
   classification: verdict.classification,
   outDir: OUT,
+  broken: {
+    count: broken.brokenCount,
+    buckets: broken.buckets,
+  },
   verdict: {
     V1: verdict.V1,
     V2: verdict.V2,

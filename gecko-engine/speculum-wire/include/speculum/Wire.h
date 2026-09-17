@@ -2,7 +2,10 @@
 // Port de virtual/frame/binaryWriter.ts e binaryFrameEncoder.ts. Layout tem que casar
 // byte a byte com core/decode.ts — é isso que o teste de round-trip prova.
 #pragma once
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <utility>
 #include "speculum/Fatal.h"
 
 #include <cstring>
@@ -54,6 +57,8 @@ inline constexpr uint8_t kCheckScopeTable = 0;
 inline constexpr uint8_t kCheckScopeRange = 1;
 inline constexpr uint8_t kElementNsNestedHostBit = 0x80;
 inline constexpr uint8_t kFrameFlagResync = 0b10;
+inline constexpr uint8_t kCssomScopeMain = 0;
+inline constexpr uint8_t kCssomScopePierceHost = 1;
 
 struct AttrPair {
   std::string name;
@@ -174,6 +179,7 @@ class FramePartBuilder {
   void begin() {
     w_.reset();
     opCount_ = 0;
+    opOffsets_.clear();
   }
 
   // ---- §4.1 CHECK: scope u8, lo u32, hi u32, hash u64 ----
@@ -330,18 +336,70 @@ class FramePartBuilder {
 
   uint32_t opCount() const { return opCount_; }
 
-  // Monta a parte. O corpo de ops é precedido por opCount (§2).
   std::vector<uint8_t> finish(const PartHeader& header) const {
-    std::vector<uint8_t> opsBody;
-    opsBody.reserve(4 + w_.bytes().size());
-    for (int i = 0; i < 4; ++i) opsBody.push_back(static_cast<uint8_t>((opCount_ >> (8 * i)) & 0xff));
-    const auto& b = w_.bytes();
-    opsBody.insert(opsBody.end(), b.begin(), b.end());
-    return assemblePart(header, w_.takeStringTableBytes(), opsBody);
+    auto parts = finishSplit(header, ~uint32_t{0});
+    return parts.empty() ? std::vector<uint8_t>{} : parts.front();
+  }
+
+  // Partes com o mesmo generation/sequence; string table copiada em cada uma
+  // (StrRef continua válido). CHECK fica na última.
+  std::vector<std::vector<uint8_t>> finishSplit(PartHeader header, uint32_t maxOps,
+                                                uint32_t maxBytes = ~uint32_t{0}) const {
+    if (opCount_ == 0) return {};
+    if (maxOps == 0) maxOps = 1;
+    const auto& raw = w_.bytes();
+    const auto strTab = w_.takeStringTableBytes();
+    const size_t overhead = kFramePrefixBytes + strTab.size() + 4;
+    const size_t byteBudget =
+        (maxBytes > overhead + 1) ? static_cast<size_t>(maxBytes) - overhead : 1;
+
+    auto opEnd = [&](uint32_t index) -> size_t {
+      if (index < opOffsets_.size()) return opOffsets_[index];
+      return raw.size();
+    };
+
+    std::vector<std::pair<uint32_t, uint32_t>> spans;
+    uint32_t from = 0;
+    for (uint32_t i = 1; i <= opCount_; ++i) {
+      const uint32_t ops = i - from;
+      const size_t bytes = opEnd(i) - opEnd(from);
+      const bool overOps = ops > maxOps;
+      const bool overBytes = bytes > byteBudget;
+      if ((overOps || overBytes) && from < i - 1) {
+        spans.emplace_back(from, i - 1);
+        from = i - 1;
+        --i;
+        continue;
+      }
+      if (i == opCount_) spans.emplace_back(from, i);
+    }
+
+    std::vector<std::vector<uint8_t>> out;
+    out.reserve(spans.size());
+    const uint16_t partCount = static_cast<uint16_t>(spans.size() ? spans.size() : 1);
+    for (size_t p = 0; p < spans.size(); ++p) {
+      const uint32_t a = spans[p].first;
+      const uint32_t b = spans[p].second;
+      const uint32_t n = b - a;
+      const size_t start = opEnd(a);
+      const size_t end = opEnd(b);
+      std::vector<uint8_t> opsBody;
+      opsBody.reserve(4 + (end - start));
+      for (int i = 0; i < 4; ++i) {
+        opsBody.push_back(static_cast<uint8_t>((n >> (8 * i)) & 0xff));
+      }
+      opsBody.insert(opsBody.end(), raw.begin() + static_cast<std::ptrdiff_t>(start),
+                     raw.begin() + static_cast<std::ptrdiff_t>(end));
+      header.partIndex = static_cast<uint16_t>(p);
+      header.partCount = partCount;
+      out.push_back(assemblePart(header, strTab, opsBody));
+    }
+    return out;
   }
 
  private:
   void op(Op code) {
+    opOffsets_.push_back(w_.length());
     w_.u8(static_cast<uint8_t>(code));
     ++opCount_;
   }
@@ -363,6 +421,7 @@ class FramePartBuilder {
 
   BinaryWriter w_;
   uint32_t opCount_ = 0;
+  std::vector<size_t> opOffsets_;
 };
 
 }  // namespace speculum

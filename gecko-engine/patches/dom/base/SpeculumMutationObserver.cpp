@@ -15,6 +15,7 @@
 #include "mozilla/dom/ShadowRoot.h"
 #include "nsComponentManagerUtils.h"
 #include "nsDebug.h"
+#include "nsGkAtoms.h"
 #include "nsReadableUtils.h"
 #include "nsTArray.h"
 #include "nsThreadUtils.h"
@@ -61,26 +62,48 @@ void SendFrameBytes(mozilla::dom::Document* aDocument,
     return;
   }
   const uint32_t seq = aState.producer.sequence();
-  if (ContentChild* cc = ContentChild::GetSingleton()) {
-    nsTArray<uint8_t> bytes;
-    bytes.AppendElements(aFrame.data(), aFrame.size());
-    cc->SendSpeculumFrame(aState.source.docToken(), aState.contextId, seq, bytes);
+  ContentChild* cc = ContentChild::GetSingleton();
+  uint32_t totalBytes = 0;
+  const auto& parts = aState.producer.lastFrameParts();
+  const std::vector<std::vector<uint8_t>>* send = &parts;
+  std::vector<std::vector<uint8_t>> fallback;
+  if (parts.empty()) {
+    fallback.push_back(aFrame);
+    send = &fallback;
   }
+  if (cc) {
+    const auto& nestedIds = aState.producer.lastPublishedNestedIds();
+    const size_t n = send->size();
+    for (size_t i = 0; i < n; ++i) {
+      const auto& part = (*send)[i];
+      nsTArray<uint8_t> bytes;
+      bytes.AppendElements(part.data(), part.size());
+      nsTArray<uint32_t> published;
+      if (i + 1 == n) {
+        for (uint32_t c : nestedIds) {
+          published.AppendElement(c);
+        }
+      }
+      cc->SendSpeculumFrame(aState.contextId, seq, bytes, published);
+      totalBytes += static_cast<uint32_t>(part.size());
+    }
+  }
+  aState.producer.consumeFrameCredit(totalBytes ? totalBytes
+                                                : static_cast<uint32_t>(aFrame.size()));
   nsAutoCString uri("(null)");
   if (nsIURI* docUri = aDocument->GetDocumentURI()) {
     uri = docUri->GetSpecOrDefault();
   }
   if (aBootstrap) {
-    SPECULUM_LOG("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%zu",
+    SPECULUM_LOG("[SPECULUM-BOOT] pid=%d ctx=%u uri=%s ops=%u bytes=%u",
                  static_cast<int>(getpid()), aState.contextId, uri.get(), aOps,
-                 aFrame.size());
+                 totalBytes);
   } else {
-    SPECULUM_LOG("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%zu",
-                 aState.contextId, seq, aOps, aFrame.size());
+    SPECULUM_LOG("[SPECULUM-TICK] ctx=%u seq=%u ops=%u bytes=%u",
+                 aState.contextId, seq, aOps, totalBytes);
   }
   SpeculumEmitFrameEmitted(
-      aState.contextId, seq, aState.producer.generation(),
-      static_cast<uint32_t>(aFrame.size()), aOps,
+      aState.contextId, seq, aState.producer.generation(), totalBytes, aOps,
       static_cast<uint32_t>(aState.producer.table().size()),
       static_cast<uint32_t>(aState.producer.identity().size()), aBuildMs, 0, 0,
       aBootstrap);
@@ -106,6 +129,7 @@ mozilla::TimeStamp StampIfOn() {
 namespace {
 
 std::map<uint32_t, SpeculumMutationObserver*> gObserversByContext;
+std::map<uint32_t, bool> gEmitAllowed;
 
 void RegisterObserver(uint32_t aContextId, SpeculumMutationObserver* aObserver) {
   gObserversByContext[aContextId] = aObserver;
@@ -118,7 +142,43 @@ void UnregisterObserver(uint32_t aContextId, SpeculumMutationObserver* aObserver
   }
 }
 
+struct FatalContextGuard {
+  explicit FatalContextGuard(uint32_t aContextId) {
+    SpeculumSetFatalContext(aContextId);
+  }
+  ~FatalContextGuard() { SpeculumSetFatalContext(0); }
+};
+
+bool NestedAwaitingAllow(uint32_t aContextId) {
+  if (aContextId < 2) {
+    return false;
+  }
+  auto it = gEmitAllowed.find(aContextId);
+  return it == gEmitAllowed.end() || !it->second;
+}
+
 }  // namespace
+
+bool SpeculumIsEmitAllowed(uint32_t aContextId) {
+  return !NestedAwaitingAllow(aContextId);
+}
+
+void SpeculumOnNestedEmitAllow(uint32_t aContextId) {
+  if (aContextId < 2) {
+    return;
+  }
+  gEmitAllowed[aContextId] = true;
+  SPECULUM_LOG("[SPECULUM-NESTED] emit allowed ctx=%u", aContextId);
+  auto it = gObserversByContext.find(aContextId);
+  if (it == gObserversByContext.end() || !it->second) {
+    return;
+  }
+  mozilla::dom::Document* doc = it->second->GetDocument();
+  if (!doc || doc->GetReadyStateEnum() != Document::READYSTATE_COMPLETE) {
+    return;
+  }
+  SpeculumTryWriteBootstrapFrame(doc);
+}
 
 SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
                                                    uint32_t aContextId)
@@ -127,6 +187,15 @@ SpeculumMutationObserver::SpeculumMutationObserver(Document* aDocument,
   RegisterObserver(aContextId, this);
   if (mState) {
     mState->source.BindDocument(aDocument);
+    uint32_t generation = 0;
+    if (ContentChild* cc = ContentChild::GetSingleton()) {
+      if (!cc->SendSpeculumClaimGeneration(aContextId, &generation) ||
+          generation == 0) {
+        SpeculumEmitProducerFault(aContextId, "epoch_claim_failed", "attach");
+        MOZ_CRASH("SpeculumClaimGeneration failed");
+      }
+      mState->producer.setGeneration(generation);
+    }
   }
 }
 
@@ -166,7 +235,17 @@ void SpeculumMutationObserver::SetHalted(bool aHalted) {
 }
 
 void SpeculumMutationObserver::FlushNow() {
-  EmitPendingFrame();
+  if (mState && NestedAwaitingAllow(mState->contextId)) {
+    return;
+  }
+  EmitPendingFrame(true);
+}
+
+void SpeculumMutationObserver::AddFrameCredit(uint32_t aFrames, uint32_t aBytes) {
+  if (mState) {
+    mState->producer.addFrameCredit(aFrames, aBytes);
+    ArmFrameTimerIfNeeded();
+  }
 }
 
 bool SpeculumMutationObserver::SnapshotDump(std::vector<uint8_t>& aOut) const {
@@ -200,7 +279,9 @@ void SpeculumMutationObserver::OnRuleAdded(void* aSheet, void* aRule,
   if (!mState || !aRule) {
     return;
   }
-  mState->source.NoteRule(aSheet, aRule, aText);
+  if (!mState->source.NoteRule(aSheet, aRule, aText)) {
+    return;
+  }
   mState->producer.onRuleAdded(aSheet, aRule);
   ArmFrameTimerIfNeeded();
 }
@@ -242,8 +323,24 @@ void SpeculumMutationObserver::MaybeObserveShadow(nsIContent* aChild) {
   sr->AddMutationObserver(this);
 }
 
+void SpeculumMutationObserver::OnShadowAttached(mozilla::dom::Element* aHost,
+                                                mozilla::dom::ShadowRoot* aShadow) {
+  if (!mState || !aHost || !aShadow) {
+    return;
+  }
+  if (mState->source.isUaOwned(aShadow)) {
+    return;
+  }
+  aShadow->AddMutationObserver(this);
+  mState->producer.onShadowAttached(aHost);
+  ArmFrameTimerIfNeeded();
+}
+
 void SpeculumMutationObserver::ArmFrameTimerIfNeeded() {
   if (!mState || mState->frameTimer) {
+    return;
+  }
+  if (!mDocument || !mDocument->SpeculumBootstrapped()) {
     return;
   }
   if (mState->producer.halted()) {
@@ -279,10 +376,18 @@ SpeculumMutationObserver::Notify(nsITimer* aTimer) {
   return NS_OK;
 }
 
-void SpeculumMutationObserver::EmitPendingFrame() {
+void SpeculumMutationObserver::EmitPendingFrame(bool aForce) {
   if (!mState) {
     return;
   }
+  if (!mDocument || !mDocument->SpeculumBootstrapped()) {
+    return;
+  }
+  if (!aForce && !mState->producer.hasFrameCredit(1)) {
+    ArmFrameTimerIfNeeded();
+    return;
+  }
+  const FatalContextGuard fatal(mState->contextId);
   const mozilla::TimeStamp t0 = StampIfOn();
   std::vector<uint8_t> frame = mState->producer.emitFrame();
   if (frame.empty()) {
@@ -298,7 +403,12 @@ bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
   if (!mDocument || !mDocument->IsContentDocument() || !mState) {
     return false;
   }
+  if (NestedAwaitingAllow(mState->contextId)) {
+    SPECULUM_LOG("[SPECULUM-NESTED] bootstrap held ctx=%u", mState->contextId);
+    return false;
+  }
   mState->source.CaptureLiveCssom();
+  const FatalContextGuard fatal(mState->contextId);
   const mozilla::TimeStamp t0 = StampIfOn();
   std::vector<uint8_t> frame = mState->producer.resyncVirtual(mDocument);
   if (frame.empty()) {
@@ -306,6 +416,8 @@ bool SpeculumMutationObserver::TryWriteBootstrapFrame() {
   }
   SendFrameBytes(mDocument, *mState, frame, mState->producer.lastEmittedOps(), true,
                  BuildMsIfOn(t0));
+  mDocument->SetSpeculumBootstrapped(true);
+  ArmFrameTimerIfNeeded();
   return true;
 }
 
@@ -313,11 +425,16 @@ void SpeculumMutationObserver::RequestResync(uint8_t aForce) {
   if (!mDocument || !mState) {
     return;
   }
+  if (NestedAwaitingAllow(mState->contextId)) {
+    SPECULUM_LOG("[SPECULUM-NESTED] resync held ctx=%u", mState->contextId);
+    return;
+  }
   SpeculumEmitBytes(mState->contextId, SpeculumCatalog::ResyncRequested, &aForce,
                     1);
   CancelFrameTimer();
   mState->producer.discardPending();
   mState->source.CaptureLiveCssom();
+  const FatalContextGuard fatal(mState->contextId);
   std::vector<uint8_t> frame;
   const mozilla::TimeStamp t0 = StampIfOn();
   if (aForce == 1) {
@@ -370,6 +487,15 @@ void SpeculumFlushFrame(uint32_t aContextId) {
     return;
   }
   it->second->FlushNow();
+}
+
+void SpeculumAddFrameCredit(uint32_t aContextId, uint32_t aFrames,
+                            uint32_t aBytes) {
+  auto it = gObserversByContext.find(aContextId);
+  if (it == gObserversByContext.end() || !it->second) {
+    return;
+  }
+  it->second->AddFrameCredit(aFrames, aBytes);
 }
 
 bool SpeculumSnapshotDump(uint32_t aContextId, std::vector<uint8_t>& aOut,
@@ -490,11 +616,17 @@ void SpeculumMutationObserver::ContentWillBeRemoved(
 }
 
 void SpeculumMutationObserver::NodeWillBeDestroyed(nsINode* aNode) {
-  if (!mState) {
+  if (aNode == mDocument) {
+    CancelFrameTimer();
+    mDocument = nullptr;
+    if (mState) {
+      mState->source.BindDocument(nullptr);
+    }
+  }
+  if (!mState || !aNode) {
     return;
   }
   mState->producer.onDestroyed(aNode);
-  ArmFrameTimerIfNeeded();
 }
 
 void SpeculumMutationObserver::ParentChainChanged(nsIContent*) {}
@@ -554,4 +686,39 @@ void SpeculumBindLiveDocument(Document* aDocument) {
     return;
   }
   RegisterObserver(obs->ContextId(), obs);
+  const uint32_t ctx = obs->ContextId();
+  if (ctx < 2) {
+    return;
+  }
+  if (SpeculumIsEmitAllowed(ctx)) {
+    SpeculumTryWriteBootstrapFrame(aDocument);
+    return;
+  }
+  if (ContentChild* cc = ContentChild::GetSingleton()) {
+    (void)cc->SendSpeculumContextStandby(ctx);
+    SPECULUM_LOG("[SPECULUM-NESTED] standby ctx=%u", ctx);
+  }
+}
+
+void SpeculumNotifyShadowAttached(mozilla::dom::Element* aHost,
+                                  mozilla::dom::ShadowRoot* aShadow) {
+  if (!aHost || !aShadow) {
+    return;
+  }
+  if (!aHost->CanAttachShadowDOM()) {
+    return;
+  }
+  if (aHost->IsSVGElement(nsGkAtoms::use)) {
+    return;
+  }
+  if (aShadow->SlotAssignment() == mozilla::dom::SlotAssignmentMode::Manual) {
+    return;
+  }
+  mozilla::dom::Document* doc = aHost->OwnerDoc();
+  SpeculumMutationObserver* obs =
+      doc ? doc->GetSpeculumMutationObserver() : nullptr;
+  if (!obs) {
+    return;
+  }
+  obs->OnShadowAttached(aHost, aShadow);
 }

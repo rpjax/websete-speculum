@@ -1276,17 +1276,42 @@ IPCResult ContentParent::RecvSpeculumMintContextId(uint32_t* aContextId) {
   return IPC_OK();
 }
 
-IPCResult ContentParent::RecvSpeculumFrame(const uint64_t& aDocToken,
-                                           const uint32_t& aContextId,
-                                           const uint32_t& aSequence,
-                                           nsTArray<uint8_t>&& aFrame) {
+IPCResult ContentParent::RecvSpeculumClaimGeneration(const uint32_t& aContextId,
+                                                     uint32_t* aGeneration) {
+  *aGeneration = SpeculumProjectionRuntime::Get().ClaimGeneration(aContextId);
+  return IPC_OK();
+}
+
+IPCResult ContentParent::RecvSpeculumFrame(
+    const uint32_t& aContextId, const uint32_t& aSequence,
+    nsTArray<uint8_t>&& aFrame, nsTArray<uint32_t>&& aPublishedNestedIds) {
   if (aFrame.Length() < 28) {
-    fprintf(stderr, "[SPECULUM-FRAME-ERR] curto=1\n");
-    return IPC_OK();
+    SpeculumProjectionRuntime::FailCatalogued(
+        aContextId, "malformed", "deliver", "frame curto");
   }
 
-  SpeculumProjectionRuntime::Get().DeliverFrame(aContextId, aDocToken, aSequence,
+  SpeculumProjectionRuntime::Get().DeliverFrame(aContextId, aSequence,
                                                 OtherPid(), aFrame);
+  if (!aPublishedNestedIds.IsEmpty()) {
+    SpeculumProjectionRuntime::Get().NotePublishedNested(aPublishedNestedIds);
+  }
+  const uint32_t len = static_cast<uint32_t>(aFrame.Length());
+  uint32_t frameCredit = 1;
+  if (aFrame.Length() >= 20) {
+    const uint16_t partIndex = static_cast<uint16_t>(aFrame[16]) |
+                               (static_cast<uint16_t>(aFrame[17]) << 8);
+    const uint16_t partCount = static_cast<uint16_t>(aFrame[18]) |
+                               (static_cast<uint16_t>(aFrame[19]) << 8);
+    if (partCount > 1 && partIndex + 1u != partCount) {
+      frameCredit = 0;
+    }
+  }
+  (void)SendSpeculumFrameCredit(aContextId, frameCredit, len);
+  return IPC_OK();
+}
+
+IPCResult ContentParent::RecvSpeculumContextStandby(const uint32_t& aContextId) {
+  SpeculumProjectionRuntime::Get().NoteNestedStandby(aContextId);
   return IPC_OK();
 }
 

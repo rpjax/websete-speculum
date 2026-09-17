@@ -20,25 +20,11 @@ command -v sccache >/dev/null || { echo "ABORT: sccache ausente. Instalar antes 
 
 cd "$CHECKOUT"
 
-HUNK="$HERE/patches/dom/base/nsGlobalWindowInner.cpp.patch"
-TARGET="$CHECKOUT/dom/base/nsGlobalWindowInner.cpp"
-[ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
-[ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
-if grep -q 'SpeculumAskAndWait' "$TARGET"; then
-  echo "window dialog hunk already applied"
-else
-  patch -d "$CHECKOUT" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
-fi
-
-HUNK="$HERE/patches/dom/base/ShadowRoot.cpp.patch"
-TARGET="$CHECKOUT/dom/base/ShadowRoot.cpp"
-[ -f "$HUNK" ] || { echo "FALHOU: hunk ausente $HUNK" >&2; exit 1; }
-[ -f "$TARGET" ] || { echo "FALHOU: $TARGET ausente" >&2; exit 1; }
-if grep -q 'SpeculumNotifyRuleAdded' "$TARGET"; then
-  echo "shadow css hunk already applied"
-else
-  patch -d "$CHECKOUT" -p1 --fuzz=0 < <(sed 's/\r$//' "$HUNK")
-fi
+REPO="$(cd "$HERE/.." && pwd)"
+COPY_HASH="$HERE/devpath/copy-hash-resync-into-checkout.sh"
+[ -f "$COPY_HASH" ] || { echo "FALHOU: copy-hash ausente $COPY_HASH" >&2; exit 1; }
+sed 's/\r$//' "$COPY_HASH" > /tmp/speculum-copy-hash.sh
+GECKO="$CHECKOUT" REPO="$REPO" bash /tmp/speculum-copy-hash.sh
 
 MODE="${1:-build}"
 case "$MODE" in

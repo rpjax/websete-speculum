@@ -7929,6 +7929,7 @@ void Document::StyleSheetApplicableStateChanged(StyleSheet& aSheet) {
   if (!aSheet.IsDirectlyAssociatedTo(*this)) {
     return;
   }
+  SpeculumNotifySheetApplicable(this, &aSheet);
   if (aSheet.IsApplicable()) {
     AddStyleSheetToStyleSets(aSheet);
   } else {

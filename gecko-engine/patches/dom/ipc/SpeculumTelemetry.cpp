@@ -3,11 +3,13 @@
 
 #include "SpeculumCaps.h"
 #include "SpeculumProjectionRuntime.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/EndianUtils.h"
 #include "mozilla/dom/ContentChild.h"
 #include "nsTArray.h"
 #include "nsXULAppAPI.h"
 
+#include <cstdio>
 #include <cstring>
 
 using mozilla::LittleEndian;
@@ -99,4 +101,24 @@ void SpeculumEmitProducerFault(uint32_t aContextId, const char* aCode,
   memcpy(buf.Elements() + 8 + codeLen, aPhase, phaseLen);
   SpeculumEmitBytes(aContextId, SpeculumCatalog::ProducerFault, buf.Elements(),
                     buf.Length());
+}
+
+namespace {
+thread_local uint32_t gFatalContextId = 0;
+}
+
+void SpeculumSetFatalContext(uint32_t aContextId) {
+  gFatalContextId = aContextId;
+}
+
+[[noreturn]] void SpeculumProducerAbort(const char* aMsg) {
+  const char* code = "producer_invariant";
+  const char* phase = "emit";
+  if (aMsg && strstr(aMsg, "MAX_ROWS")) {
+    code = "max_rows";
+    phase = "allocate";
+  }
+  SpeculumEmitProducerFault(gFatalContextId, code, phase);
+  fprintf(stderr, "[SPECULUM-PRODUCER-FATAL] %s\n", aMsg ? aMsg : "");
+  MOZ_CRASH("SpeculumProducerAbort");
 }

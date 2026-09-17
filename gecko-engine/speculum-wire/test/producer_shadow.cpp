@@ -20,6 +20,7 @@ struct FakeNode {
   FakeNode* shadowRoot = nullptr;
   FakeNode* shadowHost = nullptr;
   uint8_t shadowMode = 0;
+  uint8_t shadowInitFlags = 0;
 };
 
 class FakeDom : public NodeSource {
@@ -32,11 +33,12 @@ class FakeDom : public NodeSource {
     owned_.push_back(std::move(n));
     return raw;
   }
-  FakeNode* makeShadow(FakeNode* host, uint8_t mode) {
+  FakeNode* makeShadow(FakeNode* host, uint8_t mode, uint8_t flags = 0) {
     auto n = std::make_unique<FakeNode>();
     n->kind = NodeKind::ShadowRoot;
     n->shadowHost = host;
     n->shadowMode = mode;
+    n->shadowInitFlags = flags;
     FakeNode* raw = n.get();
     host->shadowRoot = raw;
     owned_.push_back(std::move(n));
@@ -70,6 +72,7 @@ class FakeDom : public NodeSource {
   const void* shadowRootOf(const void* n) const override { return at(n)->shadowRoot; }
   const void* shadowHostOf(const void* n) const override { return at(n)->shadowHost; }
   uint8_t shadowModeOf(const void* n) const override { return at(n)->shadowMode; }
+  uint8_t shadowInitFlagsOf(const void* n) const override { return at(n)->shadowInitFlags; }
   bool isConnected(const void* n) const override {
     return at(n)->parent != nullptr || n == document_ || at(n)->shadowHost != nullptr;
   }
@@ -141,5 +144,24 @@ int main() {
   }
 
   std::cout << "ok: shadow mode 0/1 fora da cadeia de luz\n";
+
+  FakeNode* lateHost = dom.makeElement("late-host");
+  dom.append(document, lateHost);
+  p.onInserted(document, lateHost);
+  if (p.emitFrame().empty()) return Fail("late host nao emitiu");
+  FakeNode* lateSr = dom.makeShadow(lateHost, 0, 0x01);
+  FakeNode* lateKid = dom.makeText("late-kid");
+  dom.append(lateSr, lateKid);
+  p.onShadowAttached(lateHost);
+  if (p.emitFrame().empty()) return Fail("attachShadow tardio nao emitiu");
+  const uint32_t lateSrId = p.identity().idOf(lateSr);
+  const Row* lateRow = p.table().getRow(lateSrId);
+  if (!lateRow || lateRow->kind != static_cast<uint32_t>(NodeKind::ShadowRoot)) {
+    return Fail("attachShadow tardio sem SHADOW_ROOT");
+  }
+  if (lateRow->contentHash != hashShadowInit(0, 0x01)) {
+    return Fail("initFlags delegatesFocus nao entrou no hash");
+  }
+  std::cout << "ok: attachShadow tardio + initFlags\n";
   return 0;
 }

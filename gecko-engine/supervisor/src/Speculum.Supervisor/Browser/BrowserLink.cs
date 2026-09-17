@@ -24,16 +24,10 @@ public sealed class BrowserLink(
     private ControlChannel? _control;
     private CancellationToken _sessionToken;
     /// <summary>
-    /// Root document commit (Navigated) completed. Resync before this dumps about:blank;
-    /// resync on every consumer attach + every Navigated duplicates wholesale rebuilds
-    /// and collides with the live tick stream (Eneba/Beleza-class desync storms).
+    /// Root document commit (Navigated). Cold seed is Gecko COMPLETE, not this
+    /// event. Late consumer after commit gets map Resync in OnConsumerAttached.
     /// </summary>
     private bool _rootNavigationCommitted;
-    /// <summary>One wholesale resync per navigation intent — not every redirect Navigated.</summary>
-    private bool _awaitingRootNavigatedResync;
-
-    /// <summary>Última URL de Navigated na raiz — follow-on (challenge→loja) também resynca.</summary>
-    private string _lastRootNavigatedUrl = "";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -208,24 +202,9 @@ public sealed class BrowserLink(
                 logger.LogInformation("contexto {ContextId} navegou para {Url}", message.ContextId, message.Text);
                 // Consumidor precisa ver a URL commitada (oráculo de estado / lab).
                 consumers.BroadcastEnvelope(EnvelopeKind.BrowserEvent, message.ContextId, payload);
-                // O resync no ContextCreated dumpava about:blank. A tabela viva
-                // só existe depois do Navigate ter commitado.
                 if (_contexts.TryGetRoot(out var rootNav) && rootNav.ContextId == message.ContextId)
                 {
                     _rootNavigationCommitted = true;
-                    var url = message.Text ?? "";
-                    var urlChanged = !string.Equals(url, _lastRootNavigatedUrl, StringComparison.Ordinal);
-                    _lastRootNavigatedUrl = url;
-                    if (consumers.Count > 0 &&
-                        (_awaitingRootNavigatedResync || urlChanged))
-                    {
-                        _awaitingRootNavigatedResync = false;
-                        _ = ResyncAsync(message.ContextId);
-                    }
-                }
-                else if (consumers.Count > 0)
-                {
-                    _ = ResyncAsync(message.ContextId);
                 }
                 break;
 
@@ -446,8 +425,8 @@ public sealed class BrowserLink(
 
     private void OnConsumerAttached()
     {
-        // Late attach: consumer missed the Navigated resync — one wholesale map now.
-        // Before root commit, Navigated will resync; skip about:blank dump here.
+        // Late attach: missed the COMPLETE bootstrap — one map snapshot now.
+        // Before root commit the load seed has not run; skip about:blank dump.
         if (!_rootNavigationCommitted)
         {
             return;
@@ -464,8 +443,6 @@ public sealed class BrowserLink(
         if (_contexts.TryGetRoot(out var root) && root.ContextId == contextId)
         {
             _rootNavigationCommitted = false;
-            _awaitingRootNavigatedResync = true;
-            _lastRootNavigatedUrl = "";
         }
     }
 

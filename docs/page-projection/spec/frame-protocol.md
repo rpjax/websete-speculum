@@ -253,6 +253,12 @@ buffers parts and applies the assembled frame as **one** transaction when `partI
 arrives. A missing part ⇒ desync. Atomicity is never split. Frame-local strings are per part;
 `StrRef` frame-local indices are resolved against the part that carries the instruction.
 
+**Gecko fork violates both today** (2026-09-16): the producer writes `generation = 0` and the parent
+process rewrites that header field from a per-content-process token, and it never splits (`partCount`
+is always 1). "The producing context writes it" and part splitting are **not optional**. Named:
+[open.md](open.md) `GECKO-EPOCH-PARENT-STAMP`, `GECKO-PRODUCER-LIMITS-ABSENT`. Redesign proposal:
+[`21-fluxo-de-entrega-e-epoca.md`](../../gecko-engine/21-fluxo-de-entrega-e-epoca.md).
+
 ---
 
 ## 3. Opcode space — DECIDED
@@ -883,8 +889,14 @@ precondition is state divergence; version skew is a stale peer.
 | `MAX_ROWS` | bounds table growth per session |
 | `MAX_DIRTY_NODES` | bounds the producer's per-tick visited/dirty set (§5.3) — forces a flush rather than unbounded growth under degradation |
 
+These limits bind the **producer** as much as the client. A producer that emits past them turns a
+bounded failure into permanent rejection: the Gecko fork has none of them today and the client
+recuses every frame once `MAX_ROWS` is crossed — [open.md](open.md)
+`GECKO-PRODUCER-LIMITS-ABSENT`.
+
 Every catalogued failure carries `errorCode` + `phase` + `sequence`
-(`docs/engineering-standards.md`).
+(`docs/engineering-standards.md`). A frame that is built and then dropped without a catalogued
+failure is a defect, not backpressure — `GECKO-FRAME-SILENT-DROP`.
 
 ---
 

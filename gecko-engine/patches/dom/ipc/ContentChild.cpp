@@ -2202,6 +2202,19 @@ mozilla::ipc::IPCResult ContentChild::RecvSpeculumDialogRespond(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumFrameCredit(
+    const uint32_t& aContextId, const uint32_t& aFrames,
+    const uint32_t& aBytes) {
+  SpeculumAddFrameCredit(aContextId, aFrames, aBytes);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSpeculumNestedEmitAllow(
+    const uint32_t& aContextId) {
+  SpeculumOnNestedEmitAllow(aContextId);
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult ContentChild::RecvSetConnectivity(
     const bool& connectivity) {
   nsCOMPtr<nsIIOService> io(do_GetIOService());

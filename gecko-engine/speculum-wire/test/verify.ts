@@ -41,7 +41,7 @@ writeFileSync(process.env.SPECULUM_OUT + '/decoded.json', JSON.stringify({
   header: {
     contextId: part.contextId, generation: part.generation, sequence: part.sequence,
     partIndex: part.partIndex, partCount: part.partCount,
-    preTableHash: part.preTableHash.toString(), resync: part.flags?.resync ?? null,
+    preTableHash: part.preTableHash.toString(), resync: part.resync,
   },
   opCount: part.ops.length,
   ops: part.ops,

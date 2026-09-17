@@ -17,8 +17,10 @@ class SpeculumProjectionRuntime {
 
   already_AddRefed<nsIPrincipal> DocumentPrincipalOf(uint32_t aContextId);
 
-  void DeliverFrame(uint32_t aContextId, uint64_t aDocToken, uint32_t aSequence,
+  void DeliverFrame(uint32_t aContextId, uint32_t aSequence,
                     base::ProcessId aChildPid, nsTArray<uint8_t>& aFrame);
+  void NotePublishedNested(const nsTArray<uint32_t>& aChildContextIds);
+  void NoteNestedStandby(uint32_t aContextId);
   void DeliverSnapshot(uint32_t aContextId, uint32_t aCorrelationId,
                        uint32_t aSequence, uint32_t aGeneration,
                        uint64_t aTableHash, nsTArray<uint8_t>& aDump);
@@ -29,6 +31,11 @@ class SpeculumProjectionRuntime {
   void DeliverDownloadRequested(uint32_t aContextId, uint32_t aRequestId,
                                 const nsACString& aDescription);
   void DeliverTelemetry(uint32_t aContextId, nsTArray<uint8_t>& aPayload);
+
+  uint32_t ClaimGeneration(uint32_t aContextId);
+
+  [[noreturn]] static void FailCatalogued(uint32_t aContextId, const char* aCode,
+                                          const char* aPhase, const char* aMsg);
 
   // Próximo contextId aninhado (≥ 2). Sessão-global, nunca reusa. 0 se o
   // runtime ainda não subiu. Só o processo pai.

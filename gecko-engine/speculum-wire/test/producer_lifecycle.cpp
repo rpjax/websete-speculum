@@ -1,4 +1,5 @@
 // Ciclo de vida: DROP no tick do remove, ponteiro reusado não herda id, move no mesmo tick.
+#include "speculum/Limits.h"
 #include "speculum/Producer.h"
 
 #include <cstdint>
@@ -47,6 +48,22 @@ class FakeDom : public NodeSource {
   void append(FakeNode* parent, FakeNode* child) {
     if (child->parent) detach(child);
     parent->children.push_back(child);
+    child->parent = parent;
+  }
+  void insertBefore(FakeNode* parent, FakeNode* child, FakeNode* before) {
+    if (child->parent) detach(child);
+    std::vector<FakeNode*> next;
+    next.reserve(parent->children.size() + 1);
+    bool placed = false;
+    for (FakeNode* k : parent->children) {
+      if (k == before && !placed) {
+        next.push_back(child);
+        placed = true;
+      }
+      next.push_back(k);
+    }
+    if (!placed) next.push_back(child);
+    parent->children.swap(next);
     child->parent = parent;
   }
   void detach(FakeNode* child) {
@@ -112,7 +129,6 @@ int main() {
   Producer p(dom, kContextIdRoot, /*generation=*/1);
   if (p.resyncVirtual(document).empty()) return Fail("boot vazio");
   const size_t baseline = p.table().size();
-  const size_t idBase = p.identity().size();
 
   // --- churn: insert/remove sem destroy dos filhos. Tabela não cresce. ---
   for (int i = 0; i < 400; ++i) {
@@ -127,10 +143,17 @@ int main() {
     p.onRemoved(body, n);
     auto dropped = p.emitFrame();
     if (dropped.empty()) return Fail("churn remove nao emitiu");
-    if (p.table().size() != baseline) return Fail("churn: tabela cresceu");
-    if (p.identity().size() != idBase) return Fail("churn: identidade cresceu");
+    if (p.table().size() > baseline + kNodeDropAgeSequences * 3 + 8) {
+      return Fail("churn: tabela cresceu sem teto de idade");
+    }
   }
-  std::cout << "ok: churn 400 ciclos, tabela=" << baseline << " identidade=" << idBase << "\n";
+  for (uint32_t i = 0; i < kNodeDropAgeSequences + 4; ++i) {
+    p.onAttrChanged(body, "data-gc");
+    p.emitFrame();
+  }
+  if (p.table().size() > baseline + 4) return Fail("churn: GC por idade nao limpou");
+  std::cout << "ok: churn 400 ciclos, tabela=" << p.table().size() << " identidade=" << p.identity().size()
+            << "\n";
 
   // --- move no mesmo tick: onRemoved + onInserted, id permanece. ---
   FakeNode* mv = dom.makeElement("span");
@@ -150,6 +173,11 @@ int main() {
   if (p.emitFrame().empty()) return Fail("move nao emitiu");
   if (p.identity().idOf(mv) != mvId) return Fail("move remintou o id");
   if (p.table().size() != afterSpan + 1) return Fail("move mudou o tamanho da tabela");
+  // §5.6: um INSERT, zero REMOVE. CHECK fecha o frame (2 ops).
+  if (p.lastEmittedOps() != 2) return Fail("move nao foi um INSERT (REMOVE no mesmo tick)");
+  if (p.table().getRow(mvId) == nullptr || p.table().getRow(mvId)->parent == kNone) {
+    return Fail("move deixou o no destacado");
+  }
   std::cout << "ok: move no mesmo tick preserva id " << mvId << "\n";
 
   // --- ponteiro reusado: texto sai, elemento nasce no mesmo endereço. ---
@@ -242,6 +270,42 @@ int main() {
   }
   std::cout << "ok: dois inserts no mesmo tick na ordem do DOM\n";
 
+  // --- P7+P16: dois irmãos no meio da lista, uma âncora, um INSERT. ---
+  {
+    FakeNode* first = dom.makeElement("first-mid");
+    FakeNode* last = dom.makeElement("last-mid");
+    dom.append(body, first);
+    p.onInserted(body, first);
+    if (p.emitFrame().empty()) return Fail("first-mid nao emitiu");
+    dom.append(body, last);
+    p.onInserted(body, last);
+    if (p.emitFrame().empty()) return Fail("last-mid nao emitiu");
+    FakeNode* m1 = dom.makeElement("m1");
+    FakeNode* m2 = dom.makeElement("m2");
+    dom.insertBefore(body, m1, last);
+    dom.insertBefore(body, m2, last);
+    p.onInserted(body, m1);
+    p.onInserted(body, m2);
+    if (p.emitFrame().empty()) return Fail("meio da lista nao emitiu");
+    const uint32_t firstId = p.identity().idOf(first);
+    const uint32_t m1Id = p.identity().idOf(m1);
+    const uint32_t m2Id = p.identity().idOf(m2);
+    const uint32_t lastId = p.identity().idOf(last);
+    auto kids = p.table().orderedChildIds(p.identity().idOf(body));
+    bool saw = false;
+    for (size_t i = 0; i + 3 < kids.size(); ++i) {
+      if (kids[i] == firstId && kids[i + 1] == m1Id && kids[i + 2] == m2Id &&
+          kids[i + 3] == lastId) {
+        saw = true;
+        break;
+      }
+    }
+    if (!saw) return Fail("meio da lista: ordem first,m1,m2,last quebrada");
+    if (p.lastInsertOpCount() != 1) return Fail("meio da lista: INSERT nao foi um lote");
+    if (p.lastInsertIdCount() != 2) return Fail("meio da lista: ids do lote");
+  }
+  std::cout << "ok: INSERT em lote no meio da lista\n";
+
   // --- L24: filho novo some com o pai no mesmo tick. ---
   {
     FakeNode* wrap = dom.makeElement("wrap");
@@ -258,8 +322,13 @@ int main() {
     auto f = p.emitFrame();
     if (f.empty()) return Fail("remove do wrap nao emitiu");
     if (p.identity().idOf(inner) != kNone) return Fail("L24 filho vazou no mapa");
-    if (p.table().size() != rows - 1) return Fail("L24 wrap nao saiu da tabela");
-    if (p.identity().size() != ids - 1) return Fail("L24 identidade do wrap ficou");
+    const uint32_t wrapId = p.identity().idOf(wrap);
+    if (wrapId == kNone) return Fail("L24 wrap perdeu id");
+    const Row* wrapRow = p.table().getRow(wrapId);
+    if (!wrapRow) return Fail("L24 wrap saiu da tabela no mesmo tick");
+    if (wrapRow->parent != kNone) return Fail("L24 wrap nao destacou");
+    if (p.table().size() != rows) return Fail("L24 tamanho da tabela mudou");
+    if (p.identity().size() != ids) return Fail("L24 identidade do wrap sumiu");
   }
   std::cout << "ok: L24 filho do tick nao viaja com o pai\n";
 
@@ -334,8 +403,39 @@ int main() {
     if (kids.size() != 1 || kids[0] != innerId) return Fail("wrap sem inner na tabela");
     auto innerKids = p.table().orderedChildIds(innerId);
     if (innerKids.size() != 1 || innerKids[0] != leafId) return Fail("inner sem leaf na tabela");
+    if (p.lastInsertIdCount() != 3) return Fail("pai+filho mesmo tick INSERT duplicado");
   }
   std::cout << "ok: pai+filho mesmo tick NODE_NEW antes de INSERT\n";
+
+  // --- P4: 1000 ATTR no mesmo nome = 1 op. ---
+  {
+    const uint32_t pending = p.pendingOps();
+    for (int i = 0; i < 1000; ++i) p.onAttrChanged(body, "class");
+    if (p.pendingOps() != pending) return Fail("ATTR sujou o builder no callback");
+    body->attrs.push_back(AttrPair{"class", "x"});
+    auto f = p.emitFrame();
+    if (f.empty()) return Fail("ATTR drain nao emitiu");
+    if (p.lastEmittedOps() != 2) return Fail("ATTR nao coalesceu (1 SET + CHECK)");
+  }
+  std::cout << "ok: ATTR coalescido no drain\n";
+
+  // --- P11: destaque + reinsert no tick seguinte reusa o id. ---
+  {
+    FakeNode* park = dom.makeElement("park");
+    dom.append(body, park);
+    p.onInserted(body, park);
+    if (p.emitFrame().empty()) return Fail("park insert nao emitiu");
+    const uint32_t parkId = p.identity().idOf(park);
+    dom.detach(park);
+    p.onRemoved(body, park);
+    if (p.emitFrame().empty()) return Fail("park remove nao emitiu");
+    if (!p.table().has(parkId)) return Fail("park DROP no mesmo tick");
+    dom.append(body, park);
+    p.onInserted(body, park);
+    if (p.emitFrame().empty()) return Fail("park reinsert nao emitiu");
+    if (p.identity().idOf(park) != parkId) return Fail("park nao reusou o id");
+  }
+  std::cout << "ok: destaque+reattach no tick seguinte reusa id\n";
 
   std::cout << "produtor lifecycle: ok\n";
   return 0;

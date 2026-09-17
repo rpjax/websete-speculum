@@ -20,12 +20,13 @@ if [[ "${SKIP_LAB_CLIENT_BUILD:-0}" != "1" ]]; then
 fi
 
 rm -f /tmp/speculum-asset-trace.ndjson
+export SPECULUM_ASSET_TRACE=1
 bash gecko-engine/devpath/_restart-lab-safe.sh | tail -6
 
 STAMP=$(date -u +%Y%m%d-%H%M%SZ)
 OUT_DIR="${OUT_DIR:-$REPO/gecko-engine/devpath/captures/asset-h5-$STAMP}"
 rm -rf "$OUT_DIR"
-export OUT_DIR WAIT_MS="${WAIT_MS:-45000}" GECKO_ASSET_TRACE=/tmp/speculum-asset-trace.ndjson
+export OUT_DIR WAIT_MS="${WAIT_MS:-45000}" GECKO_ASSET_TRACE=/tmp/speculum-asset-trace.ndjson SPECULUM_ASSET_TRACE=1
 set +e
 node gecko-engine/devpath/lab-asset-h5-trace.mjs \
   "${1:-https://www.belezanaweb.com.br/}" | tee /tmp/asset-h5-out.json
@@ -45,11 +46,13 @@ print('=== H5 TRACE ===')
 print('firstFalse', d.get('firstFalse'))
 print('classification', d.get('classification'))
 print('verdict', json.dumps(d.get('verdict'), indent=2))
+print('broken', json.dumps(d.get('broken'), indent=2))
 print('outDir', d.get('outDir') or p)
-vpath=os.path.join(d.get('outDir') or p, 'verdict.json')
-if os.path.isfile(vpath):
-  v=json.load(open(vpath))
-  print('evidence.shas', json.dumps((v.get('evidence') or {}).get('sha')))
-  print('firstComplete', json.dumps((v.get('evidence') or {}).get('firstComplete'), ensure_ascii=False)[:240])
+bpath=os.path.join(d.get('outDir') or p, 'broken-classify.json')
+if os.path.isfile(bpath):
+  b=json.load(open(bpath))
+  print('buckets', json.dumps(b.get('buckets'), indent=2))
+  for r in (b.get('rows') or [])[:12]:
+    print(f"  {r.get('reason')}: {r.get('magic')} enc={r.get('contentEncoding')} mime={r.get('mime')} len={r.get('dataLen')} {r.get('url','')[:100]}")
 PY
 exit "$rc"

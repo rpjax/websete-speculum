@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>CSSOM — folha tardia vs folha construída</title>
+    <style>
+      /* Plano DOM: author <style> não vai pelo plano CSSOM (C6). */
+      body { font: 16px/1.5 system-ui, sans-serif; margin: 24px; background: rgb(250, 250, 250); }
+      .box { padding: 16px; margin: 12px 0; border: 1px solid rgb(200, 200, 200); }
+      /* Baseline cinza: só a folha de cada fase pinta o marcador dela. */
+      #ctrl-marker, #data-marker, #http-marker { background-color: rgb(190, 190, 190); }
+    </style>
+  </head>
+  <body>
+    <h1>CSSOM late sheet</h1>
+
+    <p>
+      Três fases depois do <code>load</code>. Controle positivo tem notificação por regra
+      (<code>insertRule</code>). Os dois testes chegam por <em>parse</em> de folha, que é o caminho
+      sem gancho.
+    </p>
+
+    <div class="box" id="ctrl-marker">CTRL — folha construída + insertRule (azul se chegou)</div>
+    <div class="box" id="data-marker">DATA — link data:text/css pós-load (verde se chegou)</div>
+    <div class="box" id="http-marker">HTTP — link http pós-load (laranja se chegou)</div>
+
+    <div class="box">
+      fase: <span id="phase">boot</span><br />
+      virtualCtrlRules: <span id="ctrlRules">0</span> ·
+      virtualDataRules: <span id="dataRules">0</span> ·
+      virtualHttpRules: <span id="httpRules">0</span><br />
+      httpLinkOutcome: <span id="httpOutcome">pending</span>
+    </div>
+
+    <script>
+      const setText = (id, v) => {
+        document.getElementById(id).textContent = String(v);
+      };
+      const setPhase = (v) => setText('phase', v);
+
+      function afterLoad(fn, delay) {
+        const run = () => setTimeout(fn, delay);
+        if (document.readyState === 'complete') run();
+        else window.addEventListener('load', run, { once: true });
+      }
+
+      function countRules(match) {
+        for (const s of document.styleSheets) {
+          if (!(s.href || '').includes(match)) continue;
+          try {
+            return s.cssRules.length;
+          } catch {
+            return -1;
+          }
+        }
+        return 0;
+      }
+
+      // Fase A — controle positivo. Folha construída fica no plano CSSOM
+      // (IsConstructed) e insertRule dispara RuleAdded regra por regra.
+      afterLoad(() => {
+        setPhase('A-constructed');
+        const sheet = new CSSStyleSheet();
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+        sheet.insertRule(
+          '#ctrl-marker { background-color: rgb(0, 90, 200); color: rgb(255,255,255); outline: 3px solid rgb(0,90,200); }',
+        );
+        for (let i = 1; i <= 20; i++) {
+          sheet.insertRule('.ctrlmark-' + i + ' { --CTRLMARK: ' + i + '; }');
+        }
+        setText('ctrlRules', sheet.cssRules.length);
+        setPhase('A-done');
+      }, 1500);
+
+      // Fase B — link data:text/css. Regras nascem de parse, não de CSSOM API.
+      // MIME garantido, então isola o mecanismo sem depender do content-type do lab.
+      afterLoad(() => {
+        setPhase('B-data-link');
+        let css = '#data-marker { background-color: rgb(0, 170, 0); color: rgb(255,255,255); outline: 3px solid rgb(0,170,0); }\n';
+        for (let i = 1; i <= 20; i++) css += '.datamark-' + i + ' { --DATAMARK: ' + i + '; }\n';
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.id = 'data-link';
+        link.href = 'data:text/css;charset=utf-8,' + encodeURIComponent(css);
+        link.addEventListener('load', () => {
+          const sheet = link.sheet;
+          setText('dataRules', sheet ? sheet.cssRules.length : -1);
+          setPhase('B-data-loaded');
+        });
+        document.head.appendChild(link);
+      }, 3000);
+
+      // Fase C — link http de verdade. Se o lab servir com MIME errado o Gecko
+      // recusa a folha; nesse caso este caso não é evidência (fica registrado).
+      afterLoad(() => {
+        setPhase('C-http-link');
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.id = 'http-link';
+          link.href = 'cssom-late-sheet.css';
+        link.addEventListener('load', () => {
+          setText('httpOutcome', link.sheet ? 'loaded' : 'load-no-sheet');
+          setText('httpRules', countRules('cssom-late-sheet.css'));
+          setPhase('C-done');
+        });
+        link.addEventListener('error', () => {
+          setText('httpOutcome', 'error');
+          setPhase('C-error');
+        });
+        document.head.appendChild(link);
+      }, 4500);
+    </script>
+  </body>
+</html>

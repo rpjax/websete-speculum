@@ -68,6 +68,7 @@ export class NestedProjectedApply {
   private highestSeenSequence = 0;
   /** Gate overflowed during a long rebuild — evaluate lag after drain, do not wipe live. */
   private lagCatchUp = false;
+  private lagCatchUpsThisGeneration = 0;
   private armed = false;
   private everArmed = false;
   private lastDesyncReason: string | null = null;
@@ -392,6 +393,7 @@ export class NestedProjectedApply {
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
     this.generation = frame.generation;
+    this.lagCatchUpsThisGeneration = 0;
     this.armed = false;
     this.everArmed = false;
     this.live.applier.dispose();
@@ -472,9 +474,13 @@ export class NestedProjectedApply {
       return;
     }
     this.lagCatchUp = false;
+    if (this.lagCatchUpsThisGeneration >= 1) {
+      return;
+    }
     if (this.lastDesyncReason === null) {
       this.lastDesyncReason = 'lag';
     }
+    this.lagCatchUpsThisGeneration += 1;
     this.scheduleResyncAttempt('lag');
   }
 

@@ -23,7 +23,6 @@ const rows: FrameRow[] = readFileSync(ndjsonPath, 'utf8')
   .filter(Boolean)
   .map((line) => JSON.parse(line) as FrameRow);
 
-const total = rows.length;
 const byContext = new Map<number, FrameRow[]>();
 for (const row of rows) {
   if (!byContext.has(row.contextId)) {
@@ -40,6 +39,7 @@ const contextOrder = [...byContext.keys()].sort(
 
 const persistent = new PersistentStringTable();
 let aceitos = 0;
+let seen = 0;
 
 for (const contextId of contextOrder) {
   const frames = byContext.get(contextId)!.sort((a, b) => a.sequence - b.sequence);
@@ -54,22 +54,26 @@ for (const contextId of contextOrder) {
     const bytes = new Uint8Array(readFileSync(path));
     const res = decodeFramePart(bytes, persistent);
     if (!res.ok) {
+      if (res.reason === 'malformed' && res.message.includes('bad magic')) {
+        continue;
+      }
       console.error(`live-incremental: decode falhou ${name}: ${res.reason} ${res.message}`);
       process.exit(1);
     }
+    seen++;
     const p = res.part;
-    const r = applyFrameToTableChecked(table, p.flags?.resync ?? false, p.ops, p.sequence);
+    const r = applyFrameToTableChecked(table, p.resync, p.ops, p.sequence);
     if (r.ok) {
       aceitos++;
     } else {
       console.error(`live-incremental: recusado ${name}`, r);
-      console.log(`live-incremental: ${aceitos}/${total} aceitos`);
+      console.log(`live-incremental: ${aceitos}/${seen} aceitos`);
       process.exit(1);
     }
   }
 }
 
-console.log(`live-incremental: ${aceitos}/${total} aceitos`);
-if (aceitos !== total) {
+console.log(`live-incremental: ${aceitos}/${seen} aceitos`);
+if (seen === 0 || aceitos !== seen) {
   process.exit(1);
 }

@@ -35,4 +35,11 @@ void SpeculumNotifyRuleRemoved(mozilla::dom::Document* aDocument,
 void SpeculumNotifyRuleChanged(mozilla::dom::Document* aDocument,
                                mozilla::css::Rule* aRule);
 
+/** Folha completou (parse pronto). Regra que nasce de parse não tem notificação
+ * própria: `RuleAdded` só sai de mutação por CSSOM API. Este é o único momento em
+ * que a lista viva de uma folha carregada existe. Chamado de
+ * `Document::StyleSheetApplicableStateChanged`. */
+void SpeculumNotifySheetApplicable(mozilla::dom::Document* aDocument,
+                                   mozilla::StyleSheet* aSheet);
+
 #endif

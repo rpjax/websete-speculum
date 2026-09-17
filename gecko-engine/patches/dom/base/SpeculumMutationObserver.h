@@ -15,6 +15,8 @@ class nsINode;
 
 namespace mozilla::dom {
 class Document;
+class Element;
+class ShadowRoot;
 }
 
 class SpeculumMutationObserver final : public nsStubMutationObserver,
@@ -29,6 +31,7 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   void RequestResync(uint8_t aForce);
   void SetHalted(bool aHalted);
   void FlushNow();
+  void AddFrameCredit(uint32_t aFrames, uint32_t aBytes);
   bool SnapshotDump(std::vector<uint8_t>& aOut) const;
   uint32_t ContextId() const;
   uint32_t Sequence() const;
@@ -40,6 +43,8 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   void OnRuleAdded(void* aSheet, void* aRule, const std::string& aText);
   void OnRuleRemoved(void* aSheet, void* aRule);
   void OnRuleChanged(void* aRule, const std::string& aText);
+  void OnShadowAttached(mozilla::dom::Element* aHost,
+                        mozilla::dom::ShadowRoot* aShadow);
 
   void CancelFrameTimer();
 
@@ -71,7 +76,7 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
   ~SpeculumMutationObserver();
 
   void ArmFrameTimerIfNeeded();
-  void EmitPendingFrame();
+  void EmitPendingFrame(bool aForce = false);
   void MaybeObserveShadow(nsIContent* aChild);
 
   mozilla::dom::Document* mDocument;
@@ -81,14 +86,20 @@ class SpeculumMutationObserver final : public nsStubMutationObserver,
 void SpeculumAttachMutationObserverToDocument(mozilla::dom::Document* aDocument);
 void SpeculumDetachMutationObserverFromDocument(mozilla::dom::Document* aDocument);
 void SpeculumBindLiveDocument(mozilla::dom::Document* aDocument);
+bool SpeculumIsEmitAllowed(uint32_t aContextId);
+void SpeculumOnNestedEmitAllow(uint32_t aContextId);
 void SpeculumRequestResync(uint32_t aContextId, uint8_t aForce);
 void SpeculumHaltClocks();
 void SpeculumResumeClocks();
 void SpeculumFlushFrame(uint32_t aContextId);
+void SpeculumAddFrameCredit(uint32_t aContextId, uint32_t aFrames,
+                            uint32_t aBytes);
 bool SpeculumSnapshotDump(uint32_t aContextId, std::vector<uint8_t>& aOut,
                           uint32_t* aSequence, uint32_t* aGeneration,
                           uint64_t* aTableHash);
 mozilla::dom::Document* SpeculumDocumentForContext(uint32_t aContextId);
 nsINode* SpeculumNodeForId(uint32_t aContextId, uint32_t aNodeId);
+void SpeculumNotifyShadowAttached(mozilla::dom::Element* aHost,
+                                  mozilla::dom::ShadowRoot* aShadow);
 
 #endif

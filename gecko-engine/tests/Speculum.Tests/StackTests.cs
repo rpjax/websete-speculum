@@ -375,6 +375,10 @@ public static class StackTests
 
             report.Equal("host NODE_NEW com childScopeId=2", true, HasChildScope(frames, 1, 2));
             report.Equal("frame C=2 com inner-alpha", true, HasTextOnContext(frames, 2, "inner-alpha"));
+            int hostAt = FirstIndexWithChildScope(frames, 1, 2);
+            int childAt = FirstIndexWithTextOnContext(frames, 2, "inner-alpha");
+            report.Equal("C=2 so depois do host no pai", true,
+                hostAt >= 0 && childAt >= 0 && childAt >= hostAt);
 
             uint? firstInnerGen = FirstGeneration(frames, 2, "inner-alpha");
             var afterInnerNav = await ReceiveUntilAsync(client, TimeSpan.FromSeconds(60), seen =>
@@ -591,6 +595,45 @@ public static class StackTests
         }
 
         return frames;
+    }
+
+    private static int FirstIndexWithChildScope(IReadOnlyList<byte[]> frames, uint parentContext, uint childScope)
+    {
+        for (int i = 0; i < frames.Count; i++)
+        {
+            var h = SealedFrame.Parse(frames[i]);
+            if (!h.Ok || h.ContextId != parentContext)
+            {
+                continue;
+            }
+
+            if (FrameNested.HasChildScope(frames[i], childScope))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int FirstIndexWithTextOnContext(IReadOnlyList<byte[]> frames, uint contextId, string needle)
+    {
+        for (int i = 0; i < frames.Count; i++)
+        {
+            var h = SealedFrame.Parse(frames[i]);
+            if (!h.Ok || h.ContextId != contextId)
+            {
+                continue;
+            }
+
+            if (FrameStrings.TryReadLocal(frames[i], out var strings, out _) &&
+                FrameStrings.Contains(strings, needle))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static bool HasChildScope(IReadOnlyList<byte[]> frames, uint parentContext, uint childScope)

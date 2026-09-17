@@ -20,6 +20,8 @@ struct FakeNode {
   std::vector<AttrPair> attrs;
   std::vector<FakeNode*> children;
   FakeNode* parent = nullptr;
+  FakeNode* cssomHost = nullptr;
+  std::vector<FakeNode*> childSheets;
 };
 
 class FakeDom : public NodeSource {
@@ -39,6 +41,15 @@ class FakeDom : public NodeSource {
     FakeNode* raw = n.get();
     owned_.push_back(std::move(n));
     sheets_.push_back(raw);
+    return raw;
+  }
+  FakeNode* makeChildSheet(FakeNode* parent, const std::string& name) {
+    auto n = std::make_unique<FakeNode>();
+    n->kind = NodeKind::Sheet;
+    n->name = name;
+    FakeNode* raw = n.get();
+    owned_.push_back(std::move(n));
+    parent->childSheets.push_back(raw);
     return raw;
   }
   FakeNode* makeRule(FakeNode* sheet, const std::string& text) {
@@ -103,6 +114,12 @@ class FakeDom : public NodeSource {
   }
   std::string cssomRuleTextOf(const void* rule) const override { return at(rule)->value; }
   const void* cssomSheetOf(const void* rule) const override { return at(rule)->parent; }
+  const void* cssomHostOf(const void* sheet) const override { return at(sheet)->cssomHost; }
+  std::vector<const void*> cssomChildSheets(const void* sheet) const override {
+    std::vector<const void*> out;
+    for (auto* c : at(sheet)->childSheets) out.push_back(c);
+    return out;
+  }
   bool isSheet(const void* n) const override { return at(n)->kind == NodeKind::Sheet; }
   bool isRule(const void* n) const override { return at(n)->kind == NodeKind::Rule; }
 
@@ -160,12 +177,12 @@ int main() {
   const uint32_t idC = p.identity().idOf(sheetC);
   bool sawOrder = false;
   for (size_t i = 0; i + 2 < docKids.size(); ++i) {
-    if (docKids[i] == sheetId && docKids[i + 1] == idB && docKids[i + 2] == idC) {
+    if (docKids[i] == sheetId && docKids[i + 1] == idC && docKids[i + 2] == idB) {
       sawOrder = true;
       break;
     }
   }
-  if (!sawOrder) return Fail("CSSOM nao drena na ordem viva das sheets");
+    if (!sawOrder) return Fail("CSSOM nao drena na ordem da fila");
 
   FakeNode* liveRule = dom.makeRule(sheet, "old { color: red; }");
   p.onRuleAdded(sheet, liveRule);
@@ -343,5 +360,67 @@ int main() {
     if (!sawSheet) return Fail("force0 nao emitiu SHEET_NEW");
   }
   std::cout << "ok: resync force 0 descreve CSSOM que nao passou por onSheetAdded\n";
+
+  {
+    FakeDom pierce;
+    FakeNode* document = pierce.makeElement("#document");
+    FakeNode* html = pierce.makeElement("html");
+    FakeNode* host = pierce.makeElement("host");
+    pierce.setDocument(document);
+    pierce.append(document, html);
+    pierce.append(html, host);
+    Producer p4(pierce, kContextIdRoot, 0);
+    if (p4.resyncVirtual(document).empty()) return Fail("pierce boot vazio");
+    FakeNode* adopted = pierce.makeSheet("adopted");
+    adopted->cssomHost = host;
+    p4.onSheetAdded(adopted);
+    if (p4.emitFrame().empty()) return Fail("pierce sheet nao emitiu");
+    const uint32_t sheetId = p4.identity().idOf(adopted);
+    const uint32_t hostId = p4.identity().idOf(host);
+    const Row* row = p4.table().getRow(sheetId);
+    if (!row) return Fail("pierce sheet sem linha");
+    if (row->parent != hostId) return Fail("pierce sheet nao ancorou no host");
+  }
+  std::cout << "ok: pierce host no SHEET_NEW\n";
+
+  {
+    FakeDom imported;
+    FakeNode* document = imported.makeElement("#document");
+    FakeNode* html = imported.makeElement("html");
+    imported.setDocument(document);
+    imported.append(document, html);
+    FakeNode* parentSheet = imported.makeSheet("author");
+    FakeNode* childSheet = imported.makeChildSheet(parentSheet, "imported");
+    imported.makeRule(childSheet, "p { color: green; }");
+    Producer p5(imported, kContextIdRoot, 0);
+    if (p5.resyncVirtual(document).empty()) return Fail("import boot vazio");
+    if (p5.identity().idOf(childSheet) == kNone) return Fail("import child sheet nao mintou");
+    if (!p5.table().getRow(p5.identity().idOf(childSheet))) {
+      return Fail("import child sheet sem linha");
+    }
+  }
+  std::cout << "ok: @import ChildSheets no resync\n";
+
+  {
+    FakeDom blank;
+    FakeNode* document = blank.makeElement("#document");
+    FakeNode* html = blank.makeElement("html");
+    blank.setDocument(document);
+    blank.append(document, html);
+    Producer p6(blank, kContextIdRoot, 0);
+    if (p6.resyncVirtual(document).empty()) return Fail("blank boot vazio");
+    FakeNode* sheet = blank.makeSheet("live");
+    FakeNode* empty = blank.makeRule(sheet, "");
+    FakeNode* ok = blank.makeRule(sheet, "div { color: red; }");
+    p6.onSheetAdded(sheet);
+    p6.onRuleAdded(sheet, empty);
+    p6.onRuleAdded(sheet, ok);
+    auto frame = p6.emitFrame();
+    if (frame.empty()) return Fail("blank+ok nao emitiu");
+    if (p6.identity().idOf(empty) != kNone) return Fail("regra vazia ficou no mapa");
+    if (p6.identity().idOf(ok) == kNone) return Fail("regra boa nao mintou");
+    if (!p6.table().getRow(p6.identity().idOf(ok))) return Fail("regra boa sem linha");
+  }
+  std::cout << "ok: RULE_NEW vazio nao vai ao fio\n";
   return 0;
 }

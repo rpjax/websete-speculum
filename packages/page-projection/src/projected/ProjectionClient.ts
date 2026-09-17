@@ -127,6 +127,8 @@ export class ProjectionClient {
   private highestSeenSequence = 0;
   /** Gate overflowed during a long rebuild — request another resync after swap, do not wipe live. */
   private lagCatchUp = false;
+  /** Wholesale lag resync is one shot per generation — a live page is always "behind". */
+  private lagCatchUpsThisGeneration = 0;
   private generation = 1;
   private armed = false;
   /**
@@ -456,6 +458,7 @@ export class ProjectionClient {
     this.lastSequence = 0;
     this.highestSeenSequence = 0;
     this.lagCatchUp = false;
+    this.lagCatchUpsThisGeneration = 0;
     this.generation = 1;
     this.armed = false;
     this.everArmed = false;
@@ -657,6 +660,7 @@ export class ProjectionClient {
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
     this.generation = frame.generation;
+    this.lagCatchUpsThisGeneration = 0;
     this.armed = false;
     this.everArmed = false;
     for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
@@ -838,9 +842,13 @@ export class ProjectionClient {
       return;
     }
     this.lagCatchUp = false;
+    if (this.lagCatchUpsThisGeneration >= 1) {
+      return;
+    }
     if (this.lastDesyncReason === null) {
       this.lastDesyncReason = 'lag';
     }
+    this.lagCatchUpsThisGeneration += 1;
     this.scheduleResyncAttempt('lag');
   }
 

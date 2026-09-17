@@ -249,6 +249,7 @@ Estado = este fork. Verde no sidecar JS **não** conta.
 | Prova | L0 `producer_loop` + `producer_lifecycle` (churn, move, ponteiro reusado) + L5 + oráculo de snapshot no lab. |
 | Proibido | Bootstrap DomMap; DROP só no destroy; `TEXT_SET` sem conferir kind. |
 | Estado | **há** cola + núcleo. DROP no tick do remove. Prova de stress no Firefox = este mach + L4. |
+| **Contestado** | `REMOVE`/`ATTR`/`TEXT` ainda descrevem no callback (`Producer.h:222`). DROP no mesmo tick fura OPEN-2. Move do §5.6 vira `REMOVE`+`INSERT`. Redesenho: [21](21-fluxo-de-entrega-e-epoca.md) §12. |
 
 ### 2.3 Identidade e GC de linha
 
@@ -290,7 +291,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Cliente | um applier por `C`. Replica frames; **não** carrega a URL do iframe. |
 | Prova | L4 multiplex (passos 6–9 do doc 19). Terceiro origin = o mesmo caminho. |
 | Proibido | `ContextCreated` por iframe; ContextBus/postMessage no Virtual; packing de generation. |
-| Estado | **mint + hold + L4 nested há**. CSSOM do filho = plano 2.4 na instância filha. |
+| Estado | **mint + hold + emit-allow.** Pai segura `NODE_NEW` do host até `C ≥ 2`. Filho `C ≥ 2` não emite até o chrome liberar — depois que o frame do pai (com esse `C`) está no socket. Flag por `contextId`, não por processo. CSSOM do filho = plano 2.4 na instância filha. |
 
 ### 2.7 Propriedades vivas (`PROP_SET`)
 
@@ -314,7 +315,7 @@ Por que o aviso de “estilo instável” não se aplica da mesma forma: aquilo 
 | Cliente | captura esparsa no Projected (JS nosso). K5 intacto. Encoder = os campos da ABI, não JSON. |
 | Prova | efeito no Virtual. Clique nested no `C` filho. Challenge: token no Virtual. |
 | Proibido | CDP, uinput, inject, `Runtime.evaluate`. JSON/MessagePack neste opcode. `move` no fio. Histórico via `Input`. `EventDispatcher` no `Document` (fura ESM). |
-| Estado | **há.** Clique: `PresShell::HandleEvent` (coordenada). Tecla: `HandleEventWithTarget` no root deste `C` — o opcode já nomeou o documento; `HandleEvent` sozinho manda tecla ao chrome. Sem `EventDispatcher` no `Document`. CSS px → LayoutDevice. `nodeId` 0 em down/up não aplica. Nested carimba o `C` do comando. |
+| Estado | **há.** Clique: `HandleEventWithTarget` no elemento do `nodeId`, ponto = local% na caixa viva do frame (não hit-test no root). Tecla: `HandleEventWithTarget` no foco deste `C` (não `<html>`); `keypress` no keydown de carácter/Enter. Sem `EventDispatcher` no `Document`. `nodeId` 0 em down/up não aplica. Nested carimba o `C` do comando. |
 
 ### 2.9 Ativos (imagem, fonte, mídia) — V1 completo, doc 13 inteiro
 
@@ -404,7 +405,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Lei | L12, L23, L24. Timer 16 ms; vazio não emite. Probe pode flush agora. Halt impede S+1 até o cliente aplicar S. |
 | Gancho | `nsITimer` 16 ms no main thread serial target. Halt/Flush/Snapshot na ABI e no IPDL. |
 | Proibido | descrever no callback e chamar isso de drain. |
-| Estado | **timer, halt, flush e Snapshot há.** Halt para o relógio; a fila continua; Flush chama `emitFrame`. |
+| Estado | **timer, halt, flush e Snapshot há.** Halt para o relógio; a fila continua; Flush chama `emitFrame`. **Contestado:** "Halt impede S+1 até o cliente aplicar S" **não** está implementado — nada no produtor conhece a sequência aplicada. Redesenho: [21](21-fluxo-de-entrega-e-epoca.md) §2. A proibição de descrever no callback também está furada: ver §2.2 contestado e [21](21-fluxo-de-entrega-e-epoca.md) §12 P10. |
 
 ### 2.20 Diálogo, permissão, download
 
@@ -424,6 +425,7 @@ Gecko no Linux **é** Firefox: TLS, fontes, SpiderMonkey. Não forjar. Fingerpri
 | Lei | Fila: descarta o **mais antigo**, nunca down/up. Teto 64 MiB. Agulha content→pai é o primeiro volume (doc 17 §7). |
 | Métrica | profundidade, bytes/s, atraso IPC, frames dropped. Evento, não iso. |
 | Estado | **fora deste V1** (capacidade). Não entra neste mach. |
+| **Contestado** | Classificar fluxo de entrega como capacidade foi o erro de desenho. No produtor TS o freio do transporte era o que mantinha `sequence` coerente com o entregue — **correção**, não folga. Sem ele, cada pressão vira `sequence_gap` / `reason=lag` no cliente. Redesenho: [21](21-fluxo-de-entrega-e-epoca.md) §2. Defeitos: [open.md](../page-projection/spec/open.md) `GECKO-SEQ-BUILD-NOT-DELIVERY`, `GECKO-NO-DELIVERY-CREDIT`. |
 
 ### 2.22 Fontes (métrica de texto)
 
@@ -494,6 +496,15 @@ Leitura honesta do fork (`gecko-engine/patches` + `speculum-wire`), não do side
 | Telemetria catalogada | Kind `0x05` | `SPECULUM_CAP_EVENTS` (default off); `MOZ_LOG` só boot/tick/resync/attach | debug; **nunca** aceite |
 | Métrica P/E (O3) | `buildMs` se `SPECULUM_CAP_METRICS` | — | capacidade, não 1:1 |
 | Backpressure (drop oldest) | n/a | **fora deste V1** | — |
+| Crédito de entrega (`sequence` = entregue) | **não** | **não** | **falta** — [21](21-fluxo-de-entrega-e-epoca.md) §2 |
+| Época no produtor (sem remendo no pai) | **não** (`generation = 0` fixo) | remendo de bytes no pai | **falta** — [21](21-fluxo-de-entrega-e-epoca.md) §3 |
+| Limites §8 + divisão de partes | **não** | **não** | **falta** — [21](21-fluxo-de-entrega-e-epoca.md) §4 |
+| Coalescing de atributo/texto no tick | **não** | op por callback | **falta** — [21](21-fluxo-de-entrega-e-epoca.md) §5 |
+| `visited` por tick (§5.3) | **não** | — | **falta** — INSERT duplicado, [21](21-fluxo-de-entrega-e-epoca.md) §11 P6 |
+| `INSERT` em lote no caminho incremental | **não** (op e âncora por nó) | — | **falta** — O(batch²), [21](21-fluxo-de-entrega-e-epoca.md) §11 P7 |
+| CSSOM vivo — folha construída / `insertRule` | **sim**, depois de 2026-09-16 | call site restaurado + `NoteRule`→`NoteSheet` | **corrigido com prova de superfície**, [21](21-fluxo-de-entrega-e-epoca.md) §11 P9b |
+| CSSOM vivo — folha por **parse** (`<link>` tardio) | **não** — 0 regras medidas | sem notificação por regra no parse | **aberto**, [21](21-fluxo-de-entrega-e-epoca.md) §11 P9b |
+| Gancho de folha aplicável + `@import` | **não** | `InsertSheetAt` só | **falta** — [21](21-fluxo-de-entrega-e-epoca.md) §11 P9 |
 
 **Corte deste V1** = cola “sim” em tudo que não é 1.1. Canvas/print/fila = 1.1. “DOM sobe no fio” não é corte.
 
@@ -541,6 +552,9 @@ Se a frase abaixo aparecer em patch, o patch está errado:
 - Profiler CDP como prova de iso
 - “telemetria no final”
 - implementar a partir de `docs/page-projection/archive/`
+- descartar frame cujo `sequence` já foi consumido (buraco auto-infligido)
+- escrever campo do protocolo fora do produtor (remendar byte de `generation` no pai)
+- compensar produtor sem freio com fila/heurística no cliente
 
 ---
 
@@ -555,6 +569,7 @@ Ler isto **depois** de `acceptance.md` e **junto** da série Gecko:
 | `14` | UA |
 | `15`–`18` | vida, processo, runtime, ABI — **18 precisa dos opcodes de probe/telemetria** |
 | `19` | escada de teste — sem ela a §4 é opinião |
+| `21` | **proposta** de redesenho do produtor: crédito de entrega, época no produtor, limites/partes, coalescing. Contesta §2.19, §2.21 e a §3 deste doc. Não é lei até o ruling. |
 | spec V4 | fio e aceite — **mecanismo de produtor JS não** (mapa no §0) |
 | `observability.md` / `diagnostics.md` / `oracles.md` / `budgets.md` | como se observa e o que não se afirma |
 

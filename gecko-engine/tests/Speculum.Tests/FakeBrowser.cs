@@ -172,15 +172,6 @@ public static class FakeBrowser
                 {
                     emitter.Start(contextId, life.Token);
                 }
-                else if (mode == "pp" && producer is not null)
-                {
-                    var boot = producer.Boot();
-                    if (boot is not null)
-                    {
-                        await writer.WriteAsync(EnvelopeKind.Frame, contextId, boot, life.Token).ConfigureAwait(false);
-                        WritePpFrame(boot);
-                    }
-                }
                 else if (mode == "assets")
                 {
                     await EmitAssetsAsync(writer, contextId, journal, life.Token).ConfigureAwait(false);
@@ -205,6 +196,16 @@ public static class FakeBrowser
                     .WriteAsync(EnvelopeKind.BrowserEvent, contextId, EventNavigated(contextId, url), life.Token)
                     .ConfigureAwait(false);
                 journal.Write("navigated", $"ctx={contextId} url={url}");
+
+                if (mode == "pp" && producer is not null)
+                {
+                    var boot = producer.Boot();
+                    if (boot is not null)
+                    {
+                        await writer.WriteAsync(EnvelopeKind.Frame, contextId, boot, life.Token).ConfigureAwait(false);
+                        WritePpFrame(boot);
+                    }
+                }
 
                 if (mode == "marionette")
                 {

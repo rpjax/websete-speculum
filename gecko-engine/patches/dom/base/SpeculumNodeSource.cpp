@@ -1,6 +1,5 @@
 /* Speculum — NodeSource sobre nsINode (produtor PageProjection). */
 #include "mozilla/Assertions.h"
-#define SPECULUM_FATAL(msg) MOZ_CRASH(msg)
 #include "SpeculumNodeSource.h"
 
 #include "AttrArray.h"
@@ -17,6 +16,7 @@
 #include "nsTArray.h"
 #include "nsReadableUtils.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/DocumentOrShadowRoot.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CSSRuleList.h"
@@ -66,10 +66,7 @@ std::string Utf8FromAtom(const nsAtom* aAtom) {
 
 }  // namespace
 
-SpeculumNodeSource::SpeculumNodeSource() {
-  static uint64_t sNextDocToken = 1;
-  mDocToken = sNextDocToken++;
-}
+SpeculumNodeSource::SpeculumNodeSource() = default;
 
 speculum::NodeKind SpeculumNodeSource::kindOf(const void* node) const {
   nsINode* n = AsNode(node);
@@ -294,6 +291,28 @@ uint8_t SpeculumNodeSource::shadowModeOf(const void* shadowRoot) const {
   return sr->IsClosed() ? 1 : 0;
 }
 
+uint8_t SpeculumNodeSource::shadowInitFlagsOf(const void* shadowRoot) const {
+  if (IsCssom(shadowRoot)) {
+    return 0;
+  }
+  mozilla::dom::ShadowRoot* sr =
+      mozilla::dom::ShadowRoot::FromNode(AsNode(shadowRoot));
+  if (!sr) {
+    return 0;
+  }
+  uint8_t flags = 0;
+  if (sr->DelegatesFocus()) {
+    flags |= 0x01;
+  }
+  if (sr->Clonable()) {
+    flags |= 0x02;
+  }
+  if (sr->Serializable()) {
+    flags |= 0x04;
+  }
+  return flags;
+}
+
 std::vector<speculum::FormProp> SpeculumNodeSource::formPropsOf(
     const void* node) const {
   std::vector<speculum::FormProp> out;
@@ -347,7 +366,7 @@ void SpeculumNodeSource::CaptureLiveCssom() {
     return;
   }
 
-  auto noteSheet = [this](mozilla::StyleSheet& aSheet) {
+  auto noteSheet = [&](auto&& self, mozilla::StyleSheet& aSheet) -> void {
     // C6: `<style>` ownerNode → DOM only (no double-emit into adopted).
     if (!SpeculumIsCssomPlaneSheet(&aSheet)) {
       return;
@@ -357,18 +376,22 @@ void SpeculumNodeSource::CaptureLiveCssom() {
     // GetCssRules(principal) recusa sheet incompleto e CORS; o bootstrap
     // então emitia SHEET vazio e o resync ainda descartava o ponteiro.
     mozilla::ServoCSSRuleList* list = aSheet.GetCssRulesInternal();
-    if (!list) {
-      return;
-    }
-    const uint32_t n = list->Length();
-    for (uint32_t i = 0; i < n; ++i) {
-      mozilla::css::Rule* rule = list->Item(i);
-      if (!rule) {
-        continue;
+    if (list) {
+      const uint32_t n = list->Length();
+      for (uint32_t i = 0; i < n; ++i) {
+        mozilla::css::Rule* rule = list->Item(i);
+        if (!rule) {
+          continue;
+        }
+        nsAutoCString text;
+        rule->GetCssText(text);
+        NoteRule(&aSheet, rule, std::string(text.get()));
       }
-      nsAutoCString text;
-      rule->GetCssText(text);
-      NoteRule(&aSheet, rule, std::string(text.get()));
+    }
+    for (mozilla::StyleSheet* child : aSheet.ChildSheets()) {
+      if (child) {
+        self(self, *child);
+      }
     }
   };
 
@@ -379,12 +402,12 @@ void SpeculumNodeSource::CaptureLiveCssom() {
     const size_t n = root->SheetCount();
     for (size_t i = 0; i < n; ++i) {
       if (mozilla::StyleSheet* sheet = root->SheetAt(i)) {
-        noteSheet(*sheet);
+        noteSheet(noteSheet, *sheet);
       }
     }
     for (mozilla::StyleSheet* sheet : root->AdoptedStyleSheets()) {
       if (sheet) {
-        noteSheet(*sheet);
+        noteSheet(noteSheet, *sheet);
       }
     }
   };
@@ -430,6 +453,42 @@ bool SpeculumNodeSource::isRule(const void* aPtr) const {
   return aPtr && mRuleSheet.find(aPtr) != mRuleSheet.end();
 }
 
+void SpeculumNodeSource::retainPtr(const void* aPtr, speculum::KeySpace aSpace) {
+  if (!aPtr) {
+    return;
+  }
+  switch (aSpace) {
+    case speculum::KeySpace::Node:
+      mHeldNodes[aPtr] = const_cast<nsINode*>(static_cast<const nsINode*>(aPtr));
+      break;
+    case speculum::KeySpace::Sheet:
+      mHeldSheets[aPtr] = const_cast<mozilla::StyleSheet*>(
+          static_cast<const mozilla::StyleSheet*>(aPtr));
+      break;
+    case speculum::KeySpace::Rule:
+      mHeldRules[aPtr] = const_cast<mozilla::css::Rule*>(
+          static_cast<const mozilla::css::Rule*>(aPtr));
+      break;
+  }
+}
+
+void SpeculumNodeSource::releasePtr(const void* aPtr, speculum::KeySpace aSpace) {
+  if (!aPtr) {
+    return;
+  }
+  switch (aSpace) {
+    case speculum::KeySpace::Node:
+      mHeldNodes.erase(aPtr);
+      break;
+    case speculum::KeySpace::Sheet:
+      mHeldSheets.erase(aPtr);
+      break;
+    case speculum::KeySpace::Rule:
+      mHeldRules.erase(aPtr);
+      break;
+  }
+}
+
 void SpeculumNodeSource::NoteSheet(const void* aSheet) {
   if (!aSheet) {
     return;
@@ -460,38 +519,48 @@ void SpeculumNodeSource::DropSheet(const void* aSheet) {
   }
 }
 
-void SpeculumNodeSource::NoteRule(const void* aSheet, const void* aRule,
+bool SpeculumNodeSource::NoteRule(const void* aSheet, const void* aRule,
                                   const std::string& aText) {
   if (!aRule) {
-    return;
+    return false;
+  }
+  size_t start = 0;
+  while (start < aText.size() &&
+         (aText[start] == ' ' || aText[start] == '\n' || aText[start] == '\r' ||
+          aText[start] == '\t')) {
+    ++start;
+  }
+  if (start >= aText.size()) {
+    // insertRule('') aborta o apply no Chromium.
+    return false;
   }
   // Projected applies on Chromium. Firefox-only selectors/at-rules fail
   // CSSStyleSheet.insertRule there and abort the whole resync frame.
   // Nested under @media/@supports Chromium still parses the wrapper; skip only
   // top-level offenders. Paint for these rules stays Virtual-only (NIT gap).
   {
-    size_t i = 0;
-    while (i < aText.size() &&
-           (aText[i] == ' ' || aText[i] == '\n' || aText[i] == '\r' ||
-            aText[i] == '\t')) {
-      ++i;
-    }
-    const bool topLevelAt = i < aText.size() && aText[i] == '@';
+    const bool topLevelAt = aText[start] == '@';
     if ((!topLevelAt && (aText.find("::-moz-") != std::string::npos ||
                          aText.find(":-moz-") != std::string::npos)) ||
-        (i + 6 <= aText.size() && aText.compare(i, 6, "@-moz-") == 0)) {
-      return;
+        (start + 6 <= aText.size() && aText.compare(start, 6, "@-moz-") == 0)) {
+      return false;
     }
   }
+  // Regra notada implica folha no plano: quem chama já filtrou por
+  // SpeculumIsCssomPlaneSheet. Sem isto a folha adotada/construída nunca entra em
+  // mSheets (só `Document::InsertSheetAt` chama NoteSheet, e adotada não passa lá),
+  // e o drain — que varre mSheets — descarta a regra enfileirada e solta o id.
+  NoteSheet(aSheet);
   mRuleSheet[aRule] = aSheet;
   mRuleText[aRule] = aText;
   auto& list = mRules[aSheet];
   for (const void* r : list) {
     if (r == aRule) {
-      return;
+      return true;
     }
   }
   list.push_back(aRule);
+  return true;
 }
 
 void SpeculumNodeSource::DropRule(const void* aRule) {
@@ -532,6 +601,41 @@ std::string SpeculumNodeSource::cssomRuleTextOf(const void* rule) const {
 const void* SpeculumNodeSource::cssomSheetOf(const void* rule) const {
   auto it = mRuleSheet.find(rule);
   return it == mRuleSheet.end() ? nullptr : it->second;
+}
+
+std::vector<const void*> SpeculumNodeSource::cssomChildSheets(
+    const void* sheet) const {
+  std::vector<const void*> out;
+  if (!sheet || !isSheet(sheet)) {
+    return out;
+  }
+  auto* s = const_cast<mozilla::StyleSheet*>(
+      static_cast<const mozilla::StyleSheet*>(sheet));
+  for (mozilla::StyleSheet* child : s->ChildSheets()) {
+    if (child) {
+      out.push_back(child);
+    }
+  }
+  return out;
+}
+
+const void* SpeculumNodeSource::cssomHostOf(const void* sheet) const {
+  if (!sheet || !isSheet(sheet)) {
+    return nullptr;
+  }
+  auto* s = const_cast<mozilla::StyleSheet*>(
+      static_cast<const mozilla::StyleSheet*>(sheet));
+  mozilla::dom::DocumentOrShadowRoot* assoc =
+      s->GetAssociatedDocumentOrShadowRoot();
+  if (!assoc) {
+    return nullptr;
+  }
+  nsINode& n = assoc->AsNode();
+  if (!n.IsShadowRoot()) {
+    return nullptr;
+  }
+  mozilla::dom::ShadowRoot* sr = mozilla::dom::ShadowRoot::FromNode(&n);
+  return sr ? sr->Host() : nullptr;
 }
 
 namespace {

@@ -75,6 +75,10 @@ for (const row of rows) {
   const uri = uriForChildPid(row.childPid);
   const res = decodeFramePart(bytes, persistent);
   if (!res.ok) {
+    // Supervisor WS also carries telemetry/asset envelopes. Those are not PP frames.
+    if (res.reason === 'malformed' && res.message.includes('bad magic')) {
+      continue;
+    }
     console.log(
       `${name.padEnd(28)} ${String(row.childPid).padEnd(8)} —  —  —  ${uri}  DECODE FALHOU  ${res.reason}: ${res.message}`,
     );
@@ -87,7 +91,7 @@ for (const row of rows) {
     tables.set(row.contextId, new ReplicatedTable());
   }
   const table = tables.get(row.contextId)!;
-  const r = applyFrameToTableChecked(table, p.flags?.resync ?? false, p.ops, p.sequence);
+  const r = applyFrameToTableChecked(table, p.resync, p.ops, p.sequence);
   if (r.ok) {
     aceitos++;
     console.log(
@@ -103,4 +107,4 @@ for (const row of rows) {
 
 console.log('');
 console.log(`${aceitos} aceito(s), ${recusados} recusado(s) de ${rows.length} frame(s)`);
-process.exit(recusados === 0 ? 0 : 1);
+process.exit(recusados === 0 && aceitos > 0 ? 0 : 1);

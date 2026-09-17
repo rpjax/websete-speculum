@@ -94,5 +94,27 @@ export async function runLagCatchUpOrderUnitTests(): Promise<void> {
     assert.strictEqual(r.lagRequests, 1);
   }
 
+  // Live page stays behind across many flights — wholesale lag is one shot.
+  {
+    let lastSequence = 10;
+    const highestSeen = 80;
+    let lagRequests = 0;
+    let consumed = 0;
+    const gate = new ProjectedApplyGate({
+      onFlightEnd: () => {
+        if (highestSeen > lastSequence && consumed < 1) {
+          lagRequests += 1;
+          consumed += 1;
+        }
+      },
+    });
+    for (let i = 0; i < 8; i++) {
+      gate.begin();
+      lastSequence += 1;
+      gate.finishFlight(() => {});
+    }
+    assert.strictEqual(lagRequests, 1);
+  }
+
   console.log('[unit] lagCatchUpOrder ok');
 }

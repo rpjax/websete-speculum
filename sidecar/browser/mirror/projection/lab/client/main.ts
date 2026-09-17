@@ -67,6 +67,7 @@ type ContextStreamStats = {
   applyOk: number;
   applyFail: number;
   desync: number;
+  /** iframe remounts (`resyncCompleted`), not client requests */
   resync: number;
   overrun: number;
   lastApplyMs: number | null;
@@ -510,6 +511,7 @@ export function bootLabClient(): void {
   let mode: 'browse' | 'run' = 'browse';
   let runInFlight = false;
   let sessionLive = false;
+  let browseStarting = false;
   let sessionId: string | null = null;
   let phase: Phase = 'idle';
   let opsTotal = 0;
@@ -731,7 +733,8 @@ export function bootLabClient(): void {
     connectBtn.classList.toggle('primary', !open);
     ($('disconnect') as HTMLButtonElement).disabled = !open;
 
-    ($('browseStart') as HTMLButtonElement).disabled = !open || mode !== 'browse' || sessionLive || runInFlight;
+    ($('browseStart') as HTMLButtonElement).disabled =
+      !open || mode !== 'browse' || sessionLive || runInFlight || browseStarting;
     ($('browseNavigate') as HTMLButtonElement).disabled = !open || mode !== 'browse' || !sessionLive || runInFlight;
     ($('browseSnap') as HTMLButtonElement).disabled =
       !open || mode !== 'browse' || !sessionLive || runInFlight || snapInFlight;
@@ -747,7 +750,10 @@ export function bootLabClient(): void {
       btn.disabled = runInFlight;
     });
 
-    ($('browseStart') as HTMLButtonElement).classList.toggle('primary', open && mode === 'browse' && !sessionLive);
+    ($('browseStart') as HTMLButtonElement).classList.toggle(
+      'primary',
+      open && mode === 'browse' && !sessionLive && !browseStarting,
+    );
     ($('runStart') as HTMLButtonElement).classList.toggle('primary', open && mode === 'run' && !runInFlight);
 
     ($('browseStart') as HTMLButtonElement).title = !open
@@ -1014,7 +1020,11 @@ export function bootLabClient(): void {
           );
         }
         if (m.kind === 'resyncCompleted') {
-          logActivity(`resync completed seq=${(msg as { sequence?: number }).sequence ?? '?'}`);
+          ctxStats(ctxId).resync += 1;
+          const seq = (msg as { sequence?: number }).sequence ?? '?';
+          logActivity(
+            ctxId === CONTEXT_ID_ROOT ? `resync completed seq=${seq}` : `ctx${ctxId} resync completed seq=${seq}`,
+          );
         }
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'client.telemetry', message: msg }));
@@ -1023,7 +1033,6 @@ export function bootLabClient(): void {
       },
       onRequestResync: (info) => {
         const ctxId = info.contextId ?? CONTEXT_ID_ROOT;
-        ctxStats(ctxId).resync += 1;
         logActivity(
           ctxId === CONTEXT_ID_ROOT
             ? `resync requested reason=${info.reason}`
@@ -1160,6 +1169,7 @@ export function bootLabClient(): void {
       stopAutoSnap();
       ws = null;
       sessionLive = false;
+      browseStarting = false;
       runInFlight = false;
       snapInFlight = false;
       syncButtons();
@@ -1413,6 +1423,7 @@ export function bootLabClient(): void {
         browseSnapCount = 0;
         $('streamSnaps').textContent = '0';
         logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+        browseStarting = false;
         logActivity('click diag: __speculumLabDumpInputClick() in devtools after pointer click');
         startViewportSync();
         if (msg.mode === 'browse') startAutoSnap();
@@ -1421,6 +1432,7 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'session.stopped') {
         sessionLive = false;
+        browseStarting = false;
         stopAutoSnap();
         snapInFlight = false;
         disposeViewportSync();
@@ -1496,6 +1508,7 @@ export function bootLabClient(): void {
           });
         }
         sessionLive = false;
+        browseStarting = false;
         runInFlight = false;
         stopAutoSnap();
         snapInFlight = false;
@@ -1642,42 +1655,48 @@ export function bootLabClient(): void {
   );
 
   $('browseStart').addEventListener('click', () => {
-    // Measure first — never construct the projected stage at the 1280×720 default
-    // and then leave it stale when Virtual boots at the real host size.
+    if (!ws || ws.readyState !== WebSocket.OPEN || sessionLive || browseStarting) return;
     clearCrashOverlay();
     disposeViewportSync();
     canonicalViewport = measureAndNormalizeViewport();
     bootDeviceProfile = detectViewportDeviceProfile();
-    void (async () => {
-      if (isGeckoLab()) {
-        try {
-          documentBaseUrl = new URL(urlInput.value).href;
-        } catch {
-          documentBaseUrl = urlInput.value;
-        }
+    browseStarting = true;
+    syncButtons();
+    if (isGeckoLab()) {
+      try {
+        documentBaseUrl = new URL(urlInput.value).href;
+      } catch {
+        documentBaseUrl = urlInput.value;
       }
-      const p = await ensureProjection();
-      await p.resetSurface();
-      clearAssetTrace();
-      disposeImgTrace?.();
-      disposeImgTrace = installImgTrace(p.document);
-      p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-      resetStreamCounters();
-      logActivity(
-        `browse.start viewport ${canonicalViewport.width}×${canonicalViewport.height}`,
-      );
-      ws?.send(
-        JSON.stringify({
-          type: 'browse.start',
-          url: urlInput.value,
-          width: canonicalViewport.width,
-          height: canonicalViewport.height,
-          device: bootDeviceProfile,
-          frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
-          telemetry: readTelemetryFromUi(),
-          cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
-        }),
-      );
+    }
+    logActivity(
+      `browse.start viewport ${canonicalViewport.width}×${canonicalViewport.height}`,
+    );
+    ws.send(
+      JSON.stringify({
+        type: 'browse.start',
+        url: urlInput.value,
+        width: canonicalViewport.width,
+        height: canonicalViewport.height,
+        device: bootDeviceProfile,
+        frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
+        telemetry: readTelemetryFromUi(),
+        cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
+      }),
+    );
+    void (async () => {
+      try {
+        const p = await ensureProjection();
+        await p.resetSurface();
+        clearAssetTrace();
+        disposeImgTrace?.();
+        disposeImgTrace = installImgTrace(p.document);
+        p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+        resetStreamCounters();
+      } catch (err) {
+        const text = err instanceof Error ? err.message : String(err);
+        logActivity(`projected boot failed: ${text}`);
+      }
     })();
   });
   $('browseNavigate').addEventListener('click', () => {

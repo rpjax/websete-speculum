@@ -1781,23 +1781,75 @@
     "../packages/page-projection/dist/core/nestedNav.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.ensureNestedHostSandboxAccess = exports.isNestedHostNavAttr = void 0;
+      exports.ensureNestedHostSandboxAccess = exports.applyNestedHostSandboxAttr = exports.nestedHostSandboxAttrValue = exports.isNestedHostSandboxAttr = exports.isNestedHostNavAttr = void 0;
       function isNestedHostNavAttr(name) {
         const n = name.toLowerCase();
         return n === "src" || n === "srcdoc";
       }
       exports.isNestedHostNavAttr = isNestedHostNavAttr;
-      function ensureNestedHostSandboxAccess(iframe) {
-        if (iframe.localName.toLowerCase() !== "iframe")
-          return;
-        const raw = iframe.getAttribute("sandbox");
+      function isNestedHostSandboxAttr(name) {
+        return name.toLowerCase() === "sandbox";
+      }
+      exports.isNestedHostSandboxAttr = isNestedHostSandboxAttr;
+      function nestedHostSandboxAttrValue(raw) {
         if (raw === null)
-          return;
+          return null;
         const tokens = raw.split(/\s+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0 && t !== "allow-scripts");
         if (!tokens.includes("allow-same-origin")) {
           tokens.push("allow-same-origin");
         }
-        iframe.setAttribute("sandbox", tokens.join(" "));
+        return tokens.join(" ");
+      }
+      exports.nestedHostSandboxAttrValue = nestedHostSandboxAttrValue;
+      function sandboxTokenSet(raw) {
+        const value = nestedHostSandboxAttrValue(raw);
+        if (value === null || value.length === 0)
+          return /* @__PURE__ */ new Set(["allow-same-origin"]);
+        return new Set(value.split(" ").filter((t) => t.length > 0));
+      }
+      function sandboxSetsEqual(a, b) {
+        if (a === null && b === null)
+          return true;
+        if (a === null || b === null)
+          return false;
+        const sa = sandboxTokenSet(a);
+        const sb = sandboxTokenSet(b);
+        if (sa.size !== sb.size)
+          return false;
+        for (const t of sa) {
+          if (!sb.has(t))
+            return false;
+        }
+        return true;
+      }
+      function applyNestedHostSandboxAttr(iframe, raw) {
+        const current = iframe.getAttribute("sandbox");
+        const next = nestedHostSandboxAttrValue(raw);
+        if (next === null) {
+          if (current === null)
+            return false;
+          iframe.removeAttribute("sandbox");
+          return true;
+        }
+        if (current === next)
+          return false;
+        if (current !== null) {
+          const liveTokens = current.split(/\s+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0);
+          if (!liveTokens.includes("allow-scripts") && liveTokens.includes("allow-same-origin") && sandboxSetsEqual(current, next)) {
+            return false;
+          }
+        }
+        iframe.setAttribute("sandbox", next);
+        return true;
+      }
+      exports.applyNestedHostSandboxAttr = applyNestedHostSandboxAttr;
+      function ensureNestedHostSandboxAccess(iframe) {
+        if (iframe.localName.toLowerCase() !== "iframe")
+          return false;
+        const raw = iframe.getAttribute("sandbox");
+        if (raw === null)
+          return false;
+        return applyNestedHostSandboxAttr(iframe, raw);
       }
       exports.ensureNestedHostSandboxAccess = ensureNestedHostSandboxAccess;
     }
@@ -1898,7 +1950,7 @@
     "../packages/page-projection/dist/projected/projectedBlankIframe.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.constructedStyleSheetInit = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = void 0;
+      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.constructedStyleSheetInit = exports.stripProjectedSkeleton = exports.reincarnateProjectedStandardsSrcdoc = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = void 0;
       exports.PROJECTED_SKELETON_META_NAME = "speculum-projected-skeleton";
       exports.PROJECTED_K5_CSP = "script-src 'none'; object-src 'none'";
       exports.PROJECTED_STANDARDS_SRCDOC = `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${exports.PROJECTED_K5_CSP}"><meta name="${exports.PROJECTED_SKELETON_META_NAME}" content="1"></head><body></body></html>`;
@@ -1913,6 +1965,11 @@
         iframe.srcdoc = exports.PROJECTED_STANDARDS_SRCDOC;
       }
       exports.stampProjectedStandardsSrcdoc = stampProjectedStandardsSrcdoc2;
+      function reincarnateProjectedStandardsSrcdoc(iframe) {
+        iframe.srcdoc = "";
+        stampProjectedStandardsSrcdoc2(iframe);
+      }
+      exports.reincarnateProjectedStandardsSrcdoc = reincarnateProjectedStandardsSrcdoc;
       function stripProjectedSkeleton(doc) {
         while (doc.firstChild)
           doc.removeChild(doc.firstChild);
@@ -2085,6 +2142,37 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/ownedStylesheetLink.js
+  var require_ownedStylesheetLink = __commonJS({
+    "../packages/page-projection/dist/projected/ownedStylesheetLink.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.disableProjectedNativeStylesheet = exports.isHtmlStylesheetLink = void 0;
+      function isHtmlStylesheetLink(node) {
+        if (node.nodeType !== 1)
+          return false;
+        const el2 = node;
+        if (el2.localName.toLowerCase() !== "link")
+          return false;
+        const link = el2;
+        try {
+          if (link.relList?.contains("stylesheet"))
+            return true;
+        } catch {
+        }
+        const rel = (link.rel || el2.getAttribute("rel") || "").toLowerCase();
+        return rel.split(/\s+/).includes("stylesheet");
+      }
+      exports.isHtmlStylesheetLink = isHtmlStylesheetLink;
+      function disableProjectedNativeStylesheet(node) {
+        if (!isHtmlStylesheetLink(node))
+          return;
+        node.disabled = true;
+      }
+      exports.disableProjectedNativeStylesheet = disableProjectedNativeStylesheet;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/applyDom.js
   var require_applyDom = __commonJS({
     "../packages/page-projection/dist/projected/applyDom.js"(exports) {
@@ -2106,6 +2194,7 @@
       var scriptingOnPaintParity_1 = require_scriptingOnPaintParity();
       var projectedBlankIframe_1 = require_projectedBlankIframe();
       var closedShadowLookup_1 = require_closedShadowLookup();
+      var ownedStylesheetLink_1 = require_ownedStylesheetLink();
       var DomFrameApplier2 = class {
         queued = [];
         raf = null;
@@ -2671,6 +2760,7 @@
               const attrNames = attrs.map((a) => a.name).join(",");
               return this.failOp("malformed", "nodeNew", op.id, `setAttribute failed on <${op.name}> attrs=[${attrNames}]`);
             }
+            (0, ownedStylesheetLink_1.disableProjectedNativeStylesheet)(node);
             if (op.nestedHost === true && node.localName.toLowerCase() === "iframe") {
               const iframe = node;
               (0, nestedNav_1.ensureNestedHostSandboxAccess)(iframe);
@@ -2803,14 +2893,20 @@
           if (isHtmlScriptElement(node) && op.attrs.some((a) => a.name === "src" && a.value.length > 0)) {
             (0, projectedBlankIframe_1.ensureProjectedK5Csp)(this.doc);
           }
-          const attrs = this.nestedHostIds.has(op.node) ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name)) : op.attrs;
+          const attrs = this.nestedHostIds.has(op.node) ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name) && !(0, nestedNav_1.isNestedHostSandboxAttr)(a.name)) : op.attrs;
           if (!applyAttrs(node, attrs, this.options.stampUrl)) {
             return this.fail("malformed", "attrSet", op.node);
           }
+          (0, ownedStylesheetLink_1.disableProjectedNativeStylesheet)(node);
           if (this.nestedHostIds.has(op.node) && node.nodeType === Node.ELEMENT_NODE && node.localName.toLowerCase() === "iframe") {
             const iframe = node;
-            (0, nestedNav_1.ensureNestedHostSandboxAccess)(iframe);
-            (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
+            const incomingSandbox = op.attrs.find((a) => (0, nestedNav_1.isNestedHostSandboxAttr)(a.name));
+            const wroteSandbox = incomingSandbox ? (0, nestedNav_1.applyNestedHostSandboxAttr)(iframe, incomingSandbox.value) : (0, nestedNav_1.ensureNestedHostSandboxAccess)(iframe);
+            if (wroteSandbox) {
+              (0, projectedBlankIframe_1.reincarnateProjectedStandardsSrcdoc)(iframe);
+              this.maybeInstallNestedHost(op.node, node, { restart: true });
+              return true;
+            }
           }
           this.maybeInstallNestedHost(op.node, node);
           return true;
@@ -2820,8 +2916,20 @@
           if (!node || node.nodeType !== Node.ELEMENT_NODE)
             return this.fail("address_miss", "attrDel", op.node);
           const el2 = node;
-          for (let i = 0; i < op.names.length; i++)
-            el2.removeAttribute(op.names[i]);
+          const isNestedIframe = this.nestedHostIds.has(op.node) && el2.localName.toLowerCase() === "iframe";
+          let wroteSandbox = false;
+          for (let i = 0; i < op.names.length; i++) {
+            const name = op.names[i];
+            if (isNestedIframe && (0, nestedNav_1.isNestedHostSandboxAttr)(name)) {
+              wroteSandbox = (0, nestedNav_1.applyNestedHostSandboxAttr)(el2, null) || wroteSandbox;
+              continue;
+            }
+            el2.removeAttribute(name);
+          }
+          if (wroteSandbox) {
+            (0, projectedBlankIframe_1.reincarnateProjectedStandardsSrcdoc)(el2);
+            this.maybeInstallNestedHost(op.node, node, { restart: true });
+          }
           return true;
         }
         applyTextSet(op) {
@@ -2858,8 +2966,9 @@
          * Arm nested apply when the row is a marked host. Stamp already happened on
          * NODE_NEW; wait for the skeleton **before** INSERT so `load` is not missed.
          * `contentWindow` is optional here — disconnected iframes have none yet.
+         * `restart` after a sandbox write that reincarnated the browsing context.
          */
-        maybeInstallNestedHost(id, node) {
+        maybeInstallNestedHost(id, node, hint) {
           if (!this.nestedHostIds.has(id))
             return;
           if (node.nodeType !== Node.ELEMENT_NODE || node.localName.toLowerCase() !== "iframe") {
@@ -2868,7 +2977,7 @@
           const childScopeId = this.childScopes.get(id);
           if (childScopeId === void 0)
             return;
-          this.options.onNestedHost?.(node, childScopeId);
+          this.options.onNestedHost?.(node, childScopeId, hint);
         }
       };
       exports.DomFrameApplier = DomFrameApplier2;
@@ -3692,6 +3801,8 @@
           if (this.flightDepth > 0)
             return;
           this.drainLoop(drain);
+          if (this.flightDepth > 0)
+            return;
           if (this.flightStartMs > 0) {
             this.onFlightEnd?.({
               maxDepth: this.maxDepth,
@@ -3724,6 +3835,21 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/resyncSwapPolicy.js
+  var require_resyncSwapPolicy = __commonJS({
+    "../packages/page-projection/dist/projected/resyncSwapPolicy.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.shouldApplyUnsolicitedResync = void 0;
+      function shouldApplyUnsolicitedResync(clientAsked, unsolicitedSwapsThisGeneration) {
+        if (clientAsked)
+          return true;
+        return unsolicitedSwapsThisGeneration < 1;
+      }
+      exports.shouldApplyUnsolicitedResync = shouldApplyUnsolicitedResync;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/nestedProjectedApply.js
   var require_nestedProjectedApply = __commonJS({
     "../packages/page-projection/dist/projected/nestedProjectedApply.js"(exports) {
@@ -3739,6 +3865,7 @@
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
       var projectedApplyGate_1 = require_projectedApplyGate();
+      var resyncSwapPolicy_1 = require_resyncSwapPolicy();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -3754,12 +3881,15 @@
         resyncExhausted = false;
         resyncBackoffTimer = null;
         resyncTimeoutTimer = null;
+        resyncBuildPending = false;
         generation = 1;
         lastSequence = 0;
         /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
         highestSeenSequence = 0;
         /** Gate overflowed during a long rebuild — evaluate lag after drain, do not wipe live. */
         lagCatchUp = false;
+        lagCatchUpsThisGeneration = 0;
+        unsolicitedResyncSwapsThisGeneration = 0;
         armed = false;
         everArmed = false;
         lastDesyncReason = null;
@@ -3897,7 +4027,7 @@
                 this.failResyncAttempt(info.reason);
               }
             },
-            onNestedHost: (iframe, childScopeId) => this.onNestedHostCb?.(iframe, childScopeId),
+            onNestedHost: (iframe, childScopeId, hint) => this.onNestedHostCb?.(iframe, childScopeId, hint),
             onNestedHostDrop: (childScopeId) => this.onNestedHostDropCb?.(childScopeId),
             onApplied: (frame, applyMs) => {
               if (state.swapped) {
@@ -4015,6 +4145,13 @@
               return;
             }
             if (this.everArmed) {
+              const asked = this.lastDesyncReason !== null || this.resyncTimeoutTimer !== null;
+              if (!(0, resyncSwapPolicy_1.shouldApplyUnsolicitedResync)(asked, this.unsolicitedResyncSwapsThisGeneration)) {
+                this.lastSequence = frame.sequence;
+                return;
+              }
+              if (!asked)
+                this.unsolicitedResyncSwapsThisGeneration += 1;
               this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
               return;
             }
@@ -4047,7 +4184,12 @@
           this.abandonResyncAttempt();
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
+          const previousGeneration = this.generation;
           this.generation = frame.generation;
+          if (frame.generation !== previousGeneration) {
+            this.lagCatchUpsThisGeneration = 0;
+            this.unsolicitedResyncSwapsThisGeneration = 0;
+          }
           this.armed = false;
           this.everArmed = false;
           this.live.applier.dispose();
@@ -4066,6 +4208,14 @@
           this.live.applier.flush();
         }
         async beginResyncTargetAsync(frame) {
+          this.resyncBuildPending = true;
+          try {
+            await this.beginResyncTargetAsyncBody(frame);
+          } finally {
+            this.resyncBuildPending = false;
+          }
+        }
+        async beginResyncTargetAsyncBody(frame) {
           if (this.resyncTimeoutTimer !== null) {
             clearTimeout(this.resyncTimeoutTimer);
             this.resyncTimeoutTimer = null;
@@ -4121,15 +4271,21 @@
          * After apply-gate drain: request wholesale lag only if still behind (root parity).
          */
         maybeRequestLagCatchUp() {
+          if (this.applyGate.blocked || this.resyncPlumbingBusy())
+            return;
           const behind = this.highestSeenSequence > this.lastSequence;
           if (!behind) {
             this.lagCatchUp = false;
             return;
           }
           this.lagCatchUp = false;
+          if (this.lagCatchUpsThisGeneration >= 1) {
+            return;
+          }
           if (this.lastDesyncReason === null) {
             this.lastDesyncReason = "lag";
           }
+          this.lagCatchUpsThisGeneration += 1;
           this.scheduleResyncAttempt("lag");
         }
         failResyncAttempt(reason) {
@@ -4151,7 +4307,11 @@
           });
           this.scheduleResyncAttempt(reason);
         }
+        resyncPlumbingBusy() {
+          return this.resyncBuildPending || this.resync !== null || this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null;
+        }
         abandonResyncAttempt() {
+          this.resyncBuildPending = false;
           if (this.resyncBackoffTimer !== null) {
             clearTimeout(this.resyncBackoffTimer);
             this.resyncBackoffTimer = null;
@@ -4168,7 +4328,7 @@
         scheduleResyncAttempt(reason) {
           if (this.resyncExhausted)
             return;
-          if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null)
+          if (this.resyncPlumbingBusy())
             return;
           const attempt = this.resyncAttempts + 1;
           if (attempt > MAX_RESYNC_ATTEMPTS) {
@@ -4189,6 +4349,8 @@
           const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
           this.resyncBackoffTimer = setTimeout(() => {
             this.resyncBackoffTimer = null;
+            if (this.resyncBuildPending || this.resync !== null)
+              return;
             if (reason === "lag" && this.highestSeenSequence <= this.lastSequence) {
               if (this.lastDesyncReason === "lag") {
                 this.lastDesyncReason = null;
@@ -4382,6 +4544,7 @@
       var projectedBlankIframe_1 = require_projectedBlankIframe();
       var nestedNav_1 = require_nestedNav();
       var projectedApplyGate_1 = require_projectedApplyGate();
+      var resyncSwapPolicy_1 = require_resyncSwapPolicy();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -4406,11 +4569,17 @@
         resyncExhausted = false;
         resyncBackoffTimer = null;
         resyncTimeoutTimer = null;
+        /** Standby iframe is being created — `this.resync` is still null; treat as in-flight. */
+        resyncBuildPending = false;
         lastSequence = 0;
         /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
         highestSeenSequence = 0;
         /** Gate overflowed during a long rebuild — request another resync after swap, do not wipe live. */
         lagCatchUp = false;
+        /** Wholesale lag resync is one shot per generation — a live page is always "behind". */
+        lagCatchUpsThisGeneration = 0;
+        /** Unsolicited resync-flagged frames (producer dump, not client request) — one swap per generation. */
+        unsolicitedResyncSwapsThisGeneration = 0;
         generation = 1;
         armed = false;
         /**
@@ -4462,21 +4631,24 @@
           });
           return new _ProjectionClient(opts, surface);
         }
-        installNestedHost(iframe, contextId) {
+        installNestedHost(iframe, contextId, hint) {
+          const restart = hint?.restart === true;
           const liveDoc = iframe.contentDocument;
           const existing = this.nested.get(contextId);
           if (existing) {
-            try {
-              if (existing.hostIframe === iframe && liveDoc != null && existing.registry.get(frame_1.DOCUMENT_ID) === liveDoc && liveDoc.defaultView != null) {
-                return;
+            if (!restart) {
+              try {
+                if (existing.hostIframe === iframe && liveDoc != null && existing.registry.get(frame_1.DOCUMENT_ID) === liveDoc && liveDoc.defaultView != null) {
+                  return;
+                }
+              } catch {
               }
-            } catch {
             }
             existing.dispose();
             this.nested.delete(contextId);
           }
           const pendingSameIframe = this.nestedHostAwaitingLoad.get(contextId);
-          if (pendingSameIframe && pendingSameIframe.iframe === iframe) {
+          if (!restart && pendingSameIframe && pendingSameIframe.iframe === iframe) {
             return;
           }
           this.cancelPendingNestedHost(contextId);
@@ -4535,7 +4707,7 @@
             getToken: () => this.resolveToken(),
             getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
             getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
-            onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
+            onNestedHost: (childIframe, childScopeId, hint) => this.installNestedHost(childIframe, childScopeId, hint),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onTelemetry: (msg) => this.onTelemetry?.(msg),
             onArmed: () => {
@@ -4684,6 +4856,8 @@
           this.lastSequence = 0;
           this.highestSeenSequence = 0;
           this.lagCatchUp = false;
+          this.lagCatchUpsThisGeneration = 0;
+          this.unsolicitedResyncSwapsThisGeneration = 0;
           this.generation = 1;
           this.armed = false;
           this.everArmed = false;
@@ -4815,6 +4989,13 @@
               return;
             }
             if (this.everArmed) {
+              const asked = this.lastDesyncReason !== null || this.resyncTimeoutTimer !== null;
+              if (!(0, resyncSwapPolicy_1.shouldApplyUnsolicitedResync)(asked, this.unsolicitedResyncSwapsThisGeneration)) {
+                this.lastSequence = frame.sequence;
+                return;
+              }
+              if (!asked)
+                this.unsolicitedResyncSwapsThisGeneration += 1;
               this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
               return;
             }
@@ -4855,7 +5036,12 @@
           this.abandonResyncAttempt();
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
+          const previousGeneration = this.generation;
           this.generation = frame.generation;
+          if (frame.generation !== previousGeneration) {
+            this.lagCatchUpsThisGeneration = 0;
+            this.unsolicitedResyncSwapsThisGeneration = 0;
+          }
           this.armed = false;
           this.everArmed = false;
           for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
@@ -4901,7 +5087,7 @@
             stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
             stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, this.resolveToken(), this.resolveAssetBaseUrl()),
             getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
-            onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
+            onNestedHost: (iframe, childScopeId, hint) => this.installNestedHost(iframe, childScopeId, hint),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onWarn: (message) => {
               this.onTelemetry?.({
@@ -4972,6 +5158,14 @@
         }
         /** Begins (or restarts) a standby build the moment a `resync`-flagged frame is first seen. */
         async beginResyncTargetAsync(frame) {
+          this.resyncBuildPending = true;
+          try {
+            await this.beginResyncTargetAsyncBody(frame);
+          } finally {
+            this.resyncBuildPending = false;
+          }
+        }
+        async beginResyncTargetAsyncBody(frame) {
           if (this.resyncTimeoutTimer !== null) {
             clearTimeout(this.resyncTimeoutTimer);
             this.resyncTimeoutTimer = null;
@@ -5025,15 +5219,21 @@
          * not close the gap. Do not call from commitResyncSwap (pre-drain).
          */
         maybeRequestLagCatchUp() {
+          if (this.applyGate.blocked || this.resyncPlumbingBusy())
+            return;
           const behind = this.highestSeenSequence > this.lastSequence;
           if (!behind) {
             this.lagCatchUp = false;
             return;
           }
           this.lagCatchUp = false;
+          if (this.lagCatchUpsThisGeneration >= 1) {
+            return;
+          }
           if (this.lastDesyncReason === null) {
             this.lastDesyncReason = "lag";
           }
+          this.lagCatchUpsThisGeneration += 1;
           this.scheduleResyncAttempt("lag");
         }
         /** Live document is interactive (cold arm or post-swap). Idempotent armed flag; callback may re-fire. */
@@ -5073,7 +5273,11 @@
           });
           this.scheduleResyncAttempt(reason);
         }
+        resyncPlumbingBusy() {
+          return this.resyncBuildPending || this.resync !== null || this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null;
+        }
         abandonResyncAttempt() {
+          this.resyncBuildPending = false;
           if (this.resyncBackoffTimer !== null) {
             clearTimeout(this.resyncBackoffTimer);
             this.resyncBackoffTimer = null;
@@ -5096,7 +5300,7 @@
         scheduleResyncAttempt(reason, contextId = frame_1.CONTEXT_ID_ROOT) {
           if (this.resyncExhausted)
             return;
-          if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null)
+          if (this.resyncPlumbingBusy())
             return;
           const attempt = this.resyncAttempts + 1;
           if (attempt > MAX_RESYNC_ATTEMPTS) {
@@ -5117,6 +5321,8 @@
           const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
           this.resyncBackoffTimer = setTimeout(() => {
             this.resyncBackoffTimer = null;
+            if (this.resyncBuildPending || this.resync !== null)
+              return;
             if (reason === "lag" && this.highestSeenSequence <= this.lastSequence) {
               if (this.lastDesyncReason === "lag")
                 this.lastDesyncReason = null;
@@ -6648,13 +6854,20 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.constructedStyleSheetInit = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.shouldApplyUnsolicitedResync = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.constructedStyleSheetInit = exports.stripProjectedSkeleton = exports.reincarnateProjectedStandardsSrcdoc = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.isHtmlStylesheetLink = exports.disableProjectedNativeStylesheet = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
       } });
       Object.defineProperty(exports, "createProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.createProjectionClient;
+      } });
+      var ownedStylesheetLink_1 = require_ownedStylesheetLink();
+      Object.defineProperty(exports, "disableProjectedNativeStylesheet", { enumerable: true, get: function() {
+        return ownedStylesheetLink_1.disableProjectedNativeStylesheet;
+      } });
+      Object.defineProperty(exports, "isHtmlStylesheetLink", { enumerable: true, get: function() {
+        return ownedStylesheetLink_1.isHtmlStylesheetLink;
       } });
       var applyDom_1 = require_applyDom();
       Object.defineProperty(exports, "DomFrameApplier", { enumerable: true, get: function() {
@@ -6684,6 +6897,9 @@
       Object.defineProperty(exports, "stampProjectedStandardsSrcdoc", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stampProjectedStandardsSrcdoc;
       } });
+      Object.defineProperty(exports, "reincarnateProjectedStandardsSrcdoc", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.reincarnateProjectedStandardsSrcdoc;
+      } });
       Object.defineProperty(exports, "stripProjectedSkeleton", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stripProjectedSkeleton;
       } });
@@ -6708,6 +6924,10 @@
       var nestedProjectedApply_1 = require_nestedProjectedApply();
       Object.defineProperty(exports, "NestedProjectedApply", { enumerable: true, get: function() {
         return nestedProjectedApply_1.NestedProjectedApply;
+      } });
+      var resyncSwapPolicy_1 = require_resyncSwapPolicy();
+      Object.defineProperty(exports, "shouldApplyUnsolicitedResync", { enumerable: true, get: function() {
+        return resyncSwapPolicy_1.shouldApplyUnsolicitedResync;
       } });
       var projectedInputCapture_1 = require_projectedInputCapture();
       Object.defineProperty(exports, "attachProjectedInputCapture", { enumerable: true, get: function() {
@@ -7876,9 +8096,9 @@
     "../packages/page-projection/dist/core/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = exports.LOOPBACK_INVOKE_HEARTBEAT_MS = exports.LOOPBACK_INVOKE_IDLE_MS = exports.LOOPBACK_CONTROL_INVOKE_NAME = exports.VIRTUAL_LOOPBACK_CHANNEL = exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = exports.planeChannelName = exports.PlaneChannel = exports.desyncPhase = exports.isProjectionTelemetryMessage = exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = exports.PersistentStringTable = exports.FramePartAssembler = exports.peekFrameHeader = exports.decodeFramePart = exports.isNestedHostNavAttr = exports.ensureNestedHostSandboxAccess = exports.ContextIdMint = exports.createFrame = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.unpackElementNsWireByte = exports.packElementNsWireByte = exports.elementNsSnapshotLabel = exports.elementNsUri = exports.classifyElementNs = exports.ELEMENT_NS_NESTED_HOST_BIT = exports.ELEMENT_NS_MATHML = exports.ELEMENT_NS_SVG = exports.ELEMENT_NS_HTML = exports.ElementNs = exports.NodeKind = exports.opCodeName = exports.OpCode = exports.NONE_DOM_NODE_KEY = void 0;
-      exports.compareTableToLiveCssom = exports.compareTableToLiveOrder = exports.applyFrameToTableChecked = exports.applyOpsToTable = exports.ReplicatedTable = exports.tableDigestsEqual = exports.digestReplicatedTable = exports.snapshotTree = exports.bytesToBase64 = exports.encodeAssetRequest = exports.encodeControlFromIntent = exports.encodeDownloadRespond = exports.encodePermissionRespond = exports.encodeDialogRespond = exports.encodeViewportSet = exports.encodeHistoryGo = exports.encodeInputScroll = exports.encodeInputKey = exports.encodeInputPointer = exports.modsToU8 = exports.buttonToU8 = exports.fracToU16 = exports.GECKO_INPUT_SCROLL_SET = exports.GECKO_INPUT_KEY_UP = exports.GECKO_INPUT_KEY_DOWN = exports.GECKO_INPUT_UP = exports.GECKO_INPUT_DOWN = exports.GECKO_OP_VIEWPORT_SET = exports.GECKO_OP_HISTORY_GO = exports.GECKO_OP_INPUT = exports.INTENT_SCHEMA_VERSION = exports.isExtensionPlaneWireMessage = exports.decodeExtensionPlaneEnvelope = exports.EXTENSION_PLANE_CHANNEL = exports.LOOPBACK_SOCKET_CLOSED = exports.LOOPBACK_SOCKET_CLOSING = exports.LOOPBACK_SOCKET_OPEN = exports.LOOPBACK_SOCKET_CONNECTING = exports.isLoopbackWireMessage = exports.decodeLoopbackToPlane = exports.encodeLoopbackFromPlane = exports.encodeLoopbackInvokeHeartbeat = exports.encodeLoopbackInvokeStarted = exports.encodeLoopbackInvokeResult = exports.encodeLoopbackInvoke = exports.encodeLoopbackHelloReject = exports.encodeLoopbackHelloAck = exports.encodeLoopbackHello = exports.decodeLoopbackEnvelope = exports.encodeLoopbackEnvelope = void 0;
-      exports.formControlSnapsEqual = void 0;
+      exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = exports.LOOPBACK_INVOKE_HEARTBEAT_MS = exports.LOOPBACK_INVOKE_IDLE_MS = exports.LOOPBACK_CONTROL_INVOKE_NAME = exports.VIRTUAL_LOOPBACK_CHANNEL = exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = exports.planeChannelName = exports.PlaneChannel = exports.desyncPhase = exports.isProjectionTelemetryMessage = exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = exports.PersistentStringTable = exports.FramePartAssembler = exports.peekFrameHeader = exports.decodeFramePart = exports.isNestedHostSandboxAttr = exports.isNestedHostNavAttr = exports.nestedHostSandboxAttrValue = exports.applyNestedHostSandboxAttr = exports.ensureNestedHostSandboxAccess = exports.ContextIdMint = exports.createFrame = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.unpackElementNsWireByte = exports.packElementNsWireByte = exports.elementNsSnapshotLabel = exports.elementNsUri = exports.classifyElementNs = exports.ELEMENT_NS_NESTED_HOST_BIT = exports.ELEMENT_NS_MATHML = exports.ELEMENT_NS_SVG = exports.ELEMENT_NS_HTML = exports.ElementNs = exports.NodeKind = exports.opCodeName = exports.OpCode = exports.NONE_DOM_NODE_KEY = void 0;
+      exports.applyOpsToTable = exports.ReplicatedTable = exports.tableDigestsEqual = exports.digestReplicatedTable = exports.snapshotTree = exports.bytesToBase64 = exports.encodeAssetRequest = exports.encodeControlFromIntent = exports.encodeDownloadRespond = exports.encodePermissionRespond = exports.encodeDialogRespond = exports.encodeViewportSet = exports.encodeHistoryGo = exports.encodeInputScroll = exports.encodeInputKey = exports.encodeInputPointer = exports.modsToU8 = exports.buttonToU8 = exports.fracToU16 = exports.GECKO_INPUT_SCROLL_SET = exports.GECKO_INPUT_KEY_UP = exports.GECKO_INPUT_KEY_DOWN = exports.GECKO_INPUT_UP = exports.GECKO_INPUT_DOWN = exports.GECKO_OP_VIEWPORT_SET = exports.GECKO_OP_HISTORY_GO = exports.GECKO_OP_INPUT = exports.INTENT_SCHEMA_VERSION = exports.isExtensionPlaneWireMessage = exports.decodeExtensionPlaneEnvelope = exports.EXTENSION_PLANE_CHANNEL = exports.LOOPBACK_SOCKET_CLOSED = exports.LOOPBACK_SOCKET_CLOSING = exports.LOOPBACK_SOCKET_OPEN = exports.LOOPBACK_SOCKET_CONNECTING = exports.isLoopbackWireMessage = exports.decodeLoopbackToPlane = exports.encodeLoopbackFromPlane = exports.encodeLoopbackInvokeHeartbeat = exports.encodeLoopbackInvokeStarted = exports.encodeLoopbackInvokeResult = exports.encodeLoopbackInvoke = exports.encodeLoopbackHelloReject = exports.encodeLoopbackHelloAck = exports.encodeLoopbackHello = exports.decodeLoopbackEnvelope = exports.encodeLoopbackEnvelope = exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = void 0;
+      exports.formControlSnapsEqual = exports.compareTableToLiveCssom = exports.compareTableToLiveOrder = exports.applyFrameToTableChecked = void 0;
       var domNodeKey_1 = require_domNodeKey();
       Object.defineProperty(exports, "NONE_DOM_NODE_KEY", { enumerable: true, get: function() {
         return domNodeKey_1.NONE_DOM_NODE_KEY;
@@ -7951,8 +8171,17 @@
       Object.defineProperty(exports, "ensureNestedHostSandboxAccess", { enumerable: true, get: function() {
         return nestedNav_1.ensureNestedHostSandboxAccess;
       } });
+      Object.defineProperty(exports, "applyNestedHostSandboxAttr", { enumerable: true, get: function() {
+        return nestedNav_1.applyNestedHostSandboxAttr;
+      } });
+      Object.defineProperty(exports, "nestedHostSandboxAttrValue", { enumerable: true, get: function() {
+        return nestedNav_1.nestedHostSandboxAttrValue;
+      } });
       Object.defineProperty(exports, "isNestedHostNavAttr", { enumerable: true, get: function() {
         return nestedNav_1.isNestedHostNavAttr;
+      } });
+      Object.defineProperty(exports, "isNestedHostSandboxAttr", { enumerable: true, get: function() {
+        return nestedNav_1.isNestedHostSandboxAttr;
       } });
       var decode_1 = require_decode();
       Object.defineProperty(exports, "decodeFramePart", { enumerable: true, get: function() {
@@ -9266,8 +9495,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 137,
-    builtAt: "2026-09-17T07:30:24.528Z"
+    seq: 143,
+    builtAt: "2026-09-17T18:20:47.801Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts
@@ -10272,11 +10501,15 @@
     await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller) {
       await new Promise((resolve) => {
-        const done = () => resolve();
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = window.setTimeout(done, 2e3);
         navigator.serviceWorker.addEventListener("controllerchange", done, { once: true });
         if (navigator.serviceWorker.controller) {
           navigator.serviceWorker.removeEventListener("controllerchange", done);
-          resolve();
+          done();
         }
       });
     }
@@ -10795,6 +11028,7 @@
     let mode = "browse";
     let runInFlight = false;
     let sessionLive = false;
+    let browseStarting = false;
     let sessionId = null;
     let phase = "idle";
     let opsTotal = 0;
@@ -10975,7 +11209,7 @@
       connectBtn.disabled = open;
       connectBtn.classList.toggle("primary", !open);
       $("disconnect").disabled = !open;
-      $("browseStart").disabled = !open || mode !== "browse" || sessionLive || runInFlight;
+      $("browseStart").disabled = !open || mode !== "browse" || sessionLive || runInFlight || browseStarting;
       $("browseNavigate").disabled = !open || mode !== "browse" || !sessionLive || runInFlight;
       $("browseSnap").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || snapInFlight;
       $("browseWidgetParity").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || widgetParityInFlight || !projection;
@@ -10986,7 +11220,10 @@
       document.querySelectorAll("[data-mode]").forEach((btn) => {
         btn.disabled = runInFlight;
       });
-      $("browseStart").classList.toggle("primary", open && mode === "browse" && !sessionLive);
+      $("browseStart").classList.toggle(
+        "primary",
+        open && mode === "browse" && !sessionLive && !browseStarting
+      );
       $("runStart").classList.toggle("primary", open && mode === "run" && !runInFlight);
       $("browseStart").title = !open ? "Connect first" : sessionLive ? "Virtual already live \u2014 Stop first" : "Cold-start Virtual at the URL";
       $("runStart").title = !open ? "Connect first" : runInFlight ? "Run in flight" : "Cold-boot blueprint DAG (URL comes from blueprint)";
@@ -11215,7 +11452,11 @@
             );
           }
           if (m.kind === "resyncCompleted") {
-            logActivity(`resync completed seq=${msg.sequence ?? "?"}`);
+            ctxStats(ctxId).resync += 1;
+            const seq = msg.sequence ?? "?";
+            logActivity(
+              ctxId === import_frame4.CONTEXT_ID_ROOT ? `resync completed seq=${seq}` : `ctx${ctxId} resync completed seq=${seq}`
+            );
           }
           if (ws?.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "client.telemetry", message: msg }));
@@ -11224,7 +11465,6 @@
         },
         onRequestResync: (info) => {
           const ctxId = info.contextId ?? import_frame4.CONTEXT_ID_ROOT;
-          ctxStats(ctxId).resync += 1;
           logActivity(
             ctxId === import_frame4.CONTEXT_ID_ROOT ? `resync requested reason=${info.reason}` : `ctx${ctxId} resync requested reason=${info.reason}`
           );
@@ -11349,6 +11589,7 @@
         stopAutoSnap();
         ws = null;
         sessionLive = false;
+        browseStarting = false;
         runInFlight = false;
         snapInFlight = false;
         syncButtons();
@@ -11559,6 +11800,7 @@
           browseSnapCount = 0;
           $("streamSnaps").textContent = "0";
           logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+          browseStarting = false;
           logActivity("click diag: __speculumLabDumpInputClick() in devtools after pointer click");
           startViewportSync();
           if (msg.mode === "browse") startAutoSnap();
@@ -11567,6 +11809,7 @@
         }
         if (msg.type === "session.stopped") {
           sessionLive = false;
+          browseStarting = false;
           stopAutoSnap();
           snapInFlight = false;
           disposeViewportSync();
@@ -11635,6 +11878,7 @@
             });
           }
           sessionLive = false;
+          browseStarting = false;
           runInFlight = false;
           stopAutoSnap();
           snapInFlight = false;
@@ -11773,40 +12017,48 @@
       }
     );
     $("browseStart").addEventListener("click", () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN || sessionLive || browseStarting) return;
       clearCrashOverlay();
       disposeViewportSync();
       canonicalViewport = measureAndNormalizeViewport();
       bootDeviceProfile = (0, import_projected3.detectViewportDeviceProfile)();
-      void (async () => {
-        if (isGeckoLab()) {
-          try {
-            documentBaseUrl = new URL(urlInput.value).href;
-          } catch {
-            documentBaseUrl = urlInput.value;
-          }
+      browseStarting = true;
+      syncButtons();
+      if (isGeckoLab()) {
+        try {
+          documentBaseUrl = new URL(urlInput.value).href;
+        } catch {
+          documentBaseUrl = urlInput.value;
         }
-        const p = await ensureProjection();
-        await p.resetSurface();
-        clearAssetTrace();
-        disposeImgTrace?.();
-        disposeImgTrace = installImgTrace(p.document);
-        p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-        resetStreamCounters();
-        logActivity(
-          `browse.start viewport ${canonicalViewport.width}\xD7${canonicalViewport.height}`
-        );
-        ws?.send(
-          JSON.stringify({
-            type: "browse.start",
-            url: urlInput.value,
-            width: canonicalViewport.width,
-            height: canonicalViewport.height,
-            device: bootDeviceProfile,
-            frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
-            telemetry: readTelemetryFromUi(),
-            cpuProfiling: document.getElementById("browseCpu")?.checked === true
-          })
-        );
+      }
+      logActivity(
+        `browse.start viewport ${canonicalViewport.width}\xD7${canonicalViewport.height}`
+      );
+      ws.send(
+        JSON.stringify({
+          type: "browse.start",
+          url: urlInput.value,
+          width: canonicalViewport.width,
+          height: canonicalViewport.height,
+          device: bootDeviceProfile,
+          frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
+          telemetry: readTelemetryFromUi(),
+          cpuProfiling: document.getElementById("browseCpu")?.checked === true
+        })
+      );
+      void (async () => {
+        try {
+          const p = await ensureProjection();
+          await p.resetSurface();
+          clearAssetTrace();
+          disposeImgTrace?.();
+          disposeImgTrace = installImgTrace(p.document);
+          p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+          resetStreamCounters();
+        } catch (err) {
+          const text = err instanceof Error ? err.message : String(err);
+          logActivity(`projected boot failed: ${text}`);
+        }
       })();
     });
     $("browseNavigate").addEventListener("click", () => {

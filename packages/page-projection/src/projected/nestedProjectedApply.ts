@@ -10,7 +10,7 @@ import {
   PersistentStringTable,
   type AssembledFrame,
 } from '../core/decode';
-import { DomFrameApplier } from './applyDom';
+import { DomFrameApplier, type NestedHostInstallHint } from './applyDom';
 import { createNestedResyncSurface, type NestedResyncSurface } from './nestedResyncSurface';
 import { PageProjectionRegistry } from './registry';
 import { DOCUMENT_ID } from '../core/frame';
@@ -18,13 +18,14 @@ import { digestReplicatedTable } from '../core/tableDigest';
 import { desyncPhase, TELEMETRY_WIRE_VERSION, type TelemetryPhase } from '../core/telemetry';
 import { stampAttrAuth, stampCssTextAuth } from './sessionBindingAuth';
 import { ProjectedApplyGate, PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK } from './projectedApplyGate';
+import { shouldApplyUnsolicitedResync } from './resyncSwapPolicy';
 
 export type NestedProjectedApplyOptions = {
   hostIframe: HTMLIFrameElement;
   document: Document;
   contextId: number;
   onArmed?: () => void;
-  onNestedHost?: (iframe: HTMLIFrameElement, childScopeId: number) => void;
+  onNestedHost?: (iframe: HTMLIFrameElement, childScopeId: number, hint?: NestedHostInstallHint) => void;
   onNestedHostDrop?: (childScopeId: number) => void;
   onTelemetry?: (msg: Record<string, unknown>) => void;
   onRequestResync?: (info: {
@@ -62,6 +63,7 @@ export class NestedProjectedApply {
   private resyncExhausted = false;
   private resyncBackoffTimer: ReturnType<typeof setTimeout> | null = null;
   private resyncTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private resyncBuildPending = false;
   private generation = 1;
   private lastSequence = 0;
   /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
@@ -69,6 +71,7 @@ export class NestedProjectedApply {
   /** Gate overflowed during a long rebuild — evaluate lag after drain, do not wipe live. */
   private lagCatchUp = false;
   private lagCatchUpsThisGeneration = 0;
+  private unsolicitedResyncSwapsThisGeneration = 0;
   private armed = false;
   private everArmed = false;
   private lastDesyncReason: string | null = null;
@@ -223,7 +226,7 @@ export class NestedProjectedApply {
           this.failResyncAttempt(info.reason);
         }
       },
-      onNestedHost: (iframe, childScopeId) => this.onNestedHostCb?.(iframe, childScopeId),
+      onNestedHost: (iframe, childScopeId, hint) => this.onNestedHostCb?.(iframe, childScopeId, hint),
       onNestedHostDrop: (childScopeId) => this.onNestedHostDropCb?.(childScopeId),
       onApplied: (frame, applyMs) => {
         if (state.swapped) {
@@ -359,6 +362,12 @@ export class NestedProjectedApply {
         return;
       }
       if (this.everArmed) {
+        const asked = this.lastDesyncReason !== null || this.resyncTimeoutTimer !== null;
+        if (!shouldApplyUnsolicitedResync(asked, this.unsolicitedResyncSwapsThisGeneration)) {
+          this.lastSequence = frame.sequence;
+          return;
+        }
+        if (!asked) this.unsolicitedResyncSwapsThisGeneration += 1;
         this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
         return;
       }
@@ -392,8 +401,12 @@ export class NestedProjectedApply {
     this.abandonResyncAttempt();
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
+    const previousGeneration = this.generation;
     this.generation = frame.generation;
-    this.lagCatchUpsThisGeneration = 0;
+    if (frame.generation !== previousGeneration) {
+      this.lagCatchUpsThisGeneration = 0;
+      this.unsolicitedResyncSwapsThisGeneration = 0;
+    }
     this.armed = false;
     this.everArmed = false;
     this.live.applier.dispose();
@@ -412,6 +425,15 @@ export class NestedProjectedApply {
   }
 
   private async beginResyncTargetAsync(frame: AssembledFrame): Promise<void> {
+    this.resyncBuildPending = true;
+    try {
+      await this.beginResyncTargetAsyncBody(frame);
+    } finally {
+      this.resyncBuildPending = false;
+    }
+  }
+
+  private async beginResyncTargetAsyncBody(frame: AssembledFrame): Promise<void> {
     if (this.resyncTimeoutTimer !== null) {
       clearTimeout(this.resyncTimeoutTimer);
       this.resyncTimeoutTimer = null;
@@ -468,6 +490,7 @@ export class NestedProjectedApply {
    * After apply-gate drain: request wholesale lag only if still behind (root parity).
    */
   private maybeRequestLagCatchUp(): void {
+    if (this.applyGate.blocked || this.resyncPlumbingBusy()) return;
     const behind = this.highestSeenSequence > this.lastSequence;
     if (!behind) {
       this.lagCatchUp = false;
@@ -504,7 +527,17 @@ export class NestedProjectedApply {
     this.scheduleResyncAttempt(reason);
   }
 
+  private resyncPlumbingBusy(): boolean {
+    return (
+      this.resyncBuildPending ||
+      this.resync !== null ||
+      this.resyncBackoffTimer !== null ||
+      this.resyncTimeoutTimer !== null
+    );
+  }
+
   private abandonResyncAttempt(): void {
+    this.resyncBuildPending = false;
     if (this.resyncBackoffTimer !== null) {
       clearTimeout(this.resyncBackoffTimer);
       this.resyncBackoffTimer = null;
@@ -521,7 +554,7 @@ export class NestedProjectedApply {
 
   private scheduleResyncAttempt(reason: string): void {
     if (this.resyncExhausted) return;
-    if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null) return;
+    if (this.resyncPlumbingBusy()) return;
     const attempt = this.resyncAttempts + 1;
     if (attempt > MAX_RESYNC_ATTEMPTS) {
       this.resyncExhausted = true;
@@ -541,6 +574,7 @@ export class NestedProjectedApply {
     const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
     this.resyncBackoffTimer = setTimeout(() => {
       this.resyncBackoffTimer = null;
+      if (this.resyncBuildPending || this.resync !== null) return;
       if (reason === 'lag' && this.highestSeenSequence <= this.lastSequence) {
         if (this.lastDesyncReason === 'lag') {
           this.lastDesyncReason = null;

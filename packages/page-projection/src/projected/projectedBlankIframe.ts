@@ -8,6 +8,8 @@
  *
  * Callers: create → set {@link PROJECTED_STANDARDS_SRCDOC} → insert →
  * {@link whenProjectedStandardsReady} → apply into the stripped document.
+ * Nested host: stamp once at NODE_NEW. Do not restamp on ATTR_SET. A live sandbox
+ * write after srcdoc must {@link reincarnateProjectedStandardsSrcdoc} and restart the waiter.
  */
 
 /** Identity marker — only our stamped srcdoc carries this meta; real navigations do not. */
@@ -52,9 +54,19 @@ function fault(
   return err;
 }
 
-/** Stamp standards `srcdoc` before the iframe is inserted (or to re-seed after a lost context). */
+/** Stamp standards `srcdoc` before the iframe is inserted (birth). Do not call on every ATTR_SET. */
 export function stampProjectedStandardsSrcdoc(iframe: HTMLIFrameElement): void {
   iframe.srcdoc = PROJECTED_STANDARDS_SRCDOC;
+}
+
+/**
+ * Force a new nested browsing context for our skeleton.
+ * Same-value `srcdoc` assignment is a no-op — after a live `sandbox` write (which orphans
+ * the previous context) the waiter must see a real navigation, not the dead document.
+ */
+export function reincarnateProjectedStandardsSrcdoc(iframe: HTMLIFrameElement): void {
+  iframe.srcdoc = '';
+  stampProjectedStandardsSrcdoc(iframe);
 }
 
 /** Remove the srcdoc skeleton so a resync/cold frame owns the tree under id 1. */

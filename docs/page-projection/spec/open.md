@@ -77,7 +77,17 @@ DOM-table path was green through seal lab. **PP-TABLE-SUBTREE-WALK** (recursive 
 
 Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 2026-08-28 — `lab-assets-stress.js` 4/4 (assets-matrix, demo, Superbet, Eneba; desync 0; fixture 9 virtual attrs). This row remains the Unico/XFO pin only.
 
-### BUG — Gecko geolocation is chrome prompt, not client RPC (OPEN 2026-09-15)
+### BUG — late-join Resync on every consumer reconnect (OPEN 2026-09-17)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **GECKO-ATTACH-RESYNC-LOOP** | Lab HUD Resyncs=0 while Activity lists `resync completed` ~1/s with no `resync requested`; later sessions still resync on click (`preTableHash`) even after attach-once. | **Not reconnect.** `SupervisorClient` is a lab-process singleton. Every open lab tab keeps `_streaming` after its own `browse.start`. Tab `086560142b48` (12:36) still sent `client.requestResync` into the 17:44 session `8752c457e5c1` — first two resyncs after Navigated were the zombie, before the new tab asked. New tab then sees wholesale frames, `preTableHash` fails, asks, remounts. **Fix:** `browse.start` releases other tabs (`ReleaseBrowserSession`); upstream commands require `_streaming`. Close leftover lab tabs. Attach-once remains correct late-join. Accept 1:1 still visual. |
+
+### BUG — Start Virtual no-ops; tab close leaves Gecko alive (OPEN 2026-09-17)
+
+| Id | Symptom | Notes |
+|----|---------|-------|
+| **GECKO-LAB-SESSION-LIFETIME** | Start Virtual often does nothing (WS open, no browse.start on the host). Closing the lab tab / dropping `/session` leaves supervisor+Firefox running — next start collides with zombies. | Client waited on SW `controllerchange` (can hang forever) **before** sending `browse.start`. Lab WS `finally` did not `Stop()` the session. Supervisor kept the browser when the last consumer left. **Fix:** send `browse.start` immediately; SW wait 2s max. Lab tab drop kills supervisor+browser. Last consumer left → supervisor exits. |
 
 | Id | Symptom | Notes |
 |----|---------|-------|
@@ -88,7 +98,7 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 202
 | Id | Symptom | Notes |
 |----|---------|-------|
 | **GECKO-BELEZA-COLD** | Lab Start Virtual on `https://www.belezanaweb.com.br/` — surface unusable. | **Fixed 2026-09-16.** (1) Cold LoadURI abort → RetryLoadURIAfterAbort. (2) Resync malformed: skip Gecko `svg:use` impl-shadow + top-level `::-moz-*` (Projected=Chromium; design NIT in shadow.md). (3) sequence_gap: claim `lastSequence` on enqueue; soft gap; **lag catch-up pós-drain** (gate first; wholesale `lag` only if still behind); gate cap 256. (4) **INSERT id missing:** `onInserted` reserved id before `NODE_NEW`; `describeAndInsertChildren` treated identity hit as indexed (§5.5). Fix: describe when table row missing; `linkAfter` no stub rows. Unit: `producer_lifecycle` pai+filho mesmo tick; `lagCatchUpOrder.unit.ts`. **Prova:** capture pós-fix 73 frames → table apply OK (19403 rows) + `projected-replay` applyOk=73 desynced=false armed bodyLen≈1.3M. **Residual:** cold lag storm (pre-drain) closed 2026-09-16 — re-prove Beleza HUD `reason=lag` bounded; accept 1:1 still separate. |
-| **GECKO-CSSOM-STYLE-DOUBLE** | Author `<style>` rules emitted on CSSOM plane **and** painted via projected DOM → dual cascade. | **Fixed 2026-09-16.** `SpeculumIsCssomPlaneSheet` skips `ownerNode` HTMLStyleElement; `<link>` + constructed stay on CSSOM (doc 13 — client does not fetch CSS). Sheet 6→1 / Rule 4915→4656 on Beleza same-S. |
+| **GECKO-CSSOM-STYLE-DOUBLE** | Author `<style>` rules emitted on CSSOM plane **and** painted via projected DOM → dual cascade. | **Fixed 2026-09-16.** `SpeculumIsCssomPlaneSheet` skips `ownerNode` HTMLStyleElement; `<link>` + constructed stay on CSSOM (doc 13 — client does not fetch CSS). Sheet 6→1 / Rule 4915→4656 on Beleza same-S. **Link dual 2026-09-17:** `disableProjectedNativeStylesheet` on NODE_NEW/ATTR_SET. Paint = owned CSSOM only (C6). **Eneba 10s flicker was not this** — that was unsolicited remounts (**GECKO-ATTACH-RESYNC-LOOP**). |
 | **GECKO-ASSET-SVG-MIME** | Projected logo/SVG `complete && naturalWidth=0` → alt text blows header (~344px), overlaps. | **Residual OPEN 2026-09-16 (cold ainda falha).** Mitigações na raiz do tee/MIME: wait complete; NoteMime; sniff se mime vazio/**genérico**/não-`image/*`; deny `empty-image`; retry se tee `failed`; SW `Cache-Control: no-store` + 502 se corpo não cheira a imagem. **Prova same-S iso (Beleza cold):** DOM filtrada PASS; CSSOM contagem PASS; logo ainda `nw=0` / header **344** / `brokenImgs≈68`. Diagnóstico: `fetch`+blob no iframe decodificam 120×51; `?cachebust` no mesmo `<img>` recupera — primeiro response da URL original gruda decode falho. **Não** marcar Fixed até cold estável (logo nw>0, header&lt;120, brokenImgs=0) sem cache-bust. Accept 1:1 **não**. |
 
 ### BUG — Gecko click hit-tests root; keys go to `<html>` (**click proven 2026-09-17**)
@@ -101,7 +111,7 @@ Virtual-assets V1 path (rewrite + L1 + stamp + Lab/Live serve) is **proven** 202
 
 | Id | Symptom | Notes |
 |----|---------|-------|
-| **GECKO-NESTED-HOST-BIND** | After using Eneba (checkout email click/type): `desync precondition pending nested frames ctx25 host node 14143 never bound (1 queued)` → `resync requested reason=precondition`. HUD DESYNC 1. This is the “usei o site e os cliques morreram” class: nested iframe (payment/captcha/ads) emits while the host node is not bound on Projected. | **C++ emit-allow wired.** Chrome `SendSpeculumNestedEmitAllow` after parent frame on the socket; child `C≥2` mute until that IPDL (per-context). Lab 2026-09-17 `086560142b48`: gate live (`bootstrap held` / `standby` / `allow sent` ctx 2–22); checkout email visível. Residual: still `never bound ctx20 host 7031` → root desync — host was marked (NODE_NEW on the wire) but `installNestedHost` did not bind; audit still kills root. That is Projected establish/audit, not child COMPLETE before the host frame. Do not paper over by dropping nested frames. |
+| **GECKO-NESTED-HOST-BIND** | After using Eneba (checkout email click/type): `desync precondition pending nested frames ctx25 host node 14143 never bound (1 queued)` → `resync requested reason=precondition`. HUD DESYNC 1. This is the “usei o site e os cliques morreram” class: nested iframe (payment/captcha/ads) emits while the host node is not bound on Projected. | **C++ emit-allow wired.** Chrome `SendSpeculumNestedEmitAllow` after parent frame on the socket; child `C≥2` mute until that IPDL (per-context). Lab 2026-09-17 `086560142b48`: gate live; residual was Projected: every `ATTR_SET` on the host restamped `srcdoc` while the skeleton waiter was in flight (`pendingSameIframe` did not restart) → timeout → never bound → audit kills **root**. **Fix 2026-09-17:** casca `srcdoc` uma vez no `NODE_NEW`; `ATTR_SET`/`ATTR_DEL` só escreve `sandbox` se o conjunto de tokens mudar — aí reincuba e **reinicia** a espera. Visual 1:1 continua com Rodrigo. |
 
 ### BUG — Eneba in-site navigation (OPEN 2026-09-15)
 

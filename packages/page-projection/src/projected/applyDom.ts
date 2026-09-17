@@ -43,7 +43,12 @@ import type { AssembledFrame } from '../core/decode';
 import { ReplicatedTable } from '../core/replicatedTable';
 import { applyFrameToTableChecked } from '../core/replicatedTableApply';
 import type { PageProjectionRegistry } from './registry';
-import { ensureNestedHostSandboxAccess, isNestedHostNavAttr } from '../core/nestedNav';
+import {
+  applyNestedHostSandboxAttr,
+  ensureNestedHostSandboxAccess,
+  isNestedHostNavAttr,
+  isNestedHostSandboxAttr,
+} from '../core/nestedNav';
 import {
   installScriptingOnPaintParity,
   paintParityInstalled,
@@ -54,9 +59,14 @@ import {
   constructedStyleSheetInit,
   ensureProjectedDocumentBase,
   ensureProjectedK5Csp,
+  reincarnateProjectedStandardsSrcdoc,
   stampProjectedStandardsSrcdoc,
 } from './projectedBlankIframe';
 import { registerClosedShadowRoot } from '../core/closedShadowLookup';
+import { disableProjectedNativeStylesheet } from './ownedStylesheetLink';
+
+/** Skeleton waiter must restart when the nested browsing context was reincarnated. */
+export type NestedHostInstallHint = { restart?: boolean };
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -85,8 +95,15 @@ export interface DomFrameApplierOptions {
   /** Client-side warn (e.g. paint-parity sheet failed) — not a table desync. */
   onWarn?: (message: string) => void;
   applyBudgetMs?: number;
-  /** Parent installs the nested apply into this blank host. */
-  onNestedHost?: (el: HTMLIFrameElement, childScopeId: number) => void;
+  /**
+   * Parent installs the nested apply into this blank host.
+   * `restart` after a live sandbox write — the browsing context was reincarnated.
+   */
+  onNestedHost?: (
+    el: HTMLIFrameElement,
+    childScopeId: number,
+    hint?: NestedHostInstallHint,
+  ) => void;
   /** Host row dropped — dispose the nested apply for that childScopeId. */
   onNestedHostDrop?: (childScopeId: number) => void;
   /**
@@ -712,8 +729,10 @@ export class DomFrameApplier {
           `setAttribute failed on <${op.name}> attrs=[${attrNames}]`,
         );
       }
+      disableProjectedNativeStylesheet(node);
       // K4 nested host: sandbox attrs land first, then srcdoc — `sandbox` after srcdoc orphans
-      // the browsing context. installNestedHost waits for load then strips.
+      // the browsing context. ATTR_SET must not restamp; only a real sandbox token-set change
+      // reincarnates (applyAttrSet) and restarts the waiter.
       if (op.nestedHost === true && (node as Element).localName.toLowerCase() === 'iframe') {
         const iframe = node as HTMLIFrameElement;
         ensureNestedHostSandboxAccess(iframe);
@@ -873,19 +892,30 @@ export class DomFrameApplier {
       ensureProjectedK5Csp(this.doc);
     }
     const attrs = this.nestedHostIds.has(op.node)
-      ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name))
+      ? op.attrs.filter(
+          (a) => !isNestedHostNavAttr(a.name) && !isNestedHostSandboxAttr(a.name),
+        )
       : op.attrs;
     if (!applyAttrs(node as Element, attrs, this.options.stampUrl)) {
       return this.fail('malformed', 'attrSet', op.node);
     }
+    disableProjectedNativeStylesheet(node);
     if (
       this.nestedHostIds.has(op.node)
       && node.nodeType === Node.ELEMENT_NODE
       && (node as Element).localName.toLowerCase() === 'iframe'
     ) {
       const iframe = node as HTMLIFrameElement;
-      ensureNestedHostSandboxAccess(iframe);
-      stampProjectedStandardsSrcdoc(iframe);
+      const incomingSandbox = op.attrs.find((a) => isNestedHostSandboxAttr(a.name));
+      const wroteSandbox = incomingSandbox
+        ? applyNestedHostSandboxAttr(iframe, incomingSandbox.value)
+        : ensureNestedHostSandboxAccess(iframe);
+      if (wroteSandbox) {
+        // sandbox after srcdoc orphans the BC — reincarnate and restart the waiter.
+        reincarnateProjectedStandardsSrcdoc(iframe);
+        this.maybeInstallNestedHost(op.node, node, { restart: true });
+        return true;
+      }
     }
     this.maybeInstallNestedHost(op.node, node);
     return true;
@@ -895,7 +925,21 @@ export class DomFrameApplier {
     const node = this.registry.get(op.node);
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'attrDel', op.node);
     const el = node as Element;
-    for (let i = 0; i < op.names.length; i++) el.removeAttribute(op.names[i]!);
+    const isNestedIframe =
+      this.nestedHostIds.has(op.node) && el.localName.toLowerCase() === 'iframe';
+    let wroteSandbox = false;
+    for (let i = 0; i < op.names.length; i++) {
+      const name = op.names[i]!;
+      if (isNestedIframe && isNestedHostSandboxAttr(name)) {
+        wroteSandbox = applyNestedHostSandboxAttr(el as HTMLIFrameElement, null) || wroteSandbox;
+        continue;
+      }
+      el.removeAttribute(name);
+    }
+    if (wroteSandbox) {
+      reincarnateProjectedStandardsSrcdoc(el as HTMLIFrameElement);
+      this.maybeInstallNestedHost(op.node, node, { restart: true });
+    }
     return true;
   }
 
@@ -933,15 +977,16 @@ export class DomFrameApplier {
    * Arm nested apply when the row is a marked host. Stamp already happened on
    * NODE_NEW; wait for the skeleton **before** INSERT so `load` is not missed.
    * `contentWindow` is optional here — disconnected iframes have none yet.
+   * `restart` after a sandbox write that reincarnated the browsing context.
    */
-  private maybeInstallNestedHost(id: number, node: Node): void {
+  private maybeInstallNestedHost(id: number, node: Node, hint?: NestedHostInstallHint): void {
     if (!this.nestedHostIds.has(id)) return;
     if (node.nodeType !== Node.ELEMENT_NODE || (node as Element).localName.toLowerCase() !== 'iframe') {
       return;
     }
     const childScopeId = this.childScopes.get(id);
     if (childScopeId === undefined) return;
-    this.options.onNestedHost?.(node as HTMLIFrameElement, childScopeId);
+    this.options.onNestedHost?.(node as HTMLIFrameElement, childScopeId, hint);
   }
 }
 

@@ -125,7 +125,16 @@ app.Map("/lab/session", async (HttpContext context) =>
     }
 
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    var session = new LabSessionConnection(socket, upstream, sessions, sessionLogger);
+    var session = new LabSessionConnection(socket, upstream, sessions, sessionLogger, owner =>
+    {
+        foreach (var other in liveSessions.Values)
+        {
+            if (!ReferenceEquals(other, owner))
+            {
+                other.ReleaseBrowserSession();
+            }
+        }
+    });
     liveSessions[session.Id] = session;
     sessionLogger.LogInformation("sessão {Id} aberta", session.Id);
     try

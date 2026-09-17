@@ -29,6 +29,9 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
     /// </summary>
     public event Action? ConsumerAttached;
 
+    /// <summary>Saiu o último consumidor. A sessão não tem pra quem entregar — morre.</summary>
+    public event Action? LastConsumerLeft;
+
     /// <summary>Ativo vindo do consumidor (Kind 0x06 no plano de consumo).</summary>
     public event Action<uint, byte[]>? AssetFromConsumer;
 
@@ -72,6 +75,10 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
             _consumers.TryRemove(consumer.Id, out _);
             consumer.Complete();
             logger.LogInformation("consumidor {ConsumerId} desconectado ({Count} restantes)", consumer.Id, _consumers.Count);
+            if (_consumers.IsEmpty)
+            {
+                LastConsumerLeft?.Invoke();
+            }
         }
     }
 

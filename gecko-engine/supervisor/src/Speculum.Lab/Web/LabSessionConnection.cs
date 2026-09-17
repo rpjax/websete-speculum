@@ -27,6 +27,7 @@ public sealed class LabSessionConnection
     private readonly SupervisorClient _upstream;
     private readonly SessionHost _sessions;
     private readonly ILogger _logger;
+    private readonly Action<LabSessionConnection>? _onClaimBrowser;
     private readonly LabSessionJournal _journal = new();
 
     private readonly Channel<OutboundMessage> _outbound = Channel.CreateBounded<OutboundMessage>(
@@ -64,13 +65,35 @@ public sealed class LabSessionConnection
 
     public LabSessionJournal Journal => _journal;
 
-    public LabSessionConnection(WebSocket socket, SupervisorClient upstream, SessionHost sessions, ILogger logger)
+    public LabSessionConnection(
+        WebSocket socket,
+        SupervisorClient upstream,
+        SessionHost sessions,
+        ILogger logger,
+        Action<LabSessionConnection>? onClaimBrowser = null)
     {
         _socket = socket;
         _upstream = upstream;
         _sessions = sessions;
         _logger = logger;
+        _onClaimBrowser = onClaimBrowser;
         Id = Guid.NewGuid().ToString("n")[..12];
+    }
+
+    /// <summary>
+    /// Outra aba fez browse.start. Esta deixa de mandar comando e de receber frame —
+    /// o SupervisorClient é um só; comando de aba zumbi vira resync no Gecko vivo.
+    /// </summary>
+    public void ReleaseBrowserSession()
+    {
+        if (!_streaming && !_bootedReady)
+        {
+            return;
+        }
+
+        _streaming = false;
+        _bootedReady = false;
+        _logger.LogInformation("{Id} cedeu o browser — outra aba fez browse.start", Id);
     }
 
     public string Id { get; }
@@ -209,6 +232,13 @@ public sealed class LabSessionConnection
         }
         finally
         {
+            if (_streaming)
+            {
+                _logger.LogInformation("{Id} WS caiu com sessão viva — matando supervisor+browser", Id);
+                _streaming = false;
+                _bootedReady = false;
+                _sessions.Stop();
+            }
             _upstream.FrameReceived -= OnFrame;
             _upstream.EventReceived -= OnEvent;
             _upstream.AssetReceived -= OnAsset;
@@ -301,7 +331,7 @@ public sealed class LabSessionConnection
                 if (url.Length > 0)
                 {
                     var command = ControlCommand.Navigate(NextCorrelation(), contextId: 0, url);
-                    _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                    TrySendUpstream(command, "browse.navigate");
                 }
 
                 break;
@@ -315,7 +345,7 @@ public sealed class LabSessionConnection
                     break;
                 }
 
-                _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                TrySendUpstream(command, "client.control");
                 break;
             }
 
@@ -331,7 +361,7 @@ public sealed class LabSessionConnection
                 var envelope = new byte[Envelope.HeaderBytes + assetPayload.Length];
                 Envelope.WriteHeader(envelope, EnvelopeKind.Asset, ctx, assetPayload.Length);
                 Buffer.BlockCopy(assetPayload, 0, envelope, Envelope.HeaderBytes, assetPayload.Length);
-                _ = _upstream.SendCommandAsync(envelope, CancellationToken.None).AsTask();
+                TrySendUpstream(envelope, "client.asset");
                 break;
             }
 
@@ -346,7 +376,7 @@ public sealed class LabSessionConnection
                 if (width > 0 && height > 0)
                 {
                     var command = ControlCommand.ViewportSet(NextCorrelation(), 0, width, height);
-                    _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                    TrySendUpstream(command, "client.resize");
                 }
 
                 break;
@@ -411,7 +441,7 @@ public sealed class LabSessionConnection
                     attempt,
                     force);
                 var command = ControlCommand.Resync(NextCorrelation(), contextId, force);
-                _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+                TrySendUpstream(command, "client.requestResync");
                 break;
             }
 
@@ -422,8 +452,21 @@ public sealed class LabSessionConnection
         }
     }
 
+    private bool TrySendUpstream(byte[] command, string what)
+    {
+        if (!_streaming)
+        {
+            _logger.LogInformation("{Id} {What} ignorado — esta aba não é dona da sessão", Id, what);
+            return false;
+        }
+
+        _ = _upstream.SendCommandAsync(command, CancellationToken.None).AsTask();
+        return true;
+    }
+
     private async Task BootBrowseAsync(LabClientEnvelope message, CancellationToken cancellationToken)
     {
+        _onClaimBrowser?.Invoke(this);
         _streaming = true;
         _bootedReady = false;
         var url = message.Url ?? string.Empty;

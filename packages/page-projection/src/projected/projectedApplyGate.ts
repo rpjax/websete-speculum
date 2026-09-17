@@ -99,6 +99,10 @@ export class ProjectedApplyGate {
     this.flightDepth--;
     if (this.flightDepth > 0) return;
     this.drainLoop(drain);
+    // Drain may start another rebuild (`begin()`). That inner flight owns `flightStartMs`
+    // and `onFlightEnd`. Zeroing the timer here skipped the inner end hook and let the
+    // outer `maybeRequestLagCatchUp` fire while standby was still being born.
+    if (this.flightDepth > 0) return;
     if (this.flightStartMs > 0) {
       this.onFlightEnd?.({
         maxDepth: this.maxDepth,

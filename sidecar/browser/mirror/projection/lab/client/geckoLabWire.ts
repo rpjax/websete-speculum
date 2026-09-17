@@ -150,11 +150,15 @@ export async function ensureGeckoAssetSw(token: string): Promise<void> {
   await navigator.serviceWorker.ready;
   if (!navigator.serviceWorker.controller) {
     await new Promise<void>((resolve) => {
-      const done = () => resolve();
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = window.setTimeout(done, 2000);
       navigator.serviceWorker.addEventListener('controllerchange', done, { once: true });
       if (navigator.serviceWorker.controller) {
         navigator.serviceWorker.removeEventListener('controllerchange', done);
-        resolve();
+        done();
       }
     });
   }

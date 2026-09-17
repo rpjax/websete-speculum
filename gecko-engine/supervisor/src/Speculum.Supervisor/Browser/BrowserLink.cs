@@ -25,9 +25,12 @@ public sealed class BrowserLink(
     private CancellationToken _sessionToken;
     /// <summary>
     /// Root document commit (Navigated). Cold seed is Gecko COMPLETE, not this
-    /// event. Late consumer after commit gets map Resync in OnConsumerAttached.
+    /// event. Late consumer after commit gets map Resync in OnConsumerAttached —
+    /// once per navigation. Reconnect of the same lab consumer must not dump the
+    /// tree again (that remounts Projected on every attach).
     /// </summary>
     private bool _rootNavigationCommitted;
+    private bool _attachResyncServed;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -92,6 +95,7 @@ public sealed class BrowserLink(
         control.EventReceived += OnBrowserEvent;
         consumers.CommandReceived += OnConsumerCommand;
         consumers.ConsumerAttached += OnConsumerAttached;
+        consumers.LastConsumerLeft += OnLastConsumerLeft;
         consumers.AssetFromConsumer += OnAssetFromConsumer;
 
         var frames = 0L;
@@ -153,6 +157,7 @@ public sealed class BrowserLink(
             control.EventReceived -= OnBrowserEvent;
             consumers.CommandReceived -= OnConsumerCommand;
             consumers.ConsumerAttached -= OnConsumerAttached;
+            consumers.LastConsumerLeft -= OnLastConsumerLeft;
             consumers.AssetFromConsumer -= OnAssetFromConsumer;
             _control = null;
             logger.LogInformation("{Frames} frames, {Bytes} bytes", frames, bytes);
@@ -193,6 +198,7 @@ public sealed class BrowserLink(
                 if (_contexts.TryGetRoot(out var destroyed) && destroyed.ContextId == message.ContextId)
                 {
                     _rootNavigationCommitted = false;
+                    _attachResyncServed = false;
                 }
                 _contexts.Remove(message.ContextId);
                 logger.LogInformation("contexto {ContextId} destruído", message.ContextId);
@@ -432,8 +438,15 @@ public sealed class BrowserLink(
             return;
         }
 
+        if (_attachResyncServed)
+        {
+            logger.LogInformation("consumidor atrasado: resync desta navegação já servido — skip");
+            return;
+        }
+
         if (_contexts.TryGetRoot(out var root) && root.BrowsingContextId != 0)
         {
+            _attachResyncServed = true;
             _ = ResyncAsync(root.ContextId);
         }
     }
@@ -443,6 +456,7 @@ public sealed class BrowserLink(
         if (_contexts.TryGetRoot(out var root) && root.ContextId == contextId)
         {
             _rootNavigationCommitted = false;
+            _attachResyncServed = false;
         }
     }
 
@@ -463,6 +477,12 @@ public sealed class BrowserLink(
         {
             logger.LogError("falha ao pedir resync: {Reason}", ex.Message);
         }
+    }
+
+    private void OnLastConsumerLeft()
+    {
+        logger.LogInformation("último consumidor saiu — supervisor+browser encerrando");
+        lifetime.StopApplication();
     }
 
     private static void PrepareSocketPath(string path)

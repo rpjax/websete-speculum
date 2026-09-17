@@ -64,6 +64,10 @@ export class NestedProjectedApply {
   private resyncTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 1;
   private lastSequence = 0;
+  /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
+  private highestSeenSequence = 0;
+  /** Gate overflowed during a long rebuild — evaluate lag after drain, do not wipe live. */
+  private lagCatchUp = false;
   private armed = false;
   private everArmed = false;
   private lastDesyncReason: string | null = null;
@@ -175,6 +179,7 @@ export class NestedProjectedApply {
     this.abandonResyncAttempt();
     this.applyGate.clear();
     this.applyGateOverflowStreak = 0;
+    this.lagCatchUp = false;
     void this.surface.reset();
     this.live.applier.dispose();
   }
@@ -222,6 +227,11 @@ export class NestedProjectedApply {
       onApplied: (frame, applyMs) => {
         if (state.swapped) {
           this.lastSequence = frame.sequence;
+          if (this.lastDesyncReason === 'sequence_gap' || this.lastDesyncReason === 'lag') {
+            this.lastDesyncReason = null;
+            this.lastDesyncMessage = null;
+            this.lagCatchUp = false;
+          }
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
           if (!this.armed) {
             this.armed = true;
@@ -249,6 +259,7 @@ export class NestedProjectedApply {
   }
 
   private applyAssembled(frame: AssembledFrame): void {
+    this.highestSeenSequence = Math.max(this.highestSeenSequence, frame.sequence);
     if (this.applyGate.blocked) {
       this.applyGate.push(frame);
       return;
@@ -266,6 +277,7 @@ export class NestedProjectedApply {
   private handleApplyGateOverflow(info: { cap: number; attemptedDepth: number }): void {
     this.applyGateOverflowStreak++;
     const streak = this.applyGateOverflowStreak;
+    this.lagCatchUp = true;
     this.onTelemetry?.({
       v: TELEMETRY_WIRE_VERSION,
       contextId: this.contextId,
@@ -277,6 +289,11 @@ export class NestedProjectedApply {
       attemptedDepth: info.attemptedDepth,
       streak,
     });
+    // Armed surface: keep live; catch up after in-flight rebuild drain (root parity).
+    if (this.everArmed) {
+      this.applyGateOverflowStreak = 0;
+      return;
+    }
     if (streak >= PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
       this.resyncExhausted = true;
       this.onTelemetry?.({
@@ -304,19 +321,21 @@ export class NestedProjectedApply {
     if (info.drained > 0 && !info.overflow) {
       this.applyGateOverflowStreak = 0;
     }
-    if (info.maxDepth === 0 && info.drained === 0 && !info.overflow) return;
-    this.onTelemetry?.({
-      v: TELEMETRY_WIRE_VERSION,
-      contextId: this.contextId,
-      kind: 'applyGateDrain',
-      t: performance.now(),
-      generation: this.generation,
-      sequence: this.lastSequence,
-      maxDepth: info.maxDepth,
-      waitMs: info.waitMs,
-      drained: info.drained,
-      overflow: info.overflow,
-    });
+    if (!(info.maxDepth === 0 && info.drained === 0 && !info.overflow)) {
+      this.onTelemetry?.({
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: this.contextId,
+        kind: 'applyGateDrain',
+        t: performance.now(),
+        generation: this.generation,
+        sequence: this.lastSequence,
+        maxDepth: info.maxDepth,
+        waitMs: info.waitMs,
+        drained: info.drained,
+        overflow: info.overflow,
+      });
+    }
+    this.maybeRequestLagCatchUp();
   }
 
   private applyAssembledNow(frame: AssembledFrame): void {
@@ -358,7 +377,11 @@ export class NestedProjectedApply {
   }
 
   private shouldHoldOrdinaryFrameWhileRecovering(): boolean {
-    return this.lastDesyncReason !== null || this.resync !== null;
+    if (this.resync !== null) return true;
+    const reason = this.lastDesyncReason;
+    if (reason === null) return false;
+    if (reason === 'sequence_gap' || reason === 'lag') return false;
+    return true;
   }
 
   private async recreateForGenerationAsync(frame: AssembledFrame): Promise<void> {
@@ -436,6 +459,23 @@ export class NestedProjectedApply {
       this.everArmed = true;
       this.onArmedCb?.();
     }
+    // Lag catch-up after finishFlight drain — see ProjectionClient.
+  }
+
+  /**
+   * After apply-gate drain: request wholesale lag only if still behind (root parity).
+   */
+  private maybeRequestLagCatchUp(): void {
+    const behind = this.highestSeenSequence > this.lastSequence;
+    if (!behind) {
+      this.lagCatchUp = false;
+      return;
+    }
+    this.lagCatchUp = false;
+    if (this.lastDesyncReason === null) {
+      this.lastDesyncReason = 'lag';
+    }
+    this.scheduleResyncAttempt('lag');
   }
 
   private failResyncAttempt(reason: string): void {
@@ -495,6 +535,14 @@ export class NestedProjectedApply {
     const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
     this.resyncBackoffTimer = setTimeout(() => {
       this.resyncBackoffTimer = null;
+      if (reason === 'lag' && this.highestSeenSequence <= this.lastSequence) {
+        if (this.lastDesyncReason === 'lag') {
+          this.lastDesyncReason = null;
+          this.lastDesyncMessage = null;
+        }
+        this.lagCatchUp = false;
+        return;
+      }
       this.resyncAttempts = attempt;
       this.onTelemetry?.({
         v: TELEMETRY_WIRE_VERSION,
@@ -564,7 +612,8 @@ export class NestedProjectedApply {
       this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
       this.lastDesyncMessage = extra?.message ?? null;
       this.assembler.reset();
-      if (reason !== 'sequence_gap') {
+      // sequence_gap / lag: live table still matches lastSequence — keep visible surface (root parity).
+      if (reason !== 'sequence_gap' && reason !== 'lag') {
         this.armed = false;
         this.live.applier.reset();
       }

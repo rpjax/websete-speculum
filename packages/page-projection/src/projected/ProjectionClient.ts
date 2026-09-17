@@ -567,19 +567,22 @@ export class ProjectionClient {
     if (info.drained > 0 && !info.overflow) {
       this.applyGateOverflowStreak = 0;
     }
-    if (info.maxDepth === 0 && info.drained === 0 && !info.overflow) return;
-    this.onTelemetry?.({
-      v: TELEMETRY_WIRE_VERSION,
-      contextId: CONTEXT_ID_ROOT,
-      kind: 'applyGateDrain',
-      t: performance.now(),
-      generation: this.generation,
-      sequence: this.lastSequence,
-      maxDepth: info.maxDepth,
-      waitMs: info.waitMs,
-      drained: info.drained,
-      overflow: info.overflow,
-    });
+    // onFlightEnd runs after drainLoop — evaluate lag only here (not at swap).
+    if (!(info.maxDepth === 0 && info.drained === 0 && !info.overflow)) {
+      this.onTelemetry?.({
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
+        kind: 'applyGateDrain',
+        t: performance.now(),
+        generation: this.generation,
+        sequence: this.lastSequence,
+        maxDepth: info.maxDepth,
+        waitMs: info.waitMs,
+        drained: info.drained,
+        overflow: info.overflow,
+      });
+    }
+    this.maybeRequestLagCatchUp();
   }
 
   private applyAssembledNow(frame: AssembledFrame): void {
@@ -819,18 +822,22 @@ export class ProjectionClient {
     this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
     // New iframe Document — always re-notify so composition roots rebind capture.
     this.notifyLiveSurfaceReady();
-    this.maybeRequestLagCatchUp();
+    // Lag catch-up is evaluated in handleApplyGateFlightEnd after finishFlight drains
+    // contiguous gated deltas — requesting here (pre-drain) caused Beleza reason=lag storms.
   }
 
   /**
-   * Producer kept ticking while a wholesale rebuild ran (or the apply gate overflowed). Live
-   * surface still matches `lastSequence`; request another resync without wiping it.
+   * After apply-gate drain: producer may still be ahead (or overflow wiped pending). Live
+   * surface still matches `lastSequence`; request another wholesale resync only if drain did
+   * not close the gap. Do not call from commitResyncSwap (pre-drain).
    */
   private maybeRequestLagCatchUp(): void {
     const behind = this.highestSeenSequence > this.lastSequence;
-    if (!behind && !this.lagCatchUp) return;
+    if (!behind) {
+      this.lagCatchUp = false;
+      return;
+    }
     this.lagCatchUp = false;
-    if (!behind) return;
     if (this.lastDesyncReason === null) {
       this.lastDesyncReason = 'lag';
     }
@@ -928,6 +935,12 @@ export class ProjectionClient {
     const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
     this.resyncBackoffTimer = setTimeout(() => {
       this.resyncBackoffTimer = null;
+      // Lag may have been scheduled then closed by gated drain / later ordinary apply.
+      if (reason === 'lag' && this.highestSeenSequence <= this.lastSequence) {
+        if (this.lastDesyncReason === 'lag') this.lastDesyncReason = null;
+        this.lagCatchUp = false;
+        return;
+      }
       this.resyncAttempts = attempt;
       this.onTelemetry?.({
         v: TELEMETRY_WIRE_VERSION,

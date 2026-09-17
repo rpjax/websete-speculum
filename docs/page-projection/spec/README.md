@@ -17,7 +17,7 @@
 **Shipped (2026-08-29…30):**
 - **K5 / iOS touch (code)** — `iframe.sandbox` removed; K5 via CSP in `PROJECTED_STANDARDS_SRCDOC` + `ensureProjectedK5Csp`. Unit fail-closed Chromium probe. Device Safari proof deferred. Decision: [decision-log.md](decision-log.md) 2026-08-30.
 - **Loopback `document.install`** — same-socket hello: higher gen adopts; idempotent re-hello; lower gen rejected. Session chains `waitEstablished({ afterGeneration })` after install. Units: `nodeDataPlane.unit.ts`.
-- **Projected apply gate** — `ProjectedApplyGate` queues frames during async recreate/cold resync (`flightDepth`, `draining`, cap **64** sized for ~59 ms cold apply class, overflow streak **3** → `apply_gate_overflow_loop`). `discardPending()` on generation bump only; full `clear()` on reset/dispose only. Units: `projectedApplyGate.unit.ts`.
+- **Projected apply gate** — `ProjectedApplyGate` queues frames during async recreate/cold resync (`flightDepth`, `draining`, cap **256**, overflow streak **3** → `apply_gate_overflow_loop`). Lag catch-up runs **after** gate drain (not at resync swap). `discardPending()` on generation bump only; full `clear()` on reset/dispose only. Units: `projectedApplyGate.unit.ts`, `lagCatchUpOrder.unit.ts`.
 - **Cold resync on armed surface** — `everArmed && resync && sequence === 1` → `recreateForGenerationAsync` (not standby async racing increments).
 
 **Eneba lab proof (2026-08-30):** dossier `sidecar/lab-runs/2026-08-30T06-10-17-942Z-www.eneba.com` — `/br/` browse ~28 s: **0 desync**, 96 apply ok, input 44/44, wire invariants green. **Not yet proven:** `/` → `/br/` redirect gen-bump path (pre-fix storm class).

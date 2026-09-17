@@ -3756,6 +3756,10 @@
         resyncTimeoutTimer = null;
         generation = 1;
         lastSequence = 0;
+        /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
+        highestSeenSequence = 0;
+        /** Gate overflowed during a long rebuild — evaluate lag after drain, do not wipe live. */
+        lagCatchUp = false;
         armed = false;
         everArmed = false;
         lastDesyncReason = null;
@@ -3851,6 +3855,7 @@
           this.abandonResyncAttempt();
           this.applyGate.clear();
           this.applyGateOverflowStreak = 0;
+          this.lagCatchUp = false;
           void this.surface.reset();
           this.live.applier.dispose();
         }
@@ -3897,6 +3902,11 @@
             onApplied: (frame, applyMs) => {
               if (state.swapped) {
                 this.lastSequence = frame.sequence;
+                if (this.lastDesyncReason === "sequence_gap" || this.lastDesyncReason === "lag") {
+                  this.lastDesyncReason = null;
+                  this.lastDesyncMessage = null;
+                  this.lagCatchUp = false;
+                }
                 this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
                 if (!this.armed) {
                   this.armed = true;
@@ -3923,6 +3933,7 @@
           });
         }
         applyAssembled(frame) {
+          this.highestSeenSequence = Math.max(this.highestSeenSequence, frame.sequence);
           if (this.applyGate.blocked) {
             this.applyGate.push(frame);
             return;
@@ -3938,6 +3949,7 @@
         handleApplyGateOverflow(info) {
           this.applyGateOverflowStreak++;
           const streak = this.applyGateOverflowStreak;
+          this.lagCatchUp = true;
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: this.contextId,
@@ -3949,6 +3961,10 @@
             attemptedDepth: info.attemptedDepth,
             streak
           });
+          if (this.everArmed) {
+            this.applyGateOverflowStreak = 0;
+            return;
+          }
           if (streak >= projectedApplyGate_1.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
             this.resyncExhausted = true;
             this.onTelemetry?.({
@@ -3970,20 +3986,21 @@
           if (info.drained > 0 && !info.overflow) {
             this.applyGateOverflowStreak = 0;
           }
-          if (info.maxDepth === 0 && info.drained === 0 && !info.overflow)
-            return;
-          this.onTelemetry?.({
-            v: telemetry_1.TELEMETRY_WIRE_VERSION,
-            contextId: this.contextId,
-            kind: "applyGateDrain",
-            t: performance.now(),
-            generation: this.generation,
-            sequence: this.lastSequence,
-            maxDepth: info.maxDepth,
-            waitMs: info.waitMs,
-            drained: info.drained,
-            overflow: info.overflow
-          });
+          if (!(info.maxDepth === 0 && info.drained === 0 && !info.overflow)) {
+            this.onTelemetry?.({
+              v: telemetry_1.TELEMETRY_WIRE_VERSION,
+              contextId: this.contextId,
+              kind: "applyGateDrain",
+              t: performance.now(),
+              generation: this.generation,
+              sequence: this.lastSequence,
+              maxDepth: info.maxDepth,
+              waitMs: info.waitMs,
+              drained: info.drained,
+              overflow: info.overflow
+            });
+          }
+          this.maybeRequestLagCatchUp();
         }
         applyAssembledNow(frame) {
           if (frame.generation !== this.generation) {
@@ -4014,7 +4031,14 @@
           target.applier.enqueue(frame);
         }
         shouldHoldOrdinaryFrameWhileRecovering() {
-          return this.lastDesyncReason !== null || this.resync !== null;
+          if (this.resync !== null)
+            return true;
+          const reason = this.lastDesyncReason;
+          if (reason === null)
+            return false;
+          if (reason === "sequence_gap" || reason === "lag")
+            return false;
+          return true;
         }
         async recreateForGenerationAsync(frame) {
           if (frame.generation !== this.generation) {
@@ -4093,6 +4117,21 @@
             this.onArmedCb?.();
           }
         }
+        /**
+         * After apply-gate drain: request wholesale lag only if still behind (root parity).
+         */
+        maybeRequestLagCatchUp() {
+          const behind = this.highestSeenSequence > this.lastSequence;
+          if (!behind) {
+            this.lagCatchUp = false;
+            return;
+          }
+          this.lagCatchUp = false;
+          if (this.lastDesyncReason === null) {
+            this.lastDesyncReason = "lag";
+          }
+          this.scheduleResyncAttempt("lag");
+        }
         failResyncAttempt(reason) {
           const attempt = this.resync?.attempt ?? this.resyncAttempts;
           if (this.resync !== null) {
@@ -4150,6 +4189,14 @@
           const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
           this.resyncBackoffTimer = setTimeout(() => {
             this.resyncBackoffTimer = null;
+            if (reason === "lag" && this.highestSeenSequence <= this.lastSequence) {
+              if (this.lastDesyncReason === "lag") {
+                this.lastDesyncReason = null;
+                this.lastDesyncMessage = null;
+              }
+              this.lagCatchUp = false;
+              return;
+            }
             this.resyncAttempts = attempt;
             this.onTelemetry?.({
               v: telemetry_1.TELEMETRY_WIRE_VERSION,
@@ -4198,7 +4245,7 @@
             this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
             this.lastDesyncMessage = extra?.message ?? null;
             this.assembler.reset();
-            if (reason !== "sequence_gap") {
+            if (reason !== "sequence_gap" && reason !== "lag") {
               this.armed = false;
               this.live.applier.reset();
             }
@@ -4739,20 +4786,21 @@
           if (info.drained > 0 && !info.overflow) {
             this.applyGateOverflowStreak = 0;
           }
-          if (info.maxDepth === 0 && info.drained === 0 && !info.overflow)
-            return;
-          this.onTelemetry?.({
-            v: telemetry_1.TELEMETRY_WIRE_VERSION,
-            contextId: frame_1.CONTEXT_ID_ROOT,
-            kind: "applyGateDrain",
-            t: performance.now(),
-            generation: this.generation,
-            sequence: this.lastSequence,
-            maxDepth: info.maxDepth,
-            waitMs: info.waitMs,
-            drained: info.drained,
-            overflow: info.overflow
-          });
+          if (!(info.maxDepth === 0 && info.drained === 0 && !info.overflow)) {
+            this.onTelemetry?.({
+              v: telemetry_1.TELEMETRY_WIRE_VERSION,
+              contextId: frame_1.CONTEXT_ID_ROOT,
+              kind: "applyGateDrain",
+              t: performance.now(),
+              generation: this.generation,
+              sequence: this.lastSequence,
+              maxDepth: info.maxDepth,
+              waitMs: info.waitMs,
+              drained: info.drained,
+              overflow: info.overflow
+            });
+          }
+          this.maybeRequestLagCatchUp();
         }
         applyAssembledNow(frame) {
           if (frame.generation !== this.generation) {
@@ -4970,19 +5018,19 @@
           });
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
           this.notifyLiveSurfaceReady();
-          this.maybeRequestLagCatchUp();
         }
         /**
-         * Producer kept ticking while a wholesale rebuild ran (or the apply gate overflowed). Live
-         * surface still matches `lastSequence`; request another resync without wiping it.
+         * After apply-gate drain: producer may still be ahead (or overflow wiped pending). Live
+         * surface still matches `lastSequence`; request another wholesale resync only if drain did
+         * not close the gap. Do not call from commitResyncSwap (pre-drain).
          */
         maybeRequestLagCatchUp() {
           const behind = this.highestSeenSequence > this.lastSequence;
-          if (!behind && !this.lagCatchUp)
+          if (!behind) {
+            this.lagCatchUp = false;
             return;
+          }
           this.lagCatchUp = false;
-          if (!behind)
-            return;
           if (this.lastDesyncReason === null) {
             this.lastDesyncReason = "lag";
           }
@@ -5069,6 +5117,12 @@
           const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
           this.resyncBackoffTimer = setTimeout(() => {
             this.resyncBackoffTimer = null;
+            if (reason === "lag" && this.highestSeenSequence <= this.lastSequence) {
+              if (this.lastDesyncReason === "lag")
+                this.lastDesyncReason = null;
+              this.lagCatchUp = false;
+              return;
+            }
             this.resyncAttempts = attempt;
             this.onTelemetry?.({
               v: telemetry_1.TELEMETRY_WIRE_VERSION,
@@ -9212,8 +9266,8 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 132,
-    builtAt: "2026-09-16T23:35:26.486Z"
+    seq: 135,
+    builtAt: "2026-09-17T00:23:03.459Z"
   };
 
   // browser/mirror/projection/lab/client/runsPanel.ts

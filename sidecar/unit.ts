@@ -67,7 +67,7 @@ import { runPortCarrierUnitTests } from './browser/mirror/projection/bus/portCar
 import { runMintHoldUnitTests } from './browser/mirror/projection/bus/mintHold.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
 import { runProjectedApplyGateUnitTests } from './browser/mirror/projection/projected/projectedApplyGate.unit';
-import { runPendingNestedHostAuditUnitTests } from './browser/mirror/projection/projected/pendingNestedHostAudit.unit';
+import { runLagCatchUpOrderUnitTests } from './browser/mirror/projection/projected/lagCatchUpOrder.unit';
 import { runPendingNestedHostAuditUnitTests } from './browser/mirror/projection/projected/pendingNestedHostAudit.unit';
 import { runNestedNavUnitTests } from './browser/mirror/projection/projected/nestedNav.unit';
 import { runProjectedK5UnitTests } from './browser/mirror/projection/projected/projectedK5.unit';
@@ -4466,6 +4466,7 @@ async function main(): Promise<void> {
   await runMintHoldUnitTests();
   runScriptingOnPaintParityUnitTests();
   await runProjectedApplyGateUnitTests();
+  await runLagCatchUpOrderUnitTests();
   runPendingNestedHostAuditUnitTests();
   runNestedNavUnitTests();
   await runProjectedK5UnitTests();

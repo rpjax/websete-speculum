@@ -68,7 +68,7 @@ export async function runProjectedApplyGateUnitTests(): Promise<void> {
 
   gate.clear();
   assert.strictEqual(gate.blocked, false);
-  assert.strictEqual(PROJECTED_APPLY_GATE_MAX_PENDING, 64);
+  assert.strictEqual(PROJECTED_APPLY_GATE_MAX_PENDING, 256);
   assert.strictEqual(PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK, 3);
 
   console.log('[unit] projectedApplyGate ok');

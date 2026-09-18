@@ -101,20 +101,30 @@ function intentToWire(intent: UnifiedIntent, generation: number): PageProjection
   } else if (intent.type === 'setFiles') {
     payload.files = intent.files
   }
-  // `nodeId`/`contextId` on `down`/`up` — sparse-cdp id-addressed click; `null`/`1` when unresolved.
-  const pointerNodeId =
-    (intent.type === 'down' || intent.type === 'up') && intent.nodeId != null ? intent.nodeId : null
-  const pointerContextId = intent.type === 'down' || intent.type === 'up' ? (intent.contextId ?? 1) : 1
+
+  let targetId: number | null = null
+  let contextId = 1
+  if (intent.type === 'down' || intent.type === 'up') {
+    targetId = intent.nodeId != null ? intent.nodeId : null
+    contextId = intent.contextId ?? 1
+  } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
+    // Preserve capture context — nested docs must not always hit ctx 1.
+    contextId = intent.contextId ?? 1
+  } else if (intent.type === 'scrollSet' || intent.type === 'setFiles') {
+    targetId = intent.nodeId
+    contextId = intent.contextId
+  } else if (intent.type === 'historyNav') {
+    contextId = 1
+  }
+
   return {
     generation,
     type: intent.type,
     anchor: null,
-    targetId:
-      intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.nodeId : pointerNodeId,
+    targetId,
     timestampClient: intent.timestampClient ?? null,
     payload: JSON.stringify(payload),
-    contextId:
-      intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.contextId : pointerContextId,
+    contextId,
     schemaVersion: intent.schemaVersion,
     viewportW: 'viewportW' in intent ? intent.viewportW : null,
     viewportH: 'viewportH' in intent ? intent.viewportH : null,

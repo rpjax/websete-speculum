@@ -4,19 +4,24 @@
 #include "SpeculumLog.h"
 #include "SpeculumMutationObserver.h"
 #include "SpeculumTelemetry.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/FlushType.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/TextEvents.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/DOMRect.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/HTMLInputElement.h"
+#include "mozilla/dom/HTMLTextAreaElement.h"
 #include "mozilla/dom/MouseEventBinding.h"
 #include "nsContentUtils.h"
 #include <algorithm>
 #include "nsFocusManager.h"
+#include "nsIPrincipal.h"
 #include "nsIWidget.h"
 #include "nsLayoutUtils.h"
 #include "nsPresContext.h"
@@ -33,6 +38,8 @@ using mozilla::WidgetKeyboardEvent;
 using mozilla::WidgetMouseEvent;
 using mozilla::dom::Document;
 using mozilla::dom::Element;
+using mozilla::dom::HTMLInputElement;
+using mozilla::dom::HTMLTextAreaElement;
 
 namespace {
 
@@ -150,12 +157,90 @@ void DispatchMouse(Document* aDocument, Element* aElement, bool aDown,
   pres->HandleEventWithTarget(&event, frame, aElement, &status);
 }
 
-void FillKeyEvent(WidgetKeyboardEvent& aEvent, const nsCString& aKey,
-                  const nsCString& aCode, uint8_t aMods) {
+// UIEvents / KeyboardEvent.keyCode legacy values (printable + editing).
+uint32_t LegacyKeyCode(const nsAString& aKey, const nsAString& aCode) {
+  if (aKey.EqualsLiteral("Backspace")) {
+    return 8;
+  }
+  if (aKey.EqualsLiteral("Tab")) {
+    return 9;
+  }
+  if (aKey.EqualsLiteral("Enter")) {
+    return 13;
+  }
+  if (aKey.EqualsLiteral("Escape")) {
+    return 27;
+  }
+  if (aKey.EqualsLiteral(" ")) {
+    return 32;
+  }
+  if (aKey.EqualsLiteral("PageUp")) {
+    return 33;
+  }
+  if (aKey.EqualsLiteral("PageDown")) {
+    return 34;
+  }
+  if (aKey.EqualsLiteral("End")) {
+    return 35;
+  }
+  if (aKey.EqualsLiteral("Home")) {
+    return 36;
+  }
+  if (aKey.EqualsLiteral("ArrowLeft")) {
+    return 37;
+  }
+  if (aKey.EqualsLiteral("ArrowUp")) {
+    return 38;
+  }
+  if (aKey.EqualsLiteral("ArrowRight")) {
+    return 39;
+  }
+  if (aKey.EqualsLiteral("ArrowDown")) {
+    return 40;
+  }
+  if (aKey.EqualsLiteral("Delete")) {
+    return 46;
+  }
+  if (aCode.Length() == 4 && StringBeginsWith(aCode, u"Key"_ns) &&
+      aCode.CharAt(3) >= u'A' && aCode.CharAt(3) <= u'Z') {
+    return uint32_t(aCode.CharAt(3));
+  }
+  if (aCode.Length() == 6 && StringBeginsWith(aCode, u"Digit"_ns) &&
+      aCode.CharAt(5) >= u'0' && aCode.CharAt(5) <= u'9') {
+    return uint32_t(aCode.CharAt(5));
+  }
+  if (aKey.Length() == 1) {
+    char16_t ch = aKey.CharAt(0);
+    if (ch >= u'a' && ch <= u'z') {
+      return uint32_t(ch - u'a' + u'A');
+    }
+    if (ch >= u'A' && ch <= u'Z') {
+      return uint32_t(ch);
+    }
+    if (ch >= u'0' && ch <= u'9') {
+      return uint32_t(ch);
+    }
+  }
+  return 0;
+}
+
+bool IsPrintableKey(const nsAString& aKey) {
+  if (aKey.Length() != 1) {
+    return false;
+  }
+  const char16_t ch = aKey.CharAt(0);
+  // Exclude C0 controls; keep space and BMP printable (incl. non-ASCII).
+  return ch >= 0x20 && ch != 0x7f;
+}
+
+void FillKeyEvent(WidgetKeyboardEvent& aEvent, const nsAString& aKey,
+                  const nsAString& aCode, uint8_t aMods,
+                  mozilla::EventMessage aMessage) {
   aEvent.mKeyNameIndex = KEY_NAME_INDEX_USE_STRING;
   aEvent.mCodeNameIndex = CODE_NAME_INDEX_USE_STRING;
-  CopyUTF8toUTF16(aKey, aEvent.mKeyValue);
-  CopyUTF8toUTF16(aCode, aEvent.mCodeValue);
+  aEvent.mKeyValue = aKey;
+  aEvent.mCodeValue = aCode;
+  aEvent.mLocation = eKeyLocationStandard;
   if (aMods & 1) {
     aEvent.mModifiers |= mozilla::MODIFIER_CONTROL;
   }
@@ -168,10 +253,153 @@ void FillKeyEvent(WidgetKeyboardEvent& aEvent, const nsCString& aKey,
   if (aMods & 8) {
     aEvent.mModifiers |= mozilla::MODIFIER_META;
   }
+
+  const uint32_t keyCode = LegacyKeyCode(aKey, aCode);
+  if (aMessage == eKeyPress && IsPrintableKey(aKey)) {
+    // keypress: char in mCharCode; legacy keyCode 0 for printable (EventUtils).
+    aEvent.mCharCode = uint32_t(aKey.CharAt(0));
+    aEvent.mKeyCode = 0;
+  } else if (aMessage == eKeyPress && aKey.EqualsLiteral("Enter")) {
+    aEvent.mCharCode = 0;
+    aEvent.mKeyCode = 13;
+  } else {
+    aEvent.mCharCode = 0;
+    aEvent.mKeyCode = keyCode;
+  }
 }
 
-void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
-                 const nsCString& aCode, uint8_t aMods) {
+bool ReadFormValue(Element* aElement, nsAString& aValue, uint32_t& aStart,
+                   uint32_t& aEnd) {
+  mozilla::ErrorResult rv;
+  if (HTMLInputElement* input = HTMLInputElement::FromNode(aElement)) {
+    input->GetValue(aValue, mozilla::dom::CallerType::System);
+    mozilla::dom::Nullable<uint32_t> start = input->GetSelectionStart(rv);
+    if (rv.Failed()) {
+      rv.SuppressException();
+      aStart = aEnd = aValue.Length();
+    } else {
+      mozilla::dom::Nullable<uint32_t> end = input->GetSelectionEnd(rv);
+      if (rv.Failed()) {
+        rv.SuppressException();
+        aStart = aEnd = aValue.Length();
+      } else {
+        aStart = start.IsNull() ? aValue.Length() : start.Value();
+        aEnd = end.IsNull() ? aValue.Length() : end.Value();
+      }
+    }
+    if (aStart > aValue.Length()) {
+      aStart = aValue.Length();
+    }
+    if (aEnd > aValue.Length()) {
+      aEnd = aValue.Length();
+    }
+    if (aEnd < aStart) {
+      aEnd = aStart;
+    }
+    return true;
+  }
+  if (HTMLTextAreaElement* area = HTMLTextAreaElement::FromNode(aElement)) {
+    area->GetValue(aValue);
+    mozilla::dom::Nullable<uint32_t> start = area->GetSelectionStart(rv);
+    if (rv.Failed()) {
+      rv.SuppressException();
+      aStart = aEnd = aValue.Length();
+    } else {
+      mozilla::dom::Nullable<uint32_t> end = area->GetSelectionEnd(rv);
+      if (rv.Failed()) {
+        rv.SuppressException();
+        aStart = aEnd = aValue.Length();
+      } else {
+        aStart = start.IsNull() ? aValue.Length() : start.Value();
+        aEnd = end.IsNull() ? aValue.Length() : end.Value();
+      }
+    }
+    if (aStart > aValue.Length()) {
+      aStart = aValue.Length();
+    }
+    if (aEnd > aValue.Length()) {
+      aEnd = aValue.Length();
+    }
+    if (aEnd < aStart) {
+      aEnd = aStart;
+    }
+    return true;
+  }
+  return false;
+}
+
+MOZ_CAN_RUN_SCRIPT_BOUNDARY void WriteFormValue(Element* aElement,
+                                                const nsAString& aValue,
+                                                uint32_t aCaret) {
+  nsIPrincipal* principal = nsContentUtils::GetSystemPrincipal();
+  if (!principal) {
+    return;
+  }
+  mozilla::ErrorResult rv;
+  mozilla::dom::Optional<nsAString> direction;
+  if (HTMLInputElement* input = HTMLInputElement::FromNode(aElement)) {
+    input->SetUserInput(aValue, *principal);
+    input->SetSelectionRange(aCaret, aCaret, direction, rv);
+    if (rv.Failed()) {
+      rv.SuppressException();
+    }
+    return;
+  }
+  if (HTMLTextAreaElement* area = HTMLTextAreaElement::FromNode(aElement)) {
+    area->SetUserInput(aValue, *principal);
+    area->SetSelectionRange(aCaret, aCaret, direction, rv);
+    if (rv.Failed()) {
+      rv.SuppressException();
+    }
+  }
+}
+
+// Chromium parity: printable / edit keys must mutate the Virtual control.
+// WidgetKeyboardEvent alone often does not insert into <input>/<textarea>.
+MOZ_CAN_RUN_SCRIPT_BOUNDARY void ApplyFormKeyEdit(Element* aElement,
+                                                  const nsAString& aKey,
+                                                  uint8_t aMods) {
+  if (aMods & (1 | 4 | 8)) {
+    // Ctrl/Alt/Meta — leave to page listeners only.
+    return;
+  }
+  nsAutoString value;
+  uint32_t start = 0;
+  uint32_t end = 0;
+  if (!ReadFormValue(aElement, value, start, end)) {
+    return;
+  }
+
+  if (IsPrintableKey(aKey)) {
+    value.Replace(start, end - start, aKey);
+    WriteFormValue(aElement, value, start + aKey.Length());
+    return;
+  }
+  if (aKey.EqualsLiteral("Backspace")) {
+    if (start != end) {
+      value.Cut(start, end - start);
+      WriteFormValue(aElement, value, start);
+    } else if (start > 0) {
+      value.Cut(start - 1, 1);
+      WriteFormValue(aElement, value, start - 1);
+    }
+    return;
+  }
+  if (aKey.EqualsLiteral("Delete")) {
+    if (start != end) {
+      value.Cut(start, end - start);
+      WriteFormValue(aElement, value, start);
+    } else if (start < value.Length()) {
+      value.Cut(start, 1);
+      WriteFormValue(aElement, value, start);
+    }
+  }
+}
+
+MOZ_CAN_RUN_SCRIPT_BOUNDARY void DispatchKey(Document* aDocument, bool aDown,
+                                             const nsCString& aKeyUtf8,
+                                             const nsCString& aCodeUtf8,
+                                             uint8_t aMods) {
   aDocument->FlushPendingNotifications(mozilla::FlushType::Layout);
   RefPtr<PresShell> pres = aDocument->GetPresShell();
   nsIWidget* widget = RootWidget(aDocument);
@@ -189,19 +417,29 @@ void DispatchKey(Document* aDocument, bool aDown, const nsCString& aKey,
     return;
   }
 
+  nsAutoString key;
+  nsAutoString code;
+  CopyUTF8toUTF16(aKeyUtf8, key);
+  CopyUTF8toUTF16(aCodeUtf8, code);
+
   auto fire = [&](mozilla::EventMessage msg) {
     WidgetKeyboardEvent event(true, msg, widget);
-    FillKeyEvent(event, aKey, aCode, aMods);
+    FillKeyEvent(event, key, code, aMods, msg);
     (void)widget->AttachNativeKeyEvent(event);
     nsEventStatus status = nsEventStatus_eIgnore;
     pres->HandleEventWithTarget(&event, target->GetPrimaryFrame(), target,
                                 &status);
   };
-  // HandleEvent() retargets keys to chrome. Deliver to the focused node in
-  // this document (search/input), not <html>.
+
+  // Deliver to the focused node in this document (search/input), not <html>.
   fire(aDown ? eKeyDown : eKeyUp);
-  if (aDown && (aKey.Length() == 1 || aKey.EqualsLiteral("Enter"))) {
-    fire(eKeyPress);
+  if (aDown) {
+    // Mutate INPUT/TEXTAREA (insertText / Backspace / Delete). Key events above
+    // still fire for page listeners; Enter stays event-only (submit path).
+    ApplyFormKeyEdit(target, key, aMods);
+    if (IsPrintableKey(key) || key.EqualsLiteral("Enter")) {
+      fire(eKeyPress);
+    }
   }
 }
 
@@ -242,8 +480,8 @@ void ApplyScroll(Document* aDocument, uint32_t aNodeId, uint16_t aFracX,
 
 }  // namespace
 
-void SpeculumSynthesizeInput(Document* aDocument,
-                             const nsTArray<uint8_t>& aEvent) {
+MOZ_CAN_RUN_SCRIPT_BOUNDARY void SpeculumSynthesizeInput(
+    Document* aDocument, const nsTArray<uint8_t>& aEvent) {
   if (!aDocument || aEvent.IsEmpty()) {
     SPECULUM_LOG("[SPECULUM-INPUT] sem documento ou envelope vazio");
     return;

@@ -1,0 +1,5 @@
+9aaffa3b3d Speculum: atomic stderr frame parts; SPECULUM-BOOT uri log.
+f8d84e9319 Speculum: emit bootstrap frames on stderr for chroot content.
+06e698655d speculum: NodeSource sobre nsINode e frame de bootstrap
+0aa1ac5800 speculum: mutation observer hook via SetSpeculumWatchingDOMMutations
+feec67e62a Bug 2061316 - Handle zero-length allocation chunk test,  a=RyanVM

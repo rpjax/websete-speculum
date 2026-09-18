@@ -1,0 +1,45 @@
+ M docshell/base/BrowsingContext.cpp
+ M docshell/base/BrowsingContext.h
+ M docshell/base/CanonicalBrowsingContext.cpp
+ M dom/base/Document.cpp
+ M dom/base/Document.h
+ M dom/base/Element.cpp
+ M dom/base/ShadowRoot.cpp
+ M dom/base/SpeculumMutationObserver.cpp
+ M dom/base/SpeculumMutationObserver.h
+ M dom/base/SpeculumNodeSource.cpp
+ M dom/base/SpeculumNodeSource.h
+ M dom/base/moz.build
+ M dom/base/nsGlobalWindowInner.cpp
+ M dom/ipc/ContentChild.cpp
+ M dom/ipc/ContentChild.h
+MM dom/ipc/ContentParent.cpp
+ M dom/ipc/ContentParent.h
+ M dom/ipc/PContent.ipdl
+AM dom/ipc/SpeculumControlAbi.cpp
+AM dom/ipc/SpeculumControlAbi.h
+AD dom/ipc/SpeculumFrameSink.cpp
+AD dom/ipc/SpeculumFrameSink.h
+ A dom/ipc/SpeculumMint.cpp
+ A dom/ipc/SpeculumMint.h
+AM dom/ipc/SpeculumProjectionRuntime.cpp
+AM dom/ipc/SpeculumProjectionRuntime.h
+MM dom/ipc/moz.build
+ M ipc/ipdl/sync-messages.ini
+?? dom/base/SpeculumCssom.cpp
+?? dom/base/SpeculumCssom.h
+?? dom/base/SpeculumInput.cpp
+?? dom/base/SpeculumInput.h
+?? dom/base/SpeculumLog.h
+?? dom/ipc/SpeculumAssetClassifier.cpp
+?? dom/ipc/SpeculumAssetClassifier.h
+?? dom/ipc/SpeculumAssetRegistry.cpp
+?? dom/ipc/SpeculumAssetRegistry.h
+?? dom/ipc/SpeculumCaps.cpp
+?? dom/ipc/SpeculumCaps.h
+?? dom/ipc/SpeculumMarionette.cpp
+?? dom/ipc/SpeculumMarionette.h
+?? dom/ipc/SpeculumTelemetry.cpp
+?? dom/ipc/SpeculumTelemetry.h
+?? speculum/
+?? third_party/speculum-wire/

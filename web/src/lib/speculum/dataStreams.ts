@@ -61,7 +61,10 @@ export class DataStreams extends Emitter<SessionEventMap> {
     { resolve: (value: EvalResult) => void; reject: (error: Error) => void }
   >()
   private nextEvalId = 1
-  private closed = false
+  // Start closed: open() calls close() first; if closed were false, that emit would
+  // clear sessionRef via the LiveSession 'close' handler and fail-closed would kill
+  // a brand-new session before promote.
+  private closed = true
   private connected = false
 
   constructor(options: DataStreamsOptions) {

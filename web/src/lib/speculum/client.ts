@@ -44,7 +44,8 @@ interface SessionClientEventMap {
  * await client.connect()
  * const { profileId } = await client.ensureProfile()
  * const session = await client.startSession({ profileId, path: '/' })
- * session.on('frame', (frame) => paint(frame.jpeg))
+ * session.on('pageProjectionFrame', ingest)
+ * await session.open()
  * await session.stop()
  */
 export class SessionClient extends Emitter<SessionClientEventMap> {
@@ -108,7 +109,7 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
     return this.control.streamJournalFacts(observer)
   }
 
-  /** Starts a session and opens the configured data-stream carrier. */
+  /** Starts a session. Caller must bind data-plane listeners, then {@link LiveSession.open}. */
   async startSession(request: StartSessionRequest): Promise<LiveSession> {
     if (this.active) {
       await this.active.stop().catch(() => {})
@@ -182,8 +183,10 @@ export class SessionClient extends Emitter<SessionClientEventMap> {
         session.receiveSessionEnded(pendingEnded)
       }
 
-      await session.open()
-
+      // Do not open the data plane here. The composition root must bind
+      // pageProjectionFrame (and siblings) first — otherwise the establish
+      // burst is dispatched into EventTarget with zero listeners and the
+      // Projected surface stays the white skeleton.
       this.active = session
       session.on('close', () => {
         disposeCommands()

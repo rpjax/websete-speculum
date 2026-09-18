@@ -213,6 +213,42 @@ export class ControlPlane {
     }
   }
 
+  async fetchProjectedAsset(request: {
+    sessionId: string
+    token: string
+    contextId: number
+    url: string
+    destination: string
+    range: string
+  }): Promise<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }> {
+    const connection = this.requireConnection()
+    const response = await connection.invoke<Record<string, unknown>>('FetchProjectedAssetAsync', {
+      sessionId: request.sessionId,
+      token: request.token,
+      contextId: request.contextId,
+      url: request.url,
+      destination: request.destination,
+      range: request.range,
+    })
+    const record = readHubRecord(response) ?? response
+    const ok = Boolean(record.ok ?? record.Ok)
+    if (!ok) {
+      return {
+        ok: false,
+        error:
+          optionalString(record.message ?? record.Message)
+          || optionalString(record.errorCode ?? record.ErrorCode)
+          || 'denied',
+      }
+    }
+    const bytes = asArrayBuffer(record.body ?? record.Body)
+    return {
+      ok: true,
+      bytes,
+      contentType: optionalString(record.contentType ?? record.ContentType) ?? '',
+    }
+  }
+
   private onHubEvent(method: string, handler: (url: string) => void): () => void {
     const connection = this.requireConnection()
     const listener = (payload: unknown) => {
@@ -310,6 +346,33 @@ function optionalString(value: unknown): string | null | undefined {
   }
   const s = String(value)
   return s === '' ? undefined : s
+}
+
+function asArrayBuffer(value: unknown): ArrayBuffer | undefined {
+  if (value instanceof ArrayBuffer && value.byteLength > 0) {
+    return value
+  }
+  if (value instanceof Uint8Array && value.byteLength > 0) {
+    const copy = new Uint8Array(value.byteLength)
+    copy.set(value)
+    return copy.buffer
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    return Uint8Array.from(value).buffer
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      const bin = atob(value)
+      const u8 = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) {
+        u8[i] = bin.charCodeAt(i)
+      }
+      return u8.byteLength > 0 ? u8.buffer : undefined
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 function toJournalFact(raw: Record<string, unknown>): JournalFact {

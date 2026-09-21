@@ -46,4 +46,45 @@ public sealed class SidecarOptionsValidatorTests
         var result = _validator.Validate(null, options);
         Assert.Equal(ValidateOptionsResult.Success, result);
     }
+
+    [Fact]
+    public void Default_Engine_IsGecko()
+    {
+        Assert.Equal(SidecarEngine.Gecko, new SidecarOptions().Engine);
+    }
+
+    [Fact]
+    public void Validate_Gecko_RequiresOrchestratorAddress()
+    {
+        var options = new SidecarOptions { Engine = SidecarEngine.Gecko, OrchestratorAddress = "" };
+        var result = _validator.Validate(null, options);
+        Assert.True(result.Failed);
+        Assert.Contains(
+            result.Failures!,
+            f => f.Contains("OrchestratorAddress", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_Chromium_RequiresGrpcAddress()
+    {
+        var options = new SidecarOptions { Engine = SidecarEngine.Chromium, GrpcAddress = "" };
+        var result = _validator.Validate(null, options);
+        Assert.True(result.Failed);
+        Assert.Contains(
+            result.Failures!,
+            f => f.Contains("GrpcAddress", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_Gecko_DoesNotRequireGrpcAddress()
+    {
+        var options = new SidecarOptions
+        {
+            Engine = SidecarEngine.Gecko,
+            OrchestratorAddress = "http://sidecar:4100",
+            GrpcAddress = "",
+        };
+        var result = _validator.Validate(null, options);
+        Assert.Equal(ValidateOptionsResult.Success, result);
+    }
 }

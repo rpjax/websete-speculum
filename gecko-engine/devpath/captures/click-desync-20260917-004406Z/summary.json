@@ -1,0 +1,157 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "coldWaitMs": 50000,
+  "afterClickMs": 25000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/click-desync-20260917-004406Z",
+  "click": {
+    "ok": true,
+    "x": 131,
+    "y": 908.828125,
+    "href": "/ofertas/",
+    "text": ""
+  },
+  "card": {
+    "href": "/ofertas/",
+    "text": "",
+    "candidateCount": 9,
+    "nestedIframes": [
+      {
+        "src": "",
+        "w": 0,
+        "h": 0
+      },
+      {
+        "src": "",
+        "w": 0,
+        "h": 0
+      }
+    ]
+  },
+  "before": {
+    "frames": "94",
+    "generation": "0",
+    "sequence": "93",
+    "applyOk": "94",
+    "desync": "0",
+    "resync": "1",
+    "ops": "31720",
+    "phase": "live browse",
+    "activityLen": 11,
+    "resyncRequested": 1,
+    "resyncCompleted": 2,
+    "desyncLines": 0,
+    "reasons": {
+      "lag": 1
+    },
+    "resyncLines": [
+      "00:44:11 resync requested reason=lag"
+    ],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": []
+  },
+  "after": {
+    "frames": "162",
+    "generation": "2",
+    "sequence": "161",
+    "applyOk": "162",
+    "desync": "0",
+    "resync": "1",
+    "ops": "32490",
+    "phase": "live browse",
+    "activityLen": 11,
+    "resyncRequested": 1,
+    "resyncCompleted": 2,
+    "desyncLines": 0,
+    "reasons": {
+      "lag": 1
+    },
+    "resyncLines": [
+      "00:44:11 resync requested reason=lag"
+    ],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": [],
+    "delta": {
+      "resyncRequested": 0,
+      "resyncCompleted": 0,
+      "desyncLines": 0,
+      "reasons": {},
+      "resyncLines": [],
+      "desyncText": [],
+      "ctxResyncLines": [],
+      "genNavHints": []
+    },
+    "newActivitySample": []
+  },
+  "deltas": {
+    "frames": 68,
+    "desync": 0,
+    "resync": 0,
+    "generationBefore": "0",
+    "generationAfter": "2",
+    "generationChanged": true,
+    "sequenceBefore": "93",
+    "sequenceAfter": "161",
+    "reasonsDelta": {}
+  },
+  "telemetry": {
+    "count": 4,
+    "kinds": {
+      "resyncRequested": 2,
+      "resyncCompleted": 2
+    },
+    "sample": [
+      {
+        "t": 1789605850518,
+        "kind": "resyncRequested",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": null,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789605850545,
+        "kind": "resyncCompleted",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": true,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789605851916,
+        "kind": "resyncRequested",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": null,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789605851994,
+        "kind": "resyncCompleted",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": true,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      }
+    ]
+  },
+  "hypothesis": "no_cascade_observed",
+  "note": "Não Fixed. Cascata pós-click ≠ lag storm pré-drain (já fechado em b503a799)."
+}

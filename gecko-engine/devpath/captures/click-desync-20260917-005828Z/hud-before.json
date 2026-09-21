@@ -1,0 +1,43 @@
+{
+  "frames": "223",
+  "generation": "0",
+  "sequence": "221",
+  "applyOk": "223",
+  "desync": "0",
+  "resync": "1",
+  "ops": "32353",
+  "phase": "live browse",
+  "activityLen": 18,
+  "activitySample": [
+    "00:59:22 intent scrollSet",
+    "00:59:21 intent scrollSet",
+    "00:59:21 intent scrollSet",
+    "00:59:20 intent scrollSet",
+    "00:59:20 intent scrollSet",
+    "00:59:19 intent scrollSet",
+    "00:58:38 resync completed seq=3",
+    "00:58:34 resync completed seq=2",
+    "00:58:34 resync requested reason=lag",
+    "00:58:32 resync completed seq=2",
+    "00:58:31 viewport 1400×522",
+    "00:58:31 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+    "00:58:31 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-005829-fbbbb581ed21",
+    "00:58:29 browse.start viewport 1400×522",
+    "00:58:29 gecko sw ready",
+    "00:58:29 session.hello fbbbb581ed21 gecko",
+    "00:58:28 ws open",
+    "00:58:28 runs refreshed (0)"
+  ],
+  "resyncRequested": 1,
+  "resyncCompleted": 3,
+  "desyncLines": 0,
+  "reasons": {
+    "lag": 1
+  },
+  "resyncLines": [
+    "00:58:34 resync requested reason=lag"
+  ],
+  "desyncText": [],
+  "ctxResyncLines": [],
+  "genNavHints": []
+}

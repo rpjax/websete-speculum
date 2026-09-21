@@ -347,6 +347,14 @@ public sealed class SessionBindingRegistryTests
             string? rangeHeader = null)
             => throw new NotSupportedException();
 
+        public Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+            uint contextId,
+            string url,
+            string destination,
+            string range,
+            CancellationToken ct = default)
+            => throw new NotSupportedException();
+
         public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
         public Task<IResult> PutDomUploadAsync(

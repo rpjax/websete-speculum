@@ -1,0 +1,305 @@
+{
+  "ok": true,
+  "href": "https://privacidade.grupoboticario.com.br/proteja-se.html/",
+  "text": "Proteja-se Contra Fraudes",
+  "className": "footer-nav-link",
+  "score": 55,
+  "rectInDoc": {
+    "x": 90,
+    "y": 250.953125,
+    "w": 203,
+    "h": 20
+  },
+  "clickPoint": {
+    "x": 130,
+    "y": 260.953125
+  },
+  "candidateCount": 26,
+  "candidatesSample": [
+    {
+      "href": "https://privacidade.grupoboticario.com.br/proteja-se.html/",
+      "text": "Proteja-se Contra Fraudes",
+      "rect": {
+        "x": 90,
+        "y": 7792.953125,
+        "w": 203,
+        "h": 20
+      },
+      "tag": "A",
+      "className": "footer-nav-link",
+      "score": 55,
+      "inView": false
+    },
+    {
+      "href": "/skinceuticals-p-tiox-serum-de-peptideos-antirrugas-30ml?sellerId=beleza",
+      "text": "SkinCeuticals , P-TIOX - Sérum de Peptídeos Antirrugas 30ml , Desconto fidelidad",
+      "rect": {
+        "x": 91,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/skinceuticals-tonico-facial-blemish-age-solution-125ml?sellerId=beleza",
+      "text": "SkinCeuticals , Blemish + Age - Solução Antioleosidade 125ml , Desconto fidelida",
+      "rect": {
+        "x": 336.59375,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/bioderma-cicabio-creme-creme-ultrareparador-calmante-20ml?sellerId=beleza",
+      "text": "Bioderma , Cicabio Crème+ - Creme Ultra-Reparador Calmante 20ml , por R$36,96 pa",
+      "rect": {
+        "x": 582.1875,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/bioderma-atoderm-refil-oleo-de-banho-higiene-hidratante-1l?sellerId=beleza",
+      "text": "Bioderma , Atoderm Refil - Óleo de Banho Higiene Hidratante 1L , Desconto fideli",
+      "rect": {
+        "x": 827.78125,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/eucerin-antipigment-areas-especificas-creme-corporal-uniformizador-intenso-200ml?sellerId=beleza",
+      "text": "Eucerin , Anti-Pigment Áreas Específicas - Creme Corporal Antimanchas Intenso 20",
+      "rect": {
+        "x": 1073.375,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/kit-wella-professionals-ultimate-color-2-produtos?sellerId=beleza",
+      "text": "Wella Professionals , Kit Ultimate Color (2 Produtos) , Desconto fidelidade , La",
+      "rect": {
+        "x": 1318.96875,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/kit-bioderma-cicabio-creme-duo-2-unidades?sellerId=beleza",
+      "text": "Bioderma , Kit Cicabio Crème+ Duo (2 Unidades) , Desconto fidelidade , Dermocosm",
+      "rect": {
+        "x": 1564.5625,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/eucerin-antipigment-dual-serum-facial-antimanchas-e-antissinais-30ml?sellerId=beleza",
+      "text": "Eucerin , Anti-Pigment Dual - Sérum Facial Antimanchas e Antissinais 30ml , Desc",
+      "rect": {
+        "x": 1810.15625,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/skinceuticals-ha-intensifier-multi-glycan-serum-facial-antissinais-30ml?sellerId=beleza",
+      "text": "SkinCeuticals , HA Intensifier Multi-Glycan - Sérum Facial Antissinais 30ml , De",
+      "rect": {
+        "x": 2055.75,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/kit-skinceuticals-blemish-age-solution-2-unidades?sellerId=beleza",
+      "text": "SkinCeuticals , Kit Blemish + Age Solution (2 Unidades) , Desconto fidelidade , ",
+      "rect": {
+        "x": 2301.34375,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    },
+    {
+      "href": "/eucerin-dermopure-oil-control-concentrado-gel-de-limpeza-facial-antiacne-400g?sellerId=beleza",
+      "text": "Eucerin , Dermopure Clinical - Gel de Limpeza Concentrado 400g , por R$74,31 pag",
+      "rect": {
+        "x": 2546.9375,
+        "y": 748.828125,
+        "w": 235.59375,
+        "h": 498
+      },
+      "tag": "A",
+      "className": "showcase-card-link-overlay",
+      "score": 25,
+      "inView": false
+    }
+  ],
+  "linkCount": 780,
+  "scrollY": 8642,
+  "hrefInventoryTop": [
+    [
+      "https://www.belezanaweb.com.br/sacola/",
+      16
+    ],
+    [
+      "/outlet",
+      13
+    ],
+    [
+      "/autenticacao/entrar",
+      10
+    ],
+    [
+      "/minha-conta",
+      7
+    ],
+    [
+      "/presentes/",
+      7
+    ],
+    [
+      "/cupons-de-descontos/",
+      5
+    ],
+    [
+      "/cabelos/kits-de-tratamento",
+      5
+    ],
+    [
+      "/minha-conta/favoritos",
+      4
+    ],
+    [
+      "/exclusivo-blz/",
+      4
+    ],
+    [
+      "/outlet/",
+      4
+    ],
+    [
+      "/ofertas/",
+      4
+    ],
+    [
+      "/skinceuticals-p-tiox-serum-de-peptideos-antirrugas-30ml",
+      4
+    ],
+    [
+      "/skinceuticals-tonico-facial-blemish-age-solution-125ml",
+      4
+    ],
+    [
+      "/bioderma-cicabio-creme-creme-ultrareparador-calmante-20ml",
+      4
+    ],
+    [
+      "/atendimento/",
+      3
+    ],
+    [
+      "/baixe-o-app/",
+      3
+    ],
+    [
+      "/alto-luxo/alta-perfumaria/",
+      3
+    ],
+    [
+      "/maquiagem/rosto/",
+      3
+    ],
+    [
+      "/maquiagem/olhos/",
+      3
+    ],
+    [
+      "/cuidados-para-pele/tipo-de-pele/de-todos-os-tipos/",
+      3
+    ],
+    [
+      "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+      3
+    ],
+    [
+      "https://www.belezanaweb.com.br/kit-nivea-oleo-de-banho-sabonete-liquido-3-unidades/",
+      3
+    ],
+    [
+      "https://www.belezanaweb.com.br/sebastian-professional-dark-oil-mascara-de-tratamento-capilar-500ml/",
+      3
+    ],
+    [
+      "https://www.belezanaweb.com.br/kit-kerastase-densifique-densite-deux-2-produtos/",
+      3
+    ],
+    [
+      "https://www.belezanaweb.com.br/celimax-the-vita-a-retinal-shot-booster-facial-15ml/",
+      3
+    ]
+  ],
+  "iframeCount": 1,
+  "nestedIframes": [
+    {
+      "src": "",
+      "w": 0,
+      "h": 0
+    },
+    {
+      "src": "",
+      "w": 0,
+      "h": 0
+    }
+  ]
+}

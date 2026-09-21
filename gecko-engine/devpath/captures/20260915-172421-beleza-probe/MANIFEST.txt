@@ -1,0 +1,4 @@
+url=https://www.belezanaweb.com.br/
+label=beleza-probe
+timeout=90
+port=4197

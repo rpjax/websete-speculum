@@ -1,4 +1,5 @@
 import path from 'node:path'
+import fs from 'node:fs'
 import type { Connect, Plugin } from 'vite'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -18,9 +19,18 @@ function liveSpaFallback(): Plugin {
   return {
     name: 'speculum-live-spa-fallback',
     configureServer(server) {
-      server.middlewares.use((req, _res, next) => {
+      server.middlewares.use((req, res, next) => {
         const url = req.url ?? '/'
         const pathname = url.split('?')[0] ?? '/'
+        if (pathname === '/asset-sw.js') {
+          const file = path.resolve(__dirname, 'public/asset-sw.js')
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+          res.setHeader('Service-Worker-Allowed', '/')
+          res.setHeader('Cache-Control', 'no-cache')
+          fs.createReadStream(file).pipe(res)
+          return
+        }
         if (
           pathname.startsWith('/w7s')
           || pathname.startsWith('/@')

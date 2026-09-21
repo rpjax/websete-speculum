@@ -1,0 +1,295 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "waitMs": 25000,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-eneba-vstream-20260917T221106Z",
+  "sessionIds": [
+    "4551e7cb-7945-49ca-9ac1-916e724fb14d"
+  ],
+  "verdictHints": {
+    "skeletonStill": false,
+    "failedOverlay": false,
+    "vstreamConstructed": false,
+    "vstreamPlaywrightSeen": true,
+    "vstreamFramesIn": 7,
+    "vstreamClosed": false,
+    "vhubSeen": true,
+    "resyncPosts": 1,
+    "resyncStatuses": [
+      200
+    ]
+  },
+  "snapshots": [
+    {
+      "label": "domcontentloaded",
+      "t": 318,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": false,
+      "hostSize": null,
+      "iframeTitle": null,
+      "iframeSrcdocLen": null,
+      "surface": null,
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+8s",
+      "t": 8338,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+10s",
+      "t": 10361,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+12s",
+      "t": 12368,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+14s",
+      "t": 14386,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+16s",
+      "t": 16402,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+18s",
+      "t": 18422,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+20s",
+      "t": 20427,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+22s",
+      "t": 22439,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+24s",
+      "t": 24452,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+26s",
+      "t": 26461,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    }
+  ],
+  "wsEvents": [
+    {
+      "url": "wss://eneba-promocoes.com.br/w7s/vhub?id=wV8nSNF-Ul9nC1oRbzwlZg",
+      "createdAt": 1789683067976,
+      "framesIn": 5,
+      "framesOut": 5,
+      "bytesIn": 236,
+      "close": null
+    },
+    {
+      "url": "wss://eneba-promocoes.com.br/w7s/vstream?sessionId=4551e7cb-7945-49ca-9ac1-916e724fb14d&speculum-session-token=f3c2a540e02e48e7aed7557779c2ced6",
+      "createdAt": 1789683069123,
+      "framesIn": 7,
+      "framesOut": 4,
+      "bytesIn": 714,
+      "close": null
+    }
+  ],
+  "wsSpy": null,
+  "httpHits": [
+    {
+      "t": 1789683067894,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683067898,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683067898,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683067917,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789683067917,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789683067919,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789683067923,
+      "phase": "request",
+      "method": "POST",
+      "url": "https://eneba-promocoes.com.br/w7s/vhub/negotiate?negotiateVersion=1",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683067948,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/vhub/negotiate?negotiateVersion=1"
+    },
+    {
+      "t": 1789683089163,
+      "phase": "request",
+      "method": "POST",
+      "url": "https://eneba-promocoes.com.br/w7s/api/sessions/4551e7cb-7945-49ca-9ac1-916e724fb14d/page-projection/resync?sessionId=4551e7cb-7945-49ca-9ac1-916e724fb14d&speculum-session-token=f3c2a540e02e48e7aed7557779c2ced6&generation=1&sequence=0",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683089191,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/sessions/4551e7cb-7945-49ca-9ac1-916e724fb14d/page-projection/resync?sessionId=4551e7cb-7945-49ca-9ac1-916e724fb14d&speculum-session-token=f3c2a540e02e48e7aed7557779c2ced6&generation=1&sequence=0"
+    }
+  ],
+  "consoleLines": [],
+  "pageErrors": []
+}

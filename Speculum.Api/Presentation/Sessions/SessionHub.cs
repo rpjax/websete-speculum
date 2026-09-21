@@ -246,6 +246,53 @@ public sealed class SessionHub : Hub<ISessionHubClient>
         return SessionHubRequestMapper.ToResizeResponse(result.Value);
     }
 
+    /// <summary>SW de ativo no Live: Kind 0x06 no par Gecko.</summary>
+    public async Task<FetchProjectedAssetHubResponse> FetchProjectedAssetAsync(FetchProjectedAssetHubRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!_bindings.IsAuthorized(
+                Context.ConnectionId,
+                request.SessionId,
+                request.Token ?? string.Empty))
+        {
+            throw new HubException("Session binding is not authorized");
+        }
+
+        if (!_liveSessions.TryGet(request.SessionId, out var live))
+        {
+            throw new HubException("Live session not found");
+        }
+
+        var result = await live.FetchProjectedAssetAsync(
+                request.ContextId == 0 ? 1 : request.ContextId,
+                request.Url,
+                request.Destination ?? "",
+                request.Range ?? "",
+                Context.ConnectionAborted)
+            .ConfigureAwait(false);
+        if (result.IsFailure)
+        {
+            var first = result.Errors.FirstOrDefault();
+            return new FetchProjectedAssetHubResponse
+            {
+                Ok = false,
+                StatusCode = 502,
+                ErrorCode = string.IsNullOrWhiteSpace(first?.Code) ? "gecko_asset_failed" : first.Code,
+                Phase = "fetch",
+                Message = first?.Message ?? SessionHubRequestMapper.FormatErrors(result),
+            };
+        }
+
+        return new FetchProjectedAssetHubResponse
+        {
+            Ok = true,
+            StatusCode = result.Value.StatusCode == 0 ? 200 : result.Value.StatusCode,
+            ContentType = result.Value.ContentType,
+            Body = result.Value.Body,
+        };
+    }
+
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var liveSessionId = _bindings.CloseCaller(Context.ConnectionId);

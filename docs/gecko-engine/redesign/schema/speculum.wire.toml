@@ -1,0 +1,631 @@
+# Speculum — declaração do fio. Fonte única dos codecs C++, TypeScript e .NET.
+# Gramática e garantias: README.md   Modelo: ../08-fio.md
+# GERADOR: qualquer violação das regras é erro de BUILD, nunca de runtime.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Envelope — 16 bytes, fixo, alinhado. Zero ramo no decoder.
+# ─────────────────────────────────────────────────────────────────────────────
+[envelope]
+fields = [
+  { name = "opcode",      type = "u16" },
+  { name = "reserved",    type = "u16" },  # zero; alinha target em 4
+  { name = "target",      type = "u32" },  # host ou viewport; 0 = sessão
+  { name = "length",      type = "u32" },
+  { name = "correlation", type = "u32" },  # 0 = espontânea
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Enums
+# ─────────────────────────────────────────────────────────────────────────────
+[[enum]]
+name   = "LoadState"
+width  = "u8"
+values = [ { name = "Started", number = 1 }, { name = "Stopped", number = 2 } ]
+
+[[enum]]
+name   = "ResyncForce"
+width  = "u8"
+values = [ { name = "FromMap", number = 0 }, { name = "FromWalk", number = 1 } ]
+
+[[enum]]
+name   = "Scope"
+width  = "u8"
+values = [ { name = "Self", number = 0 }, { name = "Subtree", number = 1 } ]
+
+[[enum]]
+name   = "MouseButton"
+width  = "u8"
+values = [ { name = "Left", number = 0 }, { name = "Middle", number = 1 }, { name = "Right", number = 2 } ]
+
+[[enum]]
+name   = "PromptKind"
+width  = "u8"
+values = [ { name = "Dialog", number = 1 }, { name = "Permission", number = 2 }, { name = "Download", number = 3 } ]
+
+[[enum]]
+name   = "ValueTag"
+width  = "u8"
+values = [ { name = "U64", number = 0 }, { name = "I64", number = 1 }, { name = "F64", number = 2 }, { name = "Str", number = 3 } ]
+
+[[enum]]
+name   = "FaultKey"
+width  = "u16"
+values = [
+  { name = "Viewport", number = 1 }, { name = "Host",     number = 2 },
+  { name = "Document", number = 3 }, { name = "Process",  number = 4 },
+  { name = "Stream",   number = 5 }, { name = "Node",     number = 6 },
+  { name = "Sheet",    number = 7 }, { name = "Rule",     number = 8 },
+  { name = "Request",  number = 9 }, { name = "Offset",   number = 10 },
+  { name = "Expected", number = 11 }, { name = "Actual",  number = 12 },
+  { name = "Phase",    number = 13 }, { name = "Kind",    number = 14 },
+  { name = "Count",    number = 15 }, { name = "Limit",   number = 16 },
+  { name = "Span",     number = 17 },
+]
+
+[[enum]]
+name   = "FaultCode"
+width  = "u16"
+values = [
+  # sessão / fio
+  { name = "FramingLost",        number = 1 },
+  { name = "CeilingExceeded",    number = 2 },
+  { name = "WrongDirection",     number = 3 },
+  { name = "MalformedFields",    number = 4 },
+  { name = "LinkBroken",         number = 5 },
+  { name = "ClockUnavailable",   number = 6 },
+  # viewport / frame / documento
+  { name = "ViewportOpenRefused",number = 20 },
+  { name = "NoSuchViewport",     number = 21 },
+  { name = "NoSuchHost",         number = 22 },
+  { name = "HostGone",           number = 23 },
+  { name = "NoSuchDocument",     number = 24 },
+  { name = "DocumentGone",       number = 25 },
+  { name = "MalformedUrl",       number = 26 },
+  { name = "NavigateRefused",    number = 27 },
+  { name = "ResizeRefused",      number = 28 },
+  { name = "StaleGeneration",    number = 29 },
+  { name = "ProbeDisabled",      number = 30 },
+  { name = "HaltIncomplete",     number = 31 },
+  { name = "CaptureUnavailable", number = 32 },
+  { name = "StaleFreezeToken",   number = 33 },
+  # projeção
+  { name = "ResyncCheckFailed",  number = 40 },
+  { name = "SnapshotTooLarge",   number = 41 },
+  { name = "IdentityExhausted",  number = 42 },
+  # entrada
+  { name = "InputUnknownKind",   number = 60 },
+  { name = "InputNoIdentity",    number = 61 },
+  { name = "InputNodeGone",      number = 62 },
+  { name = "InputNotElement",    number = 63 },
+  { name = "InputHalted",        number = 64 },
+  { name = "InputNoTarget",      number = 65 },
+  # ativo
+  { name = "AssetNotFound",      number = 80 },
+  { name = "AssetForbidden",     number = 81 },
+  { name = "AssetReadFailed",    number = 82 },
+  { name = "AssetOffsetGap",     number = 83 },
+  { name = "AssetPhaseViolation",number = 84 },
+  { name = "AssetTooManyStreams",number = 85 },
+]
+
+[[enum]]
+name   = "CaptureKind"
+width  = "u8"
+values = [
+  { name = "Table",   number = 1 },   # tabela viva do produtor
+  { name = "Rebuilt", number = 2 },   # IDA: tabela reconstruída do estado congelado
+  { name = "Naive",   number = 3 },   # varredura ingênua do DOM/CSSOM real
+]
+
+[[enum]]
+name   = "ProbeId"
+width  = "u16"
+values = [
+  { name = "HostTable",      number = 1 },   # tabela de um host
+  { name = "RangeDigest",    number = 2 },   # hash de um intervalo de ids
+  { name = "IdentityMap",    number = 3 },
+  { name = "RegistryState",  number = 4 },
+  { name = "WriterState",    number = 5 },
+  { name = "PendingDirty",   number = 6 },
+]
+
+[[enum]]
+name   = "MetricId"
+width  = "u16"
+values = [
+  { name = "BuildMicros",  number = 1 }, { name = "OpCount",     number = 2 },
+  { name = "TableSize",    number = 3 }, { name = "DirtyCount",  number = 4 },
+  { name = "EncodeMicros", number = 5 },
+]
+
+[[enum]]
+name   = "TelemetryId"
+width  = "u16"
+values = [
+  { name = "PatchEmitted",   number = 1 }, { name = "ResyncRequested", number = 2 },
+  { name = "ResyncDone",     number = 3 }, { name = "ResyncFailed",    number = 4 },
+  { name = "ProducerFault",  number = 5 }, { name = "InputAdmitted",   number = 6 },
+  { name = "InputRejected",  number = 7 },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Structs
+# ─────────────────────────────────────────────────────────────────────────────
+[[struct]]
+name   = "Extent"
+fields = [ { name = "width", type = "i32" }, { name = "height", type = "i32" } ]
+
+[[struct]]
+name   = "KeyStroke"
+fields = [
+  { name = "key",  type = "str" },
+  { name = "code", type = "str" },
+  { name = "mods", type = "u8"  },   # bit0 ctrl, bit1 shift, bit2 alt, bit3 meta
+]
+
+[[struct]]
+name   = "Metric"
+fields = [ { name = "id", type = "enum<MetricId>" }, { name = "value", type = "u64" } ]
+
+[[struct]]
+name   = "FaultDatum"
+fields = [
+  { name = "key",  type = "enum<FaultKey>" },
+  { name = "tag",  type = "enum<ValueTag>" },
+  { name = "num",  type = "u64" },   # significativo quando tag != Str
+  { name = "text", type = "str" },   # significativo quando tag == Str
+]
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SUPERVISOR → MOTOR
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── 0x01xx sessão ────────────────────────────────────────────────────────────
+# Oráculo global — barreira em duas fases sobre TODOS os hosts (13-oraculo-global.md).
+# Capacidade de lab; recusada quando não habilitada por parâmetro de lançamento.
+[[message]]
+name = "FreezeAll"
+opcode = 0x0F10
+direction = "inbound"
+target = "session"
+pairs_with = "FreezeResult"
+fields = [ { name = "timeoutMs", type = "u32" } ]
+
+[[message]]
+name = "CaptureState"
+opcode = 0x0F11
+direction = "inbound"
+target = "session"
+pairs_with = "StateCaptured"
+fields = [
+  { name = "token", type = "u32" },
+  { name = "kind",  type = "enum<CaptureKind>" },
+]
+
+[[message]]
+name = "ThawAll"
+opcode = 0x0F12
+direction = "inbound"
+target = "session"
+fields = [ { name = "token", type = "u32" } ]
+
+[[message]]
+name = "Probe"
+opcode = 0x0F01
+direction = "inbound"
+target = "any"
+pairs_with = "ProbeResult"
+fields = [
+  { name = "id",   type = "enum<ProbeId>" },
+  { name = "args", type = "bytes" },
+]
+
+[[message]]
+name = "Shutdown"
+opcode = 0x0101
+direction = "inbound"
+target = "session"
+fields = []
+
+[[message]]
+name = "ViewportOpen"
+opcode = 0x0102
+direction = "inbound"
+target = "session"
+pairs_with = "ViewportOpened"
+fields = [ { name = "extent", type = "struct<Extent>" } ]
+
+# ── 0x02xx viewport ──────────────────────────────────────────────────────────
+[[message]]
+name = "ViewportClose"
+opcode = 0x0201
+direction = "inbound"
+target = "viewport"
+fields = []
+
+[[message]]
+name = "ViewportResize"
+opcode = 0x0202
+direction = "inbound"
+target = "viewport"
+fields = [ { name = "extent", type = "struct<Extent>" } ]
+
+# ── 0x03xx host ─────────────────────────────────────────────────────────────
+[[message]]
+name = "Navigate"
+opcode = 0x0301
+direction = "inbound"
+target = "host"
+pairs_with = "Navigated"
+fields = [ { name = "url", type = "str" } ]
+
+[[message]]
+name = "Reload"
+opcode = 0x0302
+direction = "inbound"
+target = "host"
+fields = []
+
+[[message]]
+name = "StopLoad"
+opcode = 0x0303
+direction = "inbound"
+target = "host"
+fields = []
+
+[[message]]
+name = "HistoryGo"
+opcode = 0x0304
+direction = "inbound"
+target = "host"
+fields = [ { name = "delta", type = "i32" } ]
+
+[[message]]
+name = "HostResize"
+opcode = 0x0305
+direction = "inbound"
+target = "host"
+fields = [ { name = "extent", type = "struct<Extent>" } ]
+
+[[message]]
+name = "Resync"
+opcode = 0x0306
+direction = "inbound"
+target = "host"
+fields = [
+  { name = "force", type = "enum<ResyncForce>" },
+  { name = "scope", type = "enum<Scope>" },
+]
+
+[[message]]
+name = "ClocksHalt"
+opcode = 0x0307
+direction = "inbound"
+target = "host"
+fields = [ { name = "scope", type = "enum<Scope>" } ]
+
+[[message]]
+name = "ClocksResume"
+opcode = 0x0308
+direction = "inbound"
+target = "host"
+fields = [ { name = "scope", type = "enum<Scope>" } ]
+
+[[message]]
+name = "PromptRespond"
+opcode = 0x0309
+direction = "inbound"
+target = "host"
+fields = [
+  { name = "request", type = "u32" },
+  { name = "answer",  type = "bytes" },
+]
+
+# ── 0x04xx host · conteúdo (o documento de agora; carrega generation) ─────────────────────────────────────────────────────────
+[[message]]
+name = "Flush"
+opcode = 0x0401
+direction = "inbound"
+target = "host"
+fields = [ { name = "generation", type = "u32" } ]
+
+[[message]]
+name = "Snapshot"
+opcode = 0x0402
+direction = "inbound"
+target = "host"
+pairs_with = "Snapshotted"
+fields = [ { name = "generation", type = "u32" } ]
+
+# Entrada: cinco mensagens, não uma com variante. Ver README §3.
+[[message]]
+name = "InputPointerDown"
+opcode = 0x0410
+direction = "inbound"
+target = "host"
+fields = [
+  { name = "generation", type = "u32" },
+  { name = "node",   type = "u32" },
+  { name = "localX", type = "u16" },   # 0..65535 = [0,1] na caixa do nó
+  { name = "localY", type = "u16" },
+  { name = "button", type = "enum<MouseButton>" },
+]
+
+[[message]]
+name = "InputPointerUp"
+opcode = 0x0411
+direction = "inbound"
+target = "host"
+fields = [
+  { name = "generation", type = "u32" },
+  { name = "node",   type = "u32" },
+  { name = "localX", type = "u16" },
+  { name = "localY", type = "u16" },
+  { name = "button", type = "enum<MouseButton>" },
+]
+
+[[message]]
+name = "InputKeyDown"
+opcode = 0x0412
+direction = "inbound"
+target = "host"
+fields = [ { name = "stroke", type = "struct<KeyStroke>" } ]
+
+[[message]]
+name = "InputKeyUp"
+opcode = 0x0413
+direction = "inbound"
+target = "host"
+fields = [ { name = "stroke", type = "struct<KeyStroke>" } ]
+
+[[message]]
+name = "InputScroll"
+opcode = 0x0414
+direction = "inbound"
+target = "host"
+fields = [
+  { name = "generation", type = "u32" },
+  { name = "node",  type = "u32" },    # 0 = viewport
+  { name = "fracX", type = "u16" },
+  { name = "fracY", type = "u16" },
+]
+
+[[message]]
+name = "AssetRequest"
+opcode = 0x0420
+direction = "inbound"
+target = "host"
+fields = [
+  { name = "generation", type = "u32" },
+  { name = "stream", type = "u32" },
+  { name = "url",    type = "str" },
+]
+
+[[message]]
+name = "AssetCancel"
+opcode = 0x0421
+direction = "inbound"
+target = "host"
+fields = [ { name = "stream", type = "u32" } ]
+
+# ═════════════════════════════════════════════════════════════════════════════
+# MOTOR → SUPERVISOR
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── 0x81xx sessão ────────────────────────────────────────────────────────────
+[[message]]
+name = "Ready"
+opcode = 0x8101
+direction = "outbound"
+target = "session"
+fields = []
+
+[[message]]
+name = "Heartbeat"
+opcode = 0x8102
+direction = "outbound"
+target = "session"
+fields = [ { name = "monotonicMs", type = "u64" } ]
+
+# ── 0x82xx viewport ──────────────────────────────────────────────────────────
+[[message]]
+name = "ViewportOpened"
+opcode = 0x8201
+direction = "outbound"
+target = "viewport"
+pairs_with = "ViewportOpen"
+fields = [ { name = "rootHost", type = "u32" } ]
+
+[[message]]
+name = "ViewportClosed"
+opcode = 0x8202
+direction = "outbound"
+target = "viewport"
+fields = []
+
+# ── 0x83xx host ─────────────────────────────────────────────────────────────
+[[message]]
+name = "HostAttached"
+opcode = 0x8301
+direction = "outbound"
+target = "host"
+fields = [
+  { name = "parent",   type = "u32" },   # 0 = raiz de um viewport
+  { name = "viewport", type = "u32" },
+]
+
+[[message]]
+name = "HostDetached"
+opcode = 0x8302
+direction = "outbound"
+target = "host"
+fields = []
+
+[[message]]
+name = "DocumentInstalled"
+opcode = 0x8303
+direction = "outbound"
+target = "host"
+fields = [ { name = "generation", type = "u32" } ]
+
+[[message]]
+name = "DocumentDiscarded"
+opcode = 0x8304
+direction = "outbound"
+target = "host"
+fields = [ { name = "generation", type = "u32" } ]
+
+[[message]]
+name = "Navigated"
+opcode = 0x8305
+direction = "outbound"
+target = "host"
+pairs_with = "Navigate"
+fields = [ { name = "url", type = "str" } ]
+
+[[message]]
+name = "LoadStateChanged"
+opcode = 0x8306
+direction = "outbound"
+target = "host"
+fields = [ { name = "state", type = "enum<LoadState>" } ]
+
+[[message]]
+name = "PromptRequested"
+opcode = 0x8307
+direction = "outbound"
+target = "host"
+fields = [
+  { name = "request",     type = "u32" },
+  { name = "kind",        type = "enum<PromptKind>" },
+  { name = "description", type = "bytes" },
+]
+
+[[message]]
+name = "PromptAbandoned"
+opcode = 0x8308
+direction = "outbound"
+target = "host"
+fields = [ { name = "request", type = "u32" } ]
+
+# ── 0x84xx host · conteúdo ─────────────────────────────────────────────────────────
+[[message]]
+name = "Patch"
+opcode = 0x8401
+direction = "outbound"
+target = "host"
+fields = [
+  { name = "generation", type = "u32" },
+  { name = "sequence",   type = "u32" },
+  { name = "flags",      type = "u16" },   # bit0 Complete · bit1 Resync
+  { name = "builtAt",    type = "u32" },   # sequence de construção; só quando Resync
+  { name = "metrics",    type = "list<struct<Metric>>", max = 16 },
+  { name = "deltas",     type = "bytes" }, # ISA de projeção; ver frame-protocol
+]
+
+[[message]]
+name = "Snapshotted"
+opcode = 0x8402
+direction = "outbound"
+target = "host"
+pairs_with = "Snapshot"
+fields = [
+  { name = "generation", type = "u32" },
+  { name = "sequence", type = "u32" },
+  { name = "digest",   type = "u64" },
+  { name = "dump",     type = "bytes" },
+]
+
+[[message]]
+name = "AssetChunk"
+opcode = 0x8420
+direction = "outbound"
+target = "host"
+fields = [
+  { name = "stream", type = "u32" },
+  { name = "offset", type = "u64" },
+  { name = "data",   type = "bytes" },
+]
+
+[[message]]
+name = "AssetEnd"
+opcode = 0x8421
+direction = "outbound"
+target = "host"
+fields = [
+  { name = "stream", type = "u32" },
+  { name = "total",  type = "u64" },
+]
+
+[[message]]
+name = "AssetDenied"
+opcode = 0x8422
+direction = "outbound"
+target = "host"
+fields = [
+  { name = "stream", type = "u32" },
+  { name = "code",   type = "enum<FaultCode>" },
+]
+
+# ── 0x8Fxx diagnóstico ───────────────────────────────────────────────────────
+[[message]]
+name = "Fault"
+opcode = 0x8F01
+direction = "outbound"
+target = "any"
+fields = [
+  { name = "code",    type = "enum<FaultCode>" },
+  { name = "flags",   type = "u32" },     # Transient|Retryable|ProtocolViolation|ClientVisible
+  { name = "origin",  type = "str" },
+  { name = "message", type = "str" },
+  { name = "data",    type = "list<struct<FaultDatum>>", max = 8 },
+]
+
+[[message]]
+name = "FreezeResult"
+opcode = 0x8F10
+direction = "outbound"
+target = "session"
+pairs_with = "FreezeAll"
+fields = [
+  { name = "token",   type = "u32" },   # 0 = recusado
+  { name = "frozen",  type = "u32" },
+  { name = "expected",type = "u32" },   # frozen != expected ⇒ HaltIncomplete
+]
+
+[[message]]
+name = "StateCaptured"
+opcode = 0x8F11
+direction = "outbound"
+target = "session"
+pairs_with = "CaptureState"
+fields = [
+  { name = "token",      type = "u32" },
+  { name = "host",       type = "u32" },
+  { name = "generation", type = "u32" },
+  { name = "kind",       type = "enum<CaptureKind>" },
+  { name = "digest",     type = "u64" },
+  { name = "image",      type = "bytes" },
+]
+
+[[message]]
+name = "ProbeResult"
+opcode = 0x8F03
+direction = "outbound"
+target = "any"
+pairs_with = "Probe"
+fields = [
+  { name = "id",      type = "enum<ProbeId>" },
+  { name = "enabled", type = "bool" },        # falso = ProbeDisabled, nunca silêncio
+  { name = "payload", type = "bytes" },
+]
+
+[[message]]
+name = "Telemetry"
+opcode = 0x8F02
+direction = "outbound"
+target = "any"
+fields = [
+  { name = "id",      type = "enum<TelemetryId>" },
+  { name = "payload", type = "bytes" },
+]

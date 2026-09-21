@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "method": "mouse.fallback",
+  "x": 130,
+  "y": 40.21875,
+  "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+  "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+  "score": 165,
+  "box": null,
+  "error": "locator.click: Timeout 8000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#surfaceHost iframe').first().contentFrame().locator('a[href*=\"/kit-wella-professionals-invigo-nutri-enrich-sal\"]').first",
+  "intentCheck": {
+    "down": [],
+    "up": [],
+    "click": [],
+    "recent": [
+      "00:54:44 resync requested reason=lag",
+      "00:54:43 resync completed seq=259",
+      "00:54:43 resync requested reason=lag",
+      "00:54:42 resync completed seq=241",
+      "00:54:41 resync requested reason=lag",
+      "00:54:41 resync completed seq=238",
+      "00:54:40 resync requested reason=lag",
+      "00:54:40 resync completed seq=235",
+      "00:54:39 resync requested reason=lag",
+      "00:54:39 resync completed seq=232",
+      "00:54:39 resync requested reason=lag",
+      "00:54:38 resync completed seq=228"
+    ]
+  }
+}

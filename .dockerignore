@@ -8,3 +8,11 @@
 **/.vscode/
 **/*.user
 **/*.suo
+gecko-engine/devpath/
+gecko-engine/patches/
+gecko-engine/tests/
+gecko-engine/gecko-dist/**
+!gecko-engine/gecko-dist/README.md
+!gecko-engine/gecko-dist/firefox-dist.tar.gz
+Legacy/
+

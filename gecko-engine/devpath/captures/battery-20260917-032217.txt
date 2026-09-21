@@ -1,0 +1,82 @@
+bateria DOM 2026-09-17T03:22:17-03:00  http://127.0.0.1:4078
+
+==== static-dom  20s  http://127.0.0.1:4078/static-dom.html ====
+capturando http://127.0.0.1:4078/static-dom.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032217-static-dom
+consumidor conectado em ws://127.0.0.1:4199/session
+1 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032217-static-dom
+--- frames ---
+-rwxrwxrwx 1 root root 1037 Sep 17 03:22 /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032217-static-dom/f-0001-ctx1-seq1.bin
+--- logs ---
+total 4
+-rwxrwxrwx 1 root root 3338 Sep 17 03:22 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032217-static-dom
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032217-static-dom
+stats static-dom frames_bytes=1 1037
+f-0001-ctx1-seq1.bin         0        ctx1/gen1 seq=1 ops=  34  uri=?  ACEITO
+
+1 aceito(s), 0 recusado(s) de 1 frame(s)
+RESULT static-dom PASS frames=1
+
+==== forms-state  20s  http://127.0.0.1:4078/forms-state.html ====
+capturando http://127.0.0.1:4078/forms-state.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032251-forms-state
+consumidor conectado em ws://127.0.0.1:4199/session
+1 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032251-forms-state
+--- frames ---
+-rwxrwxrwx 1 root root 2205 Sep 17 03:23 /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032251-forms-state/f-0001-ctx1-seq1.bin
+--- logs ---
+total 4
+-rwxrwxrwx 1 root root 3407 Sep 17 03:23 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032251-forms-state
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032251-forms-state
+stats forms-state frames_bytes=1 2205
+f-0001-ctx1-seq1.bin         0        ctx1/gen1 seq=1 ops=  69  uri=?  ACEITO
+
+1 aceito(s), 0 recusado(s) de 1 frame(s)
+RESULT forms-state PASS frames=1
+
+==== svg-ns  20s  http://127.0.0.1:4078/svg-ns.html ====
+capturando http://127.0.0.1:4078/svg-ns.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032335-svg-ns
+consumidor conectado em ws://127.0.0.1:4199/session
+1 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032335-svg-ns
+--- frames ---
+-rwxrwxrwx 1 root root 1797 Sep 17 03:23 /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032335-svg-ns/f-0001-ctx1-seq1.bin
+--- logs ---
+total 4
+-rwxrwxrwx 1 root root 3392 Sep 17 03:24 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032335-svg-ns
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032335-svg-ns
+stats svg-ns frames_bytes=1 1797
+f-0001-ctx1-seq1.bin         0        ctx1/gen1 seq=1 ops=  60  uri=?  ACEITO
+
+1 aceito(s), 0 recusado(s) de 1 frame(s)
+RESULT svg-ns PASS frames=1
+
+==== insert-before-remove  25s  http://127.0.0.1:4078/insert-before-remove.html ====
+capturando http://127.0.0.1:4078/insert-before-remove.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove
+consumidor conectado em ws://127.0.0.1:4199/session
+4 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove
+--- frames ---
+-rwxrwxrwx 1 root root 1606 Sep 17 03:24 /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove/f-0001-ctx1-seq1.bin
+-rwxrwxrwx 1 root root  138 Sep 17 03:24 /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove/f-0002-ctx1-seq2.bin
+-rwxrwxrwx 1 root root  198 Sep 17 03:24 /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove/f-0003-ctx1-seq3.bin
+-rwxrwxrwx 1 root root   65 Sep 17 03:24 /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove/f-0004-ctx1-seq4.bin
+--- logs ---
+total 4
+-rwxrwxrwx 1 root root 3171 Sep 17 03:24 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032407-insert-before-remove
+stats insert-before-remove frames_bytes=4 2007
+f-0001-ctx1-seq1.bin         0        ctx1/gen1 seq=1 ops=  24  uri=?  ACEITO
+f-0002-ctx1-seq2.bin         0        ctx1/gen1 seq=2 ops=   5  uri=?  ACEITO
+f-0003-ctx1-seq3.bin         0        ctx1/gen1 seq=3 ops=   8  uri=?  ACEITO
+f-0004-ctx1-seq4.bin         0        ctx1/gen1 seq=4 ops=   2  uri=?  ACEITO
+
+4 aceito(s), 0 recusado(s) de 4 frame(s)
+RESULT insert-before-remove PASS frames=4
+
+==== mutation-churn  30s  http://127.0.0.1:4078/mutation-churn.html ====
+capturando http://127.0.0.1:4078/mutation-churn.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260917-032452-mutation-churn

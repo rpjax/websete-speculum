@@ -1,0 +1,43 @@
+{
+  "url": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+  "before": {
+    "frames": "99",
+    "generation": "0",
+    "sequence": "97",
+    "desync": "0",
+    "resync": "1"
+  },
+  "after": {
+    "frames": "99",
+    "generation": "0",
+    "sequence": "97",
+    "desync": "0",
+    "resync": "1"
+  },
+  "peakDesync": 0,
+  "peakResync": 1,
+  "reasonsDelta": {},
+  "activityDelta": {
+    "resyncRequested": 0,
+    "resyncCompleted": 0,
+    "desyncLines": 0,
+    "reasons": {},
+    "resyncLines": [],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": []
+  },
+  "newActivitySample": [],
+  "surface": {
+    "ok": true,
+    "title": "Beleza na Web | Maior loja de cosméticos online",
+    "bases": [
+      "https://www.belezanaweb.com.br/",
+      "/"
+    ],
+    "h1": "",
+    "bodyStart": "Ir direto para o conteúdo Acessibilidade Grupo Boticário Nossas Lojas Baixe o nosso app! Precisa de ajuda? Meus Pedidos Favoritos O que você procura hoje? Informar localização Acessar Minha Conta Entrar 0 Promos Cabelos Perfumes e Perfumaria Maquiagem Skincare Cuidados Pessoais M",
+    "hasKitWella": true,
+    "hasAddToCart": true
+  }
+}

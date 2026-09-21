@@ -112,6 +112,19 @@ dotnet publish src/Speculum.Supervisor -c Release -r linux-x64
 `Speculum.Lab` é ferramenta de desenvolvimento: não entra no produto e por isso não
 carrega a restrição de AOT.
 
+## Orquestrador (Live / imagem)
+
+O produto não fala com o supervisor. `Speculum.Orchestrator` nasce os pares,
+faz a ponte WS e responde `GET /ready`. Lab não entra na imagem.
+
+```bash
+dotnet publish src/Speculum.Orchestrator -c Release -r linux-x64
+```
+
+Empacotar o Firefox no diretório que a imagem copia — não buildar mach no dockup:
+
+ver [`gecko-engine/gecko-dist/README.md`](../gecko-dist/README.md).
+
 ## Estado
 
 Instrumentação do par (debug só de fora): ver

@@ -7,7 +7,10 @@ using Speculum.Supervisor;
 using Speculum.Supervisor.Browser;
 using Speculum.Supervisor.Consumers;
 
+ProcessDeath.BindToParent();
+
 var options = SupervisorOptions.FromEnvironment();
+
 
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.AddSimpleConsole(c => c.SingleLine = true);

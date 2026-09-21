@@ -1,0 +1,446 @@
+{
+  "target": "http://127.0.0.1:8080/",
+  "waitMs": 40000,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-eneba-vstream-20260917T222817Z",
+  "sessionIds": [],
+  "verdictHints": {
+    "skeletonStill": false,
+    "failedOverlay": false,
+    "vstreamConstructed": false,
+    "vstreamPlaywrightSeen": false,
+    "vstreamFramesIn": 0,
+    "vstreamDataPayloadBytes": 0,
+    "vstreamMux": [],
+    "vstreamClosed": false,
+    "vhubSeen": true,
+    "resyncPosts": 0,
+    "resyncStatuses": []
+  },
+  "muxSummary": [],
+  "snapshots": [
+    {
+      "label": "domcontentloaded",
+      "t": 628,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": false,
+      "hostSize": null,
+      "iframeTitle": null,
+      "iframeSrcdocLen": null,
+      "surface": null,
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+8s",
+      "t": 8644,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+11s",
+      "t": 10648,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+13s",
+      "t": 12664,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+15s",
+      "t": 14671,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+17s",
+      "t": 16682,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+19s",
+      "t": 18697,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+21s",
+      "t": 20714,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+23s",
+      "t": 22722,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+25s",
+      "t": 24733,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+27s",
+      "t": 26744,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+29s",
+      "t": 28749,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+31s",
+      "t": 30760,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+33s",
+      "t": 32767,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+35s",
+      "t": 34784,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+37s",
+      "t": 36791,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+39s",
+      "t": 38802,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+41s",
+      "t": 40815,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    }
+  ],
+  "wsEvents": [
+    {
+      "url": "ws://127.0.0.1:8080/w7s/vhub?id=ugiwq1SHc5F0xsM9Ie0mjg",
+      "createdAt": 1789684099375,
+      "framesIn": 0,
+      "framesOut": 0,
+      "bytesIn": 0,
+      "muxIn": {
+        "OPEN": 0,
+        "DATA": 0,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 0
+      },
+      "muxSamples": [],
+      "close": {
+        "t": 1789684099376,
+        "ageMs": 1
+      },
+      "error": "Error in connection establishment: net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS"
+    }
+  ],
+  "wsSpy": null,
+  "httpHits": [
+    {
+      "t": 1789684099227,
+      "phase": "request",
+      "method": "GET",
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684099231,
+      "phase": "request",
+      "method": "GET",
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684099231,
+      "phase": "request",
+      "method": "GET",
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684099341,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684099341,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684099343,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684099345,
+      "phase": "request",
+      "method": "POST",
+      "url": "http://127.0.0.1:8080/w7s/vhub/negotiate?negotiateVersion=1",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684099371,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/vhub/negotiate?negotiateVersion=1"
+    }
+  ],
+  "consoleLines": [
+    {
+      "t": 1789684099376,
+      "type": "error",
+      "text": "WebSocket connection to 'ws://127.0.0.1:8080/w7s/vhub?id=ugiwq1SHc5F0xsM9Ie0mjg' failed: Error in connection establishment: net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS"
+    }
+  ],
+  "pageErrors": []
+}

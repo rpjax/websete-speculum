@@ -1,0 +1,80 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "waitMs": 50000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/resync-502-20260917-002405Z",
+  "hud": {
+    "frames": "198",
+    "generation": null,
+    "sequence": null,
+    "applyOk": null,
+    "desync": "0",
+    "resync": "1",
+    "ovr": null,
+    "resyncReasons": {
+      "lag": 1
+    },
+    "resyncLines": [
+      "00:24:12 resync requested reason=lag"
+    ],
+    "desyncLines": [],
+    "activitySample": [
+      "00:24:15 resync completed seq=3",
+      "00:24:13 resync completed seq=2",
+      "00:24:12 resync requested reason=lag",
+      "00:24:10 resync completed seq=2",
+      "00:24:08 viewport 1400×522",
+      "00:24:08 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "00:24:08 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-002407-21e500e5e4e3",
+      "00:24:07 browse.start viewport 1400×522",
+      "00:24:06 gecko sw ready",
+      "00:24:06 session.hello 21e500e5e4e3 gecko",
+      "00:24:06 ws open",
+      "00:24:06 runs refreshed (0)"
+    ]
+  },
+  "resync": {
+    "count": 1,
+    "desyncHud": "0",
+    "reasons": {
+      "lag": 1
+    },
+    "hypothesis": "lag"
+  },
+  "assets502": {
+    "count": 1,
+    "whyBuckets": {
+      "empty_body": 1
+    },
+    "status404": 0,
+    "rows": [
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=589e8793-29c4-4a10-bae6-4ff78e7ce26e&bo=1&sid=1ca9bb80b22e11f1ba9d596037958f32&vid=1ca9ef40b22e11f1a155e5dd2e9110de&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      }
+    ],
+    "urlTransformMismatchSamples": []
+  },
+  "nextFixHints": [
+    {
+      "id": "resync",
+      "cause": "lag",
+      "fixHint": "ProjectionClient desync/resync por reason=lag — corrigir esse caminho (não maquiar contador)."
+    },
+    {
+      "id": "502_empty",
+      "cause": "sw_empty_body",
+      "fixHint": "Join devolveu bytes vazios com CT image/* — race tee incompleto ou open vazio."
+    }
+  ]
+}

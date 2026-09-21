@@ -1,0 +1,57 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "elapsedMs": 23810,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-handle-20260917T232801Z",
+  "probeExists": false,
+  "mid": {
+    "snap": null,
+    "samples": [],
+    "probeExists": false
+  },
+  "forced": {
+    "img": {
+      "ok": false
+    },
+    "after": [],
+    "probe": null,
+    "sid": null,
+    "tok": false
+  },
+  "logoNet": [
+    {
+      "t": "will",
+      "id": "17532.48",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg",
+      "doc": "about:srcdoc"
+    },
+    {
+      "t": "resp",
+      "id": "17532.48",
+      "status": 404,
+      "statusText": "no_session",
+      "fromSW": true,
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg"
+    },
+    {
+      "t": "will",
+      "id": "17532.153",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg?handle=1789687704735",
+      "doc": "https://eneba-promocoes.com.br/"
+    },
+    {
+      "t": "resp",
+      "id": "17532.153",
+      "status": 404,
+      "statusText": "no_session",
+      "fromSW": true,
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg?handle=1789687704735"
+    }
+  ],
+  "verdict": {
+    "code": "SID_NULL_AT_NO_SESSION",
+    "certain": true,
+    "meaning": "sessionId null no asset-fetch com reply no_session ⇒ wire órfão (cleanup não removeu listener) ou race extrema.",
+    "tok": false,
+    "probeExists": false
+  }
+}

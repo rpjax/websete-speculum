@@ -1,0 +1,4 @@
+url=http://127.0.0.1:4077/fixtures/static-dom.html
+label=static-probe
+timeout=35
+port=4197

@@ -7,14 +7,34 @@ public sealed class SidecarOptionsValidator : IValidateOptions<SidecarOptions>
     public ValidateOptionsResult Validate(string? name, SidecarOptions options)
     {
         var failures = new List<string>();
-        if (string.IsNullOrWhiteSpace(options.GrpcAddress))
+        if (!Enum.IsDefined(options.Engine))
         {
-            failures.Add("Sidecar:GrpcAddress is required.");
+            failures.Add("Sidecar:Engine must be Gecko or Chromium.");
         }
-        else if (!Uri.TryCreate(options.GrpcAddress, UriKind.Absolute, out var uri)
-                 || uri.Scheme is not ("http" or "https"))
+
+        if (options.Engine == SidecarEngine.Gecko)
         {
-            failures.Add("Sidecar:GrpcAddress must be an absolute http(s) URI.");
+            if (string.IsNullOrWhiteSpace(options.OrchestratorAddress))
+            {
+                failures.Add("Sidecar:OrchestratorAddress is required when Engine is Gecko.");
+            }
+            else if (!Uri.TryCreate(options.OrchestratorAddress, UriKind.Absolute, out var orch)
+                     || orch.Scheme is not ("http" or "https"))
+            {
+                failures.Add("Sidecar:OrchestratorAddress must be an absolute http(s) URI.");
+            }
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(options.GrpcAddress))
+            {
+                failures.Add("Sidecar:GrpcAddress is required when Engine is Chromium.");
+            }
+            else if (!Uri.TryCreate(options.GrpcAddress, UriKind.Absolute, out var uri)
+                     || uri.Scheme is not ("http" or "https"))
+            {
+                failures.Add("Sidecar:GrpcAddress must be an absolute http(s) URI.");
+            }
         }
 
         if (options.LinkRetryCount < 0 || options.LinkRetryCount > 20)

@@ -1,0 +1,483 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "waitMs": 40000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/same-s-latest",
+  "protocol": "client.sameS → lab.sameSResult (Halt/Flush/Snapshot)",
+  "navigated": [
+    "https://www.belezanaweb.com.br/"
+  ],
+  "sameS": {
+    "ok": true,
+    "error": null,
+    "sameSequence": false,
+    "virtualSequence": 168,
+    "projectedSequence": 167,
+    "virtualTableHash": "1d613eecf3759b98",
+    "projectedTableHash": "8753170366775097114"
+  },
+  "virtualDump": {
+    "ok": true,
+    "sequence": 168,
+    "generation": 0,
+    "contextId": 1,
+    "tableHash": "2117042487258618776",
+    "rowCount": 22584,
+    "lastFrameNewNodes": 22584,
+    "kindHist": {
+      "1": 6548,
+      "2": 11319,
+      "3": 59,
+      "4": 1,
+      "5": 4656,
+      "6": 1
+    },
+    "kinds": {
+      "Element": 6548,
+      "Text": 11319,
+      "Comment": 59,
+      "Sheet": 1,
+      "Rule": 4656,
+      "Doctype": 1,
+      "ShadowRoot": 0
+    }
+  },
+  "wire": {
+    "frameCount": 176,
+    "lastSeq": 174,
+    "rowCount": 22584,
+    "kinds": {
+      "Element": 6548,
+      "Text": 11319,
+      "Sheet": 1,
+      "Rule": 4656,
+      "Comment": 59,
+      "Doctype": 1,
+      "ShadowRoot": 0
+    }
+  },
+  "projected": {
+    "table": {
+      "rowCount": 22584,
+      "tableHash": "8753170366775097114"
+    },
+    "layout": {
+      "ok": true,
+      "samples": [
+        {
+          "sel": "header",
+          "tag": "HEADER",
+          "className": "header-wrapper facelift-changes    header-sticky beautybox-profile header-element",
+          "display": "flex",
+          "position": "sticky",
+          "flex": "column/normal/center",
+          "grid": "none",
+          "width": "1400px",
+          "height": "60px",
+          "rect": {
+            "x": 0,
+            "y": 77,
+            "w": 1400,
+            "h": 60
+          },
+          "bg": "rgba(76, 76, 76, 0.5)"
+        },
+        {
+          "sel": "[class*=\"header\"]",
+          "tag": "BODY",
+          "className": "blzstore page-home page-home header-transparent",
+          "display": "block",
+          "position": "static",
+          "flex": "row/normal/normal",
+          "grid": "none",
+          "width": "1400px",
+          "height": "9571.27px",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1400,
+            "h": 9571.265625
+          },
+          "bg": "rgb(242, 242, 242)"
+        },
+        {
+          "sel": "nav",
+          "tag": "NAV",
+          "className": "menu-facelift js-menu-facelift-mobile  header-element",
+          "display": "flex",
+          "position": "relative",
+          "flex": "row/center/normal",
+          "grid": "none",
+          "width": "1400px",
+          "height": "40px",
+          "rect": {
+            "x": 0,
+            "y": 137,
+            "w": 1400,
+            "h": 40
+          },
+          "bg": "rgba(76, 76, 76, 0.5)"
+        },
+        {
+          "sel": "main",
+          "tag": "MAIN",
+          "className": "section-space",
+          "display": "block",
+          "position": "static",
+          "flex": "row/normal/normal",
+          "grid": "none",
+          "width": "1400px",
+          "height": "8567.14px",
+          "rect": {
+            "x": 0,
+            "y": -53,
+            "w": 1400,
+            "h": 8567.140625
+          },
+          "bg": "rgba(0, 0, 0, 0)"
+        },
+        {
+          "sel": "body",
+          "tag": "BODY",
+          "className": "blzstore page-home page-home header-transparent",
+          "display": "block",
+          "position": "static",
+          "flex": "row/normal/normal",
+          "grid": "none",
+          "width": "1400px",
+          "height": "9571.27px",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1400,
+            "h": 9571.265625
+          },
+          "bg": "rgb(242, 242, 242)"
+        },
+        {
+          "sel": "[class*=\"search\"]",
+          "tag": "DIV",
+          "className": "header-search-wrapper autocomplete-loaded",
+          "display": "block",
+          "position": "static",
+          "flex": "row/normal/normal",
+          "grid": "none",
+          "width": "530px",
+          "height": "40px",
+          "rect": {
+            "x": 232,
+            "y": 87,
+            "w": 530,
+            "h": 40
+          },
+          "bg": "rgba(0, 0, 0, 0)"
+        },
+        {
+          "sel": "form",
+          "tag": "FORM",
+          "className": "search-modal-form header-search",
+          "display": "block",
+          "position": "relative",
+          "flex": "row/normal/normal",
+          "grid": "none",
+          "width": "100%",
+          "height": "auto",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0
+          },
+          "bg": "rgba(0, 0, 0, 0)"
+        },
+        {
+          "sel": ".container",
+          "tag": "DIV",
+          "className": "container",
+          "display": "block",
+          "position": "relative",
+          "flex": "row/normal/normal",
+          "grid": "none",
+          "width": "1220px",
+          "height": "45px",
+          "rect": {
+            "x": 90,
+            "y": 0,
+            "w": 1220,
+            "h": 45
+          },
+          "bg": "rgba(0, 0, 0, 0)"
+        },
+        {
+          "sel": "#onetrust-banner-sdk",
+          "tag": "DIV",
+          "className": "otFloatingRounded otRelFont ot-bottom-left ot-wo-title vertical-align-content",
+          "display": "block",
+          "position": "fixed",
+          "flex": "row/normal/normal",
+          "grid": "none",
+          "width": "700px",
+          "height": "180.156px",
+          "rect": {
+            "x": 16,
+            "y": 309.84375,
+            "w": 700,
+            "h": 180.15625
+          },
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "overlapPairsAmong40": 218,
+      "styleEls": 5,
+      "linkCss": 1,
+      "adoptedSheetCount": 2,
+      "docSheetCount": 5,
+      "adoptedRules": 4657,
+      "docSheetRules": 258,
+      "sheets": [
+        {
+          "origin": "document.styleSheets",
+          "href": null,
+          "owner": "STYLE",
+          "ownerId": null,
+          "ruleCount": 4,
+          "err": null,
+          "ruleTextSample": [
+            "[data-segmentation]:not(.show):not(.js-billboard-group-candidate):not(.js-home-multishowcase-candidate) { visibility: hidden; }",
+            "[data-segmentation].show, [data-segmentation].js-billboard-group-candidate, [data-segmentation].js-home-multishowcase-candidate { visibility: visible; }",
+            ".multi-showcase-stack { display: grid; grid-template-columns: minmax(0px, 1fr); }",
+            ".multi-showcase-stack > .js-home-multishowcase-candidate { grid-area: 1 / 1; margin-bottom: 0px; min-width: 0px; }"
+          ]
+        },
+        {
+          "origin": "document.styleSheets",
+          "href": null,
+          "owner": "STYLE",
+          "ownerId": null,
+          "ruleCount": 7,
+          "err": null,
+          "ruleTextSample": [
+            ".banner-leaderboard-wrapper { --leaderboard-aspect-ratio-mobile: 1080/130; --leaderboard-aspect-ratio-desktop: 1220/45; --max-height-mobile: 130px; --max-height",
+            ".banner-leaderboard-wrapper.header-sticky { position: sticky; top: 0px; z-index: 23; }",
+            ".leaderboard-skeleton { width: 100%; height: 100%; max-width: 1220px; margin: auto; background: linear-gradient(90deg, rgb(240, 240, 240) 25%, rgb(224, 224, 224",
+            ".leaderboard-container { position: absolute; top: 0px; width: 100%; height: 100%; z-index: 2; display: flex; align-items: center; justify-content: center; }",
+            ".banner-leaderboard-wrapper:has(.leaderboard-container.lazyloaded) .leaderboard-skeleton { opacity: 0; pointer-events: none; }",
+            ".banner-leaderboard-wrapper.leaderboard-empty { aspect-ratio: unset; max-height: 0px; min-height: 0px; overflow: hidden; }",
+            "@media (min-width: 520px) {\n  .banner-leaderboard-wrapper { aspect-ratio: var(--leaderboard-aspect-ratio-desktop); max-height: var(--max-height-desktop); min-he"
+          ]
+        },
+        {
+          "origin": "document.styleSheets",
+          "href": null,
+          "owner": "STYLE",
+          "ownerId": "onetrust-style",
+          "ruleCount": 245,
+          "err": null,
+          "ruleTextSample": [
+            "#onetrust-banner-sdk .onetrust-vendors-list-handler { cursor: pointer; color: rgb(31, 150, 219); font-size: inherit; font-weight: bold; text-decoration: none; m",
+            "#onetrust-banner-sdk .onetrust-vendors-list-handler:hover { color: rgb(31, 150, 219); }",
+            "#onetrust-banner-sdk:focus { outline: rgb(0, 0, 0) solid 2px; outline-offset: -2px; }",
+            "#onetrust-banner-sdk a:focus { outline: rgb(0, 0, 0) solid 2px; }",
+            "#onetrust-banner-sdk #onetrust-accept-btn-handler, #onetrust-banner-sdk #onetrust-reject-all-handler, #onetrust-banner-sdk #onetrust-pc-btn-handler { outline-of",
+            "#onetrust-banner-sdk.ot-bnr-w-logo .ot-bnr-logo { height: 64px; width: 64px; }",
+            "#onetrust-banner-sdk #onetrust-policy svg, #onetrust-banner-sdk .banner-option svg { height: 13px; width: 13px; margin-left: 1px; }",
+            "#onetrust-banner-sdk #onetrust-policy svg.ot-ext-lnk, #onetrust-banner-sdk .banner-option svg.ot-ext-lnk { vertical-align: middle; }"
+          ]
+        },
+        {
+          "origin": "document.styleSheets",
+          "href": null,
+          "owner": "STYLE",
+          "ownerId": "kampyleStyle",
+          "ruleCount": 2,
+          "err": null,
+          "ruleTextSample": [
+            ".noOutline { outline: none !important; }",
+            ".wcagOutline:focus { outline: rgb(89, 89, 89) dashed 1px !important; outline-offset: 2px !important; transition: none !important; }"
+          ]
+        },
+        {
+          "origin": "document.styleSheets",
+          "href": null,
+          "owner": "STYLE",
+          "ownerId": null,
+          "ruleCount": 0,
+          "err": null,
+          "ruleTextSample": []
+        },
+        {
+          "origin": "document.adoptedStyleSheets",
+          "href": null,
+          "owner": null,
+          "ownerId": null,
+          "ruleCount": 1,
+          "err": null,
+          "ruleTextSample": [
+            "noscript { display: none !important; }"
+          ]
+        },
+        {
+          "origin": "document.adoptedStyleSheets",
+          "href": null,
+          "owner": null,
+          "ownerId": null,
+          "ruleCount": 4656,
+          "err": null,
+          "ruleTextSample": [
+            ".visible-lg, .visible-lg-block, .visible-lg-inline, .visible-lg-inline-block, .visible-md, .visible-md-block, .visible-md-inline, .visible-md-inline-block, .vis",
+            "fieldset { margin: 0px; min-width: 0px; }",
+            "fieldset, legend { border: 0px; padding: 0px; }",
+            "legend { border-bottom: 1px solid rgb(229, 229, 229); color: rgb(119, 119, 119); display: block; font-size: 1.3125rem; line-height: inherit; margin-bottom: 16px",
+            "label { display: inline-block; font-weight: 700; margin-bottom: 5px; max-width: 100%; }",
+            "input[type=\"search\"] { appearance: none; box-sizing: border-box; }",
+            "input[type=\"checkbox\"], input[type=\"radio\"] { line-height: normal; margin: 4px 0px 0px; }",
+            "fieldset[disabled] input[type=\"checkbox\"], fieldset[disabled] input[type=\"radio\"], input[type=\"checkbox\"].disabled, input[type=\"checkbox\"][disabled], input[type"
+          ]
+        }
+      ],
+      "brokenImgs": 0,
+      "imgsSample": [
+        {
+          "src": "",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 1220
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_21_11_21_5/944e623f-3b1e-4854-bd7b-c499904c16d5-ace",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 16
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_22_18_58_1/7dbc88c8-6c9c-4d53-8e2a-65820b4ec63f-mar",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 20
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_04_10_1/5f2aa187-3d66-4fe4-8213-1941e8a4703f-bel",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_02_59_4/2acabc9a-fc68-4a33-9aa6-1d7e376b89e7-bot",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_06_40_4/67c76f26-4a86-4829-a9d3-29f5e99c9a7a-eud",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_10_54_7/32686ebe-cd84-4c74-9d7d-ff23a4df1d5f-tru",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_10_25_09_44_49_8/c4427b18-1eda-4069-87ec-94ecb79c0fa9-vul",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_08_43_2/85622153-c1ca-4ea2-8596-bedabd123ddb-oui",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_07_51_3/b77b82ea-f575-49b4-bd91-c10a44eb11e0-que",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_23_09_08_1/bb24e5d1-9df9-4916-9a43-2536417b875c-drj",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 64
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2025_05_16_17_13_37_1/20362851-5a94-4e12-965a-4b09597a3baa-loc",
+          "srcset": "",
+          "complete": false,
+          "naturalWidth": 0,
+          "width": 20
+        }
+      ],
+      "bodyBg": "rgb(242, 242, 242)",
+      "dualHint": {
+        "styleElCount": 5,
+        "adoptedSheetCount": 2,
+        "bothPlanesSubstantial": true
+      }
+    },
+    "cssomSheetDumpSummary": {
+      "ok": false,
+      "totalRules": 0,
+      "styleSheetCount": 0,
+      "adoptedCount": 0,
+      "textHash16": "4f53cda18c2baa0c"
+    },
+    "armed": true,
+    "desynced": false,
+    "treePresent": true
+  },
+  "projectedPng": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/same-s-latest/projected-surface.png",
+  "verdict": {
+    "primary": "H4_dual_materialize",
+    "reasons": [
+      "sequence_mismatch_after_halt_flush",
+      "projected_geometry_broken"
+    ],
+    "hypotheses": [
+      {
+        "id": "H6_virtual_also_broken",
+        "status": "unknown",
+        "note": "precisa clip Virtual headed"
+      },
+      {
+        "id": "H5_asset",
+        "status": "unlikely",
+        "note": "poucas imgs mortas no sample"
+      },
+      {
+        "id": "H4_dual_materialize",
+        "status": "suspect",
+        "note": "docSheetRules=258 adoptedRules=4657"
+      },
+      {
+        "id": "H3_cssom_content_or_count",
+        "status": "unlikely_count",
+        "note": "contagem próxima — ainda pode divergir texto/ordem (ver cssomSheetDump)"
+      },
+      {
+        "id": "H1_dom_structure",
+        "status": "needs_tree_diff",
+        "note": "projected.tree presente; Virtual tree ainda não no dump C++ — comparar kinds + projected.tree size"
+      },
+      {
+        "id": "H2_attr",
+        "status": "needs_attr_diff",
+        "note": "comparar class/src no próximo passo"
+      }
+    ],
+    "oneLiner": "H4_dual_materialize | sequence_mismatch_after_halt_flush | projected_geometry_broken"
+  }
+}

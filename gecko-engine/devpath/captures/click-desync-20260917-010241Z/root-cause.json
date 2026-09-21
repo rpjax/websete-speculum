@@ -1,0 +1,508 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "coldWaitMs": 50000,
+  "afterClickMs": 20000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/click-desync-20260917-010241Z",
+  "click": {
+    "ok": true,
+    "method": "dispatchPointer+mouse",
+    "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+    "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+    "score": 165,
+    "dispatched": {
+      "ok": true,
+      "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+      "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+      "rect": {
+        "x": 90,
+        "y": 7.9375,
+        "w": 236,
+        "h": 506
+      },
+      "iframeRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1400,
+        "h": 522
+      },
+      "client": {
+        "x": 130,
+        "y": 47.9375
+      },
+      "pagePoint": {
+        "x": 130,
+        "y": 47.9375
+      },
+      "matchCount": 3,
+      "visibleCount": 3
+    },
+    "intentCheck": {
+      "down": [
+        "01:03:38 intent down#5563"
+      ],
+      "up": [
+        "01:03:38 intent up#5563"
+      ],
+      "recent": [
+        "01:03:38 intent scrollSet",
+        "01:03:38 intent up#5563",
+        "01:03:38 intent down#5563",
+        "01:03:35 intent scrollSet",
+        "01:03:35 intent scrollSet",
+        "01:03:34 intent scrollSet",
+        "01:03:34 intent scrollSet",
+        "01:03:34 intent scrollSet",
+        "01:03:33 intent scrollSet",
+        "01:02:52 resync completed seq=3",
+        "01:02:49 resync completed seq=2",
+        "01:02:49 resync requested reason=lag",
+        "01:02:46 resync completed seq=2",
+        "01:02:45 viewport 1400×522",
+        "01:02:45 click diag: __speculumLabDumpInputClick() in devtools after pointer click"
+      ]
+    }
+  },
+  "card": {
+    "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+    "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+    "score": 165,
+    "candidateCount": 32,
+    "linkCount": 683,
+    "scrollY": 1206,
+    "nestedIframes": [
+      {
+        "src": "",
+        "w": 0,
+        "h": 0
+      },
+      {
+        "src": "",
+        "w": 0,
+        "h": 0
+      },
+      {
+        "src": "",
+        "w": 0,
+        "h": 0
+      }
+    ],
+    "hrefInventoryTop": [
+      [
+        "https://www.belezanaweb.com.br/sacola/",
+        17
+      ],
+      [
+        "/outlet",
+        13
+      ],
+      [
+        "/autenticacao/entrar",
+        10
+      ],
+      [
+        "/minha-conta",
+        7
+      ],
+      [
+        "/presentes/",
+        7
+      ],
+      [
+        "/cupons-de-descontos/",
+        5
+      ],
+      [
+        "/cabelos/kits-de-tratamento",
+        5
+      ],
+      [
+        "/minha-conta/favoritos",
+        4
+      ],
+      [
+        "/exclusivo-blz/",
+        4
+      ],
+      [
+        "/outlet/",
+        4
+      ],
+      [
+        "/ofertas/",
+        4
+      ],
+      [
+        "/skinceuticals-c-e-ferulic-serum-redutor-de-linhas-30ml",
+        4
+      ],
+      [
+        "/skinceuticals-ha-intensifier-multi-glycan-serum-facial-antissinais-30ml",
+        4
+      ],
+      [
+        "/skinceuticals-silymarin-cf-serum-antioxidante-30ml",
+        4
+      ],
+      [
+        "/atendimento/",
+        3
+      ],
+      [
+        "/baixe-o-app/",
+        3
+      ],
+      [
+        "/alto-luxo/alta-perfumaria/",
+        3
+      ],
+      [
+        "/maquiagem/rosto/",
+        3
+      ],
+      [
+        "/maquiagem/olhos/",
+        3
+      ],
+      [
+        "/cuidados-para-pele/tipo-de-pele/de-todos-os-tipos/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/kit-nivea-oleo-de-banho-sabonete-liquido-3-unidades/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/sebastian-professional-dark-oil-mascara-de-tratamento-capilar-500ml/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/kit-kerastase-densifique-densite-deux-2-produtos/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/celimax-the-vita-a-retinal-shot-booster-facial-15ml/",
+        3
+      ]
+    ]
+  },
+  "before": {
+    "frames": "99",
+    "generation": "0",
+    "sequence": "97",
+    "applyOk": "99",
+    "desync": "0",
+    "resync": "1",
+    "ops": "28611",
+    "phase": "live browse",
+    "activityLen": 18,
+    "activitySample": [
+      "01:03:35 intent scrollSet",
+      "01:03:35 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:33 intent scrollSet",
+      "01:02:52 resync completed seq=3",
+      "01:02:49 resync completed seq=2",
+      "01:02:49 resync requested reason=lag",
+      "01:02:46 resync completed seq=2",
+      "01:02:45 viewport 1400×522",
+      "01:02:45 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "01:02:45 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-010243-fe5e6fe1f7fb",
+      "01:02:43 browse.start viewport 1400×522",
+      "01:02:43 gecko sw ready",
+      "01:02:43 session.hello fe5e6fe1f7fb gecko",
+      "01:02:43 ws open",
+      "01:02:42 runs refreshed (0)"
+    ],
+    "resyncRequested": 1,
+    "resyncCompleted": 3,
+    "desyncLines": 0,
+    "reasons": {
+      "lag": 1
+    },
+    "resyncLines": [
+      "01:02:49 resync requested reason=lag"
+    ],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": []
+  },
+  "after": {
+    "frames": "99",
+    "generation": "0",
+    "sequence": "97",
+    "applyOk": "99",
+    "desync": "0",
+    "resync": "1",
+    "ops": "28611",
+    "phase": "live browse",
+    "activityLen": 21,
+    "activitySample": [
+      "01:03:38 intent scrollSet",
+      "01:03:38 intent up#5563",
+      "01:03:38 intent down#5563",
+      "01:03:35 intent scrollSet",
+      "01:03:35 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:33 intent scrollSet",
+      "01:02:52 resync completed seq=3",
+      "01:02:49 resync completed seq=2",
+      "01:02:49 resync requested reason=lag",
+      "01:02:46 resync completed seq=2",
+      "01:02:45 viewport 1400×522",
+      "01:02:45 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "01:02:45 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-010243-fe5e6fe1f7fb",
+      "01:02:43 browse.start viewport 1400×522",
+      "01:02:43 gecko sw ready",
+      "01:02:43 session.hello fe5e6fe1f7fb gecko",
+      "01:02:43 ws open",
+      "01:02:42 runs refreshed (0)"
+    ],
+    "resyncRequested": 1,
+    "resyncCompleted": 3,
+    "desyncLines": 0,
+    "reasons": {
+      "lag": 1
+    },
+    "resyncLines": [
+      "01:02:49 resync requested reason=lag"
+    ],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": [],
+    "delta": {
+      "resyncRequested": 0,
+      "resyncCompleted": 0,
+      "desyncLines": 0,
+      "reasons": {},
+      "resyncLines": [],
+      "desyncText": [],
+      "ctxResyncLines": [],
+      "genNavHints": []
+    },
+    "polledActivityUnique": [
+      "01:03:38 intent scrollSet",
+      "01:03:38 intent up#5563",
+      "01:03:38 intent down#5563",
+      "01:03:35 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:33 intent scrollSet",
+      "01:02:52 resync completed seq=3",
+      "01:02:49 resync completed seq=2",
+      "01:02:49 resync requested reason=lag",
+      "01:02:46 resync completed seq=2",
+      "01:02:45 viewport 1400×522",
+      "01:02:45 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "01:02:45 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-010243-fe5e6fe1f7fb",
+      "01:02:43 browse.start viewport 1400×522",
+      "01:02:43 gecko sw ready",
+      "01:02:43 session.hello fe5e6fe1f7fb gecko",
+      "01:02:43 ws open",
+      "01:02:42 runs refreshed (0)"
+    ]
+  },
+  "surface": {
+    "before": {
+      "ok": true,
+      "title": "Beleza na Web | Maior loja de cosméticos online",
+      "bases": [
+        "https://www.belezanaweb.com.br/",
+        "/"
+      ],
+      "h1": "",
+      "bodyStart": "Ir direto para o conteúdo Acessibilidade Grupo Boticário Nossas Lojas Baixe o nosso app! Precisa de ajuda? Meus Pedidos Favoritos O que você procura hoje? Informar localização Acessar Minha Conta Entrar 0 Promos Cabelos Perfumes e Perfumaria Maquiagem Skincare Cuidados Pessoais M",
+      "hasKitWella": true,
+      "hasAddToCart": true
+    },
+    "afterClick": {
+      "ok": true,
+      "title": "Beleza na Web | Maior loja de cosméticos online",
+      "bases": [
+        "https://www.belezanaweb.com.br/",
+        "/"
+      ],
+      "h1": "",
+      "bodyStart": "Ir direto para o conteúdo Acessibilidade Grupo Boticário Nossas Lojas Baixe o nosso app! Precisa de ajuda? Meus Pedidos Favoritos O que você procura hoje? Informar localização Acessar Minha Conta Entrar 0 Promos Cabelos Perfumes e Perfumaria Maquiagem Skincare Cuidados Pessoais M",
+      "hasKitWella": true,
+      "hasAddToCart": true
+    },
+    "clickNavigated": false
+  },
+  "hardNav": {
+    "url": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+    "before": {
+      "frames": "99",
+      "generation": "0",
+      "sequence": "97",
+      "desync": "0",
+      "resync": "1"
+    },
+    "after": {
+      "frames": "99",
+      "generation": "0",
+      "sequence": "97",
+      "desync": "0",
+      "resync": "1"
+    },
+    "peakDesync": 0,
+    "peakResync": 1,
+    "reasonsDelta": {},
+    "activityDelta": {
+      "resyncRequested": 0,
+      "resyncCompleted": 0,
+      "desyncLines": 0,
+      "reasons": {},
+      "resyncLines": [],
+      "desyncText": [],
+      "ctxResyncLines": [],
+      "genNavHints": []
+    },
+    "newActivitySample": [],
+    "surface": {
+      "ok": true,
+      "title": "Beleza na Web | Maior loja de cosméticos online",
+      "bases": [
+        "https://www.belezanaweb.com.br/",
+        "/"
+      ],
+      "h1": "",
+      "bodyStart": "Ir direto para o conteúdo Acessibilidade Grupo Boticário Nossas Lojas Baixe o nosso app! Precisa de ajuda? Meus Pedidos Favoritos O que você procura hoje? Informar localização Acessar Minha Conta Entrar 0 Promos Cabelos Perfumes e Perfumaria Maquiagem Skincare Cuidados Pessoais M",
+      "hasKitWella": true,
+      "hasAddToCart": true
+    }
+  },
+  "poll": {
+    "samples": 14,
+    "peakDesync": 0,
+    "peakResync": 1,
+    "genSeries": [
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "desyncSeries": [
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "resyncSeries": [
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1"
+    ]
+  },
+  "deltas": {
+    "frames": 0,
+    "desync": 0,
+    "resync": 0,
+    "peakDesyncDelta": 0,
+    "peakResyncDelta": 0,
+    "generationBefore": "0",
+    "generationAfter": "0",
+    "generationChanged": false,
+    "sequenceBefore": "97",
+    "sequenceAfter": "97",
+    "reasonsDelta": {}
+  },
+  "telemetry": {
+    "count": 4,
+    "kinds": {
+      "resyncRequested": 2,
+      "resyncCompleted": 2
+    },
+    "postClick": [],
+    "sample": [
+      {
+        "t": 1789606966795,
+        "kind": "resyncRequested",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": null,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789606966801,
+        "kind": "resyncCompleted",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": true,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789606969284,
+        "kind": "resyncRequested",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": null,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789606969375,
+        "kind": "resyncCompleted",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": true,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      }
+    ]
+  },
+  "hypothesis": "click_intent_no_navigation",
+  "contaminatedCold": false,
+  "note": "Não Fixed. Cascata pós-click ≠ lag storm pré-drain (já fechado em b503a799)."
+}

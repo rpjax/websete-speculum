@@ -1,0 +1,640 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "waitMs": 25000,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-eneba-vstream-20260917T221430Z",
+  "sessionIds": [
+    "11cb285c-83b4-4d94-b849-05eb864e8d9f"
+  ],
+  "verdictHints": {
+    "skeletonStill": false,
+    "failedOverlay": false,
+    "vstreamConstructed": false,
+    "vstreamPlaywrightSeen": true,
+    "vstreamFramesIn": 7,
+    "vstreamDataPayloadBytes": 693,
+    "vstreamMux": [
+      {
+        "OPEN": 3,
+        "DATA": 4,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 693
+      }
+    ],
+    "vstreamClosed": false,
+    "vhubSeen": true,
+    "resyncPosts": 1,
+    "resyncStatuses": [
+      200
+    ]
+  },
+  "muxSummary": [
+    {
+      "framesIn": 7,
+      "bytesIn": 714,
+      "muxIn": {
+        "OPEN": 3,
+        "DATA": 4,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 693
+      },
+      "samples": [
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 1,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 1,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 8
+        },
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 2,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 2,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 5
+        },
+        {
+          "t": 18,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32768,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32769,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32770,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 3
+        },
+        {
+          "t": 19,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32769,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 2
+        },
+        {
+          "t": 19,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 7
+        },
+        {
+          "t": 2183,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 690,
+          "rawLen": 693,
+          "pipeKindHint": 0
+        }
+      ],
+      "close": null
+    }
+  ],
+  "snapshots": [
+    {
+      "label": "domcontentloaded",
+      "t": 563,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": false,
+      "hostSize": null,
+      "iframeTitle": null,
+      "iframeSrcdocLen": null,
+      "surface": null,
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+8s",
+      "t": 8621,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+11s",
+      "t": 10630,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+13s",
+      "t": 12638,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+15s",
+      "t": 14644,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+17s",
+      "t": 16652,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+19s",
+      "t": 18664,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+21s",
+      "t": 20680,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+23s",
+      "t": 22689,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+25s",
+      "t": 24698,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+27s",
+      "t": 26711,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": null,
+      "htmlLen": null,
+      "failedOverlay": false,
+      "diag": null
+    }
+  ],
+  "wsEvents": [
+    {
+      "url": "wss://eneba-promocoes.com.br/w7s/vhub?id=it5qj_g7z9meNaU91QRRrA",
+      "createdAt": 1789683271946,
+      "framesIn": 5,
+      "framesOut": 5,
+      "bytesIn": 236,
+      "muxIn": {
+        "OPEN": 0,
+        "DATA": 1,
+        "CLOSE": 0,
+        "other": 4,
+        "dataPayloadBytes": 0
+      },
+      "muxSamples": [
+        {
+          "t": 26,
+          "dir": "out",
+          "op": 123,
+          "opName": "op123",
+          "streamId": 8816,
+          "payloadLen": 36,
+          "rawLen": 39,
+          "pipeKindHint": null
+        },
+        {
+          "t": 43,
+          "op": 123,
+          "opName": "op123",
+          "streamId": 32030,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 43,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 43,
+          "dir": "out",
+          "op": 37,
+          "opName": "op37",
+          "streamId": 38145,
+          "payloadLen": 35,
+          "rawLen": 38,
+          "pipeKindHint": null
+        },
+        {
+          "t": 70,
+          "op": 64,
+          "opName": "op64",
+          "streamId": 38147,
+          "payloadLen": 62,
+          "rawLen": 65,
+          "pipeKindHint": null
+        },
+        {
+          "t": 91,
+          "dir": "out",
+          "op": 129,
+          "opName": "op129",
+          "streamId": 917,
+          "payloadLen": 384,
+          "rawLen": 387,
+          "pipeKindHint": null
+        },
+        {
+          "t": 1060,
+          "op": 121,
+          "opName": "op121",
+          "streamId": 38147,
+          "payloadLen": 119,
+          "rawLen": 122,
+          "pipeKindHint": null
+        },
+        {
+          "t": 3279,
+          "op": 42,
+          "opName": "op42",
+          "streamId": 38401,
+          "payloadLen": 40,
+          "rawLen": 43,
+          "pipeKindHint": null
+        },
+        {
+          "t": 15093,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 15152,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        }
+      ],
+      "close": null
+    },
+    {
+      "url": "wss://eneba-promocoes.com.br/w7s/vstream?sessionId=11cb285c-83b4-4d94-b849-05eb864e8d9f&speculum-session-token=1ecc2008598e47168464988610b963d3",
+      "createdAt": 1789683273047,
+      "framesIn": 7,
+      "framesOut": 4,
+      "bytesIn": 714,
+      "muxIn": {
+        "OPEN": 3,
+        "DATA": 4,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 693
+      },
+      "muxSamples": [
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 1,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 1,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 8
+        },
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 2,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 2,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 5
+        },
+        {
+          "t": 18,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32768,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32769,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32770,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 18,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 3
+        },
+        {
+          "t": 19,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32769,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 2
+        },
+        {
+          "t": 19,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 7
+        },
+        {
+          "t": 2183,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 690,
+          "rawLen": 693,
+          "pipeKindHint": 0
+        }
+      ],
+      "close": null
+    }
+  ],
+  "wsSpy": null,
+  "httpHits": [
+    {
+      "t": 1789683271849,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683271854,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683271855,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683271874,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789683271878,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789683271879,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789683271882,
+      "phase": "request",
+      "method": "POST",
+      "url": "https://eneba-promocoes.com.br/w7s/vhub/negotiate?negotiateVersion=1",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683271901,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/vhub/negotiate?negotiateVersion=1"
+    },
+    {
+      "t": 1789683293074,
+      "phase": "request",
+      "method": "POST",
+      "url": "https://eneba-promocoes.com.br/w7s/api/sessions/11cb285c-83b4-4d94-b849-05eb864e8d9f/page-projection/resync?sessionId=11cb285c-83b4-4d94-b849-05eb864e8d9f&speculum-session-token=1ecc2008598e47168464988610b963d3&generation=1&sequence=0",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789683293101,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/sessions/11cb285c-83b4-4d94-b849-05eb864e8d9f/page-projection/resync?sessionId=11cb285c-83b4-4d94-b849-05eb864e8d9f&speculum-session-token=1ecc2008598e47168464988610b963d3&generation=1&sequence=0"
+    }
+  ],
+  "consoleLines": [],
+  "pageErrors": []
+}

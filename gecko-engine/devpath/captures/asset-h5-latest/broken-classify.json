@@ -1,0 +1,30 @@
+{
+  "brokenImgs": 61,
+  "buckets": {
+    "cloudinary_avif": 34,
+    "cloudinary_webp": 26,
+    "tracker_pixel": 1
+  },
+  "rootCause": "Projected pede URL truncada (.../f_avif ou .../f_webp); tee no Virtual está na URL Cloudinary completa. join cai em open → open-failed. srcset com vírgulas de transform Cloudinary quebra o parser de srcset (candidato vira .../f_avif).",
+  "evidence": {
+    "geckoAvif": {
+      "ensure": 26,
+      "tap_stop_ok": 26,
+      "join_open": 8,
+      "emit_complete": 0,
+      "emit_denied_open_failed": 8
+    },
+    "geckoWebp": {
+      "ensure": 36,
+      "tap_stop_ok": 36,
+      "join_open": 3,
+      "emit_complete": 0,
+      "emit_denied_open_failed": 3
+    },
+    "projectedSrcSample": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+    "projectedSrcsetSample": "https://.../f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/..."
+  },
+  "nextFix": "Corrigir projeção/serialização de srcset (vírgulas internas Cloudinary vs separador srcset) — não é decode br.",
+  "logoH5": "ok V1-V10",
+  "dossier": "gecko-engine/devpath/captures/asset-h5-20260916-225115Z"
+}

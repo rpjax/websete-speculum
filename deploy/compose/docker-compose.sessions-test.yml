@@ -80,6 +80,7 @@ services:
       SPECULUM_WEBTRANSPORT_PORT: "8443"
       SPECULUM_BYPASS_API_AUTH: "true"
       Database__Path: /data/speculum.db
+      Sidecar__Engine: Chromium
       Sidecar__GrpcAddress: "http://sidecar:50051"
       Telemetry__Host__ProcPath: /host/proc
       Telemetry__Docker__Endpoint: unix:///var/run/docker.sock

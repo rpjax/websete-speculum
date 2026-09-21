@@ -1,0 +1,106 @@
+{
+  "target": "http://127.0.0.1:8080/",
+  "elapsedMs": 25110,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-fix-validate-20260918T002317Z",
+  "sessionId": "a6b922ac-1231-44b5-8bf0-02687eecfedc",
+  "mid": {
+    "probe": null,
+    "sid": null,
+    "stopType": "undefined",
+    "hasHost": true,
+    "hasDoc": true,
+    "imgTotal": 7,
+    "imgBroken": 7,
+    "text": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Ne"
+  },
+  "force": {
+    "beforeProbe": null,
+    "afterProbe": null,
+    "fetchResult": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "img": {
+      "ok": true,
+      "nw": 184
+    }
+  },
+  "clickSetup": {
+    "ok": true,
+    "cx": 1151.8828125,
+    "cy": 28.5,
+    "tag": "A"
+  },
+  "clickSaw": [
+    {
+      "type": "pointerdown",
+      "trusted": true,
+      "tag": "A"
+    },
+    {
+      "type": "pointerup",
+      "trusted": true,
+      "tag": "A"
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "tag": "A"
+    }
+  ],
+  "assetNet": [
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://www.gstatic.com/images/branding/googlelogo/2x/googlelogo_color_92x30dp.png?v=1789691020297&img=1"
+    }
+  ],
+  "vstreamDelta": {
+    "before": 4,
+    "after": 6,
+    "samples": [
+      {
+        "n": 3,
+        "op": 1,
+        "head": "010001"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "head": "02000108"
+      },
+      {
+        "n": 3,
+        "op": 1,
+        "head": "010002"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "head": "02000205"
+      },
+      {
+        "n": 254,
+        "op": 2,
+        "head": "020001000000f78caa67656e"
+      },
+      {
+        "n": 252,
+        "op": 2,
+        "head": "020001000000f58caa67656e"
+      }
+    ]
+  },
+  "verdict": {
+    "probeAlive": false,
+    "noSessionCount": 0,
+    "swOkCount": 1,
+    "forceNoSession": false,
+    "forceFetch": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "clickTrusted": true,
+    "intentOutDelta": 2,
+    "framesIn": 80,
+    "pass": false
+  }
+}

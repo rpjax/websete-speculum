@@ -1,0 +1,1665 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "waitMs": 35000,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-eneba-vstream-20260917T223913Z",
+  "sessionIds": [
+    "be2ed0b8-58b4-419e-bd8e-27c51d710bfc"
+  ],
+  "verdictHints": {
+    "skeletonStill": false,
+    "failedOverlay": false,
+    "vstreamConstructed": false,
+    "vstreamPlaywrightSeen": true,
+    "vstreamFramesIn": 142,
+    "vstreamDataPayloadBytes": 474408,
+    "vstreamMux": [
+      {
+        "OPEN": 3,
+        "DATA": 139,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 474408
+      }
+    ],
+    "vstreamClosed": false,
+    "vhubSeen": true,
+    "resyncPosts": 0,
+    "resyncStatuses": []
+  },
+  "muxSummary": [
+    {
+      "framesIn": 142,
+      "bytesIn": 474834,
+      "muxIn": {
+        "OPEN": 3,
+        "DATA": 139,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 474408
+      },
+      "samples": [
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 1,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 1,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 8
+        },
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 2,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 2,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 5
+        },
+        {
+          "t": 54,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32768,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 63,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32769,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 64,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32770,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 64,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 3
+        },
+        {
+          "t": 64,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32769,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 2
+        },
+        {
+          "t": 64,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 7
+        },
+        {
+          "t": 2323,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4,
+          "rawLen": 7,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 2341,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4092,
+          "rawLen": 4095,
+          "pipeKindHint": 139
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 34
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 97
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 114
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 99
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 56
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 46
+        },
+        {
+          "t": 2391,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2391,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 56
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 52
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 112
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 54
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 103
+        },
+        {
+          "t": 2395,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 34
+        },
+        {
+          "t": 2395,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 34
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 690,
+          "rawLen": 693,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 100
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 77
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 114
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 111
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 105
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 58
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 113
+        },
+        {
+          "t": 2408,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2408,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2408,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 114
+        },
+        {
+          "t": 2410,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 55
+        },
+        {
+          "t": 2410,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 10
+        }
+      ],
+      "close": null
+    }
+  ],
+  "snapshots": [
+    {
+      "label": "domcontentloaded",
+      "t": 2386,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": false,
+      "hostSize": null,
+      "iframeTitle": null,
+      "iframeSrcdocLen": null,
+      "surface": null,
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+8s",
+      "t": 10407,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301992,
+      "htmlLen": 318079,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+12s",
+      "t": 12421,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301992,
+      "htmlLen": 317832,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+14s",
+      "t": 14434,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 302059,
+      "htmlLen": 317899,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+16s",
+      "t": 16451,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 302059,
+      "htmlLen": 317899,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+18s",
+      "t": 18460,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+20s",
+      "t": 20474,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+22s",
+      "t": 22487,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+24s",
+      "t": 24497,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+27s",
+      "t": 26517,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+29s",
+      "t": 28536,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+31s",
+      "t": 30549,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+33s",
+      "t": 32562,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+35s",
+      "t": 34571,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+37s",
+      "t": 36582,
+      "href": "https://eneba-promocoes.com.br/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 301941,
+      "htmlLen": 317781,
+      "textLen": 4271,
+      "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro",
+      "failedOverlay": false,
+      "diag": null
+    }
+  ],
+  "wsEvents": [
+    {
+      "url": "wss://eneba-promocoes.com.br/w7s/vhub?id=s7RhBMX9uXWgdKAZbFbkIA",
+      "createdAt": 1789684757202,
+      "framesIn": 6,
+      "framesOut": 6,
+      "bytesIn": 239,
+      "muxIn": {
+        "OPEN": 0,
+        "DATA": 2,
+        "CLOSE": 0,
+        "other": 4,
+        "dataPayloadBytes": 0
+      },
+      "muxSamples": [
+        {
+          "t": 35,
+          "dir": "out",
+          "op": 123,
+          "opName": "op123",
+          "streamId": 8816,
+          "payloadLen": 36,
+          "rawLen": 39,
+          "pipeKindHint": null
+        },
+        {
+          "t": 63,
+          "op": 123,
+          "opName": "op123",
+          "streamId": 32030,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 63,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 63,
+          "dir": "out",
+          "op": 37,
+          "opName": "op37",
+          "streamId": 38145,
+          "payloadLen": 35,
+          "rawLen": 38,
+          "pipeKindHint": null
+        },
+        {
+          "t": 284,
+          "op": 64,
+          "opName": "op64",
+          "streamId": 38147,
+          "payloadLen": 62,
+          "rawLen": 65,
+          "pipeKindHint": null
+        },
+        {
+          "t": 305,
+          "dir": "out",
+          "op": 129,
+          "opName": "op129",
+          "streamId": 917,
+          "payloadLen": 384,
+          "rawLen": 387,
+          "pipeKindHint": null
+        },
+        {
+          "t": 1846,
+          "op": 121,
+          "opName": "op121",
+          "streamId": 38147,
+          "payloadLen": 119,
+          "rawLen": 122,
+          "pipeKindHint": null
+        },
+        {
+          "t": 4231,
+          "op": 42,
+          "opName": "op42",
+          "streamId": 38401,
+          "payloadLen": 40,
+          "rawLen": 43,
+          "pipeKindHint": null
+        },
+        {
+          "t": 15317,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 15837,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 30334,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 31836,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        }
+      ],
+      "close": null
+    },
+    {
+      "url": "wss://eneba-promocoes.com.br/w7s/vstream?sessionId=be2ed0b8-58b4-419e-bd8e-27c51d710bfc&speculum-session-token=51840e210ddc4b0a984a7ed41ceb9667",
+      "createdAt": 1789684759081,
+      "framesIn": 142,
+      "framesOut": 4,
+      "bytesIn": 474834,
+      "muxIn": {
+        "OPEN": 3,
+        "DATA": 139,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 474408
+      },
+      "muxSamples": [
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 1,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 1,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 8
+        },
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 2,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 39,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 2,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 5
+        },
+        {
+          "t": 54,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32768,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 63,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32769,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 64,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32770,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 64,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 3
+        },
+        {
+          "t": 64,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32769,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 2
+        },
+        {
+          "t": 64,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 7
+        },
+        {
+          "t": 2323,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4,
+          "rawLen": 7,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 2341,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4092,
+          "rawLen": 4095,
+          "pipeKindHint": 139
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 34
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 97
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 114
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 99
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 56
+        },
+        {
+          "t": 2364,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 46
+        },
+        {
+          "t": 2391,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2391,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 56
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 52
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 112
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 54
+        },
+        {
+          "t": 2393,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 103
+        },
+        {
+          "t": 2395,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 34
+        },
+        {
+          "t": 2395,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 34
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 690,
+          "rawLen": 693,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 100
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 77
+        },
+        {
+          "t": 2398,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 114
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 111
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 105
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 58
+        },
+        {
+          "t": 2406,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 113
+        },
+        {
+          "t": 2408,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2408,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 32
+        },
+        {
+          "t": 2408,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 114
+        },
+        {
+          "t": 2410,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 55
+        },
+        {
+          "t": 2410,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 10
+        }
+      ],
+      "close": null
+    }
+  ],
+  "wsSpy": null,
+  "httpHits": [
+    {
+      "t": 1789684757094,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684757100,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684757101,
+      "phase": "request",
+      "method": "GET",
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684757142,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684757142,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684757142,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684757145,
+      "phase": "request",
+      "method": "POST",
+      "url": "https://eneba-promocoes.com.br/w7s/vhub/negotiate?negotiateVersion=1",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684757173,
+      "phase": "response",
+      "status": 200,
+      "url": "https://eneba-promocoes.com.br/w7s/vhub/negotiate?negotiateVersion=1"
+    }
+  ],
+  "consoleLines": [
+    {
+      "t": 1789684761572,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/runtime~main.79d2895c02d1aba9cbf8.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761572,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/runtime~main.79d2895c02d1aba9cbf8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761573,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/runtime~main.79d2895c02d1aba9cbf8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761573,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/framework.1b6b1959dd71177062f4.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761573,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/framework.1b6b1959dd71177062f4.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/framework.1b6b1959dd71177062f4.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/monitoring.feae6221ce6d7f1ef1c8.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/monitoring.feae6221ce6d7f1ef1c8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/monitoring.feae6221ce6d7f1ef1c8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/data.03a749892bd36782cd58.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/data.03a749892bd36782cd58.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/data.03a749892bd36782cd58.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/search.a2f21f03ebe3c174ae20.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/search.a2f21f03ebe3c174ae20.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761575,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/search.a2f21f03ebe3c174ae20.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761576,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/1177.ac10819e7b5e8f7aa731.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/1177.ac10819e7b5e8f7aa731.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/1177.ac10819e7b5e8f7aa731.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/main.ce85b7c4cca7ffee4bb7.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/main.ce85b7c4cca7ffee4bb7.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/main.ce85b7c4cca7ffee4bb7.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/5737.19ffe404397ffb366cb3.part.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/5737.19ffe404397ffb366cb3.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/5737.19ffe404397ffb366cb3.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/containers-HomePage.0a003053abe61b821bfc.part.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/containers-HomePage.0a003053abe61b821bfc.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/containers-HomePage.0a003053abe61b821bfc.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-rmH3QIKH0skxzQKptu4+ilBXtKRDWMZXa4cK/m67MQ4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761577,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-rmH3QIKH0skxzQKptu4+ilBXtKRDWMZXa4cK/m67MQ4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-rmH3QIKH0skxzQKptu4+ilBXtKRDWMZXa4cK/m67MQ4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-ebZbljE5q962SlY9bOocnhZYSEBFPCXT5i+bdzCIwYs='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-ebZbljE5q962SlY9bOocnhZYSEBFPCXT5i+bdzCIwYs='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-ebZbljE5q962SlY9bOocnhZYSEBFPCXT5i+bdzCIwYs='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/runtime~main.79d2895c02d1aba9cbf8.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/runtime~main.79d2895c02d1aba9cbf8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/runtime~main.79d2895c02d1aba9cbf8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/framework.1b6b1959dd71177062f4.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/framework.1b6b1959dd71177062f4.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/framework.1b6b1959dd71177062f4.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/monitoring.feae6221ce6d7f1ef1c8.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/monitoring.feae6221ce6d7f1ef1c8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/monitoring.feae6221ce6d7f1ef1c8.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/data.03a749892bd36782cd58.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761578,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/data.03a749892bd36782cd58.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/data.03a749892bd36782cd58.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/search.a2f21f03ebe3c174ae20.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/search.a2f21f03ebe3c174ae20.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/search.a2f21f03ebe3c174ae20.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/1177.ac10819e7b5e8f7aa731.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/1177.ac10819e7b5e8f7aa731.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/1177.ac10819e7b5e8f7aa731.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/main.ce85b7c4cca7ffee4bb7.bundle.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/main.ce85b7c4cca7ffee4bb7.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/main.ce85b7c4cca7ffee4bb7.bundle.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/5737.19ffe404397ffb366cb3.part.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761579,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/5737.19ffe404397ffb366cb3.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761580,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/5737.19ffe404397ffb366cb3.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761580,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/containers-HomePage.0a003053abe61b821bfc.part.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761580,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/containers-HomePage.0a003053abe61b821bfc.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761580,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/containers-HomePage.0a003053abe61b821bfc.part.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761580,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/outdated/index.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761580,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/outdated/index.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761580,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/outdated/index.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761584,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-lFnxFkXvdxK9IYsCmdRF3HRlr8xWK4fKyvwFjvaNLAI='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761584,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-lFnxFkXvdxK9IYsCmdRF3HRlr8xWK4fKyvwFjvaNLAI='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761584,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-lFnxFkXvdxK9IYsCmdRF3HRlr8xWK4fKyvwFjvaNLAI='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761584,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-/aTidSwYVt5AaOaoqrXTThv2aEfMd9PJ9YwcBH2ylhA='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761584,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-/aTidSwYVt5AaOaoqrXTThv2aEfMd9PJ9YwcBH2ylhA='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761584,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-/aTidSwYVt5AaOaoqrXTThv2aEfMd9PJ9YwcBH2ylhA='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761683,
+      "type": "error",
+      "text": "Loading the script 'https://mx.eneba.com/lib.min.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761683,
+      "type": "error",
+      "text": "Loading the script 'https://mx.eneba.com/lib.min.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Loading the script 'https://mx.eneba.com/lib.min.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-GVKR2BFkVw7elGGGM+oEQC8TfLeqYB0yDZGnkrmrge8='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-GVKR2BFkVw7elGGGM+oEQC8TfLeqYB0yDZGnkrmrge8='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-GVKR2BFkVw7elGGGM+oEQC8TfLeqYB0yDZGnkrmrge8='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/forter.8acebcfbfa524862934d4e64b0d7d85c.js' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/forter.8acebcfbfa524862934d4e64b0d7d85c.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Loading the script 'https://static.eneba.games/forter.8acebcfbfa524862934d4e64b0d7d85c.js' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Loading the script 'https://eneba-promocoes.com.br/metrics/' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684761684,
+      "type": "error",
+      "text": "Loading the script 'https://eneba-promocoes.com.br/metrics/' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    }
+  ],
+  "pageErrors": []
+}

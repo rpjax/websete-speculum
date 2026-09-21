@@ -1,0 +1,18 @@
+{
+  "ok": false,
+  "firstFalse": "V4",
+  "classification": "break_at_V4",
+  "outDir": "gecko-engine/devpath/captures/asset-h5-20260916-221139Z",
+  "verdict": {
+    "V1": true,
+    "V2": true,
+    "V3": true,
+    "V4": false,
+    "V5": true,
+    "V6": false,
+    "V7": false,
+    "V8": false,
+    "V9": false,
+    "V10": true
+  }
+}

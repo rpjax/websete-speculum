@@ -1,0 +1,26 @@
+{
+  "brokenCount": 1,
+  "buckets": {
+    "no_asset_hops": 1
+  },
+  "rows": [
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+      "reason": "no_asset_hops",
+      "contentEncoding": "",
+      "mime": null,
+      "dataLen": null,
+      "bodyHeadHex": null,
+      "magic": "empty",
+      "decodeOk": false,
+      "decodeFail": false,
+      "swStatus": null,
+      "looksLikeImage": null,
+      "sha": {
+        "gecko": null,
+        "lab": null,
+        "sw": null
+      }
+    }
+  ]
+}

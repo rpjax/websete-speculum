@@ -1,0 +1,126 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "elapsedMs": 26482,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-battery14-20260917T225438Z",
+  "sessionId": "558d2a01-30dd-44f5-9d2b-3344a888af81",
+  "vstream": {
+    "created": true,
+    "framesIn": 140,
+    "bytesIn": 475029,
+    "framesOut": 4,
+    "bytesOut": 14,
+    "outSamples": [
+      {
+        "n": 3,
+        "op": 1,
+        "streamId": 1,
+        "head": "010001"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "streamId": 1,
+        "head": "02000108"
+      },
+      {
+        "n": 3,
+        "op": 1,
+        "streamId": 2,
+        "head": "010002"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "streamId": 2,
+        "head": "02000205"
+      }
+    ]
+  },
+  "battery1_sw": {
+    "controller": "https://eneba-promocoes.com.br/asset-sw.js",
+    "regs": [
+      "https://eneba-promocoes.com.br/"
+    ],
+    "fetchSeen": 0,
+    "replySeen": 0,
+    "fetchSample": [],
+    "replySample": []
+  },
+  "battery1_forceLogo": {
+    "fetchResult": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "newFetches": [],
+    "newReplies": [],
+    "paired": []
+  },
+  "battery2_imgs": {
+    "ok": true,
+    "total": 85,
+    "broken": 58,
+    "samples": [
+      {
+        "src": "https://static.eneba.games/branding/v2/logoFull.svg",
+        "alt": "Eneba logo"
+      },
+      {
+        "src": "https://static.eneba.games/flags/lang/v2/brazil.svg",
+        "alt": "brazil"
+      },
+      {
+        "src": "https://static.eneba.games/8fb0417978c74061522d.png",
+        "alt": ""
+      },
+      {
+        "src": "https://imgproxy.eneba.games/2foCPkDYBfYsdRcYeKt95AL2nM8gmo16sUYeA85pL0s/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy80/OTF6WGt6TGVfOTJS/cnVmd0VMbGVrdC1k/SUktVn",
+        "alt": "PlayStation Network Card 150 BRL (BR) PS"
+      },
+      {
+        "src": "https://products.eneba.games/drms/v1/psn.svg",
+        "alt": "PSN"
+      },
+      {
+        "src": "https://products.eneba.games/drms/v1/psn.svg",
+        "alt": "PSN"
+      },
+      {
+        "src": "https://imgproxy.eneba.games/m4kLXzpVSR_0E7IdqTxdX7JRW9v2b5IcY0v00-R0p14/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy9L/aTRXLUkyRXR4bzIt/VWNJa3RITDZLVWpU/TUN4UG",
+        "alt": "PlayStation Network Card 100 BRL (BR) PS"
+      },
+      {
+        "src": "https://products.eneba.games/drms/v1/psn.svg",
+        "alt": "PSN"
+      }
+    ]
+  },
+  "battery4_click": {
+    "ok": true,
+    "saw": [
+      {
+        "type": "pointerdown",
+        "prevented": false,
+        "tag": "BUTTON"
+      },
+      {
+        "type": "pointerup",
+        "prevented": false,
+        "tag": "BUTTON"
+      },
+      {
+        "type": "click",
+        "prevented": true,
+        "tag": "BUTTON"
+      }
+    ],
+    "stillSim": true,
+    "textAfter": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro"
+  },
+  "battery4_vstreamDelta": {
+    "framesOut": 0,
+    "bytesOut": 0
+  },
+  "verdict": {
+    "asset": "SW_NO_ASSET_FETCH_ON_FORCE",
+    "click": "NO_VSTREAM_OUTBOUND_ON_CLICK"
+  }
+}

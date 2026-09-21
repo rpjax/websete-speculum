@@ -1,0 +1,55 @@
+---
+description: Redesenho do C++ do gecko-engine — ponto de entrada, leis e o que não decidir sozinho
+globs: ["gecko-engine/**", "docs/gecko-engine/redesign/**"]
+alwaysApply: false
+---
+
+# Redesenho C++ do gecko-engine
+
+**Ponto de entrada obrigatório:** `docs/gecko-engine/redesign/IMPLEMENTACAO.md`.
+Ele traz a ordem de leitura, as 9 fases e o aceite mecânico de cada uma.
+Especificação completa: `docs/gecko-engine/redesign/` (47 docs).
+
+Subordinado a `AGENTS.md` e `docs/engineering-standards.md` — nada aqui os afrouxa.
+
+## Vocabulário (não misture)
+
+- **viewport** — a superfície. **host** — o slot que hospeda um documento (era `contextId`).
+- **documento** — o que está carregado no host agora. Identidade = `(hostId, generation)`.
+- **patch** — o lote de deltas de projeção (nunca "frame"; `frame` é caixa de layout do Gecko).
+- `contextId`, `frameId`, `documentId`, `peer`, `tab`, `generation` como "época" — **mortos**.
+
+## Leis
+
+1. `domain/` e `ports/` **não incluem header de motor**. Grep no CI, não disciplina.
+2. **Não existe host especial.** Nenhum `if (é a raiz?)`, nenhum `if (primeiro quadro?)`.
+3. **Posse é a limpeza.** Processo possui documentos; host possui seu observador; documento
+   possui a projeção. Nada morre por rotina que dá para esquecer.
+4. Notificação **só marca**. Nada alcançável de uma notificação roda script.
+5. **Nenhum `[[noreturn]]` em `domain/`.** Morte só em `Session`, por tabela `actionOf`.
+6. **Produtor produz e indexa; sincronia é do cliente.** Sem buffer de reenvio, sem retry,
+   sem estado "este cliente está atrasado".
+7. **Toggle de capacidade, nunca nível.** Desligado custa zero.
+8. Descritor é **vista preguiçosa**; sujeira é tão granular quanto a notificação; lote sai da
+   ordem de iteração, **não** de um coalescedor.
+
+## Pare e pergunte — não decida sozinho
+
+Schema do fio · opcode/campo/enum novo · codec à mão · operação de porta sem chamador ·
+política no C++ (retry, força de resync, saturação, auto-resposta) · descritor materializado ·
+coalescedor · tolerar malformado · os três números de afinação.
+
+**Dúvida resolvida "com bom senso" vira divergência silenciosa em três meses.**
+
+## Ordem das fases não é sugestão
+
+São **12**: fundação/fio → sessão → engine `sim` → produtor → roteiro → oráculo → fixtures →
+adaptador Gecko → paridade → supervisor+cliente → medição em hardware alvo → endurecimento e
+corte de produção.
+
+**Cada fase constrói a rede que torna a seguinte verificável.** Em especial: o oráculo e as
+fixtures vêm **antes** de encostar no Gecko, e as três últimas são o que separa "motor certo"
+de "produto pronto".
+
+**Pronto = as 10 condições da §3 do `IMPLEMENTACAO.md`, todas ao mesmo tempo.** Faltando uma,
+a primeira frase do relatório diz **incompleto**.

@@ -1,0 +1,332 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "elapsedMs": 26898,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-battery14-20260917T225842Z",
+  "sessionId": "c4ffa902-7446-43c1-aef2-e308a4202a6e",
+  "vstream": {
+    "created": true,
+    "framesIn": 146,
+    "bytesIn": 475072,
+    "framesOut": 4,
+    "bytesOut": 14,
+    "outSamples": [
+      {
+        "n": 3,
+        "op": 1,
+        "streamId": 1,
+        "head": "010001"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "streamId": 1,
+        "head": "02000108"
+      },
+      {
+        "n": 3,
+        "op": 1,
+        "streamId": 2,
+        "head": "010002"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "streamId": 2,
+        "head": "02000205"
+      }
+    ]
+  },
+  "cdpSw": {
+    "versions": [
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "stopped",
+        "status": "new",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "stopped",
+        "status": "new",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "starting",
+        "status": "new",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "starting",
+        "status": "new",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "starting",
+        "status": "installing",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "installing",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "installed",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activating",
+        "controlledClients": 0
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activating",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activating",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activated",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activated",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activated",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activated",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activated",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activated",
+        "controlledClients": 1
+      },
+      {
+        "versionId": "0",
+        "registrationId": "0",
+        "scriptURL": "https://eneba-promocoes.com.br/asset-sw.js",
+        "runningStatus": "running",
+        "status": "activated",
+        "controlledClients": 1
+      }
+    ],
+    "registrations": [
+      {
+        "registrationId": "0",
+        "scopeURL": "https://eneba-promocoes.com.br/",
+        "isDeleted": false
+      },
+      {
+        "registrationId": "0",
+        "scopeURL": "https://eneba-promocoes.com.br/",
+        "isDeleted": false
+      }
+    ]
+  },
+  "netLogo": [
+    {
+      "t": "will",
+      "requestId": "13452.44",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg",
+      "initiator": "other",
+      "documentURL": "about:srcdoc"
+    },
+    {
+      "t": "resp",
+      "requestId": "13452.44",
+      "status": 404,
+      "fromServiceWorker": true,
+      "mimeType": "text/plain",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg"
+    },
+    {
+      "t": "will",
+      "requestId": "13452.153",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg?b14=1789685945104",
+      "initiator": "script",
+      "documentURL": "https://eneba-promocoes.com.br/"
+    },
+    {
+      "t": "fail",
+      "requestId": "13452.153",
+      "errorText": "net::ERR_FAILED",
+      "canceled": false,
+      "type": "Fetch"
+    },
+    {
+      "t": "will",
+      "requestId": "13452.155",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg?img=1789685947264",
+      "initiator": "other",
+      "documentURL": "https://eneba-promocoes.com.br/"
+    },
+    {
+      "t": "resp",
+      "requestId": "13452.155",
+      "status": 404,
+      "fromServiceWorker": true,
+      "mimeType": "text/plain",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg?img=1789685947264"
+    }
+  ],
+  "battery1_sw": {
+    "controller": "https://eneba-promocoes.com.br/asset-sw.js",
+    "controllerState": "activated",
+    "regs": [
+      {
+        "scope": "https://eneba-promocoes.com.br/",
+        "active": "activated",
+        "waiting": null,
+        "installing": null
+      }
+    ],
+    "fetchSeen": 0,
+    "replySeen": 0,
+    "traceSeen": 0,
+    "swPing": {
+      "error": "NotSupportedError: Failed to read the 'ready' property from 'ServiceWorkerContainer': 'ready' is only supported in pages."
+    }
+  },
+  "battery1_forceLogo": {
+    "fetchResult": {
+      "error": "TypeError: Failed to fetch",
+      "name": "TypeError"
+    },
+    "timing": [],
+    "newFetches": [],
+    "newReplies": [],
+    "newTraces": []
+  },
+  "battery1_imgPath": {
+    "imgResult": {
+      "ok": false
+    },
+    "newFetches": [],
+    "newTraces": []
+  },
+  "battery2_imgs": {
+    "ok": true,
+    "total": 85,
+    "broken": 58,
+    "iframeSrc": null,
+    "iframeSrcdocLen": 197
+  },
+  "battery4_setup": {
+    "ok": true,
+    "cx": 1165,
+    "cy": 852.5,
+    "btnW": 340,
+    "btnH": 35,
+    "iRect": {
+      "l": 0,
+      "t": 0,
+      "w": 1400,
+      "h": 900
+    },
+    "armedAttr": null,
+    "surfaceAttrs": [],
+    "btnText": "Sim"
+  },
+  "battery4_click": {
+    "ok": true,
+    "saw": [
+      {
+        "type": "pointerdown",
+        "prevented": false,
+        "trusted": true,
+        "tag": "SPAN",
+        "pointerType": "mouse"
+      },
+      {
+        "type": "pointerup",
+        "prevented": false,
+        "trusted": true,
+        "tag": "SPAN",
+        "pointerType": "mouse"
+      },
+      {
+        "type": "click",
+        "prevented": true,
+        "trusted": true,
+        "tag": "SPAN",
+        "pointerType": "mouse"
+      }
+    ],
+    "stillSim": true,
+    "textAfter": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ Bro"
+  },
+  "battery4_vstreamDelta": {
+    "framesOut": 0,
+    "bytesOut": 0,
+    "newOutSamples": []
+  },
+  "verdict": {
+    "asset": "SW_INTERCEPTED_BUT_NO_PAGE_MSG",
+    "click": "NO_VSTREAM_OUTBOUND_ON_TRUSTED_CLICK"
+  }
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "t": 1789606252349,
+    "kind": "resyncRequested",
+    "reason": null,
+    "generation": null,
+    "sequence": null,
+    "contextId": 1,
+    "ok": null,
+    "message": null,
+    "expectedSequence": null,
+    "gotSequence": null
+  },
+  {
+    "t": 1789606252352,
+    "kind": "resyncCompleted",
+    "reason": null,
+    "generation": null,
+    "sequence": null,
+    "contextId": 1,
+    "ok": true,
+    "message": null,
+    "expectedSequence": null,
+    "gotSequence": null
+  },
+  {
+    "t": 1789606254782,
+    "kind": "resyncRequested",
+    "reason": null,
+    "generation": null,
+    "sequence": null,
+    "contextId": 1,
+    "ok": null,
+    "message": null,
+    "expectedSequence": null,
+    "gotSequence": null
+  },
+  {
+    "t": 1789606254865,
+    "kind": "resyncCompleted",
+    "reason": null,
+    "generation": null,
+    "sequence": null,
+    "contextId": 1,
+    "ok": true,
+    "message": null,
+    "expectedSequence": null,
+    "gotSequence": null
+  }
+]

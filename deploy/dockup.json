@@ -25,29 +25,20 @@
         "id": "sidecar",
         "image": "speculum-refactor-sidecar",
         "context": ".",
-        "dockerfile": "sidecar/Dockerfile",
+        "dockerfile": "gecko-engine/Dockerfile",
         "init": true,
-        "capAdd": ["SYS_ADMIN", "MKNOD"],
         "shmSize": "2gb",
-        "compose": {
-          "devices": ["/dev/uinput:/dev/uinput"],
-          "device_cgroup_rules": [
-            "c 10:223 rwm",
-            "c 13:* rwm"
-          ]
-        },
         "env": [
-          { "name": "NODE_ENV", "value": "production" },
-          { "name": "SPECULUM_BROWSER", "value": "patchright" },
-          { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
-          { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
-          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
+          { "name": "SPECULUM_ORCHESTRATOR_PORT", "value": "4100" },
+          { "name": "SPECULUM_ORCHESTRATOR_MAX_PAIRS", "value": "8" },
+          { "name": "SPECULUM_ORCHESTRATOR_DETACH_SECONDS", "value": "3" },
+          { "name": "MOZ_DISABLE_CONTENT_SANDBOX", "value": "1" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:3001/health"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:4100/ready"],
           "interval": "15s",
           "timeout": "5s",
-          "startPeriod": "60s",
+          "startPeriod": "40s",
           "retries": 5
         }
       },
@@ -70,7 +61,8 @@
           { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
           { "name": "SPECULUM_BYPASS_API_AUTH", "value": "true" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
-          { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
+          { "name": "Sidecar__Engine", "value": "Gecko" },
+          { "name": "Sidecar__OrchestratorAddress", "value": "http://sidecar:4100" },
           { "name": "Telemetry__Host__ProcPath", "value": "/host/proc" },
           { "name": "Telemetry__Docker__Endpoint", "value": "unix:///var/run/docker.sock" },
           { "name": "Navigation__DefaultTargetHost", "value": "www.google.com" },
@@ -152,8 +144,8 @@
     "network": "speculum",
     "tag": "latest",
     "env": [
-      { "name": "PUBLIC_HOST", "value": "betano.digital" },
-      { "name": "ACME_EMAIL", "value": "admin@betano.digital" },
+      { "name": "PUBLIC_HOST", "value": "eneba-promocoes.com.br" },
+      { "name": "ACME_EMAIL", "value": "admin@websete.org" },
       { "name": "TRANSPORT_ORIGIN", "value": "https://${PUBLIC_HOST}" }
     ],
     "containers": [
@@ -188,31 +180,21 @@
         "id": "sidecar",
         "image": "speculum-sidecar",
         "context": ".",
-        "dockerfile": "sidecar/Dockerfile",
+        "dockerfile": "gecko-engine/Dockerfile",
         "restart": "unless-stopped",
         "init": true,
-        "capAdd": ["SYS_ADMIN", "MKNOD"],
         "shmSize": "2gb",
-        "compose": {
-          "devices": ["/dev/uinput:/dev/uinput"],
-          "device_cgroup_rules": [
-            "c 10:223 rwm",
-            "c 13:* rwm"
-          ]
-        },
         "env": [
-          { "name": "NODE_ENV", "value": "production" },
-          { "name": "SPECULUM_BROWSER", "value": "patchright" },
-          { "name": "SPECULUM_INPUT_BACKEND", "value": "patchright" },
-          { "name": "CHROME_EXECUTABLE", "value": "/usr/bin/google-chrome" },
-          { "name": "SPECULUM_GRPC_PORT", "value": "50051" },
-          { "name": "SPECULUM_HEALTH_PORT", "value": "3001" }
+          { "name": "SPECULUM_ORCHESTRATOR_PORT", "value": "4100" },
+          { "name": "SPECULUM_ORCHESTRATOR_MAX_PAIRS", "value": "8" },
+          { "name": "SPECULUM_ORCHESTRATOR_DETACH_SECONDS", "value": "3" },
+          { "name": "MOZ_DISABLE_CONTENT_SANDBOX", "value": "1" }
         ],
         "healthcheck": {
-          "test": ["CMD", "curl", "-sf", "http://localhost:3001/ready"],
+          "test": ["CMD", "curl", "-sf", "http://localhost:4100/ready"],
           "interval": "15s",
           "timeout": "5s",
-          "startPeriod": "60s",
+          "startPeriod": "40s",
           "retries": 5
         }
       },
@@ -235,7 +217,8 @@
           { "name": "ASPNETCORE_URLS", "value": "http://0.0.0.0:8080" },
           { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
-          { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
+          { "name": "Sidecar__Engine", "value": "Gecko" },
+          { "name": "Sidecar__OrchestratorAddress", "value": "http://sidecar:4100" },
           { "name": "Telemetry__Host__ProcPath", "value": "/host/proc" },
           { "name": "Telemetry__Docker__Endpoint", "value": "unix:///var/run/docker.sock" },
           { "name": "ResourceManagement__Sessions__MaxConcurrentSessions", "value": "10" },
@@ -279,7 +262,7 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-api.rule=Host(`${PUBLIC_HOST}`) && (PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`) || PathPrefix(`/w7s/virtual-assets`) || PathPrefix(`/w7s/virtual-blob`) || PathPrefix(`/w7s/virtual-data`))",
+          "traefik.http.routers.speculum-api.rule=(Host(`${PUBLIC_HOST}`) || Host(`www.${PUBLIC_HOST}`)) && (PathPrefix(`/w7s/api`) || PathPrefix(`/w7s/vhub`) || PathPrefix(`/w7s/vstream`) || PathPrefix(`/w7s/health`) || PathPrefix(`/w7s/virtual-assets`) || PathPrefix(`/w7s/virtual-blob`) || PathPrefix(`/w7s/virtual-data`))",
           "traefik.http.routers.speculum-api.entrypoints=websecure",
           "traefik.http.routers.speculum-api.tls.certresolver=le",
           "traefik.http.routers.speculum-api.priority=100",
@@ -306,7 +289,7 @@
         },
         "labels": [
           "traefik.enable=true",
-          "traefik.http.routers.speculum-web.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/`)",
+          "traefik.http.routers.speculum-web.rule=(Host(`${PUBLIC_HOST}`) || Host(`www.${PUBLIC_HOST}`)) && PathPrefix(`/`)",
           "traefik.http.routers.speculum-web.entrypoints=websecure",
           "traefik.http.routers.speculum-web.tls.certresolver=le",
           "traefik.http.routers.speculum-web.priority=1",
@@ -403,6 +386,7 @@
           { "name": "SPECULUM_WEBTRANSPORT_PORT", "value": "8443" },
           { "name": "SPECULUM_BYPASS_API_AUTH", "value": "true" },
           { "name": "Database__Path", "value": "/data/speculum.db" },
+          { "name": "Sidecar__Engine", "value": "Chromium" },
           { "name": "Sidecar__GrpcAddress", "value": "http://sidecar:50051" },
           { "name": "Telemetry__Host__ProcPath", "value": "/host/proc" },
           { "name": "Telemetry__Docker__Endpoint", "value": "unix:///var/run/docker.sock" },

@@ -1,0 +1,8 @@
+url=https://www.belezanaweb.com.br/
+label=beleza-long
+stamp=20260915-191512
+gecko=/root/speculum-gecko/checkout
+supervisor_ws=ws://127.0.0.1:4199/session
+gecko_commit=9aaffa3b3d8877c6d00c8d55cc196aac276cbd2d
+speculum_commit=69caacfcc5cd42376b1d5eec813329d929e5bc3b
+binary_mtime=2026-09-15 02:58:37.533691591 -0300

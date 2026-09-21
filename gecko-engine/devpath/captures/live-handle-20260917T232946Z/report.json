@@ -1,0 +1,527 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "elapsedMs": 29054,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-handle-20260917T232946Z",
+  "verdict": {
+    "code": "SID_NULL_AT_FETCH_NO_SESSION",
+    "certain": true,
+    "meaning": "asset-fetch com sessionId null + reply no_session ⇒ listener wire órfão após clear de sessionId."
+  },
+  "timeline": [
+    {
+      "elapsed": 5350,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 2,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 6367,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 3,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 7376,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 4,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 8383,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 5,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 9396,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 6,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 10418,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 20,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 11430,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 32,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 12452,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 41,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 13465,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 42,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 14477,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 43,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 15495,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 44,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 16515,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 45,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 17532,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 46,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 18535,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 47,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 19540,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 48,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 20566,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 49,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 21583,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 50,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 22600,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 51,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 23609,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 52,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 24616,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 53,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 25620,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 54,
+      "lastFetchSid": null
+    },
+    {
+      "elapsed": 26632,
+      "sid": null,
+      "tok": false,
+      "hasProbe": false,
+      "probe": null,
+      "sampleCount": 55,
+      "lastFetchSid": null
+    }
+  ],
+  "forced": {
+    "img": {
+      "ok": false
+    },
+    "after": [
+      {
+        "why": "before-force",
+        "t": 27626.69999998808,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/branding/v2/logoFull.svg?handle=1789687815122",
+        "t": 27632.5,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      }
+    ],
+    "snap": {
+      "why": "after-force",
+      "t": 28637,
+      "sid": null,
+      "tok": false,
+      "probe": null,
+      "hasProbe": false
+    },
+    "allFetches": [
+      {
+        "why": "asset-fetch:https://static.eneba.games/fonts/Metropolis-Regular.woff2",
+        "t": 9943.399999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/fonts/Metropolis-Medium.woff2",
+        "t": 9943.59999999404,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/fonts/Metropolis-Bold.woff2",
+        "t": 9943.59999999404,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/ktP11gH3acp-85oSHTsRbd-7z8k0OpdVUVrAW2M7o-8/c:1500:400:nowe:150:0/czM6L",
+        "t": 9944.699999988079,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/udhfBekMpAzAFD22mdJdsCqm-AvAQw1qCS-RJrA4BSA/c:200:400:nowe:1800:0/czM6L",
+        "t": 9944.699999988079,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/JqMhLj3mo95McRPN12ImG-sIB3cdGjqJnc-M-SyDITA/c:200:400:nowe:1800:0/czM6L",
+        "t": 9944.799999982119,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/IVm4029_4KGuGIRMw0OuqqSzarZ1dqP1gPfrj2_I0oM/c:200:400:nowe:1800:0/czM6L",
+        "t": 9944.799999982119,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/u80twGzNDMVBqjwfZnWs4iC4K8Ltz2wC0xLy3T67bvE/c:200:400:nowe:1800:0/czM6L",
+        "t": 9944.799999982119,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/branding/v2/logoFull.svg",
+        "t": 9944.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/flags/lang/v2/brazil.svg",
+        "t": 9944.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/8fb0417978c74061522d.png",
+        "t": 9945,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/mobile/v1/appAndroidCTA.svg",
+        "t": 9945,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/mobile/v1/appAppleCTA.svg",
+        "t": 9945,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/3QpOeUJy9V_krSnOa3d8lWhc1KvPo67iRTfMMw9knRE/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 10685.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://products.eneba.games/drms/Steam%20Gift-1766134086.svg",
+        "t": 10685.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/usiJHNXczF6a9iHNBXYWTPXmQYZlduOXYequwohF2Aw/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 10685.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://products.eneba.games/drms/random%20key-1761745017.svg",
+        "t": 10685.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/N2X-XOVDIO9RlgBGDCDv8bMe7721jm3mR4fwWAbByN8/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 10685.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://products.eneba.games/drms/v1/steam.svg",
+        "t": 10685.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/Nj9Q6cnwGtlmiulF74Hwc56QFnaeVpzx-sTH9ketiLc/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 10685.899999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/k-CmN6xsGZp-RnZ8ekLRVDpJ7MYaC7XiQiVml4UugVA/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 10686,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/hHJoJTLnkvZNmc3iT3lVKtt82fU6H0lqYKQPU0gEQIM/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 10686,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://products.eneba.games/products/rockstar_social_club-1687431187.svg",
+        "t": 10686,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/flags/v1/br.svg",
+        "t": 10827.5,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/2foCPkDYBfYsdRcYeKt95AL2nM8gmo16sUYeA85pL0s/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 11836,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://products.eneba.games/drms/v1/psn.svg",
+        "t": 11836.399999976158,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/m4kLXzpVSR_0E7IdqTxdX7JRW9v2b5IcY0v00-R0p14/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 11836.5,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/niSKQzlUBMB27LJVg2qET_UQbmrPwkzuax2bQWiwYvA/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 11836.5,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://products.eneba.games/drms/eneba-1740065167.svg",
+        "t": 11836.59999999404,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/VUsMuyga-RMPIHhf8WRBj1zkzExZwPU3q6wF1g0Qusc/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 11836.799999982119,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://imgproxy.eneba.games/ihzixGl2C3cgj8bownyyX2IAxbqBNKxMJWtt4ArLvO8/rs:fit:300/ar:1/czM6Ly9wcm9",
+        "t": 11836.799999982119,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://products.eneba.games/drms/Rewarble-1721913249.png",
+        "t": 11836.799999982119,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      },
+      {
+        "why": "asset-fetch:https://static.eneba.games/branding/v2/logoFull.svg?handle=1789687815122",
+        "t": 27632.5,
+        "sid": null,
+        "tok": false,
+        "probe": null,
+        "hasProbe": false
+      }
+    ]
+  },
+  "noSession": [
+    {
+      "t": 1789687797453,
+      "status": 404,
+      "statusText": "no_session",
+      "fromSW": true,
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg",
+      "doc": ""
+    },
+    {
+      "t": 1789687815132,
+      "status": 404,
+      "statusText": "no_session",
+      "fromSW": true,
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg?handle=1789687815122",
+      "doc": ""
+    }
+  ],
+  "fetchWithSid": 0,
+  "fetchWithoutSid": 33
+}

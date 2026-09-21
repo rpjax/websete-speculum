@@ -1,0 +1,19 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "waitMs": 45000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/asset-h5-20260916-221139Z",
+  "labBuildStamp": {
+    "seq": 125,
+    "builtAt": "2026-09-16T22:10:56.868Z"
+  },
+  "libxul": null,
+  "commit": "235576f3",
+  "geckoTracePath": "/tmp/speculum-asset-trace.ndjson",
+  "counts": {
+    "merged": 48,
+    "logo": 28,
+    "client": 34,
+    "gecko": 14
+  },
+  "firstFalse": "V6"
+}

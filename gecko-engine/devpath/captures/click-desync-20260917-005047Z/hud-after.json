@@ -1,0 +1,72 @@
+{
+  "frames": "209",
+  "generation": "0",
+  "sequence": "207",
+  "applyOk": "209",
+  "desync": "0",
+  "resync": "1",
+  "ops": "31968",
+  "phase": "live browse",
+  "activityLen": 19,
+  "activitySample": [
+    "00:51:43 intent scrollSet",
+    "00:51:41 intent scrollSet",
+    "00:51:40 intent scrollSet",
+    "00:51:40 intent scrollSet",
+    "00:51:39 intent scrollSet",
+    "00:51:39 intent scrollSet",
+    "00:51:39 intent scrollSet",
+    "00:50:57 resync completed seq=4",
+    "00:50:55 resync completed seq=2",
+    "00:50:54 resync requested reason=lag",
+    "00:50:52 resync completed seq=2",
+    "00:50:51 viewport 1400×522",
+    "00:50:51 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+    "00:50:51 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-005048-cdf07139c80b",
+    "00:50:48 browse.start viewport 1400×522",
+    "00:50:48 gecko sw ready",
+    "00:50:48 session.hello cdf07139c80b gecko",
+    "00:50:48 ws open",
+    "00:50:48 runs refreshed (0)"
+  ],
+  "resyncRequested": 1,
+  "resyncCompleted": 3,
+  "desyncLines": 0,
+  "reasons": {
+    "lag": 1
+  },
+  "resyncLines": [
+    "00:50:54 resync requested reason=lag"
+  ],
+  "desyncText": [],
+  "ctxResyncLines": [],
+  "genNavHints": [],
+  "delta": {
+    "resyncRequested": 0,
+    "resyncCompleted": 0,
+    "desyncLines": 0,
+    "reasons": {},
+    "resyncLines": [],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": []
+  },
+  "polledActivityUnique": [
+    "00:51:41 intent scrollSet",
+    "00:51:40 intent scrollSet",
+    "00:51:39 intent scrollSet",
+    "00:50:57 resync completed seq=4",
+    "00:50:55 resync completed seq=2",
+    "00:50:54 resync requested reason=lag",
+    "00:50:52 resync completed seq=2",
+    "00:50:51 viewport 1400×522",
+    "00:50:51 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+    "00:50:51 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-005048-cdf07139c80b",
+    "00:50:48 browse.start viewport 1400×522",
+    "00:50:48 gecko sw ready",
+    "00:50:48 session.hello cdf07139c80b gecko",
+    "00:50:48 ws open",
+    "00:50:48 runs refreshed (0)",
+    "00:51:43 intent scrollSet"
+  ]
+}

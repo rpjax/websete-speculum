@@ -1,0 +1,34 @@
+{
+  "frames": "162",
+  "generation": "2",
+  "sequence": "161",
+  "applyOk": "162",
+  "desync": "0",
+  "resync": "1",
+  "ops": "32490",
+  "phase": "live browse",
+  "activityLen": 11,
+  "resyncRequested": 1,
+  "resyncCompleted": 2,
+  "desyncLines": 0,
+  "reasons": {
+    "lag": 1
+  },
+  "resyncLines": [
+    "00:44:11 resync requested reason=lag"
+  ],
+  "desyncText": [],
+  "ctxResyncLines": [],
+  "genNavHints": [],
+  "delta": {
+    "resyncRequested": 0,
+    "resyncCompleted": 0,
+    "desyncLines": 0,
+    "reasons": {},
+    "resyncLines": [],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": []
+  },
+  "newActivitySample": []
+}

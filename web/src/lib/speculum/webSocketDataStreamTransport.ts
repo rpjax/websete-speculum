@@ -48,36 +48,45 @@ export class WebSocketDataStreamTransport implements DataStreamTransport {
       this.resolveClosed = resolve
     })
 
-    await new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        cleanup()
-        try {
-          socket.close()
-        } catch {
-          // ignore
-        }
-        reject(new Error('WebSocket data stream ready timed out'))
-      }, 15_000)
+    // Bind message before waiting for `open`. The API starts mux OPEN/DATA as soon as
+    // the upgrade completes; a listener attached after `open` drops the PageProjection pipe.
+    const onMessage = (event: MessageEvent) => this.onMessage(event)
+    socket.addEventListener('message', onMessage)
 
-      const onOpen = () => {
-        cleanup()
-        resolve()
-      }
-      const onError = () => {
-        cleanup()
-        reject(new Error('WebSocket data stream failed to connect'))
-      }
-      const cleanup = () => {
-        window.clearTimeout(timer)
-        socket.removeEventListener('open', onOpen)
-        socket.removeEventListener('error', onError)
-      }
-      socket.addEventListener('open', onOpen)
-      socket.addEventListener('error', onError)
-    })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          cleanup()
+          try {
+            socket.close()
+          } catch {
+            // ignore
+          }
+          reject(new Error('WebSocket data stream ready timed out'))
+        }, 15_000)
+
+        const onOpen = () => {
+          cleanup()
+          resolve()
+        }
+        const onError = () => {
+          cleanup()
+          reject(new Error('WebSocket data stream failed to connect'))
+        }
+        const cleanup = () => {
+          window.clearTimeout(timer)
+          socket.removeEventListener('open', onOpen)
+          socket.removeEventListener('error', onError)
+        }
+        socket.addEventListener('open', onOpen)
+        socket.addEventListener('error', onError)
+      })
+    } catch (error) {
+      socket.removeEventListener('message', onMessage)
+      throw error
+    }
 
     this.socket = socket
-    socket.addEventListener('message', (event) => this.onMessage(event))
     socket.addEventListener('close', () => this.onSocketClosed())
     socket.addEventListener('error', () => this.onSocketClosed())
   }

@@ -265,6 +265,14 @@ public interface ILiveSession
         string? kind = null,
         string? rangeHeader = null);
 
+    /// <summary>Gecko Kind 0x06 — original URL via hub, not Chromium virtual-assets.</summary>
+    Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+        uint contextId,
+        string url,
+        string destination,
+        string range,
+        CancellationToken ct = default);
+
     /// <summary>Sealed one-path resync — frame arrives on Diff watch stream.</summary>
     Task<IResult> RequestResyncAsync(
         uint contextId = 1,

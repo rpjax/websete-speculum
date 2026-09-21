@@ -416,6 +416,23 @@ public sealed class LiveSessionTests
     }
 
     [Fact]
+    public async Task FetchProjectedAssetAsync_RelaysToSessionConnection()
+    {
+        var (_, live, connection) = CreatePageProjectionSession();
+        connection.VirtualAsset = new VirtualResourceResponse
+        {
+            Body = [9, 8],
+            ContentType = "image/png",
+            StatusCode = 200,
+        };
+
+        var first = await live.FetchProjectedAssetAsync(1, "https://cdn.test/logo.png", "image", "");
+        Assert.True(first.IsSuccess);
+        Assert.Equal(1, connection.FetchProjectedAssetCallCount);
+        Assert.Equal("image/png", first.Value.ContentType);
+    }
+
+    [Fact]
     public async Task Attach_SingleClient_SecondAttachFails()
     {
         var sessionId = Guid.NewGuid();
@@ -1604,6 +1621,7 @@ public sealed class LiveSessionTests
         public VirtualResourceResponse? VirtualAsset { get; set; }
 
         public int GetVirtualAssetCallCount { get; private set; }
+        public int FetchProjectedAssetCallCount { get; private set; }
         public int RequestResyncCallCount { get; private set; }
         public uint LastResyncContextId { get; private set; }
         public string? LastResyncReason { get; private set; }
@@ -1618,6 +1636,17 @@ public sealed class LiveSessionTests
             return VirtualAsset is null
                 ? Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Failure("not implemented"))
                 : Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Success(VirtualAsset));
+        }
+
+        public Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+            uint contextId,
+            string url,
+            string destination,
+            string range,
+            CancellationToken ct = default)
+        {
+            FetchProjectedAssetCallCount++;
+            return GetVirtualAssetAsync(url, ct, destination, range);
         }
 
         public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)

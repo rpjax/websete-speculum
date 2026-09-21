@@ -1,0 +1,41 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "waitMs": 45000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/avif-decode-20260916-231809Z",
+  "ok": true,
+  "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+  "brokenCount": 35,
+  "pageImg": {
+    "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:good:sensitive,w_1220/dpr_2.0/v1/banner/5fa55246-daa2-4bf7-976f-73cb2f395f18-topo-desk.gif",
+    "complete": true,
+    "naturalWidth": 0,
+    "naturalHeight": 0
+  },
+  "pageDecode": {
+    "ok": false,
+    "error": "EncodingError: The source image cannot be decoded.",
+    "naturalWidth": 0
+  },
+  "fetchInfo": {
+    "status": 200,
+    "contentType": "image/avif",
+    "byteLength": 19223,
+    "headHex": "0000002c667479706176697300000000",
+    "looksAvif": false
+  },
+  "blobImage": {
+    "ok": true,
+    "naturalWidth": 2440,
+    "naturalHeight": 90,
+    "complete": true
+  },
+  "createBitmap": {
+    "ok": true,
+    "width": 2440,
+    "height": 90
+  },
+  "verdict": "sticky_or_element_state",
+  "cause": "blob_Image_decodes_but_page_img_nw0",
+  "fixHint": "Bytes/Chromium AVIF OK. Problema no <img> da página (load sticky, src apply timing, ou erro cacheado).",
+  "siteAccept": "not Fixed — decode fork only"
+}

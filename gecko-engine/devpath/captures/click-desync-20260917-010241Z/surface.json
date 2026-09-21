@@ -1,0 +1,26 @@
+{
+  "before": {
+    "ok": true,
+    "title": "Beleza na Web | Maior loja de cosméticos online",
+    "bases": [
+      "https://www.belezanaweb.com.br/",
+      "/"
+    ],
+    "h1": "",
+    "bodyStart": "Ir direto para o conteúdo Acessibilidade Grupo Boticário Nossas Lojas Baixe o nosso app! Precisa de ajuda? Meus Pedidos Favoritos O que você procura hoje? Informar localização Acessar Minha Conta Entrar 0 Promos Cabelos Perfumes e Perfumaria Maquiagem Skincare Cuidados Pessoais M",
+    "hasKitWella": true,
+    "hasAddToCart": true
+  },
+  "afterClick": {
+    "ok": true,
+    "title": "Beleza na Web | Maior loja de cosméticos online",
+    "bases": [
+      "https://www.belezanaweb.com.br/",
+      "/"
+    ],
+    "h1": "",
+    "bodyStart": "Ir direto para o conteúdo Acessibilidade Grupo Boticário Nossas Lojas Baixe o nosso app! Precisa de ajuda? Meus Pedidos Favoritos O que você procura hoje? Informar localização Acessar Minha Conta Entrar 0 Promos Cabelos Perfumes e Perfumaria Maquiagem Skincare Cuidados Pessoais M",
+    "hasKitWella": true,
+    "hasAddToCart": true
+  }
+}

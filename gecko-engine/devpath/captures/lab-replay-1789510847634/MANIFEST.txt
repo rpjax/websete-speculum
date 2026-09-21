@@ -1,0 +1,3 @@
+url=https://www.belezanaweb.com.br/
+lab=http://127.0.0.1:4077/
+hud={"build":"build #105","frames":"1","apply":"1","desync":"0","activity":"22:20:50 viewport 1280×41822:20:50 click diag: __speculumLabDumpInputClick() in devtools after pointer click22:20:50 booted mode=browse dossier=22:20:50 browse.start viewport 1280×41822:20:48 gecko sw ready22:20:48 session.hello 14993fae73cc gecko22:20:48 ws open22:20:48 runs refreshed (0)"}

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Speculum.Orchestrator</RootNamespace>
+    <AssemblyName>speculum-orchestrator</AssemblyName>
+    <PublishAot>true</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Speculum.Gecko.Abi\Speculum.Gecko.Abi.csproj" />
+  </ItemGroup>
+
+</Project>

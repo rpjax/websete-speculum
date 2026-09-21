@@ -7,7 +7,8 @@ namespace Speculum.Api.Presentation.Auth;
 /// <summary>
 /// Control-plane HTTP requires <c>Authorization: Bearer &lt;accessToken&gt;</c> from
 /// <c>/api/auth/login</c> or <c>/api/auth/refresh</c>, unless
-/// <c>SPECULUM_BYPASS_API_AUTH</c> is set (lab/CI only). Hub and WebTransport stay open.
+/// <c>SPECULUM_BYPASS_API_AUTH</c> is set (lab/CI only). Hub, data-plane, and Live
+/// session-binding paths (virtual assets, uploads, PageProjection resync) stay open.
 /// Default for <c>/api/*</c> is require auth; only an explicit public set is open.
 /// Paths are compared after <c>UsePathBase("/w7s")</c> — public host uses <c>/w7s/…</c>.
 /// </summary>
@@ -77,22 +78,21 @@ public sealed class ApiAuthMiddleware
         await _next(context).ConfigureAwait(false);
     }
 
-    private static bool IsPublicPath(string path)
+    internal static bool IsPublicPath(string path)
         => IsExactOrChild(path, "/api/auth/login")
             || IsExactOrChild(path, "/api/auth/refresh")
             || path.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase)
-            // Dom Projection assets + uploads: live-session binding auth
-            // (SessionBindingAuth), not operator Bearer.
+            // Live PageProjection HTTP: session binding (SessionBindingAuth), not operator Bearer.
             || IsVirtualAssetPath(path)
             || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/vhub", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/vhub/", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Virtual Dom Projection asset GETs and uploads are gated by session binding
+    /// Virtual asset GETs, uploads, and PageProjection resync are gated by session binding
     /// query/header (<c>SessionBindingAuth</c>) — not operator Bearer.
     /// </summary>
-    private static bool IsVirtualAssetPath(string path)
+    internal static bool IsVirtualAssetPath(string path)
     {
         if (path.StartsWith("/virtual-assets/", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/virtual-blob/", StringComparison.OrdinalIgnoreCase)
@@ -101,13 +101,19 @@ public sealed class ApiAuthMiddleware
             return true;
         }
 
-        // Dom uploads keep session id in path but use session token auth.
         const string prefix = "/api/sessions/";
-        const string uploads = "/dom-uploads";
         if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return false;
-        var markerIndex = path.IndexOf(uploads, prefix.Length, StringComparison.OrdinalIgnoreCase);
-        return markerIndex > prefix.Length;
+
+        var restStart = path.IndexOf('/', prefix.Length);
+        if (restStart <= prefix.Length)
+            return false;
+
+        var rest = path.AsSpan(restStart);
+        return rest.Equals("/dom-uploads", StringComparison.OrdinalIgnoreCase)
+            || rest.StartsWith("/dom-uploads/", StringComparison.OrdinalIgnoreCase)
+            || rest.Equals("/page-projection/resync", StringComparison.OrdinalIgnoreCase)
+            || rest.StartsWith("/page-projection/resync/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsExactOrChild(string path, string root)

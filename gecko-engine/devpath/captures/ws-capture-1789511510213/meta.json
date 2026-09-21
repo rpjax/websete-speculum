@@ -1,0 +1,49 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "totalMs": 180000,
+  "navMs": 20000,
+  "meta": [
+    {
+      "n": 1,
+      "len": 118,
+      "hdr": null,
+      "decodeOk": false,
+      "decodeReason": "malformed"
+    },
+    {
+      "n": 2,
+      "len": 124,
+      "hdr": null,
+      "decodeOk": false,
+      "decodeReason": "malformed"
+    },
+    {
+      "n": 3,
+      "len": 54,
+      "hdr": {
+        "version": 2,
+        "flags": 2,
+        "contextId": 1,
+        "generation": 1,
+        "sequence": 1,
+        "partIndex": 0,
+        "partCount": 1
+      },
+      "decodeOk": true
+    },
+    {
+      "n": 4,
+      "len": 3509,
+      "hdr": {
+        "version": 2,
+        "flags": 2,
+        "contextId": 1,
+        "generation": 1,
+        "sequence": 2,
+        "partIndex": 0,
+        "partCount": 1
+      },
+      "decodeOk": true
+    }
+  ]
+}

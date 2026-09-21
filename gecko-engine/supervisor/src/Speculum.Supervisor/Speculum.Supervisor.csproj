@@ -9,6 +9,12 @@
     <PublishAot>true</PublishAot>
     <StripSymbols>true</StripSymbols>
     <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Speculum.Gecko.Abi\Speculum.Gecko.Abi.csproj" />
+  </ItemGroup>
+
 </Project>
+

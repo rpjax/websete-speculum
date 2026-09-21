@@ -625,6 +625,16 @@ public sealed class GrpcSessionConnection : ISessionConnection
         });
     }
 
+    public Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+        uint contextId,
+        string url,
+        string destination,
+        string range,
+        CancellationToken ct = default)
+        => Task.FromResult<IResult<VirtualResourceResponse>>(
+            Result<VirtualResourceResponse>.Failure(
+                "gecko_asset_unsupported|fetch|Chromium sidecar has no Kind 0x06 asset plane"));
+
     public async Task<IResult> RequestResyncAsync(
         uint contextId = 1,
         string? reason = null,

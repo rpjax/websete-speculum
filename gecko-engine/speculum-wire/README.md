@@ -1,0 +1,117 @@
+# speculum-wire — núcleo do produtor, C++ puro
+
+Camada de baixo do produtor de projeção: hash da tabela replicada, modelo de op e
+codificador binário do frame. **Zero tipo do Gecko** — compila e roda em qualquer lugar.
+
+Essa separação é deliberada. O risco de escrever C++ dentro do Gecko é o ciclo de build
+longo: cada erro custa muito. Aqui a maior parte da lógica é verificada **antes** de
+encostar na árvore do motor.
+
+| camada | onde | testável fora do Gecko |
+|---|---|---|
+| **`speculum-wire`** (esta) — identidade, tabela replicada, hash, ops, codificação, **algoritmo do produtor** | `gecko-engine/speculum-wire/` | **sim** |
+| cola do motor — callbacks do `nsIMutationObserver` preenchendo a interface `NodeSource` | `dom/base/Speculum*` no fork | não |
+
+O produtor lê a árvore viva por uma interface (`NodeSource`), nunca pelo DOM direto. No
+Gecko essa interface é implementada sobre `nsINode`; no teste, sobre um DOM falso. O
+algoritmo é o mesmo nos dois casos — é isso que permite provar o laço aqui.
+
+## O que está provado
+
+`./run-tests.sh` faz o caminho inteiro e compara contra o **código real do cliente**:
+
+1. o C++ monta um frame com 20 ops (elemento, texto com emoji, comentário, doctype,
+   shadow root, SVG, namespace custom, host de contexto aninhado, attr set/del, text set,
+   prop str/bool, remove, node drop, check);
+2. `core/decode.ts` — o decodificador que o cliente usa em produção — lê esses bytes;
+3. os hashes são recomputados por `core/rowHash.ts` e comparados com os do C++;
+4. o `CHECK` que viajou no fio é conferido contra o `tableHash` dos dois lados;
+5. o **laço completo do produtor** roda sobre um DOM falso — registro → op → tabela → hash →
+   frame — e cada frame emitido é aplicado pelo cliente com `applyFrameToTableChecked`, o
+   apply **estrito** de produção, que valida a precondição de cada op e confere o `CHECK`.
+   Se o produtor emitir qualquer coisa incoerente, o mesmo juiz que reprovaria em produção
+   reprova aqui;
+6. um **roteiro único** (`test/table_script.txt`, lido pelos dois lados — não são dois
+   roteiros que por acaso concordam) roda na tabela replicada em C++ e no
+   `ReplicatedTable` de produção em TypeScript, comparando `tableHash`, contagem de linhas
+   e **ordem de filhos** depois de *cada* comando.
+
+Última execução: **12/12 fixtures de hash idênticos, 20/20 ops decodificadas, CHECK igual ao
+`tableHash` nos dois lados, 49/49 passos da tabela idênticos, e 7/7 frames do produtor
+aceitos pelo apply estrito com `tableHash` final igual.** O `producer_lifecycle` cobre
+churn sem destroy, move no mesmo tick (id permanece), ponteiro reusado (TEXT→ELEMENT),
+efêmero do tick (L24) e Halt ≠ `discardPending`. `producer_shadow` cobre mode 0/1.
+`producer_cssom` cobre cadáver de regra e o mesmo `sequence` do DOM.
+
+## CLI do Producer
+
+Binário `producer_cli` (mesmo `Producer.h`). Stdin linha a linha; stdout `FRAME hex`,
+`SNAP hex`, `EMPTY` ou `OK`. Sem `stoi` (`-fno-exceptions`).
+
+| comando | efeito |
+|---------|--------|
+| `boot` | documento mínimo + `resyncVirtual` (primeiro frame, flag resync) |
+| `mk TAG NOME` | cria elemento |
+| `mktext NOME texto…` | cria texto |
+| `append PAI FILHO` | liga e `onInserted` |
+| `detach NOME` | `onRemoved` |
+| `attr NOME chave valor` | `onAttrChanged` |
+| `prop NOME ID bool\|str VALOR` | amostra no próximo drain |
+| `sheet NOME` / `rule SHEET NOME texto…` | CSSOM |
+| `halt` / `resume` | para o relógio; **não** descarta a fila |
+| `flush` / `tick` | `emitFrame` (`tick` em halt = EMPTY) |
+| `snapshot` | dump da tabela no `sequence` atual |
+| `resync` | `resyncVirtual` de novo |
+
+O L3-PP exec este processo. Segundo encoder é defeito.
+
+## O que ainda não tem
+
+Montagem por partes quando o frame passa do teto. CSSOM no núcleo **já tem**. Tick
+de frame no Gecko é cola (`nsITimer`), não este diretório.
+
+O laço do produtor exercita carga inicial, inserção no fim e no meio (com `before` resolvido
+pelo irmão seguinte), subárvore inteira descrita de uma vez, mover nó já ligado para outro
+pai, troca e remoção de atributo, troca de texto, `PROP_SET` string e bool, remoção com
+`NODE_DROP` no mesmo frame (filho vai junto), e o item **F**: nós de UA pendurados na árvore
+**não** aparecem em frame nenhum.
+
+O roteiro da tabela exercita de propósito o que costuma quebrar: prepend antes do primeiro
+filho, mover um nó já ligado para outro pai, remover do meio, reinserir antes do último,
+`shadow root` (que tem `parent = host` mas fica **fora** da cadeia de luz), derrubar
+subárvore destacada que ainda tem filhos, e o caso **OPEN-8** (evict da cauda logo depois
+de um prepend) — que é exatamente onde um `lastChildOf` mal consertado passa despercebido
+até a projeção mostrar um filho só.
+
+Se qualquer um desses passos falhar, produtor e cliente discordam — e é exatamente esse
+desacordo que o `preTableHash`/`CHECK` existe para detectar em produção. O produtor
+carimba o `preTableHash` de verdade (hash da tabela **antes** das ops deste frame);
+frame de resync leva a flag e `preTableHash = 0`.
+
+## Rodar
+
+```
+cd gecko-engine/speculum-wire
+./run-tests.sh
+```
+
+Os binários de teste são compilados com **`-fno-exceptions -fno-rtti -Werror`**, que é como
+o Gecko compila: se algo aqui só funcionar com exceções, quebra no teste e não no fork.
+Falha de invariante aborta via `SPECULUM_FATAL`, que o lado do motor redefine para
+`MOZ_CRASH`.
+
+Precisa de `g++` (C++17), `python3` e `npx` (usa `tsx` para carregar o TS do cliente).
+Os artefatos vão para `/tmp/speculum-wire` — mude com `SPECULUM_OUT=... ./run-tests.sh`.
+
+## Fonte da verdade
+
+O ABI está selado e é definido por:
+
+- `docs/page-projection/spec/frame-protocol.md` §1–§4
+- `packages/page-projection/src/core/opcodes.ts` — lista de opcodes
+- `packages/page-projection/src/core/rowHash.ts` — H64 e `rowHash`/`tableHash`
+- `packages/page-projection/src/virtual/frame/binaryFrameEncoder.ts` — layout do fio
+- `packages/page-projection/src/core/replicatedTable.ts` — linhas, índices derivados, topologia
+
+Este diretório é **port**, não reinterpretação. Valores no fio nunca são renumerados;
+divergência de hash não é detalhe de implementação, é quebra de contrato.

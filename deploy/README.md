@@ -1,6 +1,7 @@
 # Deploy — Speculum Refactor
 
-Dockup manifest for the refactor stack (gRPC sidecar + Api + optional web lab).
+Dockup manifest for the refactor stack (Gecko sidecar + Api + optional web lab).
+SessionsTest CI (`test` / compose) stays on Chromium until there is a Gecko MATRIX.
 
 ## Prerequisites
 
@@ -16,20 +17,24 @@ npm install -g @rodrigopjax/dockup
 
 | Env | Sidecar browser | Purpose |
 |-----|-----------------|---------|
-| **`dev`** | `patchright` (Chrome); input defaults to **uinput** (`os`) | Local lab — Traefik + web + API; `SPECULUM_BYPASS_API_AUTH`. WSL/no-uinput: set `SPECULUM_INPUT_BACKEND=patchright`. |
-| **`prod`** | `patchright` + **`SPECULUM_INPUT_BACKEND=patchright`** | VPS production — Traefik `:80`/`:443`, web admin SPA, no auth bypass; images push to Docker Hub `websete/*`. CDP input until OS→Chrome X11 delivery is proven. |
-| **`test`** | `patchright` + motor-fixture + **`SPECULUM_INPUT_BACKEND=patchright`** | Act→Assert `SessionsTest` (CI also uses compose) |
+| **`dev`** | Gecko orchestrator (`gecko-engine/Dockerfile`) | Local lab — Traefik + web + API; `SPECULUM_BYPASS_API_AUTH`. Pack Firefox first (`bash gecko-engine/scripts/pack-gecko-dist.sh`). |
+| **`prod`** | Gecko orchestrator | VPS production — Traefik `:80`/`:443`, web admin SPA, no auth bypass; images push to Docker Hub `websete/*`. Same pack step as dev. PageProjection only — no VideoStreaming. |
+| **`test`** | `patchright` + motor-fixture + **`SPECULUM_INPUT_BACKEND=patchright`** | Act→Assert `SessionsTest` (CI also uses compose). Stays Chromium. |
 
 `dev` publishes Traefik on host **`:8080`**; `prod` on **`:80`/`:443`**. Both publish
 WebTransport on **`:8443`** — run only one at a time.
 `test` / compose sessions-test uses **`:18090`** (API) so it can run beside local stacks.
-Sidecar uses Docker `init: true` (reaps Chrome/Xvfb zombies). Volumes are env-scoped
+Sidecar uses Docker `init: true`. Volumes are env-scoped
 (`speculum-refactor-dev-data` / `speculum-refactor-data` / `speculum-refactor-test-data`).
-Sidecar compose mounts `/dev/uinput` (OS path WIP). **`prod` / `test` force CDP input**
-(`SPECULUM_INPUT_BACKEND=patchright`) so Session input Act→Assert and VPS sessions work
-while Chrome under Patchright still ignores X11 CorePointer/CoreKeyboard events.
-`dev` leaves the backend unset (`os`) for Linux hosts developing the uinput path.
-After deploy, sidecar `/ready` is 200 when Chrome (+ uinput when backend=`os`) is present.
+Gecko sidecar health is orchestrator `GET /ready` on `:4100`. The Chromium `test`
+stack still mounts `/dev/uinput` and talks gRPC `:50051`.
+
+Pack the existing Firefox dist **before** `dockup deploy` for `dev` / `prod`
+(does not run `mach`):
+
+```bash
+wsl -d Ubuntu -e bash gecko-engine/scripts/pack-gecko-dist.sh
+```
 
 First-boot mandatory config: `dev` / `test` seed Sessions + ResourceManagement +
 Navigation via env so `/w7s/health/ready` can pass. `prod` seeds Sessions +
@@ -41,11 +46,11 @@ wait on `/w7s/health/ready`. The API uses `UsePathBase("/w7s")`; Traefik routes
 `/w7s/api`, `/w7s/vhub`, `/w7s/health` to the API and everything else to the SPA
 (Live catch-all + `/w7s/admin` / `/w7s/lab` / `/w7s/setup`).
 
-## Dev (localhost, real Chrome)
+## Dev (localhost, Gecko)
 
 Same topology as a production-shaped deploy (Traefik → web/api, api → sidecar),
-HTTP-only on localhost — no ACME / public domains. Sidecar launches Chrome via
-Patchright (`SPECULUM_BROWSER=patchright`).
+HTTP-only on localhost — no ACME / public domains. Sidecar is the Gecko
+orchestrator. Pack `gecko-engine/gecko-dist` first.
 
 From `deploy/`:
 
@@ -238,8 +243,8 @@ For real Chrome without dockup, run the sidecar with `SPECULUM_BROWSER=patchrigh
 | id | Role |
 |----|------|
 | `traefik` | HTTP entry on host `:8080` |
-| `sidecar` | gRPC (`:50051` internal) — Chrome via patchright |
-| `api` | Refactor Speculum.Api (`Sidecar__GrpcAddress`) |
+| `sidecar` | Gecko orchestrator (`:4100` internal) — `dev`/`prod`. Chromium gRPC only on `test`. |
+| `api` | Speculum.Api (`Sidecar__OrchestratorAddress` on Gecko; `Sidecar__GrpcAddress` on Chromium `test`) |
 | `web` | Lab SPA (`web`) — **dev only** |
 
 Build contexts are relative to `` (`--root ..`).

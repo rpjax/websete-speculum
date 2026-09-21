@@ -28,7 +28,10 @@ export type ActionKind =
   | 'probe.cssomSheetDump'
   | 'probe.paintDiff'
   | 'probe.cssomMatrix'
-  | 'probe.launchTelemetry';
+  | 'probe.launchTelemetry'
+  | 'probe.touchScrollAxis'
+  | 'probe.touchFlingTap'
+  | 'probe.touchSurfaceParity';
 
 export type LabAction = {
   id: string;

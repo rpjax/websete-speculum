@@ -1,0 +1,29 @@
+---
+description: A slice is done only when the designed last hop is live — never when files, goldens, or unused helpers exist
+alwaysApply: true
+---
+
+# Done bar — last hop live
+
+A slice, todo, or “implemented” claim is **done** only when the designed path is wired end-to-end: the real caller uses it, and the real call site exists in the product tree.
+
+If the last hop is missing, the first sentence to Rodrigo is that it is **incomplete**. Do **not** mark the todo complete. Do **not** say implemented / fechado / pronto.
+
+## Not done (this is the error)
+
+- Encoder, helper, or ABI exists but the live consumer still uses another path (JSON, fake mouse, dead export).
+- IPDL / Runtime handler exists but nothing in Gecko/Firefox source emits or waits (Python splice on checkout is not a call site).
+- Unit / golden / FakeBrowser parse green while the product path is unwired.
+- Files on disk + compile-shaped C++ with a guessed API.
+- “The pipe exists” / “ready for mach” while join-or-open, coords, or hooks are still stubs.
+
+## Done
+
+- Grep shows the production/lab caller hitting the new path (not a sibling unused module).
+- Native hook lives in the patch/source tree at the real function (`alert`, permission, download, channel), not a checkout script.
+- Asset/input/nav apply the designed algorithm (join the page channel; convert coords; no NullPrincipal second GET).
+- If effect still needs one rebuild: say **wired, unproven** — never **done**. Unproven is allowed. Unwired is not.
+
+## Duty
+
+Finish the last hop before the next slice. Covering every todo with envelopes is a product defect.

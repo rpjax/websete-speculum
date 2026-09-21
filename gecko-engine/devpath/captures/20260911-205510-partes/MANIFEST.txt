@@ -1,0 +1,7 @@
+url=https://example.com
+label=partes
+stamp=20260911-205510
+gecko=/root/speculum-gecko/checkout
+gecko_commit=f8d84e9319b2367cd949d36f2eebdeef4b49cd9d
+speculum_commit=8e3d3abf539aa7e71463498ec912206c47889dc7
+binary_mtime=2026-09-11 12:25:02.333932455 -0300

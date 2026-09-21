@@ -1,0 +1,8 @@
+url=file:///mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/fixtures/mutacoes.html
+label=f1-visual
+stamp=20260912-175919
+gecko=/root/speculum-gecko/checkout
+speculum_frame_dir=/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260912-175919-f1-visual
+gecko_commit=9aaffa3b3d8877c6d00c8d55cc196aac276cbd2d
+speculum_commit=dc9185191575c834d0bc5d251291c177b012836a
+binary_mtime=2026-09-12 14:52:24.870285219 -0300

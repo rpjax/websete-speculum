@@ -1,0 +1,398 @@
+{
+  "ok": true,
+  "url": "https://www.belezanaweb.com.br/",
+  "waitMs": 45000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/same-s-iso-latest",
+  "navigated": [
+    "https://www.belezanaweb.com.br/"
+  ],
+  "assetConsole": [],
+  "assetConsoleDenied": 0,
+  "assetConsoleSuspect": 0,
+  "assetDiag": {
+    "ok": true,
+    "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+    "complete": true,
+    "naturalWidth": 120,
+    "naturalHeight": 51,
+    "csp": [
+      "script-src 'none'; object-src 'none'"
+    ],
+    "fetchInIframe": {
+      "status": 200,
+      "contentType": "image/svg+xml",
+      "byteLength": 2291,
+      "head": "<svg width=\"120\" height=\"51.3\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><p"
+    },
+    "blobInIframe": {
+      "naturalWidth": 120,
+      "naturalHeight": 51
+    },
+    "swController": true,
+    "cacheBustReload": {
+      "complete": true,
+      "naturalWidth": 120,
+      "naturalHeight": 51,
+      "bustSrc": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg?speculum_cb=1789601962462"
+    },
+    "blobAsImgSrc": {
+      "complete": true,
+      "naturalWidth": 120,
+      "naturalHeight": 51
+    }
+  },
+  "sameS": {
+    "ok": true,
+    "sameSequence": true,
+    "virtualSequence": 172,
+    "projectedSequence": 172,
+    "virtualTableHash": "7335ee2be0732227",
+    "projectedTableHash": "2378891800056631400"
+  },
+  "planes": {
+    "virtualDump": {
+      "sequence": 172,
+      "rowCount": 18548,
+      "tableHash": "8301803360344023591",
+      "kinds": {
+        "Element": 5154,
+        "Text": 8696,
+        "Comment": 40,
+        "Sheet": 1,
+        "Rule": 4656,
+        "Doctype": 1,
+        "ShadowRoot": 0
+      }
+    },
+    "wire": {
+      "lastSeq": 177,
+      "frameCount": 181,
+      "rowCount": 18548,
+      "kinds": {
+        "Element": 5154,
+        "Text": 8696,
+        "Comment": 40,
+        "Sheet": 1,
+        "Rule": 4656,
+        "Doctype": 1,
+        "ShadowRoot": 0
+      },
+      "ruleCount": 4656,
+      "ruleTextHash16": "ffeb5dc01366ee39",
+      "ruleTextSample": [
+        "#info-about .item-text .highlight { font-weight: 800; }",
+        "#info-about .item-text { font-size: 1rem; line-height: 1.5rem; }",
+        "#info-about .item-text:not(.last-child) { margin-bottom: 20px; }",
+        "#info-about .item-title { margin-bottom: 35px; }",
+        "#info-rules .item-text { font-size: 0.875rem; line-height: 1.5rem; }"
+      ]
+    },
+    "projected": {
+      "table": {
+        "rowCount": 18548,
+        "tableHash": "2378891800056631400"
+      },
+      "treeKindsRaw": {
+        "Element": 5156,
+        "Text": 8696,
+        "Comment": 40,
+        "Sheet": 0,
+        "Rule": 0,
+        "Doctype": 1,
+        "ShadowRoot": 0
+      },
+      "treeKindsFiltered": {
+        "Element": 5154,
+        "Text": 8696,
+        "Comment": 40,
+        "Sheet": 0,
+        "Rule": 0,
+        "Doctype": 1,
+        "ShadowRoot": 0,
+        "infraSkipped": 2
+      },
+      "treePresent": true,
+      "cssomLive": {
+        "docSheetCount": 5,
+        "adoptedSheetCount": 2,
+        "docRules": 258,
+        "adoptedRules": 4657,
+        "totalPaintRules": 4915,
+        "duplicateAuthorRules": false,
+        "sampleOverlap": 0
+      },
+      "cssomSheetDump": {
+        "ok": true,
+        "totalRules": 4915,
+        "styleSheetCount": 5,
+        "adoptedCount": 2
+      },
+      "adoptedRuleDigest": {
+        "ok": true,
+        "ruleCount": 4656,
+        "ruleTextHash16": "fb4414c1bf09e471",
+        "ruleTextSample": [
+          "#info-about .item-text .highlight { font-weight: 800; }",
+          "#info-about .item-text { font-size: 1rem; line-height: 1.5rem; }",
+          "#info-about .item-text:not(.last-child) { margin-bottom: 20px; }",
+          "#info-about .item-title { margin-bottom: 35px; }",
+          "#info-rules .item-text { font-size: 0.875rem; line-height: 1.5rem; }"
+        ],
+        "paritySkipped": 1
+      },
+      "attrSamples": {
+        "imgCount": 169,
+        "logoAttrs": [
+          {
+            "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+            "srcset": "",
+            "class": "header-logo"
+          },
+          {
+            "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+            "srcset": "",
+            "class": "header-logo"
+          }
+        ],
+        "truncatedCount": 0
+      },
+      "layout": {
+        "overlapPairsAmong40": 218,
+        "brokenImgs": 0,
+        "headerH": 60,
+        "logo": {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+          "srcset": "",
+          "complete": true,
+          "naturalWidth": 120,
+          "width": 139
+        }
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "sameS_transport",
+      "pass": true,
+      "detail": {
+        "error": null
+      }
+    },
+    {
+      "id": "same_sequence",
+      "pass": true,
+      "detail": {
+        "virtualSequence": 172,
+        "projectedSequence": 172
+      }
+    },
+    {
+      "id": "wire_apply_complete",
+      "pass": true,
+      "detail": {
+        "rowCount": 18548
+      }
+    },
+    {
+      "id": "projected_armed",
+      "pass": true,
+      "detail": {
+        "armed": true
+      }
+    },
+    {
+      "id": "projected_synced",
+      "pass": true,
+      "detail": {
+        "desynced": false
+      }
+    },
+    {
+      "id": "dom_table_kinds_virtual_vs_wire",
+      "pass": true,
+      "detail": {}
+    },
+    {
+      "id": "dom_table_rowCount_virtual_vs_wire",
+      "pass": true,
+      "detail": {
+        "virtualDump": 18548,
+        "wire": 18548
+      }
+    },
+    {
+      "id": "dom_table_rowCount_wire_vs_projected",
+      "pass": true,
+      "detail": {
+        "wire": 18548,
+        "projected": 18548
+      }
+    },
+    {
+      "id": "dom_tree_filtered_vs_wire_element_text",
+      "pass": true,
+      "detail": {
+        "Element": {
+          "treeFiltered": 5154,
+          "wire": 5154,
+          "treeRaw": 5156
+        },
+        "Text": {
+          "treeFiltered": 8696,
+          "wire": 8696,
+          "treeRaw": 8696
+        },
+        "infraSkipped": 2
+      }
+    },
+    {
+      "id": "cssom_wire_rule_count_vs_projected_adopted",
+      "pass": true,
+      "detail": {
+        "wireRules": 4656,
+        "projectedAdoptedRules": 4657,
+        "wireSheets": 1,
+        "projectedAdoptedSheets": 2
+      }
+    },
+    {
+      "id": "cssom_no_duplicate_author_rules",
+      "pass": true,
+      "detail": {
+        "duplicateAuthorRules": false,
+        "sampleOverlap": 0,
+        "docRules": 258,
+        "adoptedRules": 4657
+      }
+    },
+    {
+      "id": "cssom_sheet_dump_ok",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "reason": "missing",
+        "totalRules": 4915,
+        "styleSheetCount": 5,
+        "adoptedCount": 2
+      }
+    },
+    {
+      "id": "cssom_rule_text_hash_wire_vs_adopted",
+      "pass": true,
+      "detail": {
+        "hashMatch": false,
+        "diagnosticOnlyHash": true,
+        "note": "cssText hash diverge = serialização Gecko×Chromium; gate é count (perceived CSSOM)",
+        "wire": {
+          "ruleCount": 4656,
+          "hash16": "ffeb5dc01366ee39",
+          "sample": [
+            "#info-about .item-text .highlight { font-weight: 800; }",
+            "#info-about .item-text { font-size: 1rem; line-height: 1.5rem; }",
+            "#info-about .item-text:not(.last-child) { margin-bottom: 20px; }",
+            "#info-about .item-title { margin-bottom: 35px; }",
+            "#info-rules .item-text { font-size: 0.875rem; line-height: 1.5rem; }"
+          ]
+        },
+        "adopted": {
+          "ok": true,
+          "ruleCount": 4656,
+          "hash16": "fb4414c1bf09e471",
+          "paritySkipped": 1,
+          "sample": [
+            "#info-about .item-text .highlight { font-weight: 800; }",
+            "#info-about .item-text { font-size: 1rem; line-height: 1.5rem; }",
+            "#info-about .item-text:not(.last-child) { margin-bottom: 20px; }",
+            "#info-about .item-title { margin-bottom: 35px; }",
+            "#info-rules .item-text { font-size: 0.875rem; line-height: 1.5rem; }"
+          ]
+        }
+      }
+    },
+    {
+      "id": "attrs_img_src_sane",
+      "pass": true,
+      "detail": {
+        "imgSampleCount": 169,
+        "logoAttrs": [
+          {
+            "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+            "srcset": "",
+            "class": "header-logo"
+          },
+          {
+            "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+            "srcset": "",
+            "class": "header-logo"
+          }
+        ],
+        "truncatedSample": [],
+        "emptyLogo": false,
+        "anchorSample": [
+          {
+            "href": "#main",
+            "class": "go-to-content"
+          },
+          {
+            "href": "/blz-principal?vendido-por=beleza",
+            "class": ""
+          },
+          {
+            "href": "https://www.boticario.com.br",
+            "class": "store-item "
+          }
+        ]
+      }
+    },
+    {
+      "id": "asset_logo_complete",
+      "pass": true,
+      "detail": {
+        "logo": {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+          "srcset": "",
+          "complete": true,
+          "naturalWidth": 120,
+          "width": 139
+        },
+        "note": "logo.svg must be complete with naturalWidth > 0"
+      }
+    },
+    {
+      "id": "layout_header_height_sane",
+      "pass": true,
+      "detail": {
+        "headerH": 60,
+        "threshold": 120,
+        "sample": {
+          "sel": "header",
+          "tag": "HEADER",
+          "className": "header-wrapper facelift-changes    header-sticky beautybox-profile header-element",
+          "display": "flex",
+          "position": "sticky",
+          "flex": "column/normal/center",
+          "grid": "none",
+          "width": "1400px",
+          "height": "60px",
+          "rect": {
+            "x": 0,
+            "y": 81,
+            "w": 1400,
+            "h": 60
+          },
+          "bg": "rgba(76, 76, 76, 0.5)"
+        }
+      }
+    },
+    {
+      "id": "asset_broken_imgs_zero",
+      "pass": true,
+      "detail": {
+        "brokenImgs": 0,
+        "note": "brokenImgs = complete && naturalWidth===0 only"
+      }
+    }
+  ],
+  "failed": [],
+  "oneLiner": "ISO PASS — DOM filtered + CSSOM text + ativo same-S (ainda não claim 1:1 visual)"
+}

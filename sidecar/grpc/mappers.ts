@@ -85,6 +85,8 @@ export function toLaunchOptions(req: any): BrowserLaunchOptions {
       req.aggregateIntervalMs ?? req.aggregate_interval_ms,
     ),
     cpuProfiling: req.cpuProfiling === true || req.cpu_profiling === true,
+    inputPathTelemetry:
+      req.inputPathTelemetry === true || req.input_path_telemetry === true,
     navigationPolicy: navigationPolicyFromLaunchRequest(
       req.navigationPolicy ?? req.navigation_policy,
     ),

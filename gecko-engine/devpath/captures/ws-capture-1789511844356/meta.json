@@ -1,0 +1,21 @@
+{
+  "url": "http://127.0.0.1:4077/fixtures/mutation-churn.html",
+  "totalMs": 45000,
+  "navMs": 20000,
+  "meta": [
+    {
+      "n": 1,
+      "len": 118,
+      "hdr": null,
+      "decodeOk": false,
+      "decodeReason": "malformed"
+    },
+    {
+      "n": 2,
+      "len": 143,
+      "hdr": null,
+      "decodeOk": false,
+      "decodeReason": "malformed"
+    }
+  ]
+}

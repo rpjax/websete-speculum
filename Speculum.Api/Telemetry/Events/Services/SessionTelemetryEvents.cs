@@ -48,7 +48,7 @@ using DomInputApplied = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjec
 using DomInputCdpDropped = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.CdpDropped;
 using DomInputDataPlaneReceived = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.DataPlaneReceived;
 using DomInputRejected = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.Rejected;
-using DomInputSidecarAdmitted = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarAdmitted;
+using DomInputSidecarEnqueued = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarEnqueued;
 using DomInputSidecarPushWritten = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.SidecarPushWritten;
 using DomInputScrollEchoHit = Speculum.Api.Telemetry.Events.Models.Sessions.PageProjection.Input.ScrollEchoHit;
 using NavigateUrlResolved = Speculum.Api.Telemetry.Events.Models.Sessions.Navigate.UrlResolved;
@@ -60,7 +60,7 @@ using VsiApplied = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingI
 using VsiControlReceived = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.ControlReceived;
 using VsiDataPlaneReceived = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.DataPlaneReceived;
 using VsiRejected = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.Rejected;
-using VsiSidecarAdmitted = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.SidecarAdmitted;
+using VsiSidecarEnqueued = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.SidecarEnqueued;
 using VsiSidecarPushWritten = Speculum.Api.Telemetry.Events.Models.Sessions.VideoStreamingInput.SidecarPushWritten;
 
 namespace Speculum.Api.Telemetry.Events.Services;
@@ -250,10 +250,10 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             });
         }
 
-        public void SidecarAdmitted(string kind, string? traceId = null, long? clientTimestampMs = null)
+        public void SidecarEnqueued(string kind, string? traceId = null, long? clientTimestampMs = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-            Writer.Append(new VsiSidecarAdmitted
+            Writer.Append(new VsiSidecarEnqueued
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,
@@ -1137,7 +1137,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             });
         }
 
-        public void SidecarAdmitted(
+        public void SidecarEnqueued(
             string kind,
             long? generation,
             string? anchor,
@@ -1145,7 +1145,7 @@ internal sealed class SessionTelemetryEvents : ISessionTelemetryEvents
             long? clientTimestampMs = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(kind);
-            Writer.Append(new DomInputSidecarAdmitted
+            Writer.Append(new DomInputSidecarEnqueued
             {
                 SessionId = SessionId,
                 ProfileId = ProfileId,

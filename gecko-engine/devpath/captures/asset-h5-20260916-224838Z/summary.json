@@ -1,0 +1,74 @@
+{
+  "ok": true,
+  "firstFalse": null,
+  "classification": "all_true_or_v9_interpret",
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/asset-h5-20260916-224838Z",
+  "broken": {
+    "count": 1,
+    "buckets": {
+      "no_asset_hops": 1
+    }
+  },
+  "verdict": {
+    "V1": true,
+    "V2": true,
+    "V3": true,
+    "V4": true,
+    "V5": true,
+    "V6": true,
+    "V7": true,
+    "V8": true,
+    "V9": true,
+    "V10": true
+  },
+  "sameS": {
+    "ok": true,
+    "error": null,
+    "sameSequence": true,
+    "virtualSequence": 164,
+    "projectedSequence": 164,
+    "layoutProbe": {
+      "headerHeight": null,
+      "brokenImgs": 61,
+      "logo": {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 120,
+        "width": 139
+      },
+      "imgsSample": [
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+          "srcset": "",
+          "complete": true,
+          "naturalWidth": 120,
+          "width": 139
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+          "srcset": "",
+          "complete": true,
+          "naturalWidth": 120,
+          "width": 94
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+          "srcset": "",
+          "complete": true,
+          "naturalWidth": 0,
+          "width": 1220
+        },
+        {
+          "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_auto,fl_progressive,q_auto:best/v1/banner/2024_08_24_21_11_21_5/944e623f-3b1e-4854-bd7b-c499904c16d5-ace",
+          "srcset": "",
+          "complete": true,
+          "naturalWidth": 21,
+          "width": 16
+        }
+      ]
+    },
+    "assetTraceCount": 34,
+    "geckoTraceCount": 1120
+  }
+}

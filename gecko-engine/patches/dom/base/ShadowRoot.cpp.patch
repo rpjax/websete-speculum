@@ -1,0 +1,63 @@
+diff --git a/dom/base/ShadowRoot.cpp b/dom/base/ShadowRoot.cpp
+--- a/dom/base/ShadowRoot.cpp
++++ b/dom/base/ShadowRoot.cpp
+@@ -3,6 +3,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ #include "mozilla/dom/ShadowRoot.h"
++#include "SpeculumCssom.h"
+ 
+ #include "ChildIterator.h"
+ #include "mozilla/DeclarationBlock.h"
+@@ -405,6 +406,11 @@ void ShadowRoot::RemoveSlot(HTMLSlotElement* aSlot) {
+ // FIXME(emilio): There's a bit of code duplication between this and the
+ // equivalent ServoStyleSet methods, it'd be nice to not duplicate it...
+ void ShadowRoot::RuleAdded(StyleSheet& aSheet, css::Rule& aRule) {
++  if (!aRule.IsIncompleteImportRule()) {
++    if (Document* doc = OwnerDoc()) {
++      SpeculumNotifyRuleAdded(doc, &aSheet, aRule);
++    }
++  }
+   if (!aSheet.IsApplicable()) {
+     return;
+   }
+@@ -423,6 +429,9 @@ void ShadowRoot::RuleAdded(StyleSheet& aSheet, css::Rule& aRule) {
+ }
+ 
+ void ShadowRoot::RuleRemoved(StyleSheet& aSheet, css::Rule& aRule) {
++  if (Document* doc = OwnerDoc()) {
++    SpeculumNotifyRuleRemoved(doc, &aSheet, aRule);
++  }
+   if (!aSheet.IsApplicable()) {
+     return;
+   }
+@@ -437,6 +446,9 @@ void ShadowRoot::RuleRemoved(StyleSheet& aSheet, css::Rule& aRule) {
+ 
+ void ShadowRoot::RuleChanged(StyleSheet& aSheet, css::Rule* aRule,
+                              const StyleRuleChange& aChange) {
++  if (Document* doc = OwnerDoc()) {
++    SpeculumNotifyRuleChanged(doc, aRule);
++  }
+   if (!aSheet.IsApplicable()) {
+     return;
+   }
+@@ -482,6 +494,9 @@ void ShadowRoot::ApplicableRulesChanged() {
+ 
+ void ShadowRoot::InsertSheetAt(size_t aIndex, StyleSheet& aSheet) {
+   DocumentOrShadowRoot::InsertSheetAt(aIndex, aSheet);
++  if (Document* doc = OwnerDoc()) {
++    SpeculumNotifySheetAdded(doc, &aSheet);
++  }
+   if (aSheet.IsApplicable()) {
+     InsertSheetIntoAuthorData(aIndex, aSheet, mStyleSheets);
+   }
+@@ -589,6 +604,9 @@ void ShadowRoot::AppendBuiltInStyleSheet(BuiltInStyleSheet aSheet) {
+ }
+ 
+ void ShadowRoot::RemoveSheetFromStyles(StyleSheet& aSheet) {
++  if (Document* doc = OwnerDoc()) {
++    SpeculumNotifySheetRemoved(doc, &aSheet);
++  }
+   MOZ_ASSERT(aSheet.IsApplicable());
+   MOZ_ASSERT(mServoStyles);
+   if (mStyleRuleMap) {

@@ -5,7 +5,7 @@ import type { AssembledFrame } from '../core/decode';
  * Sized for Eneba-class cold resync: apply ~59ms (lab 2026-08-30 gen=7) — cap holds seq-2+
  * increments that arrive before `lastSequence` catches up, without unbounded memory.
  */
-export const PROJECTED_APPLY_GATE_MAX_PENDING = 64;
+export const PROJECTED_APPLY_GATE_MAX_PENDING = 256;
 
 /** Consecutive overflow→cold-resync cycles before surfacing a hard loop failure. */
 export const PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK = 3;
@@ -99,6 +99,10 @@ export class ProjectedApplyGate {
     this.flightDepth--;
     if (this.flightDepth > 0) return;
     this.drainLoop(drain);
+    // Drain may start another rebuild (`begin()`). That inner flight owns `flightStartMs`
+    // and `onFlightEnd`. Zeroing the timer here skipped the inner end hook and let the
+    // outer `maybeRequestLagCatchUp` fire while standby was still being born.
+    if (this.flightDepth > 0) return;
     if (this.flightStartMs > 0) {
       this.onFlightEnd?.({
         maxDepth: this.maxDepth,

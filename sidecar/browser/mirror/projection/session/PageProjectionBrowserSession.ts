@@ -34,6 +34,10 @@ import {
   type LastInputIntentRecord,
 } from './inputClickDiagnostic';
 import {
+  emitInputPathApplied,
+  emitInputPathReject,
+} from './inputPathTelemetryEmit';
+import {
   materializeSpeculumPpForSession,
   removeSpeculumPpSessionDir,
   speculumPpExtensionPath,
@@ -93,6 +97,7 @@ import { SidecarBuffer } from '../../../input/SidecarBuffer';
 import { EventApplier } from '../../../input/EventApplier';
 import { ingressToUnifiedIntent } from '../../../input/ingressToUnifiedIntent';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
+import { UNIFIED_INTENT_SCHEMA_VERSION } from '@speculum/page-projection/core/input/unifiedIntentTypes';
 import { LaunchBudget, mapBootReasonToErrorCode, resolveLaunchBudgetMs, configGateTimeoutMs, initContextTimeoutMs } from './launchBudget';
 import type { SharedAssetCacheL2 } from '../../../../host/SharedAssetCacheL2';
 
@@ -182,6 +187,7 @@ export class PageProjectionBrowserSession {
   /** Serializes loopback re-establish across rapid `document.install` events (loopback.md §8.2). */
   private documentInstallEstablishChain: Promise<void> = Promise.resolve();
   private readonly inputRejectMetrics = new InputRejectMetrics();
+  private inputPathTelemetry = false;
   private lastInputIntent: LastInputIntentRecord | null = null;
   private lastClickResolve: LastClickResolveRecord | null = null;
   private readonly pageState = new PageState();
@@ -308,6 +314,7 @@ export class PageProjectionBrowserSession {
     this.viewportPolicy = options.viewportPolicy;
     this.device = resolveDeviceProfile(options.device);
     this.cpuAllowed = options.cpuProfiling === true;
+    this.inputPathTelemetry = options.inputPathTelemetry === true;
     if (options.mirrorMode !== 'pageProjection') {
       throw new Error('PageProjectionBrowserSession requires mirrorMode pageProjection');
     }
@@ -403,9 +410,27 @@ export class PageProjectionBrowserSession {
           };
         }
       },
-      onReject: (errorCode, phase) => {
+      onReject: (errorCode, phase, kind, viewportW, viewportH) => {
         this.inputRejectMetrics.noteReject(errorCode, phase);
-        this.events.onConsole?.(3, `input_reject ${errorCode} ${phase}`);
+        emitInputPathReject(
+          this.inputPathTelemetry,
+          this.events.onPageProjectionIntentPath,
+          this.events.onConsole,
+          errorCode,
+          phase,
+          kind,
+          errorCode === 'stale_viewport'
+            ? {
+                viewportW: viewportW ?? this.lastInputIntent?.viewportW ?? 0,
+                viewportH: viewportH ?? this.lastInputIntent?.viewportH ?? 0,
+                activeViewportW: this.width,
+                activeViewportH: this.height,
+              }
+            : undefined,
+        );
+      },
+      onApplied: (kind) => {
+        emitInputPathApplied(this.inputPathTelemetry, this.events.onPageProjectionIntentPath, kind);
       },
     });
 
@@ -790,7 +815,7 @@ export class PageProjectionBrowserSession {
         }
         const click = await this.resolveAndClickDomInputByNodeId(selector, 1);
         data.resolveAndClick = click;
-        if (click.status !== 'dispatched') {
+        if (click.status !== 'enqueued') {
           return {
             ok: false,
             errorCode: 'resolve_and_click_failed',
@@ -798,6 +823,18 @@ export class PageProjectionBrowserSession {
             data,
           };
         }
+      } else if (op === 'keyOfSelector') {
+        const selector = request.domSelector?.trim();
+        if (!selector) {
+          return {
+            ok: false,
+            errorCode: 'probe_invalid',
+            message: 'keyOfSelector requires domSelector',
+          };
+        }
+        data.keyOfSelector = await this.loopbackKeyOfSelector(selector, 1);
+      } else if (op === 'inputClickDiagnostic') {
+        data.inputClickDiagnostic = await this.dumpInputClickDiagnostic(null);
       } else if (op === 'startCpuProfile') {
         const start = await this.startCpuProfile();
         data.startCpuProfile = start;
@@ -892,7 +929,7 @@ export class PageProjectionBrowserSession {
   }
 
   async pushInput(input: DomInputIngress): Promise<
-    { status: 'dispatched' } | { status: 'dropped'; reason: string }
+    { status: 'enqueued' } | { status: 'dropped'; reason: string }
   > {
     if (!this.open || !this.page) {
       throw Object.assign(new Error('PageProjectionBrowserSession: session not live'), {
@@ -912,20 +949,24 @@ export class PageProjectionBrowserSession {
     if (!intent) {
       return { status: 'dropped', reason: 'unsupported_intent' };
     }
-    if (intent.type === 'down' || intent.type === 'up') {
-      this.lastInputIntent = {
-        type: intent.type,
-        contextId: intent.contextId,
-        nodeId: intent.nodeId ?? null,
-        localX: intent.localX,
-        localY: intent.localY,
-        x: intent.x,
-        y: intent.y,
-        atMs: Date.now(),
-      };
-    }
+    // Stamp from wire ingress (not UnifiedIntent) — schemaVersion/census are dropped
+    // in ingressToUnifiedIntent; lastIntent must still prove Admit forwarded them.
+    this.lastInputIntent = {
+      type: intent.type,
+      contextId: 'contextId' in intent ? intent.contextId : undefined,
+      nodeId: 'nodeId' in intent ? (intent.nodeId ?? null) : null,
+      localX: 'localX' in intent ? intent.localX : undefined,
+      localY: 'localY' in intent ? intent.localY : undefined,
+      x: 'x' in intent ? intent.x : undefined,
+      y: 'y' in intent ? intent.y : undefined,
+      schemaVersion: Number(input.schemaVersion ?? 0),
+      viewportW: Number(input.viewportW ?? 0),
+      viewportH: Number(input.viewportH ?? 0),
+      census: input.census != null && String(input.census).length > 0 ? String(input.census) : null,
+      atMs: Date.now(),
+    };
     this.eventApplier.enqueue(intent);
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   getInputPipelineMetrics(): null {
@@ -944,7 +985,7 @@ export class PageProjectionBrowserSession {
   async resolveAndClickDomInputByNodeId(
     selector: string,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     if (!this.eventApplier) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
@@ -963,7 +1004,7 @@ export class PageProjectionBrowserSession {
       return { status: 'dropped', reason: hit.reason ?? 'resolve_hit_failed' };
     }
     const base = {
-      schemaVersion: 1 as const,
+      schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
       viewportW: this.width,
       viewportH: this.height,
       x: hit.x,
@@ -977,14 +1018,14 @@ export class PageProjectionBrowserSession {
     this.eventApplier.enqueue({ ...base, type: 'down' });
     this.eventApplier.enqueue({ ...base, type: 'up' });
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   /** @deprecated Alias — blueprints historically called resolveAndClickDomInput; now id-addressed. */
   async resolveAndClickDomInput(
     selector: string,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     return this.resolveAndClickDomInputByNodeId(selector, contextId);
   }
 
@@ -992,33 +1033,33 @@ export class PageProjectionBrowserSession {
     selector: string,
     value: string,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     const click = await this.resolveAndClickDomInputByNodeId(selector, contextId);
-    if (click.status !== 'dispatched' || !this.eventApplier) return click;
+    if (click.status !== 'enqueued' || !this.eventApplier) return click;
     await new Promise((r) => setTimeout(r, 80));
     for (const ch of value) {
       this.eventApplier.enqueue({
-        schemaVersion: 1,
+        schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
         type: 'keyDown',
         key: ch,
         code: ch,
       });
       this.eventApplier.enqueue({
-        schemaVersion: 1,
+        schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
         type: 'keyUp',
         key: ch,
         code: ch,
       });
     }
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   async resolveAndScrollElementDomInput(
     selector: string,
-    scrollTop: number,
+    scrollTopPx: number,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     if (!this.eventApplier) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
@@ -1029,36 +1070,75 @@ export class PageProjectionBrowserSession {
     if (!keyed.ok || typeof keyed.nodeId !== 'number' || keyed.nodeId <= 0) {
       return { status: 'dropped', reason: keyed.reason ?? 'selector_miss' };
     }
+    const rangeRaw = await this.evaluateVirtualExpression(
+      `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return { ok: false, reason: 'selector_miss' };
+        return { ok: true, rangeY: el.scrollHeight - el.clientHeight };
+      })()`,
+      contextId,
+    );
+    const range = rangeRaw as { ok?: boolean; rangeY?: number; reason?: string } | null;
+    if (!range || range.ok === false || typeof range.rangeY !== 'number') {
+      return { status: 'dropped', reason: range?.reason ?? 'scroll_range_failed' };
+    }
+    const scrollFracY = range.rangeY === 0 ? 0 : scrollTopPx / range.rangeY;
     this.eventApplier.enqueue({
-      schemaVersion: 1,
+      schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
       type: 'scrollSet',
       contextId,
       nodeId: keyed.nodeId,
-      scrollX: 0,
-      scrollY: scrollTop,
+      scrollFracX: 0,
+      scrollFracY,
     });
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   async resolveAndScrollViewportDomInput(
-    scrollY: number,
-    scrollX: number = 0,
+    scrollYPx: number,
+    scrollXPx: number = 0,
     contextId: number = 1,
-  ): Promise<{ status: 'dispatched' } | { status: 'dropped'; reason: string }> {
+  ): Promise<{ status: 'enqueued' } | { status: 'dropped'; reason: string }> {
     if (!this.eventApplier) {
       return { status: 'dropped', reason: 'input_applier_missing' };
     }
+    const rangeRaw = await this.evaluateVirtualExpression(
+      `(() => {
+        const se = document.scrollingElement;
+        if (!se) return { ok: false, reason: 'no_scrolling_element' };
+        return {
+          ok: true,
+          rangeX: se.scrollWidth - se.clientWidth,
+          rangeY: se.scrollHeight - se.clientHeight,
+        };
+      })()`,
+      contextId,
+    );
+    const range = rangeRaw as {
+      ok?: boolean;
+      rangeX?: number;
+      rangeY?: number;
+      reason?: string;
+    } | null;
+    if (
+      !range ||
+      range.ok === false ||
+      typeof range.rangeY !== 'number' ||
+      typeof range.rangeX !== 'number'
+    ) {
+      return { status: 'dropped', reason: range?.reason ?? 'scroll_range_failed' };
+    }
     this.eventApplier.enqueue({
-      schemaVersion: 1,
+      schemaVersion: UNIFIED_INTENT_SCHEMA_VERSION,
       type: 'scrollSet',
       contextId,
       nodeId: null,
-      scrollX,
-      scrollY,
+      scrollFracX: range.rangeX === 0 ? 0 : scrollXPx / range.rangeX,
+      scrollFracY: range.rangeY === 0 ? 0 : scrollYPx / range.rangeY,
     });
     await this.eventApplier.flush();
-    return { status: 'dispatched' };
+    return { status: 'enqueued' };
   }
 
   /** Lab — Virtual child-scope host bindings (nodeId ↔ contextId). */
@@ -1171,8 +1251,8 @@ export class PageProjectionBrowserSession {
   private async applyScrollSet(args: {
     contextId: number;
     nodeId: number | null;
-    scrollX: number;
-    scrollY: number;
+    scrollFracX: number;
+    scrollFracY: number;
   }): Promise<{ ok: boolean; error?: string }> {
     const r = await this.loopbackInvoke<{ ok?: boolean; reason?: string }>('applyScrollSet', args);
     if (!r.ok) return { ok: false, error: r.reason ?? 'apply_scroll_failed' };
@@ -1186,8 +1266,8 @@ export class PageProjectionBrowserSession {
   async measureApplyScrollSet(args: {
     contextId: number;
     nodeId: number | null;
-    scrollX: number;
-    scrollY: number;
+    scrollFracX: number;
+    scrollFracY: number;
   }): Promise<{ ok: boolean; error?: string; wallMs: number }> {
     const t0 = performance.now();
     const r = await this.applyScrollSet(args);

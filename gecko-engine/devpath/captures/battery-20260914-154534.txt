@@ -1,0 +1,148 @@
+bateria DOM 2026-09-14T15:45:34-03:00
+lab fixtures: http://127.0.0.1:4077/fixtures
+
+==== static-dom  20s  http://127.0.0.1:4077/fixtures/static-dom.html ====
+capturando http://127.0.0.1:4077/fixtures/static-dom.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154534-static-dom
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154534-static-dom
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 4513 Sep 14 15:46 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154534-static-dom
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154534-static-dom
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154534-static-dom
+RESULT static-dom FAIL
+
+==== forms-state  20s  http://127.0.0.1:4077/fixtures/forms-state.html ====
+capturando http://127.0.0.1:4077/fixtures/forms-state.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154609-forms-state
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154609-forms-state
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 4251 Sep 14 15:46 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154609-forms-state
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154609-forms-state
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154609-forms-state
+RESULT forms-state FAIL
+
+==== svg-ns  20s  http://127.0.0.1:4077/fixtures/svg-ns.html ====
+capturando http://127.0.0.1:4077/fixtures/svg-ns.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154637-svg-ns
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154637-svg-ns
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 4687 Sep 14 15:47 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154637-svg-ns
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154637-svg-ns
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154637-svg-ns
+RESULT svg-ns FAIL
+
+==== insert-before-remove  25s  http://127.0.0.1:4077/fixtures/insert-before-remove.html ====
+capturando http://127.0.0.1:4077/fixtures/insert-before-remove.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154705-insert-before-remove
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154705-insert-before-remove
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 4687 Sep 14 15:47 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154705-insert-before-remove
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154705-insert-before-remove
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154705-insert-before-remove
+RESULT insert-before-remove FAIL
+
+==== mutation-churn  30s  http://127.0.0.1:4077/fixtures/mutation-churn.html ====
+capturando http://127.0.0.1:4077/fixtures/mutation-churn.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154738-mutation-churn
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154738-mutation-churn
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 5166 Sep 14 15:48 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154738-mutation-churn
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154738-mutation-churn
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154738-mutation-churn
+RESULT mutation-churn FAIL
+
+==== anim-js  30s  http://127.0.0.1:4077/fixtures/anim-js.html?fps=30 ====
+capturando http://127.0.0.1:4077/fixtures/anim-js.html?fps=30 -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154816-anim-js
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154816-anim-js
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 4730 Sep 14 15:48 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154816-anim-js
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154816-anim-js
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154816-anim-js
+RESULT anim-js FAIL
+
+==== iframe-open  30s  http://127.0.0.1:4077/fixtures/iframe-open.html ====
+capturando http://127.0.0.1:4077/fixtures/iframe-open.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154854-iframe-open
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154854-iframe-open
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 4730 Sep 14 15:49 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154854-iframe-open
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154854-iframe-open
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154854-iframe-open
+RESULT iframe-open FAIL
+
+==== prepend-stress  45s  http://127.0.0.1:4077/fixtures/prepend-stress.html ====
+capturando http://127.0.0.1:4077/fixtures/prepend-stress.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154932-prepend-stress
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154932-prepend-stress
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 4993 Sep 14 15:50 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154932-prepend-stress
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154932-prepend-stress
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-154932-prepend-stress
+RESULT prepend-stress FAIL
+
+==== stress-churn  45s  http://127.0.0.1:4077/fixtures/stress-churn.html ====
+capturando http://127.0.0.1:4077/fixtures/stress-churn.html -> /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-155026-stress-churn
+consumidor conectado em ws://127.0.0.1:4199/session
+0 frame(s) gravados em /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-155026-stress-churn
+--- frames ---
+(nenhum)
+--- logs ---
+total 8
+-rwxrwxrwx 1 root root 5166 Sep 14 15:51 supervisor.log
+
+capturado em: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-155026-stress-churn
+agora rode:   ./verify.sh /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-155026-stress-churn
+verify: /mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260914-155026-stress-churn
+RESULT stress-churn FAIL
+
+==== RESUMO ====
+RESULT static-dom FAIL
+RESULT forms-state FAIL
+RESULT svg-ns FAIL
+RESULT insert-before-remove FAIL
+RESULT mutation-churn FAIL
+RESULT anim-js FAIL
+RESULT iframe-open FAIL
+RESULT prepend-stress FAIL
+RESULT stress-churn FAIL

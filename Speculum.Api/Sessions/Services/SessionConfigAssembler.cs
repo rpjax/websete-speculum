@@ -48,6 +48,7 @@ internal sealed class SessionConfigAssembler
             JsBridgeEnabled = configuration.Sessions.IsJsBridgeEnabled,
             AllowedNavigationDomains = ProjectAllowedDomains(configuration),
             CpuProfiling = configuration.Sessions.CpuProfiling,
+            InputPathTelemetry = configuration.Sessions.InputPathTelemetry,
         });
     }
 

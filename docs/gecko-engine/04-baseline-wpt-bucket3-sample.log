@@ -1,0 +1,2 @@
+ 0:57.36 TEST_END: ERROR, expected OK - TypeError: window.__wptrunner_process_next_event is not a function
+count=4992 same message

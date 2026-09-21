@@ -1,0 +1,13 @@
+# Pin do upstream WebKit para o port Speculum.
+# Trocar esta linha e nada mais e' o unico jeito de mudar a base do fork.
+# Serie estavel: minor PAR (2.52.x). Serie de desenvolvimento: minor IMPAR (2.53.x) — nunca usar como base.
+
+UPSTREAM_REMOTE=https://github.com/WebKit/WebKit.git
+UPSTREAM_TAG=wpewebkit-2.52.6
+UPSTREAM_COMMIT=3bcefb149bd7e5645d18c3f0b9abd515b274649f
+UPSTREAM_TAG_OBJECT=0ab8bdd335d26a0c94193ac6695aeba6a481d84a
+UPSTREAM_RELEASED=2026-08-19
+UPSTREAM_PORT=WPE
+
+# Branch do fork onde vivem os patches do Speculum.
+FORK_BRANCH=speculum/2.52.6

@@ -264,6 +264,54 @@ public sealed class SessionEndedHubEvent
     public string? Message { get; set; }
 }
 
+/// <summary>Live SW → Kind 0x06. URL original, sem rewrite.</summary>
+[MessagePackObject]
+public sealed class FetchProjectedAssetHubRequest
+{
+    [Key("sessionId")]
+    public Guid SessionId { get; set; }
+
+    [Key("token")]
+    public string? Token { get; set; }
+
+    [Key("contextId")]
+    public uint ContextId { get; set; } = 1;
+
+    [Key("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [Key("destination")]
+    public string Destination { get; set; } = string.Empty;
+
+    [Key("range")]
+    public string Range { get; set; } = string.Empty;
+}
+
+[MessagePackObject]
+public sealed class FetchProjectedAssetHubResponse
+{
+    [Key("ok")]
+    public bool Ok { get; set; }
+
+    [Key("statusCode")]
+    public int StatusCode { get; set; }
+
+    [Key("contentType")]
+    public string ContentType { get; set; } = string.Empty;
+
+    [Key("body")]
+    public byte[] Body { get; set; } = [];
+
+    [Key("errorCode")]
+    public string? ErrorCode { get; set; }
+
+    [Key("phase")]
+    public string? Phase { get; set; }
+
+    [Key("message")]
+    public string? Message { get; set; }
+}
+
 internal static class SessionHubRequestMapper
 {
     public static StopSession ToStopSession(StopSessionHubRequest request) => new()

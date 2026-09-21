@@ -25,7 +25,7 @@ public interface ISessionPageProjectionInputTelemetryEvents
         string? traceId = null,
         long? clientTimestampMs = null);
 
-    void SidecarAdmitted(
+    void SidecarEnqueued(
         string kind,
         long? generation,
         string? anchor,

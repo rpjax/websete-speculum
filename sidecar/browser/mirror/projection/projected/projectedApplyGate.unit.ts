@@ -68,8 +68,30 @@ export async function runProjectedApplyGateUnitTests(): Promise<void> {
 
   gate.clear();
   assert.strictEqual(gate.blocked, false);
-  assert.strictEqual(PROJECTED_APPLY_GATE_MAX_PENDING, 64);
+  assert.strictEqual(PROJECTED_APPLY_GATE_MAX_PENDING, 256);
   assert.strictEqual(PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK, 3);
+
+  // Drain that starts an inner rebuild must not fire outer onFlightEnd or zero
+  // the inner flight timer (Eneba lag-swap storm: outer maybeRequestLagCatchUp
+  // while standby iframe is still being born).
+  {
+    let ends = 0;
+    const nested = new ProjectedApplyGate({
+      onFlightEnd: () => {
+        ends += 1;
+      },
+    });
+    nested.begin();
+    nested.push(frame(2));
+    nested.finishFlight(() => {
+      nested.begin();
+    });
+    assert.strictEqual(ends, 0, 'outer finish must not onFlightEnd while inner flight is live');
+    assert.strictEqual(nested.blocked, true);
+    nested.finishFlight(() => {});
+    assert.strictEqual(ends, 1);
+    assert.strictEqual(nested.blocked, false);
+  }
 
   console.log('[unit] projectedApplyGate ok');
 }

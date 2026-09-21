@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Aidan.Core.Patterns;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Speculum.Api.BrowserClients.Grpc;
 using Speculum.Api.Configurations.Models.Hosting;
 using Speculum.Api.Configurations.Models.Navigation;
 using Speculum.Api.Configurations.Models.Patterns;
@@ -313,7 +314,64 @@ public sealed class LiveSessionTests
         Assert.All(received, i => Assert.Equal("scrollViewport", i.Type));
     }
 
-    private static (LiveSessionService Service, ILiveSession Live, LiveFakeConnection Connection) CreatePageProjectionSession()
+    [Fact]
+    public async Task AdmitPageProjectionInput_ForwardsAllFieldsToDomInputEvent()
+    {
+        var (sessionId, live, connection) = CreatePageProjectionSession();
+        Assert.True(live.Attach(new RecordingAttachedClient()).IsSuccess);
+
+        var intent = new PageProjectionIntent
+        {
+            Generation = 7,
+            Type = "  down  ",
+            Anchor = "speculum-anchor",
+            TargetId = 253,
+            ContextId = 0,
+            TimestampClient = 1788306989652,
+            TraceId = "trace-pp-input",
+            Payload = """{"nodeId":253,"localX":0.5,"localY":0.5}""",
+            SchemaVersion = 3,
+            ViewportW = 664,
+            ViewportH = 751,
+            Census = """{"scrollTop":0}""",
+        };
+
+        Assert.True(live.AdmitPageProjectionInput(intent).IsSuccess);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var received = await connection.PageProjectionIntentReceived.Reader.ReadAsync(cts.Token);
+
+        Assert.Equal("down", received.Type);
+        Assert.Equal(1u, received.ContextId);
+        Assert.Equal(intent.Generation, received.Generation);
+        Assert.Equal(intent.Anchor, received.Anchor);
+        Assert.Equal(intent.TargetId, received.TargetId);
+        Assert.Equal(intent.TimestampClient, received.TimestampClient);
+        Assert.Equal(intent.TraceId, received.TraceId);
+        Assert.Equal(intent.Payload, received.Payload);
+        Assert.Equal(intent.SchemaVersion, received.SchemaVersion);
+        Assert.Equal(intent.ViewportW, received.ViewportW);
+        Assert.Equal(intent.ViewportH, received.ViewportH);
+        Assert.Equal(intent.Census, received.Census);
+
+        Assert.True(
+            GrpcSessionMappers.TryParseDomInputEvent(sessionId, received, out var domInput)
+            && domInput is not null);
+
+        Assert.Equal(sessionId.ToString("D"), domInput!.SessionId);
+        Assert.Equal("down", domInput.Type);
+        Assert.Equal(intent.Generation, domInput.Generation);
+        Assert.Equal(intent.TargetId, domInput.TargetId);
+        Assert.Equal(1u, domInput.ContextId);
+        Assert.Equal(intent.TimestampClient, domInput.TimestampClient);
+        Assert.Equal(intent.Payload, domInput.PayloadJson);
+        Assert.Equal(intent.SchemaVersion, domInput.SchemaVersion);
+        Assert.Equal(intent.ViewportW, domInput.ViewportW);
+        Assert.Equal(intent.ViewportH, domInput.ViewportH);
+        Assert.Equal(intent.Census, domInput.Census);
+    }
+
+    private static (Guid SessionId, ILiveSession Live, LiveFakeConnection Connection) CreatePageProjectionSession()
     {
         var baseline = SessionsTestHarness.Sessions();
         var sessions = new SessionsConfiguration
@@ -333,7 +391,7 @@ public sealed class LiveSessionTests
         var connection = new LiveFakeConnection(sessionId);
         var service = CreateService(configuration: SessionsTestHarness.Configuration(sessions));
         var live = service.Create(sessionId, Guid.NewGuid(), connection, "speculum.test", true).Value;
-        return (service, live, connection);
+        return (sessionId, live, connection);
     }
 
     [Fact]
@@ -355,6 +413,23 @@ public sealed class LiveSessionTests
         var second = await live.GetVirtualAssetAsync("cdn.test/app.css");
         Assert.False(second.IsSuccess);
         Assert.Equal(2, connection.GetVirtualAssetCallCount);
+    }
+
+    [Fact]
+    public async Task FetchProjectedAssetAsync_RelaysToSessionConnection()
+    {
+        var (_, live, connection) = CreatePageProjectionSession();
+        connection.VirtualAsset = new VirtualResourceResponse
+        {
+            Body = [9, 8],
+            ContentType = "image/png",
+            StatusCode = 200,
+        };
+
+        var first = await live.FetchProjectedAssetAsync(1, "https://cdn.test/logo.png", "image", "");
+        Assert.True(first.IsSuccess);
+        Assert.Equal(1, connection.FetchProjectedAssetCallCount);
+        Assert.Equal("image/png", first.Value.ContentType);
     }
 
     [Fact]
@@ -1196,7 +1271,7 @@ public sealed class LiveSessionTests
             long? clientTimestampMs = null)
             => LastPushKind = kind;
 
-        public void SidecarAdmitted(string kind, string? traceId = null, long? clientTimestampMs = null) { }
+        public void SidecarEnqueued(string kind, string? traceId = null, long? clientTimestampMs = null) { }
     }
 
     private sealed class ThrowingAttachedClient : IAttachedSessionClient
@@ -1546,6 +1621,7 @@ public sealed class LiveSessionTests
         public VirtualResourceResponse? VirtualAsset { get; set; }
 
         public int GetVirtualAssetCallCount { get; private set; }
+        public int FetchProjectedAssetCallCount { get; private set; }
         public int RequestResyncCallCount { get; private set; }
         public uint LastResyncContextId { get; private set; }
         public string? LastResyncReason { get; private set; }
@@ -1560,6 +1636,17 @@ public sealed class LiveSessionTests
             return VirtualAsset is null
                 ? Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Failure("not implemented"))
                 : Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Success(VirtualAsset));
+        }
+
+        public Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+            uint contextId,
+            string url,
+            string destination,
+            string range,
+            CancellationToken ct = default)
+        {
+            FetchProjectedAssetCallCount++;
+            return GetVirtualAssetAsync(url, ct, destination, range);
         }
 
         public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)

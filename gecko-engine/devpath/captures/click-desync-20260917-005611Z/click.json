@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "method": "dispatchPointerInProjected",
+  "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+  "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+  "score": 165,
+  "dispatched": {
+    "ok": true,
+    "href": "/",
+    "text": "Home",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    },
+    "client": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "intentCheck": {
+    "down": [],
+    "up": [],
+    "recent": [
+      "00:57:09 intent scrollSet",
+      "00:57:06 intent scrollSet",
+      "00:57:06 intent scrollSet",
+      "00:57:06 intent scrollSet",
+      "00:57:05 intent scrollSet",
+      "00:57:05 intent scrollSet",
+      "00:57:04 intent scrollSet",
+      "00:57:04 intent scrollSet",
+      "00:56:21 resync completed seq=4",
+      "00:56:18 resync completed seq=2",
+      "00:56:18 resync requested reason=lag",
+      "00:56:16 resync completed seq=2",
+      "00:56:15 viewport 1400×522",
+      "00:56:15 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "00:56:15 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-005613-e0850f1525ca"
+    ]
+  }
+}

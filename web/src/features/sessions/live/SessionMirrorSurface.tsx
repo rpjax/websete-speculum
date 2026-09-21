@@ -32,6 +32,7 @@ import type {
   PageProjectionFrameObserveEvent,
   PageProjectionLifecycleSink,
 } from './sessionObservation'
+import { ensureLiveAssetSw, registerLiveAssetContext, wireLiveAssetSw } from './geckoLiveAssets'
 
 /**
  * Live PageProjection surface — hub frames → package {@link ProjectionClient}.
@@ -47,6 +48,8 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   mirrorMode: MirrorMode
   sessionId: string | null
   token: string | null
+  /** When false, Dom surface stays mounted for measure but must not wire assets/input. */
+  live?: boolean
   assetBaseUrl?: string
   attachFrameSink: (sink: (frame: SessionFrame) => void) => () => void
   attachPageProjectionFrameSink: (sink: (diff: PageProjectionFrame) => void) => () => void
@@ -58,6 +61,13 @@ export type SessionMirrorSurfaceProps = Omit<SessionViewportProps, 'attachFrameS
   ) => () => void
   onInput: (input: SessionInput) => void
   onDomInput: (input: PageProjectionIntent) => void
+  fetchProjectedAsset?: (args: {
+    contextId: number
+    url: string
+    destination: string
+    range: string
+  }) => Promise<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }>
+  getDocumentBaseUrl?: () => string | undefined
   onFrameObserve?: (event: PageProjectionFrameObserveEvent) => void
   registerApplierProbe?: (probe: PageProjectionApplierProbe | null) => void
   pageProjectionKnobs?: PageProjectionClientKnobs
@@ -71,7 +81,7 @@ function toIngestBytes(body: PageProjectionFrame['body']): Uint8Array | null {
   return null
 }
 
-function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
+function intentToWire(intent: UnifiedIntent, generation: number): PageProjectionIntent {
   const payload: Record<string, unknown> = {}
   if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
     payload.x = intent.x
@@ -86,25 +96,35 @@ function intentToWire(intent: UnifiedIntent): PageProjectionIntent {
     payload.code = intent.code
     if (intent.modifiers) payload.modifiers = intent.modifiers
   } else if (intent.type === 'scrollSet') {
-    payload.scrollX = intent.scrollX
-    payload.scrollY = intent.scrollY
+    payload.scrollFracX = intent.scrollFracX
+    payload.scrollFracY = intent.scrollFracY
   } else if (intent.type === 'setFiles') {
     payload.files = intent.files
   }
-  // `nodeId`/`contextId` on `down`/`up` — sparse-cdp id-addressed click; `null`/`1` when unresolved.
-  const pointerNodeId =
-    (intent.type === 'down' || intent.type === 'up') && intent.nodeId != null ? intent.nodeId : null
-  const pointerContextId = intent.type === 'down' || intent.type === 'up' ? (intent.contextId ?? 1) : 1
+
+  let targetId: number | null = null
+  let contextId = 1
+  if (intent.type === 'down' || intent.type === 'up') {
+    targetId = intent.nodeId != null ? intent.nodeId : null
+    contextId = intent.contextId ?? 1
+  } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
+    // Preserve capture context — nested docs must not always hit ctx 1.
+    contextId = intent.contextId ?? 1
+  } else if (intent.type === 'scrollSet' || intent.type === 'setFiles') {
+    targetId = intent.nodeId
+    contextId = intent.contextId
+  } else if (intent.type === 'historyNav') {
+    contextId = 1
+  }
+
   return {
-    generation: 0,
+    generation,
     type: intent.type,
     anchor: null,
-    targetId:
-      intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.nodeId : pointerNodeId,
+    targetId,
     timestampClient: intent.timestampClient ?? null,
     payload: JSON.stringify(payload),
-    contextId:
-      intent.type === 'scrollSet' || intent.type === 'setFiles' ? intent.contextId : pointerContextId,
+    contextId,
     schemaVersion: intent.schemaVersion,
     viewportW: 'viewportW' in intent ? intent.viewportW : null,
     viewportH: 'viewportH' in intent ? intent.viewportH : null,
@@ -125,6 +145,8 @@ interface PageProjectionV2SurfaceProps {
     sink: PageProjectionFrameEndedSink,
   ) => () => void
   onDomInput: (input: PageProjectionIntent) => void
+  fetchProjectedAsset?: SessionMirrorSurfaceProps['fetchProjectedAsset']
+  getDocumentBaseUrl?: () => string | undefined
   onFrameObserve?: (event: PageProjectionFrameObserveEvent) => void
   knobs?: PageProjectionClientKnobs
   requestRemoteResize?: SessionViewportProps['requestRemoteResize']
@@ -144,6 +166,8 @@ function PageProjectionV2Surface({
   attachPageProjectionFrameSink,
   attachPageProjectionFrameEndedSink,
   onDomInput,
+  fetchProjectedAsset,
+  getDocumentBaseUrl,
   onFrameObserve,
   knobs: knobsProp,
   requestRemoteResize,
@@ -166,6 +190,10 @@ function PageProjectionV2Surface({
   onRemoteViewportAppliedRef.current = onRemoteViewportApplied
   const sessionRef = useRef({ sessionId, token, assetBaseUrl })
   sessionRef.current = { sessionId, token, assetBaseUrl }
+  const fetchProjectedAssetRef = useRef(fetchProjectedAsset)
+  fetchProjectedAssetRef.current = fetchProjectedAsset
+  const getDocumentBaseUrlRef = useRef(getDocumentBaseUrl)
+  getDocumentBaseUrlRef.current = getDocumentBaseUrl
   const resyncInFlightRef = useRef(false)
   const lastSequenceRef = useRef(0)
   const [knobs, setKnobs] = useState<PageProjectionClientKnobs>(
@@ -255,6 +283,35 @@ function PageProjectionV2Surface({
     }
   }, [knobsProp])
 
+  useEffect(() => {
+    if (!live || !sessionId || !token || !fetchProjectedAsset) {
+      return
+    }
+    let cancelled = false
+    // Wire the page listener FIRST — ensureLiveAssetSw awaits SW ready and used to
+    // leave a window where establish imgs post asset-fetch with nobody listening.
+    // Cleanup always drops this listener (no late-assign orphan after cancel).
+    const unwire = wireLiveAssetSw((args) => {
+      const fetch = fetchProjectedAssetRef.current
+      if (!fetch) {
+        return Promise.resolve({ ok: false, error: 'no_session' })
+      }
+      return fetch(args)
+    }, CONTEXT_ID_ROOT)
+    void ensureLiveAssetSw(token).then(
+      () => {
+        if (cancelled) return
+      },
+      () => {
+        /* SW register failed — listener still answers via hub when session is live */
+      },
+    )
+    return () => {
+      cancelled = true
+      unwire()
+    }
+  }, [live, sessionId, token, fetchProjectedAsset])
+
   /** Trigger-only RequestResync — frames arrive on the live stream. */
   const triggerResync = async (reason: string, generation: number, contextId?: number) => {
     if (resyncInFlightRef.current) return
@@ -333,10 +390,11 @@ function PageProjectionV2Surface({
     // expect() before programmatic Projected scroll apply when that path exists.
     const scrollEcho = new ScrollEchoGate()
     const rootWin = client.document.defaultView
+    registerLiveAssetContext(CONTEXT_ID_ROOT, rootWin ?? window)
     const detachRoot = attachProjectedInputCapture(
       root,
       client.getLiveRegistry(),
-      (intent) => onDomInputRef.current(intentToWire(intent)),
+      (intent) => onDomInputRef.current(intentToWire(intent, client.getGeneration())),
       {
         contextId: CONTEXT_ID_ROOT,
         getGeneration: () => client.getGeneration(),
@@ -356,11 +414,15 @@ function PageProjectionV2Surface({
       const nestedDoc = info.surface.contentDocument
       const nestedSurface = nestedDoc?.documentElement
       if (!nestedSurface || nestedSurface.nodeType !== 1) return
+      const nestedWin = nestedDoc.defaultView
+      if (nestedWin) {
+        registerLiveAssetContext(info.contextId, nestedWin)
+      }
       nestedDetachers.push(
         attachProjectedInputCapture(
           nestedSurface,
           info.registry,
-          (intent) => onDomInputRef.current(intentToWire(intent)),
+          (intent) => onDomInputRef.current(intentToWire(intent, info.getGeneration())),
           {
             contextId: info.contextId,
             getGeneration: info.getGeneration,
@@ -383,51 +445,66 @@ function PageProjectionV2Surface({
     }
   }
 
+  const [surfaceEpoch, setSurfaceEpoch] = useState(0)
+
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     let cancelled = false
     let client: ProjectionClient | null = null
     void (async () => {
-      const created = await createProjectionClient({
-        surfaceHost: host,
-        width,
-        height,
-        getToken: () => sessionRef.current.token ?? undefined,
-        getAssetBaseUrl: () =>
-          sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
-        onArmed: () => {
-          if (!client) return
-          bindInput(client)
-          onFrameObserveRef.current?.({
-            kind: 'pageProjection',
-            hop: 'client_arm',
-            tClient: performance.now(),
-            level: 'wire',
-          })
-        },
-        onDesync: (reason) => {
-          onFrameObserveRef.current?.({
-            kind: 'pageProjection',
-            hop: 'client_desync',
-            reason,
-            dropped: true,
-            tClient: performance.now(),
-            level: 'warn',
-          })
-        },
-        onRequestResync: (info) => {
-          void triggerResync(info.reason, info.generation, info.contextId)
-        },
-      })
-      if (cancelled) {
-        void created.reset()
-        return
-      }
-      client = created
-      clientRef.current = created
-      if (width > 0 && height > 0) {
-        created.setCssSize(width, height)
+      try {
+        const created = await createProjectionClient({
+          surfaceHost: host,
+          width,
+          height,
+          getToken: () => sessionRef.current.token ?? undefined,
+          getAssetBaseUrl: () =>
+            sessionRef.current.assetBaseUrl?.replace(/\/$/, '') || window.location.origin,
+          getDocumentBaseUrl: () => getDocumentBaseUrlRef.current?.() || '',
+          onArmed: () => {
+            if (!client) return
+            bindInput(client)
+            onFrameObserveRef.current?.({
+              kind: 'pageProjection',
+              hop: 'client_arm',
+              tClient: performance.now(),
+              level: 'wire',
+            })
+          },
+          onDesync: (reason) => {
+            onFrameObserveRef.current?.({
+              kind: 'pageProjection',
+              hop: 'client_desync',
+              reason,
+              dropped: true,
+              tClient: performance.now(),
+              level: 'warn',
+            })
+          },
+          onRequestResync: (info) => {
+            void triggerResync(info.reason, info.generation, info.contextId)
+          },
+        })
+        if (cancelled) {
+          void created.reset()
+          return
+        }
+        client = created
+        clientRef.current = created
+        if (width > 0 && height > 0) {
+          created.setCssSize(width, height)
+        }
+        setSurfaceEpoch((n) => n + 1)
+      } catch (error) {
+        onFrameObserveRef.current?.({
+          kind: 'pageProjection',
+          hop: 'client_desync',
+          reason: error instanceof Error ? error.message : 'surface_create_failed',
+          dropped: true,
+          tClient: performance.now(),
+          level: 'warn',
+        })
       }
     })()
     return () => {
@@ -443,6 +520,7 @@ function PageProjectionV2Surface({
   }, [])
 
   useEffect(() => {
+    if (!clientRef.current) return
     return attachPageProjectionFrameSink((diff) => {
       const bytes = toIngestBytes(diff.body)
       if (!bytes) return
@@ -453,7 +531,7 @@ function PageProjectionV2Surface({
       if (clientRef.current?.isArmed) bindInput(clientRef.current)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attachPageProjectionFrameSink])
+  }, [attachPageProjectionFrameSink, surfaceEpoch])
 
   useEffect(() => {
     if (!attachPageProjectionFrameEndedSink) return
@@ -507,12 +585,15 @@ export function SessionMirrorSurface({
   mirrorMode,
   sessionId,
   token,
+  live,
   assetBaseUrl,
   attachFrameSink,
   attachPageProjectionFrameSink,
   attachPageProjectionFrameEndedSink,
   onInput,
   onDomInput,
+  fetchProjectedAsset,
+  getDocumentBaseUrl,
   onFrameObserve,
   pageProjectionKnobs,
   className,
@@ -524,13 +605,15 @@ export function SessionMirrorSurface({
     return (
       <PageProjectionV2Surface
         className={hostClass}
-        live={Boolean(sessionId)}
+        live={Boolean(sessionId) && live !== false}
         sessionId={sessionId}
         token={token}
         assetBaseUrl={assetBaseUrl}
         attachPageProjectionFrameSink={attachPageProjectionFrameSink}
         attachPageProjectionFrameEndedSink={attachPageProjectionFrameEndedSink}
         onDomInput={onDomInput}
+        fetchProjectedAsset={fetchProjectedAsset}
+        getDocumentBaseUrl={getDocumentBaseUrl}
         onFrameObserve={onFrameObserve}
         knobs={pageProjectionKnobs}
         width={viewportProps.width}
@@ -548,6 +631,7 @@ export function SessionMirrorSurface({
       className={hostClass}
       attachFrameSink={attachFrameSink}
       onInput={onInput}
+      live={live === true}
       {...viewportProps}
     />
   )

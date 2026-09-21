@@ -133,6 +133,19 @@ Heartbeat keeps a control awaiter alive. It does not complete the call. `getScop
 
 **Root never calls `getScopeId`.** `window.parent === window` / `frameElement == null` → `mine = 1`.
 
+### 4.2 Gecko — o contrato sem RPC
+
+No Gecko o contrato “quem sou” **não** é `getScopeId`. O `C` mora no campo
+sincronizado `SpeculumContextId` da **BrowsingContext desta janela**, gravado no
+`CreateDetached` (snapshot de nascimento). `CreateFromIPC` herda. `ReplacedBy`
+copia — nav interna não reminta. Attach lê esta BC; `0` = some.
+
+Mint é o runtime do processo pai (`2, 3, …`). Create no content pede o número por
+IPDL síncrono **no nascimento**, não no load. Sem retry, sem mapa, sem ramo COOP.
+
+O `NODE_NEW` do host leva o mesmo `C` (bit 7). Sem `C` no campo, o produtor não
+emite esse `NODE_NEW`. `ContextCreate` no supervisor continua sendo só a aba.
+
 Do not punch CSP to make page-JS `WebSocket` to localhost ([open.md](open.md) E-03/E-08). Nested has no own WS. The root runtime’s sidecar connection is not a page `connect()`.
 
 ---
@@ -280,4 +293,4 @@ CSSOM: that install’s poll + that node table. Shadow stays **this** instance w
 | 2026-08-19 | **Projected host** = our blank same-origin iframe; parent installs nested algorithm; do not navigate live `src`/`srcdoc`. |
 | 2026-08-19 | **Bus** = events all layers (control RPC vs loose emit/listen). `emitFrame` implemented by root runtime. postMessage is the bus. Not hop-vs-top as algorithm. |
 | 2026-08-19 | **Resync request** — **Control plane only** (`requestResync` → `publishResyncRequest`); loose bus `resyncRequest` fan-down only. Matching Virtual `emitResyncFrame`. Not in PP body. |
-| 2026-08-19 | **Multi-context observability** — telemetry `contextId` + loose bus `telemetry`; control RPC **`snapshot`** per instance; lab context index; wire monitor per scope; CPU Profiler tab-level only. | [observability.md](observability.md) §10 |
+| 2026-09-14 | **Gecko port of “who am I”.** Chromium = `getScopeId`. Gecko = `SpeculumContextId` on this BC at `CreateDetached` (parent mint; content sync IPDL once). Attach reads this BC, not `Top()`. Nested is not a supervisor `ContextCreated`. Same header / `NODE_NEW` bit 7. | [multi-document.md](multi-document.md) §4.2 |

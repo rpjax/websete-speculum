@@ -1,0 +1,1737 @@
+{
+  "target": "http://127.0.0.1:8080/",
+  "waitMs": 40000,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-eneba-vstream-20260917T222932Z",
+  "sessionIds": [
+    "52983f5a-b6fa-421c-94d4-6e3258e78dc2"
+  ],
+  "verdictHints": {
+    "skeletonStill": false,
+    "failedOverlay": false,
+    "vstreamConstructed": false,
+    "vstreamPlaywrightSeen": true,
+    "vstreamFramesIn": 85,
+    "vstreamDataPayloadBytes": 288672,
+    "vstreamMux": [
+      {
+        "OPEN": 3,
+        "DATA": 82,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 288672
+      }
+    ],
+    "vstreamClosed": true,
+    "vhubSeen": true,
+    "resyncPosts": 0,
+    "resyncStatuses": []
+  },
+  "muxSummary": [
+    {
+      "framesIn": 85,
+      "bytesIn": 288927,
+      "muxIn": {
+        "OPEN": 3,
+        "DATA": 82,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 288672
+      },
+      "samples": [
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 1,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 1,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 8
+        },
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 2,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 2,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 5
+        },
+        {
+          "t": 65,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32768,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 65,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 7
+        },
+        {
+          "t": 66,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32769,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 67,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32769,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 2
+        },
+        {
+          "t": 70,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32770,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 70,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 3
+        },
+        {
+          "t": 298,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 679,
+          "rawLen": 682,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 1759,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 691,
+          "rawLen": 694,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 1807,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 1807,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 100
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 108
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 123
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 101
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 109
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 61
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 82
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 81
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 119
+        },
+        {
+          "t": 1811,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 35
+        },
+        {
+          "t": 1811,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 50
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 108
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 111
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 45
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 101
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 115
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 99
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 52
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 35
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 75
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 59
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 50
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 56
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 111
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 117
+        },
+        {
+          "t": 1817,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 110
+        },
+        {
+          "t": 1817,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 4
+        }
+      ],
+      "close": {
+        "t": 1789684199557,
+        "ageMs": 22594
+      }
+    }
+  ],
+  "snapshots": [
+    {
+      "label": "domcontentloaded",
+      "t": 622,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": false,
+      "hostSize": null,
+      "iframeTitle": null,
+      "iframeSrcdocLen": null,
+      "surface": null,
+      "bodyLen": null,
+      "htmlLen": null,
+      "textLen": 0,
+      "textSample": "",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+8s",
+      "t": 8650,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+11s",
+      "t": 10664,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+13s",
+      "t": 12677,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+15s",
+      "t": 14693,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+17s",
+      "t": 16704,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+19s",
+      "t": 18721,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+21s",
+      "t": 20734,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+23s",
+      "t": 22743,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+25s",
+      "t": 24758,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+27s",
+      "t": 26780,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+29s",
+      "t": 28801,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+31s",
+      "t": 30809,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+33s",
+      "t": 32831,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+35s",
+      "t": 34857,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+37s",
+      "t": 36869,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+39s",
+      "t": 38878,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    },
+    {
+      "label": "t+41s",
+      "t": 40888,
+      "href": "http://127.0.0.1:8080/",
+      "hostPresent": true,
+      "hostSize": {
+        "w": 1400,
+        "h": 900
+      },
+      "iframeTitle": "Projected surface",
+      "iframeSrcdocLen": 197,
+      "surface": "no-skeleton-meta",
+      "bodyLen": 144646,
+      "htmlLen": 267456,
+      "textLen": 164,
+      "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona",
+      "failedOverlay": false,
+      "diag": null
+    }
+  ],
+  "wsEvents": [
+    {
+      "url": "ws://127.0.0.1:8080/w7s/vhub?id=cNgaRpB6afQIpJlMbGoXjw",
+      "createdAt": 1789684174075,
+      "framesIn": 7,
+      "framesOut": 6,
+      "bytesIn": 451,
+      "muxIn": {
+        "OPEN": 0,
+        "DATA": 2,
+        "CLOSE": 0,
+        "other": 5,
+        "dataPayloadBytes": 0
+      },
+      "muxSamples": [
+        {
+          "t": 19,
+          "dir": "out",
+          "op": 123,
+          "opName": "op123",
+          "streamId": 8816,
+          "payloadLen": 36,
+          "rawLen": 39,
+          "pipeKindHint": null
+        },
+        {
+          "t": 35,
+          "op": 123,
+          "opName": "op123",
+          "streamId": 32030,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 35,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 36,
+          "dir": "out",
+          "op": 37,
+          "opName": "op37",
+          "streamId": 38145,
+          "payloadLen": 35,
+          "rawLen": 38,
+          "pipeKindHint": null
+        },
+        {
+          "t": 169,
+          "op": 64,
+          "opName": "op64",
+          "streamId": 38147,
+          "payloadLen": 62,
+          "rawLen": 65,
+          "pipeKindHint": null
+        },
+        {
+          "t": 183,
+          "dir": "out",
+          "op": 129,
+          "opName": "op129",
+          "streamId": 917,
+          "payloadLen": 384,
+          "rawLen": 387,
+          "pipeKindHint": null
+        },
+        {
+          "t": 2887,
+          "op": 121,
+          "opName": "op121",
+          "streamId": 38147,
+          "payloadLen": 119,
+          "rawLen": 122,
+          "pipeKindHint": null
+        },
+        {
+          "t": 4693,
+          "op": 43,
+          "opName": "op43",
+          "streamId": 38401,
+          "payloadLen": 41,
+          "rawLen": 44,
+          "pipeKindHint": null
+        },
+        {
+          "t": 15185,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 15763,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 25464,
+          "op": 209,
+          "opName": "op209",
+          "streamId": 406,
+          "payloadLen": 208,
+          "rawLen": 211,
+          "pipeKindHint": null
+        },
+        {
+          "t": 30199,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 31766,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 37126,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        }
+      ],
+      "close": null
+    },
+    {
+      "url": "ws://127.0.0.1:8080/w7s/vstream?sessionId=52983f5a-b6fa-421c-94d4-6e3258e78dc2&speculum-session-token=d0a1820577984bc2bf758f6c6603ab8c",
+      "createdAt": 1789684176963,
+      "framesIn": 85,
+      "framesOut": 6,
+      "bytesIn": 288927,
+      "muxIn": {
+        "OPEN": 3,
+        "DATA": 82,
+        "CLOSE": 0,
+        "other": 0,
+        "dataPayloadBytes": 288672
+      },
+      "muxSamples": [
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 1,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 1,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 8
+        },
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 2,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 28,
+          "dir": "out",
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 2,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 5
+        },
+        {
+          "t": 65,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32768,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 65,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 7
+        },
+        {
+          "t": 66,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32769,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 67,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32769,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 2
+        },
+        {
+          "t": 70,
+          "op": 1,
+          "opName": "OPEN",
+          "streamId": 32770,
+          "payloadLen": 0,
+          "rawLen": 3,
+          "pipeKindHint": null
+        },
+        {
+          "t": 70,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 1,
+          "rawLen": 4,
+          "pipeKindHint": 3
+        },
+        {
+          "t": 298,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 679,
+          "rawLen": 682,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 1759,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32770,
+          "payloadLen": 691,
+          "rawLen": 694,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 1807,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 0
+        },
+        {
+          "t": 1807,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 100
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 108
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 123
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 101
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 109
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 61
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 82
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 81
+        },
+        {
+          "t": 1810,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 119
+        },
+        {
+          "t": 1811,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 35
+        },
+        {
+          "t": 1811,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 50
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 108
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 111
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 45
+        },
+        {
+          "t": 1812,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 101
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 115
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 99
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 52
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 35
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 75
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 59
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 50
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 56
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 111
+        },
+        {
+          "t": 1814,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 117
+        },
+        {
+          "t": 1817,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 110
+        },
+        {
+          "t": 1817,
+          "op": 2,
+          "opName": "DATA",
+          "streamId": 32768,
+          "payloadLen": 4096,
+          "rawLen": 4099,
+          "pipeKindHint": 4
+        }
+      ],
+      "close": {
+        "t": 1789684199557,
+        "ageMs": 22594
+      }
+    }
+  ],
+  "wsSpy": null,
+  "httpHits": [
+    {
+      "t": 1789684174024,
+      "phase": "request",
+      "method": "GET",
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684174024,
+      "phase": "request",
+      "method": "GET",
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684174024,
+      "phase": "request",
+      "method": "GET",
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684174052,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684174058,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684174061,
+      "phase": "request",
+      "method": "POST",
+      "url": "http://127.0.0.1:8080/w7s/vhub/negotiate?negotiateVersion=1",
+      "resourceType": "fetch"
+    },
+    {
+      "t": 1789684174063,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/api/public/client-config"
+    },
+    {
+      "t": 1789684174072,
+      "phase": "response",
+      "status": 200,
+      "url": "http://127.0.0.1:8080/w7s/vhub/negotiate?negotiateVersion=1"
+    }
+  ],
+  "consoleLines": [
+    {
+      "t": 1789684178958,
+      "type": "error",
+      "text": "Loading the image 'http://www.gstatic.com/images/branding/searchlogo/ico/favicon.ico' violates the following Content Security Policy directive: \"img-src 'self' blob: data: https:\". The action has been blocked."
+    },
+    {
+      "t": 1789684178958,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAoAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAwAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178959,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAoAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAwAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-tw3zFfFxGPH1i20z1WL9ZKuFeGoWmwyWoIAMy5DLWGE='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-tw3zFfFxGPH1i20z1WL9ZKuFeGoWmwyWoIAMy5DLWGE='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-tw3zFfFxGPH1i20z1WL9ZKuFeGoWmwyWoIAMy5DLWGE='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-GBIXru0CdwAf3dnDeCKadwK9FLpRZOWTKT/6A/AJR4s='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-GBIXru0CdwAf3dnDeCKadwK9FLpRZOWTKT/6A/AJR4s='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-GBIXru0CdwAf3dnDeCKadwK9FLpRZOWTKT/6A/AJR4s='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-2HFZnI5IBgqB7YlalXMC+WNdEhAM99pqDzEE+EO9Ris='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-2HFZnI5IBgqB7YlalXMC+WNdEhAM99pqDzEE+EO9Ris='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-2HFZnI5IBgqB7YlalXMC+WNdEhAM99pqDzEE+EO9Ris='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-EKBxDGKEULHlsiPKSScXvuA6ebMpjc6aK05TcEv+bk4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-EKBxDGKEULHlsiPKSScXvuA6ebMpjc6aK05TcEv+bk4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-EKBxDGKEULHlsiPKSScXvuA6ebMpjc6aK05TcEv+bk4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-afCAtjeU8ozMuHWTx21j5t+IWmMiJgM9QbUsNLcj6Cg='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-afCAtjeU8ozMuHWTx21j5t+IWmMiJgM9QbUsNLcj6Cg='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-afCAtjeU8ozMuHWTx21j5t+IWmMiJgM9QbUsNLcj6Cg='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-8MNNm57vTNsD49uJ1Y8afTTsHKoTBS8ax1oTuqoNC0Y='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178960,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-8MNNm57vTNsD49uJ1Y8afTTsHKoTBS8ax1oTuqoNC0Y='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178961,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-8MNNm57vTNsD49uJ1Y8afTTsHKoTBS8ax1oTuqoNC0Y='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/ck=xjs.hd.h_lsj3-Jdz8.L.F4.O/am=AAAEAAAgAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIAAAAAAQFAAAAAAAQQAAgBIECAAACMAAAAAAIBwACAAwAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgCAIAAAMAAAAEgAAoAAKABAAAAAAAAAIAAAAAAAAAAECICAACAAAAAAOAfGGAMAAAAAAAAAACQCAwABAAAABAMLAAAAAgCAAAAIAAEAAAAAAAAAAAgEiABACAAAAAAAAgAAAAAACAAQggCAAEKCFgQAEAAAAAsAAAAAAAAaBQYEAEAAAAAACgAAAAAAoAgEAIIAAAAAQgAgAIEAAQABAEAAAAwggIASHSAAABAMAAAAAB"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/ck=xjs.hd.h_lsj3-Jdz8.L.F4.O/am=AAAEAAAgAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIAAAAAAQFAAAAAAAQQAAgBIECAAACMAAAAAAIBwACAAwAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgCAIAAAMAAAAEgAAoAAKABAAAAAAAAAIAAAAAAAAAAECICAACAAAAAAOAfGGAMAAAAAAAAAACQCAwABAAAABAMLAAAAAgCAAAAIAAEAAAAAAAAAAAgEiABACAAAAAAAAgAAAAAACAAQggCAAEKCFgQAEAAAAAsAAAAAAAAaBQYEAEAAAAAACgAAAAAAoAgEAIIAAAAAQgAgAIEAAQABAEAAAAwggIASHSAAABAMAAAAAB"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/ck=xjs.hd.h_lsj3-Jdz8.L.F4.O/am=AAAEAAAgAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIAAAAAAQFAAAAAAAQQAAgBIECAAACMAAAAAAIBwACAAwAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgCAIAAAMAAAAEgAAoAAKABAAAAAAAAAIAAAAAAAAAAECICAACAAAAAAOAfGGAMAAAAAAAAAACQCAwABAAAABAMLAAAAAgCAAAAIAAEAAAAAAAAAAAgEiABACAAAAAAAAgAAAAAACAAQggCAAEKCFgQAEAAAAAsAAAAAAAAaBQYEAEAAAAAACgAAAAAAoAgEAIIAAAAAQgAgAIEAAQABAEAAAAwggIASHSAAABAMAAAAAB"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/ck=xjs.hd.h_lsj3-Jdz8.L.F4.O/am=AAAEAAAgAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIAAAAAAQFAAAAAAAQQAAgBIECAAACMAAAAAAIBwACAAwAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgCAIAAAMAAAAEgAAoAAKABAAAAAAAAAIAAAAAAAAAAECICAACAAAAAAOAfGGAMAAAAAAAAAACQCAwABAAAABAMLAAAAAgCAAAAIAAEAAAAAAAAAAAgEiABACAAAAAAAAgAAAAAACAAQggCAAEKCFgQAEAAAAAsAAAAAAAAaBQYEAEAAAAAACgAAAAAAoAgEAIIAAAAAQgAgAIEAAQABAEAAAAwggIASHSAAABAMAAAAAB"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/ck=xjs.hd.h_lsj3-Jdz8.L.F4.O/am=AAAEAAAgAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIAAAAAAQFAAAAAAAQQAAgBIECAAACMAAAAAAIBwACAAwAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgCAIAAAMAAAAEgAAoAAKABAAAAAAAAAIAAAAAAAAAAECICAACAAAAAAOAfGGAMAAAAAAAAAACQCAwABAAAABAMLAAAAAgCAAAAIAAEAAAAAAAAAAAgEiABACAAAAAAAAgAAAAAACAAQggCAAEKCFgQAEAAAAAsAAAAAAAAaBQYEAEAAAAAACgAAAAAAoAgEAIIAAAAAQgAgAIEAAQABAEAAAAwggIASHSAAABAMAAAAAB"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/ck=xjs.hd.h_lsj3-Jdz8.L.F4.O/am=AAAEAAAgAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIAAAAAAQFAAAAAAAQQAAgBIECAAACMAAAAAAIBwACAAwAAAAAAAAAAAAAAAAAAAgIAgAAASAAAAAAAAAAAgAAAAAAgCAIAAAMAAAAEgAAoAAKABAAAAAAAAAIAAAAAAAAAAECICAACAAAAAAOAfGGAMAAAAAAAAAACQCAwABAAAABAMLAAAAAgCAAAAIAAEAAAAAAAAAAAgEiABACAAAAAAAAgAAAAAACAAQggCAAEKCFgQAEAAAAAsAAAAAAAAaBQYEAEAAAAAACgAAAAAAoAgEAIIAAAAAQgAgAIEAAQABAEAAAAwggIASHSAAABAMAAAAAB"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-6JxS7t2tLTI4mnJCrAhkcCEjDc8ZchWccAGMTAhojd4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-6JxS7t2tLTI4mnJCrAhkcCEjDc8ZchWccAGMTAhojd4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-6JxS7t2tLTI4mnJCrAhkcCEjDc8ZchWccAGMTAhojd4='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-C2ivyC5znh43ACI7Bw4C+m9bDP6niPZuRlyn7rnXLPk='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-C2ivyC5znh43ACI7Bw4C+m9bDP6niPZuRlyn7rnXLPk='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178963,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-C2ivyC5znh43ACI7Bw4C+m9bDP6niPZuRlyn7rnXLPk='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178969,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-OVqdv47p8DBDZpOHRgCfEkPxXRdH7ONC8SXId7zUJ/o='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178969,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-OVqdv47p8DBDZpOHRgCfEkPxXRdH7ONC8SXId7zUJ/o='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178969,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-OVqdv47p8DBDZpOHRgCfEkPxXRdH7ONC8SXId7zUJ/o='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178969,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-254IG78KZa2691H8kzdg17FSc2lsPNrPH9g3qxGedqU='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-254IG78KZa2691H8kzdg17FSc2lsPNrPH9g3qxGedqU='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-254IG78KZa2691H8kzdg17FSc2lsPNrPH9g3qxGedqU='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-/bgWPGAt4h0vxiNlBxA2tjg6GZPFJvh6IhwrRCJypaE='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-/bgWPGAt4h0vxiNlBxA2tjg6GZPFJvh6IhwrRCJypaE='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-/bgWPGAt4h0vxiNlBxA2tjg6GZPFJvh6IhwrRCJypaE='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Loading the script 'https://www.gstatic.com/og/_/js/k=og.asy.en_US.6hUUSNC_ZiA.2019.O/rt=j/m=_ac,_awd,ada,lldp,qads,abld/exm=/d=1/ed=1/rs=AA2YrTuyzoZA5CtZ8CsUNvOCBk8Z32acFg' violates the following Content Security Policy directive: \"script-src 'self'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Loading the script 'https://www.gstatic.com/og/_/js/k=og.asy.en_US.6hUUSNC_ZiA.2019.O/rt=j/m=_ac,_awd,ada,lldp,qads,abld/exm=/d=1/ed=1/rs=AA2YrTuyzoZA5CtZ8CsUNvOCBk8Z32acFg' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Loading the script 'https://www.gstatic.com/og/_/js/k=og.asy.en_US.6hUUSNC_ZiA.2019.O/rt=j/m=_ac,_awd,ada,lldp,qads,abld/exm=/d=1/ed=1/rs=AA2YrTuyzoZA5CtZ8CsUNvOCBk8Z32acFg' violates the following Content Security Policy directive: \"script-src 'none'\". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Loading the stylesheet 'https://www.gstatic.com/og/_/ss/k=og.asy.Gq-b-cCzpGo.L.F4.O/m=ll_tdm,adcgm3,ll_fw,abld/excm=/d=1/ed=1/ct=zgms/rs=AA2YrTt998CdWnSLmb9zS1V16Pmj71mO1w' violates the following Content Security Policy directive: \"style-src 'self' 'unsafe-inline'\". Note that 'style-src-elem' was not explicitly set, so 'style-src' is used as a fallback. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-CAHm7SSyANd0scAUQ8gP4vdR9LASJwUKQ0cemebkNGk='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-CAHm7SSyANd0scAUQ8gP4vdR9LASJwUKQ0cemebkNGk='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-CAHm7SSyANd0scAUQ8gP4vdR9LASJwUKQ0cemebkNGk='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-TZm2aJg5tWcAc90JAfsrnhLwwaEoXtxW8FbzRxWYZRI='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-TZm2aJg5tWcAc90JAfsrnhLwwaEoXtxW8FbzRxWYZRI='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-TZm2aJg5tWcAc90JAfsrnhLwwaEoXtxW8FbzRxWYZRI='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-jY5eo8Wpp8ktL3JNlxN3lgBnGZtJcKEzL0l4B5whZbU='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-jY5eo8Wpp8ktL3JNlxN3lgBnGZtJcKEzL0l4B5whZbU='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178970,
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-jY5eo8Wpp8ktL3JNlxN3lgBnGZtJcKEzL0l4B5whZbU='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "t": 1789684178972,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178972,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684178974,
+      "type": "error",
+      "text": "Loading the font 'http://fonts.gstatic.com/s/googlesans/v29/4UaGrENHsxJlGDuGo1OIlL3Owp4.woff2' violates the following Content Security Policy directive: \"font-src 'self' data: https:\". The action has been blocked."
+    },
+    {
+      "t": 1789684179143,
+      "type": "error",
+      "text": "Refused to apply style from 'http://127.0.0.1:8080/xjs/_/ss/k=xjs.hd.h_lsj3-Jdz8.L.F4.O/am=AAAEAAAgAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIAAAAAAQFAAAAAAAAAAAgBAECAAACMAAAAAAIBwAAAAwAAAAAAAAAAAAAAAAAAAAAAgAAASAAAAAAAAAAAgAAAAAAACAIAAAAAAAAEgAAoAACAAAAAAAAAAAIAAAAAAAAAAEAICAAAAAAAAAAAAAAAIAAAAAAAAAAAACAwABAAAABAMAAAAAAAAAAAAAAAAAAAAAAAAAAAgEiABACAAAAAAAAgAAAAAACAAQggCAAEKCFgQAAAAAAAsAAAAAAAAaBQYEAEAAAAAACAAAAAAAoAgEAIIAAAAAQgAAAAEAAQABAAAAAAwggIASHSAAABAIAAAAABAAwAAAAAIAAAAAAAAAAAAgAgAA"
+    },
+    {
+      "t": 1789684179143,
+      "type": "error",
+      "text": "Executing inline event handler violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-...'), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to event handlers, style attributes and javascript: navigations unless the 'unsafe-hashes' keyword is present. The action has been blocked."
+    },
+    {
+      "t": 1789684179143,
+      "type": "error",
+      "text": "Executing inline event handler violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-...'), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to event handlers, style attributes and javascript: navigations unless the 'unsafe-hashes' keyword is present. The action has been blocked."
+    },
+    {
+      "t": 1789684179143,
+      "type": "error",
+      "text": "Executing inline event handler violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-...'), or a nonce ('nonce-...') is required to enable inline execution. Note that hashes do not apply to event handlers, style attributes and javascript: navigations unless the 'unsafe-hashes' keyword is present. The action has been blocked."
+    },
+    {
+      "t": 1789684179156,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179156,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179156,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179156,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179202,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179202,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179204,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179204,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179219,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179219,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179274,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179274,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179380,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    },
+    {
+      "t": 1789684179380,
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.ho6Mmf6UpCU.2019.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAQAAgAIAAAQAAAEAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAQAAAAAAAAgAAACABA"
+    }
+  ],
+  "pageErrors": []
+}

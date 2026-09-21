@@ -1,0 +1,185 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "waitMs": 50000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/resync-502-20260916-235322Z",
+  "hud": {
+    "frames": "227",
+    "generation": null,
+    "sequence": null,
+    "applyOk": null,
+    "desync": "0",
+    "resync": "6",
+    "ovr": null,
+    "resyncReasons": {
+      "lag": 6
+    },
+    "resyncLines": [
+      "23:53:38 resync requested reason=lag",
+      "23:53:35 resync requested reason=lag",
+      "23:53:34 resync requested reason=lag",
+      "23:53:33 resync requested reason=lag",
+      "23:53:32 resync requested reason=lag",
+      "23:53:30 resync requested reason=lag"
+    ],
+    "desyncLines": [],
+    "activitySample": [
+      "23:53:39 resync completed seq=47",
+      "23:53:38 resync requested reason=lag",
+      "23:53:37 resync completed seq=39",
+      "23:53:35 resync requested reason=lag",
+      "23:53:35 resync completed seq=22",
+      "23:53:34 resync requested reason=lag",
+      "23:53:34 resync completed seq=19",
+      "23:53:33 resync requested reason=lag",
+      "23:53:33 resync completed seq=16",
+      "23:53:32 resync requested reason=lag",
+      "23:53:32 resync completed seq=11",
+      "23:53:30 resync requested reason=lag",
+      "23:53:30 resync completed seq=2",
+      "23:53:26 resync completed seq=2",
+      "23:53:25 viewport 1400×522",
+      "23:53:25 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "23:53:25 booted mode=browse dossier=/tmp/speculum-lab-runs/20260916-235324-c87b6d9d3bb9",
+      "23:53:24 browse.start viewport 1400×522",
+      "23:53:23 gecko sw ready",
+      "23:53:23 session.hello c87b6d9d3bb9 gecko",
+      "23:53:23 ws open",
+      "23:53:23 runs refreshed (0)"
+    ]
+  },
+  "resync": {
+    "count": 6,
+    "desyncHud": "0",
+    "reasons": {
+      "lag": 6
+    },
+    "hypothesis": "lag"
+  },
+  "assets502": {
+    "count": 7,
+    "whyBuckets": {
+      "empty_body": 7
+    },
+    "status404": 0,
+    "rows": [
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=9b2d9095-d668-43da-8c80-a6b0d1e998fa&bo=1&sid=d0c8e700b22911f1b4654bfe05df9196&vid=d0c91610b22911f18adce5cd2fab141b&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      },
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=9b2d9095-d668-43da-8c80-a6b0d1e998fa&bo=1&sid=d0c8e700b22911f1b4654bfe05df9196&vid=d0c91610b22911f18adce5cd2fab141b&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      },
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=9b2d9095-d668-43da-8c80-a6b0d1e998fa&bo=1&sid=d0c8e700b22911f1b4654bfe05df9196&vid=d0c91610b22911f18adce5cd2fab141b&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      },
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=9b2d9095-d668-43da-8c80-a6b0d1e998fa&bo=1&sid=d0c8e700b22911f1b4654bfe05df9196&vid=d0c91610b22911f18adce5cd2fab141b&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      },
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=9b2d9095-d668-43da-8c80-a6b0d1e998fa&bo=1&sid=d0c8e700b22911f1b4654bfe05df9196&vid=d0c91610b22911f18adce5cd2fab141b&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      },
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=9b2d9095-d668-43da-8c80-a6b0d1e998fa&bo=1&sid=d0c8e700b22911f1b4654bfe05df9196&vid=d0c91610b22911f18adce5cd2fab141b&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      },
+      {
+        "url": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=9b2d9095-d668-43da-8c80-a6b0d1e998fa&bo=1&sid=d0c8e700b22911f1b4654bfe05df9196&vid=d0c91610b22911f18adce5cd2fab141b&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "swWhy": "empty_body",
+        "dest": "image",
+        "contentType": "text/plain",
+        "inputByteLength": 0,
+        "inputHeadHex": null,
+        "inputMagic": "empty",
+        "joinPath": "emit_complete",
+        "teeComplete": true,
+        "emitLen": 0,
+        "emitMime": "text/plain",
+        "emitHex": null,
+        "emitMagic": "empty"
+      }
+    ],
+    "urlTransformMismatchSamples": []
+  },
+  "nextFixHints": [
+    {
+      "id": "resync",
+      "cause": "lag",
+      "fixHint": "ProjectionClient desync/resync por reason=lag — corrigir esse caminho (não maquiar contador)."
+    },
+    {
+      "id": "502_empty",
+      "cause": "sw_empty_body",
+      "fixHint": "Join devolveu bytes vazios com CT image/* — race tee incompleto ou open vazio."
+    }
+  ]
+}

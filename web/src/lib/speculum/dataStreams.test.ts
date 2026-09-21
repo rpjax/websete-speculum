@@ -384,4 +384,26 @@ describe('DataStreams pageProjectionFrame normalize', () => {
 
     await streams.close()
   })
+
+  it('does not emit close on the initial open() cleanup (never connected)', async () => {
+    const transport = new MockDataStreamTransport()
+    const streams = new DataStreams({
+      sessionId: '00000000-0000-0000-0000-000000000030',
+      token: 'test-token',
+      mirrorMode: 'pageProjection',
+      transport,
+    })
+
+    let closeCount = 0
+    streams.on('close', () => {
+      closeCount += 1
+    })
+
+    await streams.open()
+    expect(streams.isOpen).toBe(true)
+    expect(closeCount).toBe(0)
+
+    await streams.close()
+    expect(closeCount).toBe(1)
+  })
 })

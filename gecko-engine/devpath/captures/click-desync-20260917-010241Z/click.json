@@ -1,0 +1,59 @@
+{
+  "ok": true,
+  "method": "dispatchPointer+mouse",
+  "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+  "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+  "score": 165,
+  "dispatched": {
+    "ok": true,
+    "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+    "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+    "rect": {
+      "x": 90,
+      "y": 7.9375,
+      "w": 236,
+      "h": 506
+    },
+    "iframeRect": {
+      "x": 0,
+      "y": 0,
+      "w": 1400,
+      "h": 522
+    },
+    "client": {
+      "x": 130,
+      "y": 47.9375
+    },
+    "pagePoint": {
+      "x": 130,
+      "y": 47.9375
+    },
+    "matchCount": 3,
+    "visibleCount": 3
+  },
+  "intentCheck": {
+    "down": [
+      "01:03:38 intent down#5563"
+    ],
+    "up": [
+      "01:03:38 intent up#5563"
+    ],
+    "recent": [
+      "01:03:38 intent scrollSet",
+      "01:03:38 intent up#5563",
+      "01:03:38 intent down#5563",
+      "01:03:35 intent scrollSet",
+      "01:03:35 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:34 intent scrollSet",
+      "01:03:33 intent scrollSet",
+      "01:02:52 resync completed seq=3",
+      "01:02:49 resync completed seq=2",
+      "01:02:49 resync requested reason=lag",
+      "01:02:46 resync completed seq=2",
+      "01:02:45 viewport 1400×522",
+      "01:02:45 click diag: __speculumLabDumpInputClick() in devtools after pointer click"
+    ]
+  }
+}

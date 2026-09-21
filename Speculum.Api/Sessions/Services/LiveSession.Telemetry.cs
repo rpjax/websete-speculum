@@ -206,6 +206,51 @@ internal sealed partial class LiveSession
         }
     }
 
+    public void TracePageProjectionIntentAdmissionFailed(
+        string kind,
+        long? generation,
+        string? anchor,
+        string errorCode,
+        string message,
+        string? traceId = null,
+        long? clientTimestampMs = null)
+    {
+        _logger.LogWarning(
+            "Session {SessionId} PageProjectionIntent admission failed: {ErrorCode} {Message} kind={Kind} generation={Generation} anchor={Anchor} traceId={TraceId}",
+            SessionId,
+            errorCode,
+            message,
+            kind,
+            generation,
+            anchor,
+            traceId);
+
+        if (string.IsNullOrWhiteSpace(kind)
+            || !_journalCatalog.IsTypeEnabled(TelemetryJournalFacts.PageProjectionIntentRejected))
+        {
+            return;
+        }
+
+        try
+        {
+            _telemetry.PageProjection.Input.Rejected(
+                errorCode,
+                message,
+                "admission",
+                generation,
+                anchor,
+                traceId,
+                clientTimestampMs);
+        }
+        catch (Exception journalEx)
+        {
+            _logger.LogWarning(
+                journalEx,
+                "Session {SessionId} failed to journal Telemetry.Sessions.PageProjection.Input.Rejected (admission).",
+                SessionId);
+        }
+    }
+
     public void TracePageProjectionFrameWireDelivered(
         PageProjectionFrame diff,
         long durationMs = 0,

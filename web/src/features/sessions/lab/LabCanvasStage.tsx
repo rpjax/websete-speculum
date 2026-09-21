@@ -15,6 +15,8 @@ type LabCanvasStageProps = Pick<
   | 'attachPageProjectionFrameEndedSink'
   | 'onInput'
   | 'onDomInput'
+  | 'fetchProjectedAsset'
+  | 'getDocumentBaseUrl'
   | 'onFrameObserve'
   | 'registerApplierProbe'
   | 'requestRemoteResize'
@@ -50,6 +52,8 @@ export function LabCanvasStage({
   attachPageProjectionFrameEndedSink,
   onInput,
   onDomInput,
+  fetchProjectedAsset,
+  getDocumentBaseUrl,
   onFrameObserve,
   registerApplierProbe,
   requestRemoteResize,
@@ -84,6 +88,8 @@ export function LabCanvasStage({
         attachPageProjectionFrameEndedSink={attachPageProjectionFrameEndedSink}
         onInput={onInput}
         onDomInput={onDomInput}
+        fetchProjectedAsset={fetchProjectedAsset}
+        getDocumentBaseUrl={getDocumentBaseUrl}
         onFrameObserve={onFrameObserve}
         registerApplierProbe={registerApplierProbe}
         requestRemoteResize={requestRemoteResize}

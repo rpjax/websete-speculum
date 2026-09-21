@@ -72,9 +72,18 @@ export async function runProjectedInputCaptureUnitTests(): Promise<void> {
   await testSparseNeverEmitsMove();
   await testSparseResolvesNodeIdFromEventTarget();
   await testSparsePointerCancelEmitsUpAfterDown();
+  await testTouchClickEmitsDownUp();
+  await testTouchPointerUpAloneEmitsNothing();
+  await testTouchScrollThenNoClickEmitsNothing();
+  await testClickDetailZeroSkipsEmit();
+  await testMouseClickDoesNotDoubleEmit();
+  await testNavigableTouchEndEmitsDownUp();
+  await testNavigableTouchEndAfterScrollEmitsNothing();
   await testSparseMissSkipsWhenTargetUnregistered();
   await testEditableKeyPreventDefault();
   await testHistoryShortcutEmitsNavIntent();
+  await testScrollRangeZeroDoesNotEmit();
+  await testScrollEmitsFracWhenRangePositive();
   console.log('[unit] projectedInputCapture sparse ok');
 }
 
@@ -137,7 +146,7 @@ async function testSparseResolvesNodeIdFromEventTarget(): Promise<void> {
   }
 }
 
-/** iOS Safari: pointercancel must lift a prior down (same as canvas path). */
+/** iOS Safari: pointercancel must lift a prior down (same as canvas path) — mouse only. */
 async function testSparsePointerCancelEmitsUpAfterDown(): Promise<void> {
   const target = {
     nodeType: 1,
@@ -161,6 +170,345 @@ async function testSparsePointerCancelEmitsUpAfterDown(): Promise<void> {
     doc.dispatch('pointercancel', { pointerId: 7, clientX: 50, clientY: 25, button: 0, target });
     await new Promise((r) => setTimeout(r, 10));
     assert.strictEqual(sent.length, 2);
+    assert.strictEqual(sent[0]!.type, 'down');
+    assert.strictEqual(sent[1]!.type, 'up');
+  } finally {
+    detach();
+  }
+}
+
+function touchTarget() {
+  return {
+    nodeType: 1,
+    closest: () => null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
+    setPointerCapture: () => undefined,
+    releasePointerCapture: () => undefined,
+  };
+}
+
+function touchEvent(extra: Record<string, unknown>) {
+  return {
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+    button: 0,
+    ...extra,
+  };
+}
+
+function clickEvent(extra: Record<string, unknown>) {
+  return {
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+    button: 0,
+    detail: 1,
+    ...extra,
+  };
+}
+
+/** Touch tap: native click → down+up at click coordinates. */
+async function testTouchClickEmitsDownUp(): Promise<void> {
+  const target = touchTarget();
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 3,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('click', clickEvent({
+      clientX: 52,
+      clientY: 27,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 2);
+    assert.strictEqual(sent[0]!.type, 'down');
+    assert.strictEqual(sent[1]!.type, 'up');
+    if (sent[0]!.type === 'down' && sent[1]!.type === 'up') {
+      assert.strictEqual(sent[0]!.nodeId, 42);
+      assert.strictEqual(sent[1]!.nodeId, 42);
+    }
+  } finally {
+    detach();
+  }
+}
+
+/** Touch pointerdown/up without click emits nothing. */
+async function testTouchPointerUpAloneEmitsNothing(): Promise<void> {
+  const target = touchTarget();
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 4,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('pointerup', touchEvent({
+      pointerId: 4,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 40,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 0, 'touch without click must emit nothing');
+  } finally {
+    detach();
+  }
+}
+
+/** Scroll + touch pointerup without click → scrollSet only. */
+async function testTouchScrollThenNoClickEmitsNothing(): Promise<void> {
+  const target = touchTarget();
+  const { win, doc, surface } = mockSurface();
+  const se = {
+    scrollTop: 100,
+    scrollLeft: 0,
+    scrollHeight: 600 + 500,
+    clientHeight: 600,
+    scrollWidth: 800,
+    clientWidth: 800,
+  };
+  (doc as { scrollingElement: unknown }).scrollingElement = se;
+  Object.assign(win, { scrollY: 100, scrollX: 0 });
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 6,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('scroll', { target: doc });
+    doc.dispatch('pointerup', touchEvent({
+      pointerId: 6,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 120));
+    const downs = sent.filter((i) => i.type === 'down');
+    const ups = sent.filter((i) => i.type === 'up');
+    assert.strictEqual(downs.length, 0, 'scroll without click must not emit down');
+    assert.strictEqual(ups.length, 0, 'scroll without click must not emit up');
+    assert.ok(sent.some((i) => i.type === 'scrollSet'), 'scrollSet must still emit');
+  } finally {
+    detach();
+  }
+}
+
+/** Keyboard-synthesized click (detail 0) must not emit down/up. */
+async function testClickDetailZeroSkipsEmit(): Promise<void> {
+  const target = touchTarget();
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 7,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('click', clickEvent({
+      clientX: 50,
+      clientY: 25,
+      target,
+      detail: 0,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 0, 'detail 0 click must not emit');
+  } finally {
+    detach();
+  }
+}
+
+function navigableTarget() {
+  const anchor = { tagName: 'A', getAttribute: () => '#link' };
+  return {
+    nodeType: 1,
+    closest: (sel: string) => (sel.includes('a[href]') ? anchor : null),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
+  };
+}
+
+function touchEndEvent(extra: Record<string, unknown>) {
+  return {
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+    changedTouches: [{ clientX: 50, clientY: 25, identifier: 1 }],
+    ...extra,
+  };
+}
+
+/** Navigable link: touchend fallback emits down/up when click is suppressed. */
+async function testNavigableTouchEndEmitsDownUp(): Promise<void> {
+  const target = navigableTarget();
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('touchstart', {
+      changedTouches: [{ clientX: 50, clientY: 25, identifier: 1 }],
+      touches: [{ clientX: 50, clientY: 25, identifier: 1 }],
+      target,
+    });
+    doc.dispatch('touchend', touchEndEvent({ target }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 2);
+    assert.strictEqual(sent[0]!.type, 'down');
+    assert.strictEqual(sent[1]!.type, 'up');
+  } finally {
+    detach();
+  }
+}
+
+/** Navigable link swipe: scroll during gesture must not emit tap. */
+async function testNavigableTouchEndAfterScrollEmitsNothing(): Promise<void> {
+  const target = navigableTarget();
+  const { win, doc, surface } = mockSurface();
+  const se = {
+    scrollTop: 100,
+    scrollLeft: 0,
+    scrollHeight: 600 + 500,
+    clientHeight: 600,
+    scrollWidth: 800,
+    clientWidth: 800,
+  };
+  (doc as { scrollingElement: unknown }).scrollingElement = se;
+  Object.assign(win, { scrollY: 100, scrollX: 0 });
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', touchEvent({
+      pointerId: 10,
+      pointerType: 'touch',
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    doc.dispatch('scroll', { target: doc });
+    doc.dispatch('touchend', touchEndEvent({ target }));
+    await new Promise((r) => setTimeout(r, 10));
+    const downs = sent.filter((i) => i.type === 'down');
+    const ups = sent.filter((i) => i.type === 'up');
+    assert.strictEqual(downs.length, 0, 'navigable scroll must not emit down');
+    assert.strictEqual(ups.length, 0, 'navigable scroll must not emit up');
+  } finally {
+    detach();
+  }
+}
+
+/** Mouse pointerdown/up + click must not double-emit down/up. */
+async function testMouseClickDoesNotDoubleEmit(): Promise<void> {
+  const target = {
+    nodeType: 1,
+    closest: () => null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50, right: 100, bottom: 50 }),
+  };
+  const { doc, surface } = mockSurface();
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  registry.register(42, target as never);
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('pointerdown', {
+      pointerId: 8,
+      pointerType: 'mouse',
+      clientX: 50,
+      clientY: 25,
+      button: 0,
+      target,
+    });
+    doc.dispatch('pointerup', {
+      pointerId: 8,
+      pointerType: 'mouse',
+      clientX: 50,
+      clientY: 25,
+      button: 0,
+      target,
+    });
+    doc.dispatch('click', clickEvent({
+      clientX: 50,
+      clientY: 25,
+      target,
+    }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(sent.length, 2, 'mouse must emit exactly one down+up pair');
     assert.strictEqual(sent[0]!.type, 'down');
     assert.strictEqual(sent[1]!.type, 'up');
   } finally {
@@ -265,6 +613,76 @@ async function testHistoryShortcutEmitsNavIntent(): Promise<void> {
     assert.strictEqual(sent[0]!.type, 'historyNav');
     if (sent[0]!.type === 'historyNav') {
       assert.strictEqual(sent[0]!.direction, 'back');
+    }
+  } finally {
+    detach();
+  }
+}
+
+/** Range zero (no overflow) → no scrollSet intent. */
+async function testScrollRangeZeroDoesNotEmit(): Promise<void> {
+  const { win, doc, surface } = mockSurface();
+  const se = {
+    scrollTop: 0,
+    scrollLeft: 0,
+    scrollHeight: 600,
+    clientHeight: 600,
+    scrollWidth: 800,
+    clientWidth: 800,
+  };
+  (doc as { scrollingElement: unknown }).scrollingElement = se;
+  Object.assign(win, { scrollY: 0, scrollX: 0 });
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('scroll', { target: doc });
+    await new Promise((r) => setTimeout(r, 120));
+    assert.strictEqual(sent.length, 0, 'range zero must not emit scrollSet');
+  } finally {
+    detach();
+  }
+}
+
+/** Positive range → scrollFracY = scrollTop / range. */
+async function testScrollEmitsFracWhenRangePositive(): Promise<void> {
+  const { win, doc, surface } = mockSurface();
+  const se = {
+    scrollTop: 3757,
+    scrollLeft: 0,
+    scrollHeight: 600 + 6696,
+    clientHeight: 600,
+    scrollWidth: 800,
+    clientWidth: 800,
+  };
+  (doc as { scrollingElement: unknown }).scrollingElement = se;
+  Object.assign(win, { scrollY: 3757, scrollX: 0 });
+  const sent: UnifiedIntent[] = [];
+  const registry = new PageProjectionRegistry();
+  const detach = attachProjectedInputCapture(
+    surface as never,
+    registry,
+    (intent) => {
+      sent.push(intent);
+    },
+    baseOpts(),
+  );
+  try {
+    doc.dispatch('scroll', { target: doc });
+    await new Promise((r) => setTimeout(r, 120));
+    assert.strictEqual(sent.length, 1);
+    assert.strictEqual(sent[0]!.type, 'scrollSet');
+    if (sent[0]!.type === 'scrollSet') {
+      assert.strictEqual(sent[0]!.scrollFracY, 3757 / 6696);
+      assert.strictEqual(sent[0]!.scrollFracX, 0);
+      assert.strictEqual(sent[0]!.nodeId, null);
     }
   } finally {
     detach();

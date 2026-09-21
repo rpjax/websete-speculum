@@ -1,0 +1,61 @@
+{
+  "wireCount": 4656,
+  "adoptedCount": 4656,
+  "wireHash16": "ffeb5dc01366ee39",
+  "adoptedHash16": "fb4414c1bf09e471",
+  "hashMatch": false,
+  "onlyWireCount": 227,
+  "onlyAdoptedCount": 227,
+  "onlyWireSample": [
+    "#lightbox-form-modal .lightbox-form .lightbox-input-group .input-group-name .input-group-input .input { border: medium; height: 100%; width: 100%; }",
+    ".abandoned-cart--modal-close-button-image { height: 24px; max-width: unset !important; width: 24px; }",
+    ".abandoned-cart--modal-container.active { animation: 0.6s ease-in-out 0.1s forwards slideUp; }",
+    ".alert-message-title { font-family: Jost, Helvetica Neue, Helvetica, Arial, sans-serif; font-size: 1.5rem; margin-bottom: 5px; }",
+    ".assistant-autoservice-orders .assistant-order-other-btn { background-color: initial; border: medium; color: rgb(77, 5, 122); cursor: pointer; font-family: inhe",
+    ".assistant-form-button#js-assistant-mic-btn.is-listening { background: rgba(84, 102, 171, 0.16); border: medium; transform: scale(1.1); }",
+    ".assistant-my-chats-screen__spinner span { animation: 1s infinite jump; background-color: rgb(217, 217, 217); border-radius: 50%; height: 8px; margin: 0px 2px; ",
+    ".assistant-orders-screen__spinner span { animation: 1s infinite jump; background-color: rgb(217, 217, 217); border-radius: 50%; height: 8px; margin: 0px 2px; wi",
+    ".assistant-packages-screen__spinner span { animation: 1s infinite jump; background-color: rgb(217, 217, 217); border-radius: 50%; height: 8px; margin: 0px 2px; ",
+    ".assistant-proactive-btn { align-items: center; background: rgb(84, 102, 171); border: medium; border-radius: 16px 16px 2px; box-shadow: rgba(0, 0, 0, 0.2) 0px ",
+    ".assistant-proactive-hover-container { align-items: flex-end; animation: 0.2s fadeIn; cursor: pointer; display: flex; flex-direction: column; gap: 8px; margin: ",
+    ".assistant-product-name { display: -webkit-box; font-size: 0.75rem; line-height: 1rem; -moz-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-"
+  ],
+  "onlyAdoptedSample": [
+    "#lightbox-form-modal .lightbox-form .lightbox-input-group .input-group-name .input-group-input .input { border-width: medium; border-style: none; border-color: ",
+    ".abandoned-cart--modal-close-button-image { height: 24px; width: 24px; max-width: unset !important; }",
+    ".abandoned-cart--modal-container.active { animation: 0.6s ease-in-out 0.1s 1 normal forwards running slideUp; }",
+    ".alert-message-title { font-family: Jost, \"Helvetica Neue\", Helvetica, Arial, sans-serif; font-size: 1.5rem; margin-bottom: 5px; }",
+    ".assistant-autoservice-orders .assistant-order-other-btn { background-color: initial; border-width: medium; border-style: none; border-color: currentcolor; bord",
+    ".assistant-form-button#js-assistant-mic-btn.is-listening { background: rgba(84, 102, 171, 0.16); border-width: medium; border-style: none; border-color: current",
+    ".assistant-my-chats-screen__spinner span { animation: 1s ease 0s infinite normal none running jump; background-color: rgb(217, 217, 217); border-radius: 50%; he",
+    ".assistant-orders-screen__spinner span { animation: 1s ease 0s infinite normal none running jump; background-color: rgb(217, 217, 217); border-radius: 50%; heig",
+    ".assistant-packages-screen__spinner span { animation: 1s ease 0s infinite normal none running jump; background-color: rgb(217, 217, 217); border-radius: 50%; he",
+    ".assistant-proactive-btn { align-items: center; background: rgb(84, 102, 171); border-width: medium; border-style: none; border-color: currentcolor; border-imag",
+    ".assistant-proactive-hover-container { align-items: flex-end; animation: 0.2s ease 0s 1 normal none running fadeIn; cursor: pointer; display: flex; flex-directi",
+    ".assistant-product-name { display: -webkit-box; font-size: 0.75rem; line-height: 1rem; -webkit-line-clamp: 2; overflow: hidden; text-overflow: ellipsis; }"
+  ],
+  "adoptedOk": true,
+  "adoptedReason": null,
+  "paritySkipped": 1,
+  "hypothesis": {
+    "status": "root_known",
+    "cause": "gecko_vs_chromium_csstext_serialization",
+    "fixHint": "Não é regra faltando (counts iguais 4656). Wire Gecko vs adopted Chromium expandem border/animation/quotes. Iso: não falhar por hash cssText cru; normalizar ou assert em count/seletores."
+  },
+  "wireSample": [
+    "#info-about .item-text .highlight { font-weight: 800; }",
+    "#info-about .item-text { font-size: 1rem; line-height: 1.5rem; }",
+    "#info-about .item-text:not(.last-child) { margin-bottom: 20px; }",
+    "#info-about .item-title { margin-bottom: 35px; }",
+    "#info-rules .item-text { font-size: 0.875rem; line-height: 1.5rem; }"
+  ],
+  "adoptedSample": [
+    "#info-about .item-text .highlight { font-weight: 800; }",
+    "#info-about .item-text { font-size: 1rem; line-height: 1.5rem; }",
+    "#info-about .item-text:not(.last-child) { margin-bottom: 20px; }",
+    "#info-about .item-title { margin-bottom: 35px; }",
+    "#info-rules .item-text { font-size: 0.875rem; line-height: 1.5rem; }"
+  ],
+  "binFrames": 182,
+  "targetGen": 2
+}

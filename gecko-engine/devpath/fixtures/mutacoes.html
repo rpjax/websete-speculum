@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>mutacoes</title>
+</head>
+<body>
+  <p id="anchor">inicio</p>
+  <script>
+    (function () {
+      const gap = 200;
+      let delay = 0;
+      const step = (fn) => {
+        setTimeout(fn, delay);
+        delay += gap;
+      };
+
+      step(() => {
+        for (let i = 0; i < 3; i++) {
+          const d = document.createElement("div");
+          d.id = "d" + i;
+          d.textContent = "div" + i;
+          document.body.appendChild(d);
+        }
+      });
+
+      step(() => {
+        const span = document.createElement("span");
+        span.id = "mid";
+        span.textContent = "meio";
+        const d1 = document.getElementById("d1");
+        document.body.insertBefore(span, d1);
+      });
+
+      step(() => {
+        document.getElementById("d0").textContent = "texto-alterado";
+      });
+
+      step(() => {
+        document.getElementById("d2").setAttribute("class", "destaque");
+      });
+
+      step(() => {
+        const bucket = document.createElement("section");
+        bucket.id = "bucket";
+        document.body.appendChild(bucket);
+        bucket.appendChild(document.getElementById("d1"));
+      });
+
+      step(() => {
+        document.getElementById("mid").remove();
+      });
+
+      step(() => {
+        document.body.appendChild(document.createComment("comentario-speculum"));
+      });
+
+      step(() => {
+        const a = document.createElement("div");
+        a.id = "tree-a";
+        const b = document.createElement("div");
+        b.id = "tree-b";
+        const c = document.createElement("div");
+        c.id = "tree-c";
+        c.textContent = "folha";
+        b.appendChild(c);
+        a.appendChild(b);
+        document.body.appendChild(a);
+      });
+
+      step(() => {
+        document.title = "FIM";
+      });
+    })();
+  </script>
+</body>
+</html>

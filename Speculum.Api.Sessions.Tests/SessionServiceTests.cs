@@ -825,6 +825,14 @@ public sealed class SessionServiceTests
             string? rangeHeader = null)
             => Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Failure("not implemented"));
 
+        public Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+            uint contextId,
+            string url,
+            string destination,
+            string range,
+            CancellationToken ct = default)
+            => Task.FromResult<IResult<VirtualResourceResponse>>(Result<VirtualResourceResponse>.Failure("not implemented"));
+
         public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)
             => Task.FromResult<IResult>(Result.Success());
 

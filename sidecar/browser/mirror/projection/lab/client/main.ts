@@ -21,11 +21,37 @@ import {
 } from '@speculum/page-projection/projected';
 import { snapshotTree } from '@speculum/page-projection/core/snapshot/domTreeSnapshot';
 import { snapshotFormControls } from '@speculum/page-projection/projected/formControlSnapshot';
+import { probeLayoutRootCause } from '../probes/layoutRootCauseProbe';
+import {
+  clearAssetTrace,
+  drainAssetTrace,
+  installImgTrace,
+  sampleImgStates,
+} from './assetTrace';
 import { peekFrameHeader } from '@speculum/page-projection/core/decode';
 import { LAB_TELEMETRY_DEFAULTS, TELEMETRY_BOOL_CAPS } from '@speculum/page-projection/core/telemetry';
 import { CONTEXT_ID_ROOT } from '@speculum/page-projection/core/frame';
+import { encodeControlFromIntent } from '@speculum/page-projection/core';
 import { NGROK_SKIP_HEADERS } from '../labPublicOrigin';
 import labBuildStamp from '../static/labBuildStamp.json';
+import { createRunsPanel } from './runsPanel';
+import { initLabShell, type LabShell } from './labShell';
+import { installScrollDiagHostApis, setScrollDiagSessionId } from './scrollDiagHost';
+import {
+  answerGeckoRequest,
+  enableGeckoAssetTraceAll,
+  ensureGeckoAssetSw,
+  isGeckoLab,
+  nextGeckoCorr,
+  onGeckoAssetMessage,
+  sendGeckoControl,
+  sendGeckoViewport,
+  setGeckoLab,
+  showGeckoPrompt,
+  registerGeckoAssetContext,
+  wireGeckoSwFetch,
+  type GeckoRequestedKind,
+} from './geckoLabWire';
 
 function labFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
@@ -41,6 +67,7 @@ type ContextStreamStats = {
   applyOk: number;
   applyFail: number;
   desync: number;
+  /** iframe remounts (`resyncCompleted`), not client requests */
   resync: number;
   overrun: number;
   lastApplyMs: number | null;
@@ -201,23 +228,32 @@ function setChip(id: string, text: string, kind?: 'ok' | 'warn' | 'danger' | 'li
 }
 
 export function bootLabClient(): void {
+  installScrollDiagHostApis();
   const buildLabel = `build #${labBuildStamp.seq}`;
   setChip('chipBuild', buildLabel, 'live');
   $('chipBuild').title = `${buildLabel}${labBuildStamp.builtAt ? ` · ${labBuildStamp.builtAt}` : ''}`;
 
   let ws: WebSocket | null = null;
   let projection: LabProjectedHarness | null = null;
+  let disposeImgTrace: (() => void) | null = null;
   const inputDetachers = new Map<number, () => void>();
   /** Shared across root + nested surfaces — Stop dumps into dossier. */
   let inputCaptureMetrics = new ProjectedInputCaptureMetrics();
   let sessionToken = '';
   let assetBaseUrl = window.location.origin;
+  let documentBaseUrl = '';
   let canonicalViewport: ViewportSize = { width: 1280, height: 720 };
   let viewportSync: ViewportSync | null = null;
   let pendingResize: {
     resolve: (result: ViewportResizeResult) => void;
   } | null = null;
   let bootDeviceProfile: ViewportDeviceProfile = detectViewportDeviceProfile();
+
+  const runsPanel = createRunsPanel({
+    fetch: labFetch,
+    onActivity: logActivity,
+  });
+  runsPanel.mount();
 
   /** Lab-only diag hooks — early so a later boot throw cannot hide them. */
   (
@@ -227,6 +263,7 @@ export function bootLabClient(): void {
         contextId?: number,
       ) => ReturnType<LabProjectedHarness['forceLoadAfterDropRaceForDiag']> | null;
       __speculumLabDumpInputClick?: () => void;
+      __labDiagDomApplyBins?: (urls?: string[]) => Promise<unknown>;
     }
   ).__labDiagProjectedPeek = () => (projection ? projection.peekNestedHosts() : null);
   (
@@ -241,6 +278,19 @@ export function bootLabClient(): void {
     window as unknown as { __speculumLabDumpInputClick?: () => void }
   ).__speculumLabDumpInputClick = () => {
     /* replaced once sendInputClickDiag is defined */
+  };
+  void import('./diagDomApply').then(({ diagDomApplyFrameUrls }) => {
+    (
+      window as unknown as {
+        __labDiagDomApplyBins?: (urls?: string[]) => Promise<unknown>;
+      }
+    ).__labDiagDomApplyBins = (urls) =>
+      diagDomApplyFrameUrls(urls ?? ['/lab/diag-f1.bin', '/lab/diag-f3.bin']);
+  });
+  (
+    window as unknown as { __speculumEnableAssetTraceAll?: () => void }
+  ).__speculumEnableAssetTraceAll = () => {
+    enableGeckoAssetTraceAll();
   };
 
   function disposeViewportSync(): void {
@@ -268,14 +318,18 @@ export function bootLabClient(): void {
         pendingResize.resolve({ applied: false, message: 'superseded', errorCode: 'superseded' });
       }
       pendingResize = { resolve };
-      ws!.send(
-        JSON.stringify({
-          type: 'client.resize',
-          width: size.width,
-          height: size.height,
-          device,
-        }),
-      );
+      if (isGeckoLab()) {
+        sendGeckoViewport(ws!, size.width, size.height);
+      } else {
+        ws!.send(
+          JSON.stringify({
+            type: 'client.resize',
+            width: size.width,
+            height: size.height,
+            device,
+          }),
+        );
+      }
     });
   }
 
@@ -308,47 +362,60 @@ export function bootLabClient(): void {
 
   function sendInputIntent(intent: UnifiedIntent): void {
     if (surfaceWrap.classList.contains('is-crashed')) return;
-    if (ws?.readyState === WebSocket.OPEN) {
-      const payload: Record<string, unknown> = { schemaVersion: intent.schemaVersion, type: intent.type };
-      if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
-        payload.x = intent.x;
-        payload.y = intent.y;
-        payload.viewportW = intent.viewportW;
-        payload.viewportH = intent.viewportH;
-        payload.button = intent.button;
-        // Sparse-cdp id-addressed click — nodeId + local % in target box.
-        if (intent.type !== 'move') {
-          if (intent.contextId != null) payload.contextId = intent.contextId;
-          if (intent.nodeId !== undefined) payload.nodeId = intent.nodeId;
-          if (intent.localX != null) payload.localX = intent.localX;
-          if (intent.localY != null) payload.localY = intent.localY;
-        }
-        payload.payload = JSON.stringify({
-          x: intent.x,
-          y: intent.y,
-          button: intent.button,
-          ...(intent.type !== 'move' && intent.localX != null && intent.localY != null
-            ? { localX: intent.localX, localY: intent.localY }
-            : {}),
-        });
-      } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
-        payload.key = intent.key;
-        payload.code = intent.code;
-        payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
-      } else if (intent.type === 'scrollSet') {
-        payload.contextId = intent.contextId;
-        payload.nodeId = intent.nodeId;
-        payload.scrollX = intent.scrollX;
-        payload.scrollY = intent.scrollY;
-        payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
-      } else if (intent.type === 'historyNav') {
-        payload.direction = intent.direction;
-        payload.payload = JSON.stringify({ direction: intent.direction });
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    if (isGeckoLab()) {
+      const bytes = encodeControlFromIntent(
+        nextGeckoCorr(),
+        intent.contextId ?? CONTEXT_ID_ROOT,
+        intent,
+      );
+      if (bytes) {
+        sendGeckoControl(ws, bytes);
       }
-      payload.timestampClient = intent.timestampClient;
-      ws.send(JSON.stringify({ type: 'client.intent', intent: payload }));
       logActivity(`intent ${formatIntentShort(intent as unknown as Record<string, unknown>)}`);
+      return;
     }
+    const payload: Record<string, unknown> = { schemaVersion: intent.schemaVersion, type: intent.type };
+    if (intent.type === 'move' || intent.type === 'down' || intent.type === 'up') {
+      payload.x = intent.x;
+      payload.y = intent.y;
+      payload.viewportW = intent.viewportW;
+      payload.viewportH = intent.viewportH;
+      payload.button = intent.button;
+      if (intent.type !== 'move') {
+        if (intent.contextId != null) payload.contextId = intent.contextId;
+        if (intent.nodeId !== undefined) payload.nodeId = intent.nodeId;
+        if (intent.localX != null) payload.localX = intent.localX;
+        if (intent.localY != null) payload.localY = intent.localY;
+      }
+      payload.payload = JSON.stringify({
+        x: intent.x,
+        y: intent.y,
+        button: intent.button,
+        ...(intent.type !== 'move' && intent.localX != null && intent.localY != null
+          ? { localX: intent.localX, localY: intent.localY }
+          : {}),
+      });
+    } else if (intent.type === 'keyDown' || intent.type === 'keyUp') {
+      payload.key = intent.key;
+      payload.code = intent.code;
+      payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
+    } else if (intent.type === 'scrollSet') {
+      payload.contextId = intent.contextId;
+      payload.nodeId = intent.nodeId;
+      payload.scrollFracX = intent.scrollFracX;
+      payload.scrollFracY = intent.scrollFracY;
+      payload.payload = JSON.stringify({
+        scrollFracX: intent.scrollFracX,
+        scrollFracY: intent.scrollFracY,
+      });
+    } else if (intent.type === 'historyNav') {
+      payload.direction = intent.direction;
+      payload.payload = JSON.stringify({ direction: intent.direction });
+    }
+    payload.timestampClient = intent.timestampClient;
+    ws.send(JSON.stringify({ type: 'client.intent', intent: payload }));
+    logActivity(`intent ${formatIntentShort(intent as unknown as Record<string, unknown>)}`);
   }
 
   function sendInputClickDiag(): void {
@@ -415,10 +482,17 @@ export function bootLabClient(): void {
     }
 
     const rootWin = client.document.defaultView;
+    if (isGeckoLab() && rootWin) {
+      registerGeckoAssetContext(CONTEXT_ID_ROOT, rootWin);
+    }
     client.forEachNestedInputSurface((info) => {
       const nestedDoc = info.surface.contentDocument;
       const nestedSurface = nestedDoc?.documentElement;
       if (!nestedSurface || nestedSurface.nodeType !== 1) return;
+      const nestedWin = nestedDoc.defaultView;
+      if (isGeckoLab() && nestedWin) {
+        registerGeckoAssetContext(info.contextId, nestedWin);
+      }
       const detach = attachProjectedInputCapture(nestedSurface, info.registry, sendInputIntent, {
         contextId: info.contextId,
         getGeneration: info.getGeneration,
@@ -437,6 +511,7 @@ export function bootLabClient(): void {
   let mode: 'browse' | 'run' = 'browse';
   let runInFlight = false;
   let sessionLive = false;
+  let browseStarting = false;
   let sessionId: string | null = null;
   let phase: Phase = 'idle';
   let opsTotal = 0;
@@ -457,7 +532,11 @@ export function bootLabClient(): void {
     if (!ws || ws.readyState !== WebSocket.OPEN || !sessionLive || snapInFlight) return;
     snapInFlight = true;
     syncButtons();
-    ws.send(JSON.stringify({ type: 'client.snapshot', label }));
+    // Gecko: same-S oficial (Halt→Flush→Snapshot Virtual + Projected multiplano).
+    // Chromium lab host ignora client.sameS se não implementar — gecko lab trata.
+    const type = isGeckoLab() ? 'client.sameS' : 'client.snapshot';
+    ws.send(JSON.stringify({ type, label, contextId: 1 }));
+    logActivity(isGeckoLab() ? `same-S capture… (${label ?? 'manual'})` : `snap… (${label ?? 'manual'})`);
   }
 
   function startAutoSnap(): void {
@@ -544,11 +623,34 @@ export function bootLabClient(): void {
     if (detail) detail.textContent = '—';
   }
 
-  function measureHeader(): void {
-    const h = $('labHeader').getBoundingClientRect().height;
-    document.documentElement.style.setProperty('--hdr-h', `${Math.ceil(h)}px`);
+  function truncateHudUrl(raw: string, max = 52): string {
+    if (!raw) return '—';
+    try {
+      const u = new URL(raw);
+      const compact = `${u.host}${u.pathname}${u.search}`;
+      return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+    } catch {
+      return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw;
+    }
   }
 
+  function updateHudSummary(): void {
+    const el = document.getElementById('hudSummary');
+    if (!el) return;
+    if (mode === 'browse') {
+      const fix = fixtureSelect.selectedOptions[0]?.textContent?.trim() || 'fixture';
+      const url = urlInput.value.trim();
+      el.textContent = url ? `${fix} · ${truncateHudUrl(url)}` : fix;
+      el.title = url || fix;
+    } else {
+      const bp = selectedBlueprint();
+      const url = bp?.defaultUrl ?? '';
+      el.textContent = bp ? `${bp.id} · ${truncateHudUrl(url)}` : 'Pick blueprint';
+      el.title = url || bp?.description || '';
+    }
+  }
+
+  let labShell: LabShell | null = null;
   let labFullscreen = false;
 
   function syncFullscreenUi(): void {
@@ -557,7 +659,6 @@ export function bootLabClient(): void {
     exitBtn.setAttribute('aria-hidden', labFullscreen ? 'false' : 'true');
     const enterBtn = $('enterFullscreen') as HTMLButtonElement;
     enterBtn.setAttribute('aria-pressed', labFullscreen ? 'true' : 'false');
-    if (!labFullscreen) measureHeader();
   }
 
   async function enterLabFullscreen(): Promise<void> {
@@ -632,7 +733,8 @@ export function bootLabClient(): void {
     connectBtn.classList.toggle('primary', !open);
     ($('disconnect') as HTMLButtonElement).disabled = !open;
 
-    ($('browseStart') as HTMLButtonElement).disabled = !open || mode !== 'browse' || sessionLive || runInFlight;
+    ($('browseStart') as HTMLButtonElement).disabled =
+      !open || mode !== 'browse' || sessionLive || runInFlight || browseStarting;
     ($('browseNavigate') as HTMLButtonElement).disabled = !open || mode !== 'browse' || !sessionLive || runInFlight;
     ($('browseSnap') as HTMLButtonElement).disabled =
       !open || mode !== 'browse' || !sessionLive || runInFlight || snapInFlight;
@@ -648,7 +750,10 @@ export function bootLabClient(): void {
       btn.disabled = runInFlight;
     });
 
-    ($('browseStart') as HTMLButtonElement).classList.toggle('primary', open && mode === 'browse' && !sessionLive);
+    ($('browseStart') as HTMLButtonElement).classList.toggle(
+      'primary',
+      open && mode === 'browse' && !sessionLive && !browseStarting,
+    );
     ($('runStart') as HTMLButtonElement).classList.toggle('primary', open && mode === 'run' && !runInFlight);
 
     ($('browseStart') as HTMLButtonElement).title = !open
@@ -666,7 +771,7 @@ export function bootLabClient(): void {
       : 'Start Virtual first';
 
     refreshStatus();
-    measureHeader();
+    updateHudSummary();
   }
 
   function selectedBlueprint(): BlueprintSummary | undefined {
@@ -694,6 +799,10 @@ export function bootLabClient(): void {
     });
     $('browseControls').hidden = next !== 'browse';
     $('runControls').hidden = next !== 'run';
+    const browseSec = document.getElementById('browseControlsSecondary');
+    const runSec = document.getElementById('runControlsSecondary');
+    if (browseSec) browseSec.hidden = next !== 'browse';
+    if (runSec) runSec.hidden = next !== 'run';
     fixtureField.hidden = next !== 'browse';
     blueprintField.hidden = next !== 'run';
     blueprintDesc.hidden = next !== 'run';
@@ -710,6 +819,7 @@ export function bootLabClient(): void {
       syncRunTarget();
     }
     syncButtons();
+    updateHudSummary();
   }
 
   function showTab(name: string): void {
@@ -719,11 +829,13 @@ export function bootLabClient(): void {
     $('panelConsole').hidden = name !== 'Console';
     $('panelConfig').hidden = name !== 'Config';
     $('panelProgress').hidden = name !== 'Progress';
+    $('panelRuns').hidden = name !== 'Runs';
     document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
       const on = btn.dataset.tab === name;
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
+    labShell?.expandForTab(name);
   }
 
   function renderDebugProbe(payload: Record<string, unknown>): void {
@@ -849,14 +961,20 @@ export function bootLabClient(): void {
 
   async function ensureProjection(): Promise<LabProjectedHarness> {
     if (projection) return projection;
+    if (isGeckoLab()) {
+      await ensureGeckoAssetSw(sessionToken);
+    }
     projection = await LabProjectedHarness.create({
       surfaceHost,
       width: canonicalViewport.width,
       height: canonicalViewport.height,
       getToken: () => sessionToken,
       getAssetBaseUrl: () => assetBaseUrl,
+      getDocumentBaseUrl: () => (isGeckoLab() ? documentBaseUrl : ''),
       onArmed: () => {
         bindInputSurfaces(projection!);
+        disposeImgTrace?.();
+        disposeImgTrace = installImgTrace(projection!.document);
       },
       onTelemetry: (msg) => {
         observeStreamTelemetry(msg);
@@ -874,10 +992,38 @@ export function bootLabClient(): void {
           $('streamOps').textContent = String(m.opCount);
         }
         if (m.kind === 'desynced' || m.kind === 'desync') {
+          const tel = msg as { errorCode?: string; op?: string; message?: string };
+          const detail = [tel.errorCode ?? m.kind, tel.op ? `op=${tel.op}` : '', tel.message ?? '']
+            .filter(Boolean)
+            .join(' ');
+          logActivity(ctxId === CONTEXT_ID_ROOT ? `desync ${detail}` : `ctx${ctxId} desync ${detail}`);
+        }
+        if (m.kind === 'resyncFailed') {
+          const tel = msg as {
+            reason?: string;
+            exhausted?: boolean;
+            attempt?: number;
+            op?: string;
+            id?: number;
+            message?: string;
+          };
+          const detail = [
+            tel.reason ?? '',
+            tel.op ? `op=${tel.op}` : '',
+            typeof tel.id === 'number' ? `id=${tel.id}` : '',
+            tel.message ?? '',
+          ]
+            .filter(Boolean)
+            .join(' ');
           logActivity(
-            ctxId === CONTEXT_ID_ROOT
-              ? `desync ${(msg as { errorCode?: string }).errorCode ?? m.kind}`
-              : `ctx${ctxId} desync ${(msg as { errorCode?: string }).errorCode ?? m.kind}`,
+            `resync failed attempt=${tel.attempt ?? '?'} exhausted=${tel.exhausted === true} ${detail}`,
+          );
+        }
+        if (m.kind === 'resyncCompleted') {
+          ctxStats(ctxId).resync += 1;
+          const seq = (msg as { sequence?: number }).sequence ?? '?';
+          logActivity(
+            ctxId === CONTEXT_ID_ROOT ? `resync completed seq=${seq}` : `ctx${ctxId} resync completed seq=${seq}`,
           );
         }
         if (ws?.readyState === WebSocket.OPEN) {
@@ -887,7 +1033,6 @@ export function bootLabClient(): void {
       },
       onRequestResync: (info) => {
         const ctxId = info.contextId ?? CONTEXT_ID_ROOT;
-        ctxStats(ctxId).resync += 1;
         logActivity(
           ctxId === CONTEXT_ID_ROOT
             ? `resync requested reason=${info.reason}`
@@ -903,6 +1048,8 @@ export function bootLabClient(): void {
         logActivity(`desync ${reason}`);
       },
     });
+    disposeImgTrace?.();
+    disposeImgTrace = installImgTrace(projection.document);
     setSurfaceEmpty(false);
     if (canonicalViewport.width > 0 && canonicalViewport.height > 0) {
       projection.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
@@ -1022,19 +1169,20 @@ export function bootLabClient(): void {
       stopAutoSnap();
       ws = null;
       sessionLive = false;
+      browseStarting = false;
       runInFlight = false;
       snapInFlight = false;
       syncButtons();
     });
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') {
+        const bytes = new Uint8Array(ev.data as ArrayBuffer);
+        const hdr = peekFrameHeader(bytes);
+        const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : CONTEXT_ID_ROOT;
+        ctxStats(ctxId).wireFrames += 1;
+        updateStream();
         void ensureProjection().then((p) => {
-          const bytes = new Uint8Array(ev.data as ArrayBuffer);
-          const hdr = peekFrameHeader(bytes);
-          const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : CONTEXT_ID_ROOT;
-          ctxStats(ctxId).wireFrames += 1;
           p.ingest(bytes);
-          updateStream();
         });
         return;
       }
@@ -1094,9 +1242,14 @@ export function bootLabClient(): void {
                     : undefined,
               }
             : undefined;
+        const layoutRootCause = msg.layoutRootCause === true;
         void ensureProjection().then(async (p) => {
           const ctx = p.snapshotContext(contextId);
           const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+          const win =
+            contextId === 1
+              ? p.document?.defaultView ?? null
+              : p.nestedDocument(contextId)?.defaultView ?? null;
           const tree = doc ? snapshotTree(doc) : null;
           const cascade = doc ? probeCssomPaintBoundary(doc) : null;
           const formProps = doc ? snapshotFormControls(doc) : null;
@@ -1128,9 +1281,16 @@ export function bootLabClient(): void {
               widgetPaintReason: paint.reason,
             };
           }
-          const cssomSheetDump = cssomSheetDumpReq
-            ? p.probeCssomSheetDump(cssomSheetDumpReq.nestedContextId ?? contextId)
-            : undefined;
+          const cssomSheetDump =
+            cssomSheetDumpReq || layoutRootCause
+              ? p.probeCssomSheetDump(cssomSheetDumpReq?.nestedContextId ?? contextId)
+              : undefined;
+          const layoutProbe =
+            layoutRootCause && doc && win ? probeLayoutRootCause(doc, win) : undefined;
+          if (doc && isGeckoLab()) {
+            sampleImgStates(doc, 'sameS');
+          }
+          const assetTrace = isGeckoLab() ? drainAssetTrace() : undefined;
           ws?.send(
             JSON.stringify({
               type: 'client.snapshotResult',
@@ -1150,6 +1310,8 @@ export function bootLabClient(): void {
               ...(rectLadder !== undefined ? { rectLadder } : {}),
               ...(paintProbe !== undefined ? { paintProbe } : {}),
               ...(cssomSheetDump !== undefined ? { cssomSheetDump } : {}),
+              ...(layoutProbe !== undefined ? { layoutProbe } : {}),
+              ...(assetTrace !== undefined ? { assetTrace } : {}),
             }),
           );
         });
@@ -1213,20 +1375,55 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'session.hello') {
         sessionId = String(msg.sessionId ?? '');
+        setScrollDiagSessionId(sessionId);
         sessionToken = String((msg as { sessionToken?: string }).sessionToken ?? '');
         assetBaseUrl = window.location.origin;
-        logActivity(`session.hello ${sessionId}`);
+        documentBaseUrl = '';
+        setGeckoLab((msg as { engine?: string }).engine === 'gecko');
+        if (isGeckoLab() && ws) {
+          wireGeckoSwFetch(ws, CONTEXT_ID_ROOT);
+          void ensureGeckoAssetSw(sessionToken).then(
+            () => logActivity('gecko sw ready'),
+            (err: Error) => logActivity(`gecko sw falhou: ${err.message}`),
+          );
+        }
+        logActivity(`session.hello ${sessionId}${isGeckoLab() ? ' gecko' : ''}`);
         refreshStatus();
+        return;
+      }
+      if (msg.type === 'gecko.requested' && isGeckoLab() && ws) {
+        const kind = String(msg.kind ?? 'dialog') as GeckoRequestedKind;
+        const contextId = Number(msg.contextId ?? CONTEXT_ID_ROOT);
+        const requestId = Number(msg.requestId ?? 0);
+        const description = String(msg.description ?? '');
+        const { yes, text } = showGeckoPrompt(kind, description);
+        answerGeckoRequest(ws, kind, contextId, requestId, yes, text);
+        logActivity(`gecko.requested ${kind} #${requestId}`);
+        return;
+      }
+      if (msg.type === 'gecko.asset' && isGeckoLab()) {
+        const streamId = Number(msg.streamId ?? 0);
+        const phase = Number(msg.phase ?? 0);
+        const why = String(msg.why ?? '');
+        let data = new Uint8Array(0);
+        if (typeof msg.bytes === 'string' && msg.bytes.length > 0) {
+          const raw = atob(msg.bytes);
+          data = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+        }
+        onGeckoAssetMessage(streamId, phase, data, why);
         return;
       }
       if (msg.type === 'session.booted') {
         clearCrashOverlay();
         sessionLive = true;
         sessionId = String(msg.sessionId ?? sessionId ?? '');
+        setScrollDiagSessionId(sessionId);
         phase = 'live';
         browseSnapCount = 0;
         $('streamSnaps').textContent = '0';
         logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+        browseStarting = false;
         logActivity('click diag: __speculumLabDumpInputClick() in devtools after pointer click');
         startViewportSync();
         if (msg.mode === 'browse') startAutoSnap();
@@ -1235,6 +1432,7 @@ export function bootLabClient(): void {
       }
       if (msg.type === 'session.stopped') {
         sessionLive = false;
+        browseStarting = false;
         stopAutoSnap();
         snapInFlight = false;
         disposeViewportSync();
@@ -1245,6 +1443,9 @@ export function bootLabClient(): void {
         }
         if (!runInFlight && phase !== 'complete' && phase !== 'fault') phase = 'connected';
         logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ''}`);
+        if (msg.dossierDir) {
+          void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(String(msg.dossierDir)));
+        }
         syncButtons();
         return;
       }
@@ -1293,6 +1494,7 @@ export function bootLabClient(): void {
         logActivity(`fault ${detail}`);
         if (typeof msg.dossierDir === 'string' && msg.dossierDir) {
           logActivity(`fault dossier ${msg.dossierDir}`);
+          void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(msg.dossierDir as string));
         }
         showCrashOverlay(detail);
         if (msg.errorCode || msg.message) {
@@ -1306,6 +1508,7 @@ export function bootLabClient(): void {
           });
         }
         sessionLive = false;
+        browseStarting = false;
         runInFlight = false;
         stopAutoSnap();
         snapInFlight = false;
@@ -1327,6 +1530,21 @@ export function bootLabClient(): void {
         const pass = msg.allPass === true ? 'pass' : 'fail';
         logActivity(
           `snap stored ${msg.id}${msg.label ? ` (${msg.label})` : ''} seq=${msg.sequence ?? '—'} ${pass} (n=${browseSnapCount})`,
+        );
+        syncButtons();
+        return;
+      }
+      if (msg.type === 'lab.sameSResult') {
+        snapInFlight = false;
+        browseSnapCount += 1;
+        $('streamSnaps').textContent = String(browseSnapCount);
+        const ok = msg.ok === true;
+        const same = msg.sameSequence === true;
+        const vSeq = msg.virtualSequence ?? '—';
+        const pSeq = msg.projectedSequence ?? '—';
+        const err = typeof msg.error === 'string' ? msg.error : '';
+        logActivity(
+          `same-S ${ok ? 'ok' : 'fail'} vSeq=${vSeq} pSeq=${pSeq} sameSeq=${same}${err ? ` err=${err}` : ''} (n=${browseSnapCount})`,
         );
         syncButtons();
         return;
@@ -1363,6 +1581,10 @@ export function bootLabClient(): void {
           s.fail > 0 ? 'danger' : 'ok',
         );
         syncButtons();
+        void runsPanel.refresh().then(() => {
+          if (msg.dossierDir) void runsPanel.selectByDossierDir(String(msg.dossierDir));
+        });
+        showTab('Runs');
         return;
       }
       if (msg.type === 'error') {
@@ -1400,9 +1622,14 @@ export function bootLabClient(): void {
   fixtureSelect.addEventListener('change', () => {
     if (mode !== 'browse') return;
     urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+    updateHudSummary();
   });
   blueprintSelect.addEventListener('change', () => {
-    if (mode === 'run') syncRunTarget();
+    syncRunTarget();
+    updateHudSummary();
+  });
+  urlInput.addEventListener('input', () => {
+    if (mode === 'browse') updateHudSummary();
   });
   document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => showMode((btn.dataset.mode as 'browse' | 'run') ?? 'browse'));
@@ -1428,36 +1655,59 @@ export function bootLabClient(): void {
   );
 
   $('browseStart').addEventListener('click', () => {
-    // Measure first — never construct the projected stage at the 1280×720 default
-    // and then leave it stale when Virtual boots at the real host size.
+    if (!ws || ws.readyState !== WebSocket.OPEN || sessionLive || browseStarting) return;
     clearCrashOverlay();
     disposeViewportSync();
     canonicalViewport = measureAndNormalizeViewport();
     bootDeviceProfile = detectViewportDeviceProfile();
+    browseStarting = true;
+    syncButtons();
+    if (isGeckoLab()) {
+      try {
+        documentBaseUrl = new URL(urlInput.value).href;
+      } catch {
+        documentBaseUrl = urlInput.value;
+      }
+    }
+    logActivity(
+      `browse.start viewport ${canonicalViewport.width}×${canonicalViewport.height}`,
+    );
+    ws.send(
+      JSON.stringify({
+        type: 'browse.start',
+        url: urlInput.value,
+        width: canonicalViewport.width,
+        height: canonicalViewport.height,
+        device: bootDeviceProfile,
+        frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
+        telemetry: readTelemetryFromUi(),
+        cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
+      }),
+    );
     void (async () => {
-      const p = await ensureProjection();
-      await p.resetSurface();
-      p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-      resetStreamCounters();
-      logActivity(
-        `browse.start viewport ${canonicalViewport.width}×${canonicalViewport.height}`,
-      );
-      ws?.send(
-        JSON.stringify({
-          type: 'browse.start',
-          url: urlInput.value,
-          width: canonicalViewport.width,
-          height: canonicalViewport.height,
-          device: bootDeviceProfile,
-          frameRateHz: Number((document.getElementById('frameRateHz') as HTMLInputElement)?.value) || 60,
-          telemetry: readTelemetryFromUi(),
-          cpuProfiling: (document.getElementById('browseCpu') as HTMLInputElement)?.checked === true,
-        }),
-      );
+      try {
+        const p = await ensureProjection();
+        await p.resetSurface();
+        clearAssetTrace();
+        disposeImgTrace?.();
+        disposeImgTrace = installImgTrace(p.document);
+        p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+        resetStreamCounters();
+      } catch (err) {
+        const text = err instanceof Error ? err.message : String(err);
+        logActivity(`projected boot failed: ${text}`);
+      }
     })();
   });
   $('browseNavigate').addEventListener('click', () => {
     if (!sessionLive) return;
+    if (isGeckoLab()) {
+      try {
+        documentBaseUrl = new URL(urlInput.value).href;
+      } catch {
+        documentBaseUrl = urlInput.value;
+      }
+    }
     ws?.send(JSON.stringify({ type: 'browse.navigate', url: urlInput.value }));
     logActivity(`navigate ${urlInput.value}`);
   });
@@ -1530,9 +1780,21 @@ export function bootLabClient(): void {
       );
     })();
   });
-  window.addEventListener('resize', measureHeader);
   $('enterFullscreen').addEventListener('click', () => {
     void enterLabFullscreen();
+  });
+  document.getElementById('diagCopy')?.addEventListener('click', () => {
+    const api = window as unknown as {
+      diagDump?: () => unknown;
+      diagFlush?: () => Promise<{ ok: boolean; sent: number; error?: string }>;
+    };
+    void api.diagFlush?.().then((r) => {
+      if (!r) return;
+      logActivity(
+        r.ok ? `diag flush ${r.sent} gesto(s) -> lab-runs/gesture-diag` : `diag flush falhou: ${r.error}`,
+      );
+    });
+    api.diagDump?.();
   });
   $('exitFullscreen').addEventListener('click', () => {
     void exitLabFullscreen();
@@ -1547,9 +1809,34 @@ export function bootLabClient(): void {
     if (ev.key === 'Escape' && labFullscreen) void exitLabFullscreen();
   });
 
+  const mainEl = document.getElementById('labMain');
+  const sheetEl = document.getElementById('investigationSheet');
+  const grabberEl = document.getElementById('sheetGrabber');
+  const hudEl = document.getElementById('surfaceHud');
+  const hudToggleEl = document.getElementById('hudToggle');
+  const hudBodyEl = document.getElementById('hudBody');
+  const hudMoreEl = document.getElementById('hudMore');
+  if (mainEl && sheetEl && grabberEl && hudEl && hudToggleEl && hudBodyEl) {
+    labShell = initLabShell({
+      main: mainEl,
+      sheet: sheetEl,
+      grabber: grabberEl,
+      hud: hudEl,
+      hudToggle: hudToggleEl,
+      hudBody: hudBodyEl,
+      hudMore: hudMoreEl ?? undefined,
+      onSnapChange: () => {
+        if (viewportSync) {
+          const measured = measureHostElement(surfaceHost);
+          viewportSync.schedule(measured.width, measured.height);
+        }
+      },
+    });
+  }
+
   void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
     showMode('browse');
-    measureHeader();
+    updateHudSummary();
   });
   showTab('Stream');
   refreshStatus();

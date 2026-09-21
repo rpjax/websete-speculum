@@ -1,0 +1,73 @@
+# Vetores de ouro — ABI de controle (doc 18)
+#
+# Formato por linha:  nome | payload hex | envelope hex
+# Os dois lados (C# e C++) tem que PRODUZIR e ACEITAR exatamente estes bytes.
+# Divergir aqui e defeito de contrato, nao de implementacao.
+#
+
+# ContextCreate: contextId=1 width=1280 height=800
+ContextCreate|01 01 01 00 00 00 01 00 00 00 00 05 00 00 20 03 00 00|04 01 00 00 00 12 00 00 00 01 01 01 00 00 00 01 00 00 00 00 05 00 00 20 03 00 00
+
+# ContextDestroy: contextId=1
+ContextDestroy|02 01 07 00 00 00 01 00 00 00|04 01 00 00 00 0a 00 00 00 02 01 07 00 00 00 01 00 00 00
+
+# Navigate: contextId=1 url=https://example.com
+Navigate|03 01 02 00 00 00 01 00 00 00 13 00 00 00 68 74 74 70 73 3a 2f 2f 65 78 61 6d 70 6c 65 2e 63 6f 6d|04 01 00 00 00 21 00 00 00 03 01 02 00 00 00 01 00 00 00 13 00 00 00 68 74 74 70 73 3a 2f 2f 65 78 61 6d 70 6c 65 2e 63 6f 6d
+
+# Navigate-utf8: url com acento — prova UTF-8 e tamanho em BYTES, nao em caracteres
+Navigate-utf8|03 01 03 00 00 00 01 00 00 00 24 00 00 00 68 74 74 70 73 3a 2f 2f 70 74 2e 77 69 6b 69 70 65 64 69 61 2e 6f 72 67 2f 77 69 6b 69 2f 41 c3 a7 c3 a3 6f|04 01 00 00 00 32 00 00 00 03 01 03 00 00 00 01 00 00 00 24 00 00 00 68 74 74 70 73 3a 2f 2f 70 74 2e 77 69 6b 69 70 65 64 69 61 2e 6f 72 67 2f 77 69 6b 69 2f 41 c3 a7 c3 a3 6f
+
+# Shutdown: sem campos
+Shutdown|ff 01 09 00 00 00|04 00 00 00 00 06 00 00 00 ff 01 09 00 00 00
+
+# Ready: sem campos
+Ready|01 02 00 00 00 00|02 00 00 00 00 06 00 00 00 01 02 00 00 00 00
+
+# Heartbeat: monotonicMs
+Heartbeat|02 02 00 00 00 00 cb 04 fb 71 1f 01 00 00|02 00 00 00 00 0e 00 00 00 02 02 00 00 00 00 cb 04 fb 71 1f 01 00 00
+
+# ContextCreated: contextId=1 bc=42 parent=0
+ContextCreated|03 02 01 00 00 00 01 00 00 00 2a 00 00 00 00 00 00 00 00 00 00 00|02 01 00 00 00 16 00 00 00 03 02 01 00 00 00 01 00 00 00 2a 00 00 00 00 00 00 00 00 00 00 00
+
+# ContextDestroyed: contextId=1
+ContextDestroyed|04 02 07 00 00 00 01 00 00 00|02 01 00 00 00 0a 00 00 00 04 02 07 00 00 00 01 00 00 00
+
+# Navigated: contextId=1
+Navigated|05 02 02 00 00 00 01 00 00 00 14 00 00 00 68 74 74 70 73 3a 2f 2f 65 78 61 6d 70 6c 65 2e 63 6f 6d 2f|02 01 00 00 00 22 00 00 00 05 02 02 00 00 00 01 00 00 00 14 00 00 00 68 74 74 70 73 3a 2f 2f 65 78 61 6d 70 6c 65 2e 63 6f 6d 2f
+
+# Fault: falha de sessao
+Fault|ff 02 05 00 00 00 00 00 00 00 15 00 00 00 63 6f 6e 74 65 78 74 6f 20 64 65 73 63 6f 6e 68 65 63 69 64 6f|02 00 00 00 00 23 00 00 00 ff 02 05 00 00 00 00 00 00 00 15 00 00 00 63 6f 6e 74 65 78 74 6f 20 64 65 73 63 6f 6e 68 65 63 69 64 6f
+
+# Resync: contextId=1 força=0 (mapa / emitResyncFrame)
+Resync|09 01 04 00 00 00 01 00 00 00 00|04 01 00 00 00 0b 00 00 00 09 01 04 00 00 00 01 00 00 00 00
+
+# HaltClocks: aba inteira, sem campos
+HaltClocks|0d 01 01 00 00 00|04 00 00 00 00 06 00 00 00 0d 01 01 00 00 00
+
+# ResumeClocks
+ResumeClocks|0e 01 02 00 00 00|04 00 00 00 00 06 00 00 00 0e 01 02 00 00 00
+
+# FlushFrame: contextId=1
+FlushFrame|0f 01 03 00 00 00 01 00 00 00|04 01 00 00 00 0a 00 00 00 0f 01 03 00 00 00 01 00 00 00
+
+# Snapshot: contextId=1
+Snapshot|10 01 04 00 00 00 01 00 00 00|04 01 00 00 00 0a 00 00 00 10 01 04 00 00 00 01 00 00 00
+
+# SnapshotServed: seq=1 gen=0 ctx=1 hash=0 dump vazio, mesmo correlationId do Snapshot
+SnapshotServed|0a 02 04 00 00 00 01 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00|02 01 00 00 00 1e 00 00 00 0a 02 04 00 00 00 01 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+# Reload: contextId=1
+Reload|04 01 01 00 00 00 01 00 00 00|04 01 00 00 00 0a 00 00 00 04 01 01 00 00 00 01 00 00 00
+
+# Stop: contextId=1
+Stop|05 01 01 00 00 00 01 00 00 00|04 01 00 00 00 0a 00 00 00 05 01 01 00 00 00 01 00 00 00
+
+# HistoryGo: contextId=1 delta=-1
+HistoryGo|06 01 0d 00 00 00 01 00 00 00 ff ff ff ff|04 01 00 00 00 0e 00 00 00 06 01 0d 00 00 00 01 00 00 00 ff ff ff ff
+
+# ViewportSet: contextId=1 800x600
+ViewportSet|07 01 0c 00 00 00 01 00 00 00 20 03 00 00 58 02 00 00|04 01 00 00 00 12 00 00 00 07 01 0c 00 00 00 01 00 00 00 20 03 00 00 58 02 00 00
+
+# Input: down corr=11 ctx=1 node=5 local=32768,32768 button=0
+Input|08 01 0b 00 00 00 01 00 00 00 01 05 00 00 00 00 80 00 80 00|04 01 00 00 00 14 00 00 00 08 01 0b 00 00 00 01 00 00 00 01 05 00 00 00 00 80 00 80 00
+

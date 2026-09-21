@@ -1,0 +1,11 @@
+# Mozconfig Speculum — Gecko ESR 153. Ver docs/gecko-engine/03-build.md.
+# NÃO habilitar --enable-artifact-builds: baixa C++ pré-compilado; invalida medição de iteração.
+
+ac_add_options --enable-application=browser
+ac_add_options --enable-optimize
+ac_add_options --disable-debug
+ac_add_options --enable-debug-symbols
+ac_add_options --with-ccache=sccache
+
+# Explicitamente ausente:
+# ac_add_options --enable-artifact-builds

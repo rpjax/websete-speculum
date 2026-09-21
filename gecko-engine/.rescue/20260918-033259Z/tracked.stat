@@ -1,0 +1,27 @@
+ docshell/base/BrowsingContext.cpp          |     6 +
+ docshell/base/BrowsingContext.h            |    13 +-
+ docshell/base/CanonicalBrowsingContext.cpp |     4 +
+ dom/base/Document.cpp                      |    78 +-
+ dom/base/Document.h                        |    20 +
+ dom/base/Element.cpp                       |     2 +
+ dom/base/ShadowRoot.cpp                    |    18 +
+ dom/base/SpeculumMutationObserver.cpp      |   724 ++
+ dom/base/SpeculumMutationObserver.h        |   105 +
+ dom/base/SpeculumNodeSource.cpp            |   685 ++
+ dom/base/SpeculumNodeSource.h              |    83 +
+ dom/base/moz.build                         |    11 +-
+ dom/base/nsGlobalWindowInner.cpp           |    15 +
+ dom/ipc/ContentChild.cpp                   | 10373 ++++++++++++++-------------
+ dom/ipc/ContentChild.h                     |    18 +
+ dom/ipc/ContentParent.cpp                  |   124 +
+ dom/ipc/ContentParent.h                    |    25 +
+ dom/ipc/PContent.ipdl                      |  4044 +++++------
+ dom/ipc/SpeculumControlAbi.cpp             |   196 +
+ dom/ipc/SpeculumControlAbi.h               |   101 +
+ dom/ipc/SpeculumMint.cpp                   |    45 +
+ dom/ipc/SpeculumMint.h                     |    21 +
+ dom/ipc/SpeculumProjectionRuntime.cpp      |  2346 ++++++
+ dom/ipc/SpeculumProjectionRuntime.h        |    55 +
+ dom/ipc/moz.build                          |    12 +
+ ipc/ipdl/sync-messages.ini                 |    10 +
+ 26 files changed, 11981 insertions(+), 7153 deletions(-)

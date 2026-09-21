@@ -1,0 +1,8 @@
+url=https://example.com
+label=ipc
+stamp=20260912-140315
+gecko=/root/speculum-gecko/checkout
+speculum_frame_dir=/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260912-140315-ipc
+gecko_commit=9aaffa3b3d8877c6d00c8d55cc196aac276cbd2d
+speculum_commit=66030830f458a83261e1863edce841d535858277
+binary_mtime=2026-09-11 12:25:02.333932455 -0300

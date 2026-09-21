@@ -6,8 +6,15 @@
   var __getOwnPropNames = Object.getOwnPropertyNames;
   var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __esm = (fn, res) => function __init() {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  };
   var __commonJS = (cb, mod) => function __require() {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  };
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
@@ -296,7 +303,7 @@
       var propSet_1 = require_propSet();
       var frame_1 = require_frame();
       var limits_1 = require_limits();
-      function peekFrameHeader2(bytes) {
+      function peekFrameHeader3(bytes) {
         if (bytes.byteLength < frame_1.FRAME_PREFIX_BYTES)
           return null;
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -312,7 +319,7 @@
           partCount: view.getUint16(18, true)
         };
       }
-      exports.peekFrameHeader = peekFrameHeader2;
+      exports.peekFrameHeader = peekFrameHeader3;
       var WIRE_VERSION = frame_1.FRAME_WIRE_VERSION;
       var WIRE_MAGIC = 20560;
       var LOCAL_STR_BIT = 2147483648;
@@ -366,7 +373,7 @@
           return textDecoder.decode(this.bytes_(len));
         }
       };
-      var PersistentStringTable = class {
+      var PersistentStringTable2 = class {
         byId = /* @__PURE__ */ new Map();
         define(strId, value) {
           this.byId.set(strId, value);
@@ -378,8 +385,8 @@
           this.byId.clear();
         }
       };
-      exports.PersistentStringTable = PersistentStringTable;
-      function decodeFramePart(input, persistent) {
+      exports.PersistentStringTable = PersistentStringTable2;
+      function decodeFramePart2(input, persistent) {
         const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
         try {
           const r = new ByteReader(bytes);
@@ -440,7 +447,7 @@
           return malformed(err instanceof Error ? err.message : String(err));
         }
       }
-      exports.decodeFramePart = decodeFramePart;
+      exports.decodeFramePart = decodeFramePart2;
       function malformed(message) {
         return { ok: false, reason: "malformed", message };
       }
@@ -636,7 +643,7 @@
             return null;
         }
       }
-      var FramePartAssembler = class {
+      var FramePartAssembler2 = class {
         pending = /* @__PURE__ */ new Map();
         ingest(part) {
           if (part.partCount <= 1) {
@@ -667,7 +674,7 @@
           this.pending.clear();
         }
       };
-      exports.FramePartAssembler = FramePartAssembler;
+      exports.FramePartAssembler = FramePartAssembler2;
       function assemble(last, parts) {
         const ops = [];
         for (const part of parts) {
@@ -1774,12 +1781,77 @@
     "../packages/page-projection/dist/core/nestedNav.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.isNestedHostNavAttr = void 0;
+      exports.ensureNestedHostSandboxAccess = exports.applyNestedHostSandboxAttr = exports.nestedHostSandboxAttrValue = exports.isNestedHostSandboxAttr = exports.isNestedHostNavAttr = void 0;
       function isNestedHostNavAttr(name) {
         const n = name.toLowerCase();
         return n === "src" || n === "srcdoc";
       }
       exports.isNestedHostNavAttr = isNestedHostNavAttr;
+      function isNestedHostSandboxAttr(name) {
+        return name.toLowerCase() === "sandbox";
+      }
+      exports.isNestedHostSandboxAttr = isNestedHostSandboxAttr;
+      function nestedHostSandboxAttrValue(raw) {
+        if (raw === null)
+          return null;
+        const tokens = raw.split(/\s+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0 && t !== "allow-scripts");
+        if (!tokens.includes("allow-same-origin")) {
+          tokens.push("allow-same-origin");
+        }
+        return tokens.join(" ");
+      }
+      exports.nestedHostSandboxAttrValue = nestedHostSandboxAttrValue;
+      function sandboxTokenSet(raw) {
+        const value = nestedHostSandboxAttrValue(raw);
+        if (value === null || value.length === 0)
+          return /* @__PURE__ */ new Set(["allow-same-origin"]);
+        return new Set(value.split(" ").filter((t) => t.length > 0));
+      }
+      function sandboxSetsEqual(a, b) {
+        if (a === null && b === null)
+          return true;
+        if (a === null || b === null)
+          return false;
+        const sa = sandboxTokenSet(a);
+        const sb = sandboxTokenSet(b);
+        if (sa.size !== sb.size)
+          return false;
+        for (const t of sa) {
+          if (!sb.has(t))
+            return false;
+        }
+        return true;
+      }
+      function applyNestedHostSandboxAttr(iframe, raw) {
+        const current = iframe.getAttribute("sandbox");
+        const next = nestedHostSandboxAttrValue(raw);
+        if (next === null) {
+          if (current === null)
+            return false;
+          iframe.removeAttribute("sandbox");
+          return true;
+        }
+        if (current === next)
+          return false;
+        if (current !== null) {
+          const liveTokens = current.split(/\s+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0);
+          if (!liveTokens.includes("allow-scripts") && liveTokens.includes("allow-same-origin") && sandboxSetsEqual(current, next)) {
+            return false;
+          }
+        }
+        iframe.setAttribute("sandbox", next);
+        return true;
+      }
+      exports.applyNestedHostSandboxAttr = applyNestedHostSandboxAttr;
+      function ensureNestedHostSandboxAccess(iframe) {
+        if (iframe.localName.toLowerCase() !== "iframe")
+          return false;
+        const raw = iframe.getAttribute("sandbox");
+        if (raw === null)
+          return false;
+        return applyNestedHostSandboxAttr(iframe, raw);
+      }
+      exports.ensureNestedHostSandboxAccess = ensureNestedHostSandboxAccess;
     }
   });
 
@@ -1852,13 +1924,13 @@
         const host = head ?? doc.documentElement;
         if (host == null)
           return false;
-        const el = doc.createElement("style");
-        el.setAttribute(exports.PARITY_STYLE_ATTR, "");
-        el.textContent = exports.SCRIPTING_ON_PAINT_PARITY_CSS;
+        const el2 = doc.createElement("style");
+        el2.setAttribute(exports.PARITY_STYLE_ATTR, "");
+        el2.textContent = exports.SCRIPTING_ON_PAINT_PARITY_CSS;
         if (head != null)
-          head.appendChild(el);
+          head.appendChild(el2);
         else
-          host.insertBefore(el, host.firstChild);
+          host.insertBefore(el2, host.firstChild);
         return true;
       }
       function withScriptingOnPaintParity(doc, sheets) {
@@ -1878,7 +1950,7 @@
     "../packages/page-projection/dist/projected/projectedBlankIframe.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = void 0;
+      exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.constructedStyleSheetInit = exports.stripProjectedSkeleton = exports.reincarnateProjectedStandardsSrcdoc = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = void 0;
       exports.PROJECTED_SKELETON_META_NAME = "speculum-projected-skeleton";
       exports.PROJECTED_K5_CSP = "script-src 'none'; object-src 'none'";
       exports.PROJECTED_STANDARDS_SRCDOC = `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${exports.PROJECTED_K5_CSP}"><meta name="${exports.PROJECTED_SKELETON_META_NAME}" content="1"></head><body></body></html>`;
@@ -1889,15 +1961,55 @@
         err.phase = "establish";
         return err;
       }
-      function stampProjectedStandardsSrcdoc(iframe) {
+      function stampProjectedStandardsSrcdoc2(iframe) {
         iframe.srcdoc = exports.PROJECTED_STANDARDS_SRCDOC;
       }
-      exports.stampProjectedStandardsSrcdoc = stampProjectedStandardsSrcdoc;
+      exports.stampProjectedStandardsSrcdoc = stampProjectedStandardsSrcdoc2;
+      function reincarnateProjectedStandardsSrcdoc(iframe) {
+        iframe.srcdoc = "";
+        stampProjectedStandardsSrcdoc2(iframe);
+      }
+      exports.reincarnateProjectedStandardsSrcdoc = reincarnateProjectedStandardsSrcdoc;
       function stripProjectedSkeleton(doc) {
         while (doc.firstChild)
           doc.removeChild(doc.firstChild);
       }
       exports.stripProjectedSkeleton = stripProjectedSkeleton;
+      var PROJECTED_DOCUMENT_BASE_ATTR = "data-speculum-document-base";
+      function constructedStyleSheetInit(pageUrl) {
+        if (!pageUrl)
+          return void 0;
+        try {
+          return { baseURL: new URL(pageUrl).href };
+        } catch {
+          return void 0;
+        }
+      }
+      exports.constructedStyleSheetInit = constructedStyleSheetInit;
+      function ensureProjectedDocumentBase(doc, pageUrl) {
+        if (!pageUrl)
+          return;
+        const head = doc.head;
+        if (!head)
+          return;
+        let href;
+        try {
+          href = new URL(pageUrl).href;
+        } catch {
+          return;
+        }
+        const existing = head.querySelector(`base[${PROJECTED_DOCUMENT_BASE_ATTR}]`);
+        if (existing) {
+          if (existing.getAttribute("href") !== href)
+            existing.setAttribute("href", href);
+          return;
+        }
+        const base = doc.createElement("base");
+        base.setAttribute(PROJECTED_DOCUMENT_BASE_ATTR, "1");
+        base.href = href;
+        head.insertBefore(base, head.firstChild);
+      }
+      exports.ensureProjectedDocumentBase = ensureProjectedDocumentBase;
       function ensureProjectedK5Csp(doc) {
         let html = doc.documentElement;
         if (!html) {
@@ -1940,18 +2052,22 @@
         return isProjectedStandardsSkeleton(doc);
       }
       exports.isProjectedStandardsDocument = isProjectedStandardsDocument;
-      function whenProjectedStandardsReady(iframe, opts = {}) {
+      function whenProjectedStandardsReady2(iframe, opts = {}) {
         const timeoutMs = opts.timeoutMs ?? exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS;
         const signal = opts.signal;
         return new Promise((resolve, reject) => {
           let settled = false;
           let timer;
+          let raf = 0;
           const settle = (fn) => {
             if (settled)
               return;
             settled = true;
             if (timer !== void 0)
               clearTimeout(timer);
+            if (raf && typeof cancelAnimationFrame === "function")
+              cancelAnimationFrame(raf);
+            raf = 0;
             iframe.removeEventListener("load", onLoad);
             signal?.removeEventListener("abort", onAbort);
             fn();
@@ -1967,6 +2083,8 @@
           const onLoad = () => {
             if (adopt())
               return;
+            if (iframe.srcdoc === exports.PROJECTED_STANDARDS_SRCDOC)
+              return;
             settle(() => reject(fault("projected_standards_ready_invalid", "projected blank: load without stamped skeleton document")));
           };
           const onAbort = () => {
@@ -1980,12 +2098,22 @@
             return;
           iframe.addEventListener("load", onLoad);
           signal?.addEventListener("abort", onAbort, { once: true });
+          const poke = () => {
+            if (settled)
+              return;
+            if (adopt())
+              return;
+            if (typeof requestAnimationFrame === "function") {
+              raf = requestAnimationFrame(poke);
+            }
+          };
+          poke();
           timer = setTimeout(() => {
             settle(() => reject(fault("projected_standards_ready_timeout", `projected blank: standards document not ready within ${timeoutMs}ms`)));
           }, timeoutMs);
         });
       }
-      exports.whenProjectedStandardsReady = whenProjectedStandardsReady;
+      exports.whenProjectedStandardsReady = whenProjectedStandardsReady2;
     }
   });
 
@@ -2014,6 +2142,37 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/ownedStylesheetLink.js
+  var require_ownedStylesheetLink = __commonJS({
+    "../packages/page-projection/dist/projected/ownedStylesheetLink.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.disableProjectedNativeStylesheet = exports.isHtmlStylesheetLink = void 0;
+      function isHtmlStylesheetLink(node) {
+        if (node.nodeType !== 1)
+          return false;
+        const el2 = node;
+        if (el2.localName.toLowerCase() !== "link")
+          return false;
+        const link = el2;
+        try {
+          if (link.relList?.contains("stylesheet"))
+            return true;
+        } catch {
+        }
+        const rel = (link.rel || el2.getAttribute("rel") || "").toLowerCase();
+        return rel.split(/\s+/).includes("stylesheet");
+      }
+      exports.isHtmlStylesheetLink = isHtmlStylesheetLink;
+      function disableProjectedNativeStylesheet(node) {
+        if (!isHtmlStylesheetLink(node))
+          return;
+        node.disabled = true;
+      }
+      exports.disableProjectedNativeStylesheet = disableProjectedNativeStylesheet;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/applyDom.js
   var require_applyDom = __commonJS({
     "../packages/page-projection/dist/projected/applyDom.js"(exports) {
@@ -2035,7 +2194,8 @@
       var scriptingOnPaintParity_1 = require_scriptingOnPaintParity();
       var projectedBlankIframe_1 = require_projectedBlankIframe();
       var closedShadowLookup_1 = require_closedShadowLookup();
-      var DomFrameApplier = class {
+      var ownedStylesheetLink_1 = require_ownedStylesheetLink();
+      var DomFrameApplier2 = class {
         queued = [];
         raf = null;
         doc;
@@ -2050,6 +2210,7 @@
         childScopes = /* @__PURE__ */ new Map();
         nestedHostIds = /* @__PURE__ */ new Set();
         paritySheet = null;
+        applyingSequence = 0;
         constructor(doc, registry, options = {}) {
           this.doc = doc;
           this.registry = registry;
@@ -2151,6 +2312,7 @@
         }
         /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
         applyFrame(frame) {
+          this.applyingSequence = frame.sequence;
           const start = performance.now();
           if (!frame.resync && frame.preTableHash !== this.table.tableHash) {
             return this.fail("precondition", "preTableHash", frame.preTableHash, this.table.tableHash);
@@ -2162,6 +2324,9 @@
             }
             return this.failOp(result.reason, result.opName, result.id, result.message);
           }
+          const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || "";
+          if (documentBase)
+            (0, projectedBlankIframe_1.ensureProjectedDocumentBase)(this.doc, documentBase);
           for (let i = 0; i < frame.ops.length; i++) {
             const op = frame.ops[i];
             try {
@@ -2182,15 +2347,29 @@
         }
         fail(reason, opName, a, b) {
           if (typeof a === "bigint") {
-            this.options.onDesync?.({ reason, op: opName, id: 0, expected: a, actual: b });
+            this.options.onDesync?.({
+              reason,
+              op: opName,
+              id: 0,
+              expected: a,
+              actual: b,
+              sequence: this.applyingSequence
+            });
           } else {
-            this.options.onDesync?.({ reason, op: opName, id: a });
+            this.options.onDesync?.({ reason, op: opName, id: a, sequence: this.applyingSequence });
           }
           return false;
         }
         /** Phase-1 Pre / `MAX_ROWS` failures — `message` for diagnostics, explicit `phase`. */
         failOp(reason, opName, id, message) {
-          this.options.onDesync?.({ reason, op: opName, id, message, phase: "apply" });
+          this.options.onDesync?.({
+            reason,
+            op: opName,
+            id,
+            message,
+            phase: "apply",
+            sequence: this.applyingSequence
+          });
           return false;
         }
         applyOp(op) {
@@ -2397,7 +2576,8 @@
             return this.fail("bad_target", "sheetNew", op.id);
           let sheet;
           try {
-            sheet = new view.CSSStyleSheet();
+            const init = (0, projectedBlankIframe_1.constructedStyleSheetInit)(this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl);
+            sheet = init ? new view.CSSStyleSheet(init) : new view.CSSStyleSheet();
           } catch {
             return this.fail("malformed", "sheetNew", op.id);
           }
@@ -2479,8 +2659,10 @@
           let inserted;
           try {
             inserted = sheet.insertRule(this.options.stampCssText?.(op.text) ?? op.text, index);
-          } catch {
-            return this.fail("malformed", "ruleNew", op.id);
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
+            const text = (op.text || "").slice(0, 180);
+            return this.failOp("malformed", "ruleNew", op.id, `insertRule failed sheet=${op.sheet} before=${op.before}: ${detail} :: ${text}`);
           }
           const rule = sheet.cssRules.item(inserted);
           if (rule === null)
@@ -2564,25 +2746,44 @@
           let node;
           if (op.kind === opcodes_1.NodeKind.Element) {
             if (op.ns === elementNs_1.ElementNs.Custom && !(op.uri && op.uri.length > 0)) {
-              return this.fail("malformed", "nodeNew", op.id);
+              return this.failOp("malformed", "nodeNew", op.id, "NODE_NEW Custom ns without uri");
             }
             const uri = (0, elementNs_1.elementNsUri)(op.ns, op.uri);
-            node = this.doc.createElementNS(uri, op.name);
-            if (op.nestedHost === true) {
-              (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(node);
+            try {
+              node = this.doc.createElementNS(uri, op.name);
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : String(err);
+              return this.failOp("malformed", "nodeNew", op.id, `createElementNS failed kind=${op.kind} name=${op.name} ns=${op.ns}: ${detail}`);
             }
             const attrs = op.nestedHost === true ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name)) : op.attrs;
             if (!applyAttrs(node, attrs, this.options.stampUrl)) {
-              return this.fail("malformed", "nodeNew", op.id);
+              const attrNames = attrs.map((a) => a.name).join(",");
+              return this.failOp("malformed", "nodeNew", op.id, `setAttribute failed on <${op.name}> attrs=[${attrNames}]`);
+            }
+            (0, ownedStylesheetLink_1.disableProjectedNativeStylesheet)(node);
+            if (op.nestedHost === true && node.localName.toLowerCase() === "iframe") {
+              const iframe = node;
+              (0, nestedNav_1.ensureNestedHostSandboxAccess)(iframe);
+              (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
             }
             if (op.nestedHost === true && op.childScopeId != null) {
               this.childScopes.set(op.id, op.childScopeId);
               this.nestedHostIds.add(op.id);
             }
           } else if (op.kind === opcodes_1.NodeKind.Text) {
-            node = this.doc.createTextNode(op.value);
+            try {
+              node = this.doc.createTextNode(op.value);
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : String(err);
+              return this.failOp("malformed", "nodeNew", op.id, `createTextNode failed len=${op.value?.length ?? -1}: ${detail}`);
+            }
           } else if (op.kind === opcodes_1.NodeKind.Comment) {
-            node = this.doc.createComment(op.value);
+            try {
+              node = this.doc.createComment(op.value);
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : String(err);
+              return this.failOp("malformed", "nodeNew", op.id, `createComment failed: ${detail}`);
+            }
           } else if (op.kind === opcodes_1.NodeKind.Doctype) {
             const want = op.name || "html";
             const existing = this.doc.doctype;
@@ -2601,8 +2802,8 @@
             const host = this.registry.get(op.host);
             if (!host || host.nodeType !== Node.ELEMENT_NODE)
               return this.fail("address_miss", "nodeNew", op.host);
-            const el = host;
-            if (el.shadowRoot)
+            const el2 = host;
+            if (el2.shadowRoot)
               return this.fail("bad_target", "nodeNew", op.id);
             const init = { mode: op.mode === frame_1.SHADOW_MODE_CLOSED ? "closed" : "open" };
             if ((op.initFlags & frame_1.SHADOW_INIT_DELEGATES_FOCUS) !== 0)
@@ -2613,15 +2814,16 @@
             if ((op.initFlags & frame_1.SHADOW_INIT_SERIALIZABLE) !== 0)
               extra.serializable = true;
             try {
-              node = el.attachShadow(init);
+              node = el2.attachShadow(init);
               if (init.mode === "closed") {
-                (0, closedShadowLookup_1.registerClosedShadowRoot)(el, node);
+                (0, closedShadowLookup_1.registerClosedShadowRoot)(el2, node);
               }
-            } catch {
-              return this.fail("malformed", "nodeNew", op.id);
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : String(err);
+              return this.failOp("malformed", "nodeNew", op.id, `attachShadow failed host=${op.host} mode=${op.mode} flags=${op.initFlags}: ${detail}`);
             }
           } else {
-            return this.fail("bad_target", "nodeNew", op.id);
+            return this.failOp("malformed", "nodeNew", op.id, `NODE_NEW unsupported kind=${op.kind}`);
           }
           this.registry.register(op.id, node);
           return true;
@@ -2641,15 +2843,25 @@
             const node = this.registry.get(id);
             if (!node)
               return this.fail("address_miss", "insert", id);
-            if (isHtmlScriptElement(node))
+            if (isHtmlScriptElement(node)) {
               (0, projectedBlankIframe_1.ensureProjectedK5Csp)(this.doc);
+              const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || "";
+              if (documentBase)
+                (0, projectedBlankIframe_1.ensureProjectedDocumentBase)(this.doc, documentBase);
+            }
             if (node.nodeType === Node.DOCUMENT_TYPE_NODE && parent === this.doc && this.doc.doctype === node) {
               continue;
             }
             parent.insertBefore(node, before);
             this.maybeInstallNestedHost(id, node);
           }
+          this.pinDocumentBase();
           return true;
+        }
+        pinDocumentBase() {
+          const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || "";
+          if (documentBase)
+            (0, projectedBlankIframe_1.ensureProjectedDocumentBase)(this.doc, documentBase);
         }
         applyRemove(op) {
           const parent = this.registry.get(op.parent);
@@ -2681,9 +2893,20 @@
           if (isHtmlScriptElement(node) && op.attrs.some((a) => a.name === "src" && a.value.length > 0)) {
             (0, projectedBlankIframe_1.ensureProjectedK5Csp)(this.doc);
           }
-          const attrs = this.nestedHostIds.has(op.node) ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name)) : op.attrs;
+          const attrs = this.nestedHostIds.has(op.node) ? op.attrs.filter((a) => !(0, nestedNav_1.isNestedHostNavAttr)(a.name) && !(0, nestedNav_1.isNestedHostSandboxAttr)(a.name)) : op.attrs;
           if (!applyAttrs(node, attrs, this.options.stampUrl)) {
             return this.fail("malformed", "attrSet", op.node);
+          }
+          (0, ownedStylesheetLink_1.disableProjectedNativeStylesheet)(node);
+          if (this.nestedHostIds.has(op.node) && node.nodeType === Node.ELEMENT_NODE && node.localName.toLowerCase() === "iframe") {
+            const iframe = node;
+            const incomingSandbox = op.attrs.find((a) => (0, nestedNav_1.isNestedHostSandboxAttr)(a.name));
+            const wroteSandbox = incomingSandbox ? (0, nestedNav_1.applyNestedHostSandboxAttr)(iframe, incomingSandbox.value) : (0, nestedNav_1.ensureNestedHostSandboxAccess)(iframe);
+            if (wroteSandbox) {
+              (0, projectedBlankIframe_1.reincarnateProjectedStandardsSrcdoc)(iframe);
+              this.maybeInstallNestedHost(op.node, node, { restart: true });
+              return true;
+            }
           }
           this.maybeInstallNestedHost(op.node, node);
           return true;
@@ -2692,9 +2915,21 @@
           const node = this.registry.get(op.node);
           if (!node || node.nodeType !== Node.ELEMENT_NODE)
             return this.fail("address_miss", "attrDel", op.node);
-          const el = node;
-          for (let i = 0; i < op.names.length; i++)
-            el.removeAttribute(op.names[i]);
+          const el2 = node;
+          const isNestedIframe = this.nestedHostIds.has(op.node) && el2.localName.toLowerCase() === "iframe";
+          let wroteSandbox = false;
+          for (let i = 0; i < op.names.length; i++) {
+            const name = op.names[i];
+            if (isNestedIframe && (0, nestedNav_1.isNestedHostSandboxAttr)(name)) {
+              wroteSandbox = (0, nestedNav_1.applyNestedHostSandboxAttr)(el2, null) || wroteSandbox;
+              continue;
+            }
+            el2.removeAttribute(name);
+          }
+          if (wroteSandbox) {
+            (0, projectedBlankIframe_1.reincarnateProjectedStandardsSrcdoc)(el2);
+            this.maybeInstallNestedHost(op.node, node, { restart: true });
+          }
           return true;
         }
         applyTextSet(op) {
@@ -2712,47 +2947,75 @@
           const node = this.registry.get(op.node);
           if (!node || node.nodeType !== Node.ELEMENT_NODE)
             return this.fail("address_miss", "propSet", op.node);
-          const el = node;
-          if (op.propId === propSet_1.PROP_ID_VALUE && "value" in el) {
-            el.value = String(op.value);
+          const el2 = node;
+          if (op.propId === propSet_1.PROP_ID_VALUE && "value" in el2) {
+            el2.value = String(op.value);
             return true;
           }
-          if (op.propId === propSet_1.PROP_ID_CHECKED && "checked" in el) {
-            el.checked = Boolean(op.value);
+          if (op.propId === propSet_1.PROP_ID_CHECKED && "checked" in el2) {
+            el2.checked = Boolean(op.value);
             return true;
           }
-          if (op.propId === propSet_1.PROP_ID_SELECTED && el instanceof HTMLOptionElement) {
-            el.selected = Boolean(op.value);
+          if (op.propId === propSet_1.PROP_ID_SELECTED && el2 instanceof HTMLOptionElement) {
+            el2.selected = Boolean(op.value);
             return true;
           }
           return true;
         }
         /**
-         * Install nested apply when the row is a marked host with a live browsing context.
-         * Invariant: install is a function of host state (marked + contentWindow), not which op
-         * revealed it (NODE_NEW, AttrSet, INSERT, …).
+         * Arm nested apply when the row is a marked host. Stamp already happened on
+         * NODE_NEW; wait for the skeleton **before** INSERT so `load` is not missed.
+         * `contentWindow` is optional here — disconnected iframes have none yet.
+         * `restart` after a sandbox write that reincarnated the browsing context.
          */
-        maybeInstallNestedHost(id, node) {
+        maybeInstallNestedHost(id, node, hint) {
           if (!this.nestedHostIds.has(id))
             return;
+          if (node.nodeType !== Node.ELEMENT_NODE || node.localName.toLowerCase() !== "iframe") {
+            return;
+          }
           const childScopeId = this.childScopes.get(id);
           if (childScopeId === void 0)
             return;
-          const el = node;
-          if (el.contentWindow)
-            this.options.onNestedHost?.(el, childScopeId);
+          this.options.onNestedHost?.(node, childScopeId, hint);
         }
       };
-      exports.DomFrameApplier = DomFrameApplier;
+      exports.DomFrameApplier = DomFrameApplier2;
       function isHtmlScriptElement(node) {
         return node.nodeType === Node.ELEMENT_NODE && node.localName === "script" && node.namespaceURI === "http://www.w3.org/1999/xhtml";
       }
-      function applyAttrs(el, attrs, stampUrl) {
+      function applyAttrs(el2, attrs, stampUrl) {
         return (0, attrApply_1.applyAttrPairs)((name, value) => {
           const stamped = stampUrl ? stampUrl(name, value) : value;
-          el.setAttribute(name, stamped);
+          el2.setAttribute(name, stamped);
         }, attrs);
       }
+    }
+  });
+
+  // ../packages/page-projection/dist/projected/pendingNestedHostAudit.js
+  var require_pendingNestedHostAudit = __commonJS({
+    "../packages/page-projection/dist/projected/pendingNestedHostAudit.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.pendingNestedHostAuditMessage = void 0;
+      function pendingNestedHostAuditMessage(pendingByContext, opts) {
+        for (const [contextId, queueLen] of pendingByContext) {
+          if (queueLen === 0)
+            continue;
+          if (opts.hasSession(contextId))
+            continue;
+          const hostNodeId = opts.hostNodeForContext(contextId);
+          if (hostNodeId === void 0)
+            continue;
+          if (!opts.isHostMarked(hostNodeId)) {
+            return `pending nested frames ctx${contextId} host node ${hostNodeId} not marked (${queueLen} queued)`;
+          }
+          return `pending nested frames ctx${contextId} host node ${hostNodeId} never bound (${queueLen} queued)`;
+        }
+        return null;
+      }
+      exports.pendingNestedHostAuditMessage = pendingNestedHostAuditMessage;
     }
   });
 
@@ -2773,12 +3036,12 @@
       }
       exports.eventTargetElement = eventTargetElement;
       function isProjectedNavigable(target) {
-        const el = eventTargetElement(target);
-        if (el == null)
+        const el2 = eventTargetElement(target);
+        if (el2 == null)
           return false;
-        if (typeof el.closest !== "function")
+        if (typeof el2.closest !== "function")
           return false;
-        return el.closest("a[href], area[href]") != null;
+        return el2.closest("a[href], area[href]") != null;
       }
       exports.isProjectedNavigable = isProjectedNavigable;
       function suppressProjectedDefault(event) {
@@ -2788,9 +3051,9 @@
       }
       exports.suppressProjectedDefault = suppressProjectedDefault;
       function layoutViewportSize(win) {
-        const el = win.document?.documentElement;
-        const width = el?.clientWidth || win.innerWidth;
-        const height = el?.clientHeight || win.innerHeight;
+        const el2 = win.document?.documentElement;
+        const width = el2?.clientWidth || win.innerWidth;
+        const height = el2?.clientHeight || win.innerHeight;
         return { width, height };
       }
       exports.layoutViewportSize = layoutViewportSize;
@@ -2812,8 +3075,10 @@
           if (isProjectedNavigable(event.target))
             suppressProjectedDefault(event);
         };
-        const onTouchStart = (event) => {
+        const onTouchStart = (_event) => {
           opts?.onTouchStartSeen?.();
+        };
+        const onTouchEnd = (event) => {
           if (isProjectedNavigable(event.target))
             suppressProjectedDefault(event);
         };
@@ -2822,7 +3087,8 @@
         doc.addEventListener("dblclick", onActivate, true);
         doc.addEventListener("submit", onActivate, true);
         doc.addEventListener("pointerdown", onPointerDown, true);
-        doc.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+        doc.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+        doc.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
         return () => {
           doc.removeEventListener("click", onActivate, true);
           doc.removeEventListener("auxclick", onActivate, true);
@@ -2830,6 +3096,7 @@
           doc.removeEventListener("submit", onActivate, true);
           doc.removeEventListener("pointerdown", onPointerDown, true);
           doc.removeEventListener("touchstart", onTouchStart, true);
+          doc.removeEventListener("touchend", onTouchEnd, true);
         };
       }
       exports.attachProjectedNativeGuard = attachProjectedNativeGuard;
@@ -2936,7 +3203,7 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.PageProjectionRegistry = void 0;
       var closedShadowLookup_1 = require_closedShadowLookup();
-      var PageProjectionRegistry = class {
+      var PageProjectionRegistry2 = class {
         nodesById = /* @__PURE__ */ new Map();
         idsByNode = /* @__PURE__ */ new WeakMap();
         /** Registers (or re-registers) one node under `id`. O(1). */
@@ -3015,7 +3282,7 @@
           this.nodesById.clear();
         }
       };
-      exports.PageProjectionRegistry = PageProjectionRegistry;
+      exports.PageProjectionRegistry = PageProjectionRegistry2;
     }
   });
 
@@ -3208,12 +3475,99 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/srcsetParse.js
+  var require_srcsetParse = __commonJS({
+    "../packages/page-projection/dist/projected/srcsetParse.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.mapSrcset = exports.parseSrcset = void 0;
+      function isAsciiWhitespace(c) {
+        return c === " " || c === "	" || c === "\n" || c === "\r" || c === "\f";
+      }
+      function parseSrcset(input) {
+        const candidates = [];
+        let pos = 0;
+        const len = input.length;
+        while (pos < len) {
+          while (pos < len && (input[pos] === "," || isAsciiWhitespace(input[pos])))
+            pos += 1;
+          if (pos >= len)
+            break;
+          const urlStart = pos;
+          while (pos < len && !isAsciiWhitespace(input[pos]))
+            pos += 1;
+          let url = input.slice(urlStart, pos);
+          if (url.endsWith(",")) {
+            url = url.replace(/,+$/, "");
+            if (url)
+              candidates.push({ url, descriptor: "" });
+            continue;
+          }
+          while (pos < len && isAsciiWhitespace(input[pos]))
+            pos += 1;
+          const descParts = [];
+          let current = "";
+          let state = "in";
+          while (pos < len) {
+            const c = input[pos];
+            if (state === "in") {
+              if (isAsciiWhitespace(c)) {
+                if (current) {
+                  descParts.push(current);
+                  current = "";
+                  state = "after";
+                }
+                pos += 1;
+              } else if (c === ",") {
+                if (current)
+                  descParts.push(current);
+                current = "";
+                pos += 1;
+                break;
+              } else if (c === "(") {
+                current += c;
+                state = "parens";
+                pos += 1;
+              } else {
+                current += c;
+                pos += 1;
+              }
+            } else if (state === "parens") {
+              current += c;
+              if (c === ")")
+                state = "in";
+              pos += 1;
+            } else if (isAsciiWhitespace(c)) {
+              pos += 1;
+            } else {
+              state = "in";
+            }
+          }
+          if (current)
+            descParts.push(current);
+          if (url)
+            candidates.push({ url, descriptor: descParts.join(" ") });
+        }
+        return candidates;
+      }
+      exports.parseSrcset = parseSrcset;
+      function mapSrcset(input, mapUrl) {
+        return parseSrcset(input).map((c) => {
+          const u = mapUrl(c.url);
+          return c.descriptor ? `${u} ${c.descriptor}` : u;
+        }).join(", ");
+      }
+      exports.mapSrcset = mapSrcset;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/sessionBindingAuth.js
   var require_sessionBindingAuth = __commonJS({
     "../packages/page-projection/dist/projected/sessionBindingAuth.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.stampAttrAuth = exports.stampAuthInServedBody = exports.stampCssTextAuth = exports.stampSrcsetAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = void 0;
+      var srcsetParse_1 = require_srcsetParse();
       exports.SessionAuthQueryParam = "speculum-session-token";
       exports.SessionCacheBustQueryParam = "speculum-cache-bust";
       function isVirtualAssetUrl(url) {
@@ -3261,16 +3615,7 @@
       function stampSrcsetAuth(value, token, assetBaseUrl) {
         if (!token || !value)
           return value;
-        return value.split(",").map((part) => {
-          const trimmed = part.trim();
-          if (!trimmed)
-            return part;
-          const bits = trimmed.split(/\s+/);
-          const u = bits[0];
-          const rest = bits.slice(1).join(" ");
-          const stamped = appendSessionAuth(u, token, assetBaseUrl);
-          return rest ? `${stamped} ${rest}` : stamped;
-        }).join(", ");
+        return (0, srcsetParse_1.mapSrcset)(value, (u) => appendSessionAuth(u, token, assetBaseUrl));
       }
       exports.stampSrcsetAuth = stampSrcsetAuth;
       function stampCssTextAuth(css, token, assetBaseUrl) {
@@ -3392,7 +3737,7 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.ProjectedApplyGate = exports.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK = exports.PROJECTED_APPLY_GATE_MAX_PENDING = void 0;
-      exports.PROJECTED_APPLY_GATE_MAX_PENDING = 64;
+      exports.PROJECTED_APPLY_GATE_MAX_PENDING = 256;
       exports.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK = 3;
       var ProjectedApplyGate = class {
         flightDepth = 0;
@@ -3456,6 +3801,8 @@
           if (this.flightDepth > 0)
             return;
           this.drainLoop(drain);
+          if (this.flightDepth > 0)
+            return;
           if (this.flightStartMs > 0) {
             this.onFlightEnd?.({
               maxDepth: this.maxDepth,
@@ -3488,6 +3835,21 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/resyncSwapPolicy.js
+  var require_resyncSwapPolicy = __commonJS({
+    "../packages/page-projection/dist/projected/resyncSwapPolicy.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.shouldApplyUnsolicitedResync = void 0;
+      function shouldApplyUnsolicitedResync(clientAsked, unsolicitedSwapsThisGeneration) {
+        if (clientAsked)
+          return true;
+        return unsolicitedSwapsThisGeneration < 1;
+      }
+      exports.shouldApplyUnsolicitedResync = shouldApplyUnsolicitedResync;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/nestedProjectedApply.js
   var require_nestedProjectedApply = __commonJS({
     "../packages/page-projection/dist/projected/nestedProjectedApply.js"(exports) {
@@ -3503,6 +3865,7 @@
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
       var projectedApplyGate_1 = require_projectedApplyGate();
+      var resyncSwapPolicy_1 = require_resyncSwapPolicy();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -3518,8 +3881,15 @@
         resyncExhausted = false;
         resyncBackoffTimer = null;
         resyncTimeoutTimer = null;
+        resyncBuildPending = false;
         generation = 1;
         lastSequence = 0;
+        /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
+        highestSeenSequence = 0;
+        /** Gate overflowed during a long rebuild — evaluate lag after drain, do not wipe live. */
+        lagCatchUp = false;
+        lagCatchUpsThisGeneration = 0;
+        unsolicitedResyncSwapsThisGeneration = 0;
         armed = false;
         everArmed = false;
         lastDesyncReason = null;
@@ -3534,6 +3904,7 @@
         onRequestResyncCb;
         getToken;
         getAssetBaseUrl;
+        getDocumentBaseUrl;
         constructor(opts) {
           this.contextId = opts.contextId;
           this.hostIframe = opts.hostIframe;
@@ -3544,6 +3915,7 @@
           this.onRequestResyncCb = opts.onRequestResync;
           this.getToken = opts.getToken;
           this.getAssetBaseUrl = opts.getAssetBaseUrl;
+          this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
           this.surface = (0, nestedResyncSurface_1.createNestedResyncSurface)(opts.hostIframe);
           const registry = new registry_1.PageProjectionRegistry();
           registry.register(frame_1.DOCUMENT_ID, opts.document);
@@ -3613,6 +3985,7 @@
           this.abandonResyncAttempt();
           this.applyGate.clear();
           this.applyGateOverflowStreak = 0;
+          this.lagCatchUp = false;
           void this.surface.reset();
           this.live.applier.dispose();
         }
@@ -3623,6 +3996,7 @@
           return new applyDom_1.DomFrameApplier(doc, registry, {
             stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, token(), base()),
             stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, token(), base()),
+            getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
             onWarn: (message) => {
               this.onTelemetry?.({
                 v: telemetry_1.TELEMETRY_WIRE_VERSION,
@@ -3653,10 +4027,16 @@
                 this.failResyncAttempt(info.reason);
               }
             },
-            onNestedHost: (iframe, childScopeId) => this.onNestedHostCb?.(iframe, childScopeId),
+            onNestedHost: (iframe, childScopeId, hint) => this.onNestedHostCb?.(iframe, childScopeId, hint),
             onNestedHostDrop: (childScopeId) => this.onNestedHostDropCb?.(childScopeId),
             onApplied: (frame, applyMs) => {
               if (state.swapped) {
+                this.lastSequence = frame.sequence;
+                if (this.lastDesyncReason === "sequence_gap" || this.lastDesyncReason === "lag") {
+                  this.lastDesyncReason = null;
+                  this.lastDesyncMessage = null;
+                  this.lagCatchUp = false;
+                }
                 this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
                 if (!this.armed) {
                   this.armed = true;
@@ -3668,7 +4048,7 @@
                 this.commitResyncSwap(frame, applyMs);
               }
             },
-            onOverrun: (durationMs, lastSequence) => {
+            onOverrun: (durationMs2, lastSequence) => {
               this.onTelemetry?.({
                 v: telemetry_1.TELEMETRY_WIRE_VERSION,
                 contextId: this.contextId,
@@ -3676,13 +4056,14 @@
                 t: performance.now(),
                 generation: this.generation,
                 sequence: lastSequence,
-                durationMs,
+                durationMs: durationMs2,
                 budgetMs: 4
               });
             }
           });
         }
         applyAssembled(frame) {
+          this.highestSeenSequence = Math.max(this.highestSeenSequence, frame.sequence);
           if (this.applyGate.blocked) {
             this.applyGate.push(frame);
             return;
@@ -3698,6 +4079,7 @@
         handleApplyGateOverflow(info) {
           this.applyGateOverflowStreak++;
           const streak = this.applyGateOverflowStreak;
+          this.lagCatchUp = true;
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: this.contextId,
@@ -3709,6 +4091,10 @@
             attemptedDepth: info.attemptedDepth,
             streak
           });
+          if (this.everArmed) {
+            this.applyGateOverflowStreak = 0;
+            return;
+          }
           if (streak >= projectedApplyGate_1.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
             this.resyncExhausted = true;
             this.onTelemetry?.({
@@ -3730,20 +4116,21 @@
           if (info.drained > 0 && !info.overflow) {
             this.applyGateOverflowStreak = 0;
           }
-          if (info.maxDepth === 0 && info.drained === 0 && !info.overflow)
-            return;
-          this.onTelemetry?.({
-            v: telemetry_1.TELEMETRY_WIRE_VERSION,
-            contextId: this.contextId,
-            kind: "applyGateDrain",
-            t: performance.now(),
-            generation: this.generation,
-            sequence: this.lastSequence,
-            maxDepth: info.maxDepth,
-            waitMs: info.waitMs,
-            drained: info.drained,
-            overflow: info.overflow
-          });
+          if (!(info.maxDepth === 0 && info.drained === 0 && !info.overflow)) {
+            this.onTelemetry?.({
+              v: telemetry_1.TELEMETRY_WIRE_VERSION,
+              contextId: this.contextId,
+              kind: "applyGateDrain",
+              t: performance.now(),
+              generation: this.generation,
+              sequence: this.lastSequence,
+              maxDepth: info.maxDepth,
+              waitMs: info.waitMs,
+              drained: info.drained,
+              overflow: info.overflow
+            });
+          }
+          this.maybeRequestLagCatchUp();
         }
         applyAssembledNow(frame) {
           if (frame.generation !== this.generation) {
@@ -3758,9 +4145,19 @@
               return;
             }
             if (this.everArmed) {
+              const asked = this.lastDesyncReason !== null || this.resyncTimeoutTimer !== null;
+              if (!(0, resyncSwapPolicy_1.shouldApplyUnsolicitedResync)(asked, this.unsolicitedResyncSwapsThisGeneration)) {
+                this.lastSequence = frame.sequence;
+                return;
+              }
+              if (!asked)
+                this.unsolicitedResyncSwapsThisGeneration += 1;
               this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
               return;
             }
+          }
+          if (!frame.resync && this.shouldHoldOrdinaryFrameWhileRecovering()) {
+            return;
           }
           if (frame.sequence !== this.lastSequence + 1) {
             this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
@@ -3770,6 +4167,16 @@
           const target = this.resync ?? this.live;
           target.applier.enqueue(frame);
         }
+        shouldHoldOrdinaryFrameWhileRecovering() {
+          if (this.resync !== null)
+            return true;
+          const reason = this.lastDesyncReason;
+          if (reason === null)
+            return false;
+          if (reason === "sequence_gap" || reason === "lag")
+            return false;
+          return true;
+        }
         async recreateForGenerationAsync(frame) {
           if (frame.generation !== this.generation) {
             this.applyGate.discardPending();
@@ -3777,7 +4184,12 @@
           this.abandonResyncAttempt();
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
+          const previousGeneration = this.generation;
           this.generation = frame.generation;
+          if (frame.generation !== previousGeneration) {
+            this.lagCatchUpsThisGeneration = 0;
+            this.unsolicitedResyncSwapsThisGeneration = 0;
+          }
           this.armed = false;
           this.everArmed = false;
           this.live.applier.dispose();
@@ -3792,11 +4204,18 @@
             this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
             return;
           }
-          this.lastSequence = frame.sequence;
           this.live.applier.enqueue(frame);
           this.live.applier.flush();
         }
         async beginResyncTargetAsync(frame) {
+          this.resyncBuildPending = true;
+          try {
+            await this.beginResyncTargetAsyncBody(frame);
+          } finally {
+            this.resyncBuildPending = false;
+          }
+        }
+        async beginResyncTargetAsyncBody(frame) {
           if (this.resyncTimeoutTimer !== null) {
             clearTimeout(this.resyncTimeoutTimer);
             this.resyncTimeoutTimer = null;
@@ -3814,10 +4233,9 @@
           const applier = this.createApplier(doc, registry, false);
           this.resync = { applier, registry, attempt: this.resyncAttempts };
           if (frame.sequence !== this.lastSequence + 1) {
-            this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
+            this.failResyncAttempt("sequence_gap");
             return;
           }
-          this.lastSequence = frame.sequence;
           applier.enqueue(frame);
           applier.flush();
         }
@@ -3830,6 +4248,9 @@
           this.resync = null;
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
+          this.lastDesyncReason = null;
+          this.lastDesyncMessage = null;
+          this.lastSequence = frame.sequence;
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: this.contextId,
@@ -3845,6 +4266,27 @@
             this.everArmed = true;
             this.onArmedCb?.();
           }
+        }
+        /**
+         * After apply-gate drain: request wholesale lag only if still behind (root parity).
+         */
+        maybeRequestLagCatchUp() {
+          if (this.applyGate.blocked || this.resyncPlumbingBusy())
+            return;
+          const behind = this.highestSeenSequence > this.lastSequence;
+          if (!behind) {
+            this.lagCatchUp = false;
+            return;
+          }
+          this.lagCatchUp = false;
+          if (this.lagCatchUpsThisGeneration >= 1) {
+            return;
+          }
+          if (this.lastDesyncReason === null) {
+            this.lastDesyncReason = "lag";
+          }
+          this.lagCatchUpsThisGeneration += 1;
+          this.scheduleResyncAttempt("lag");
         }
         failResyncAttempt(reason) {
           const attempt = this.resync?.attempt ?? this.resyncAttempts;
@@ -3865,7 +4307,11 @@
           });
           this.scheduleResyncAttempt(reason);
         }
+        resyncPlumbingBusy() {
+          return this.resyncBuildPending || this.resync !== null || this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null;
+        }
         abandonResyncAttempt() {
+          this.resyncBuildPending = false;
           if (this.resyncBackoffTimer !== null) {
             clearTimeout(this.resyncBackoffTimer);
             this.resyncBackoffTimer = null;
@@ -3882,7 +4328,7 @@
         scheduleResyncAttempt(reason) {
           if (this.resyncExhausted)
             return;
-          if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null)
+          if (this.resyncPlumbingBusy())
             return;
           const attempt = this.resyncAttempts + 1;
           if (attempt > MAX_RESYNC_ATTEMPTS) {
@@ -3903,6 +4349,16 @@
           const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
           this.resyncBackoffTimer = setTimeout(() => {
             this.resyncBackoffTimer = null;
+            if (this.resyncBuildPending || this.resync !== null)
+              return;
+            if (reason === "lag" && this.highestSeenSequence <= this.lastSequence) {
+              if (this.lastDesyncReason === "lag") {
+                this.lastDesyncReason = null;
+                this.lastDesyncMessage = null;
+              }
+              this.lagCatchUp = false;
+              return;
+            }
             this.resyncAttempts = attempt;
             this.onTelemetry?.({
               v: telemetry_1.TELEMETRY_WIRE_VERSION,
@@ -3918,7 +4374,8 @@
               contextId: this.contextId,
               generation: this.generation,
               sequence: this.lastSequence,
-              reason
+              reason,
+              attempt
             });
             this.resyncTimeoutTimer = setTimeout(() => {
               this.resyncTimeoutTimer = null;
@@ -3942,13 +4399,19 @@
           });
         }
         desync(reason, extra) {
-          if (this.lastDesyncReason === null) {
+          const firstInEpisode = this.lastDesyncReason === null;
+          if (!firstInEpisode && reason === "precondition") {
+            return;
+          }
+          if (firstInEpisode) {
             this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
             this.lastDesyncMessage = extra?.message ?? null;
+            this.assembler.reset();
+            if (reason !== "sequence_gap" && reason !== "lag") {
+              this.armed = false;
+              this.live.applier.reset();
+            }
           }
-          this.armed = false;
-          this.assembler.reset();
-          this.live.applier.reset();
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: this.contextId,
@@ -4070,6 +4533,7 @@
       exports.createProjectionClient = exports.ProjectionClient = void 0;
       var decode_1 = require_decode();
       var applyDom_1 = require_applyDom();
+      var pendingNestedHostAudit_1 = require_pendingNestedHostAudit();
       var nestedProjectedApply_1 = require_nestedProjectedApply();
       var registry_1 = require_registry();
       var surface_1 = require_surface();
@@ -4078,7 +4542,9 @@
       var telemetry_1 = require_telemetry();
       var sessionBindingAuth_1 = require_sessionBindingAuth();
       var projectedBlankIframe_1 = require_projectedBlankIframe();
+      var nestedNav_1 = require_nestedNav();
       var projectedApplyGate_1 = require_projectedApplyGate();
+      var resyncSwapPolicy_1 = require_resyncSwapPolicy();
       var MAX_RESYNC_ATTEMPTS = 3;
       var RESYNC_BACKOFF_MS = 300;
       var RESYNC_RESPONSE_TIMEOUT_MS = 5e3;
@@ -4092,6 +4558,7 @@
         onRequestResyncCb;
         getToken;
         getAssetBaseUrl;
+        getDocumentBaseUrl;
         token;
         assetBaseUrl;
         /** The currently-live target — reassigned wholesale on a successful resync swap. */
@@ -4102,7 +4569,17 @@
         resyncExhausted = false;
         resyncBackoffTimer = null;
         resyncTimeoutTimer = null;
+        /** Standby iframe is being created — `this.resync` is still null; treat as in-flight. */
+        resyncBuildPending = false;
         lastSequence = 0;
+        /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
+        highestSeenSequence = 0;
+        /** Gate overflowed during a long rebuild — request another resync after swap, do not wipe live. */
+        lagCatchUp = false;
+        /** Wholesale lag resync is one shot per generation — a live page is always "behind". */
+        lagCatchUpsThisGeneration = 0;
+        /** Unsolicited resync-flagged frames (producer dump, not client request) — one swap per generation. */
+        unsolicitedResyncSwapsThisGeneration = 0;
         generation = 1;
         armed = false;
         /**
@@ -4135,6 +4612,7 @@
           this.onRequestResyncCb = opts.onRequestResync;
           this.getToken = opts.getToken;
           this.getAssetBaseUrl = opts.getAssetBaseUrl;
+          this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
           this.token = opts.token;
           this.assetBaseUrl = opts.assetBaseUrl;
           const registry = new registry_1.PageProjectionRegistry();
@@ -4153,21 +4631,29 @@
           });
           return new _ProjectionClient(opts, surface);
         }
-        installNestedHost(iframe, contextId) {
+        installNestedHost(iframe, contextId, hint) {
+          const restart = hint?.restart === true;
           const liveDoc = iframe.contentDocument;
           const existing = this.nested.get(contextId);
           if (existing) {
-            try {
-              if (existing.hostIframe === iframe && liveDoc != null && existing.registry.get(frame_1.DOCUMENT_ID) === liveDoc && liveDoc.defaultView != null) {
-                return;
+            if (!restart) {
+              try {
+                if (existing.hostIframe === iframe && liveDoc != null && existing.registry.get(frame_1.DOCUMENT_ID) === liveDoc && liveDoc.defaultView != null) {
+                  return;
+                }
+              } catch {
               }
-            } catch {
             }
             existing.dispose();
             this.nested.delete(contextId);
           }
+          const pendingSameIframe = this.nestedHostAwaitingLoad.get(contextId);
+          if (!restart && pendingSameIframe && pendingSameIframe.iframe === iframe) {
+            return;
+          }
           this.cancelPendingNestedHost(contextId);
-          if (!(0, projectedBlankIframe_1.isProjectedStandardsSkeleton)(liveDoc)) {
+          (0, nestedNav_1.ensureNestedHostSandboxAccess)(iframe);
+          if (!(0, projectedBlankIframe_1.isProjectedStandardsSkeleton)(liveDoc) && iframe.srcdoc !== projectedBlankIframe_1.PROJECTED_STANDARDS_SRCDOC) {
             (0, projectedBlankIframe_1.stampProjectedStandardsSrcdoc)(iframe);
           }
           const abort = new AbortController();
@@ -4220,7 +4706,8 @@
             contextId,
             getToken: () => this.resolveToken(),
             getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
-            onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
+            getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
+            onNestedHost: (childIframe, childScopeId, hint) => this.installNestedHost(childIframe, childScopeId, hint),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onTelemetry: (msg) => this.onTelemetry?.(msg),
             onArmed: () => {
@@ -4268,30 +4755,17 @@
         auditPendingNestedHostBindings(applier) {
           if (this.lastDesyncReason !== null || !this.armed)
             return;
-          let pendingCount = 0;
-          for (const [, queue] of this.pendingNestedFrames)
-            pendingCount += queue.length;
-          if (pendingCount > 0) {
-            const unmarked = applier.unmarkedNestedHostCandidateIds();
-            if (unmarked.length > 0) {
-              this.desync("precondition", {
-                phase: "apply",
-                message: `pending nested frames with unmarked host candidates [${unmarked.join(",")}] (${pendingCount} queued)`
-              });
-              return;
-            }
-          }
+          const pending = /* @__PURE__ */ new Map();
           for (const [contextId, queue] of this.pendingNestedFrames) {
-            if (queue.length === 0)
-              continue;
-            if (this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId))
-              continue;
-            const hostNodeId = applier.nestedHostNodeForContext(contextId);
-            this.desync("precondition", {
-              phase: "apply",
-              message: hostNodeId !== void 0 ? `pending nested frames ctx${contextId} host node ${hostNodeId} never bound (${queue.length} queued)` : `pending nested frames ctx${contextId} with no nested bind (${queue.length} queued)`
-            });
-            return;
+            pending.set(contextId, queue.length);
+          }
+          const message = (0, pendingNestedHostAudit_1.pendingNestedHostAuditMessage)(pending, {
+            hasSession: (contextId) => this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId),
+            hostNodeForContext: (contextId) => applier.nestedHostNodeForContext(contextId),
+            isHostMarked: (hostNodeId) => applier.isNestedHostMarked(hostNodeId)
+          });
+          if (message !== null) {
+            this.desync("precondition", { phase: "apply", message });
           }
         }
         get isArmed() {
@@ -4324,6 +4798,13 @@
          */
         get lastAcceptedSequence() {
           return this.lastSequence;
+        }
+        /**
+         * Replay/capture harness only — devpath `projected-replay` when the file omits the first
+         * resync frame (common on IPC captures). Same adoption rule as §5.8 resync / generation change.
+         */
+        adoptSequenceContext(nextSequence) {
+          this.lastSequence = nextSequence - 1;
         }
         /** Surface's currently-*active* document — changes identity across a resync swap (Stage 4). */
         get document() {
@@ -4373,6 +4854,10 @@
           this.persistentStrings = new decode_1.PersistentStringTable();
           this.assembler = new decode_1.FramePartAssembler();
           this.lastSequence = 0;
+          this.highestSeenSequence = 0;
+          this.lagCatchUp = false;
+          this.lagCatchUpsThisGeneration = 0;
+          this.unsolicitedResyncSwapsThisGeneration = 0;
           this.generation = 1;
           this.armed = false;
           this.everArmed = false;
@@ -4422,6 +4907,7 @@
           this.applyAssembled(assembled);
         }
         applyAssembled(frame) {
+          this.highestSeenSequence = Math.max(this.highestSeenSequence, frame.sequence);
           if (this.applyGate.blocked) {
             this.applyGate.push(frame);
             return;
@@ -4437,6 +4923,7 @@
         handleApplyGateOverflow(info) {
           this.applyGateOverflowStreak++;
           const streak = this.applyGateOverflowStreak;
+          this.lagCatchUp = true;
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: frame_1.CONTEXT_ID_ROOT,
@@ -4448,6 +4935,10 @@
             attemptedDepth: info.attemptedDepth,
             streak
           });
+          if (this.everArmed) {
+            this.applyGateOverflowStreak = 0;
+            return;
+          }
           if (streak >= projectedApplyGate_1.PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
             this.resyncExhausted = true;
             this.onTelemetry?.({
@@ -4469,20 +4960,21 @@
           if (info.drained > 0 && !info.overflow) {
             this.applyGateOverflowStreak = 0;
           }
-          if (info.maxDepth === 0 && info.drained === 0 && !info.overflow)
-            return;
-          this.onTelemetry?.({
-            v: telemetry_1.TELEMETRY_WIRE_VERSION,
-            contextId: frame_1.CONTEXT_ID_ROOT,
-            kind: "applyGateDrain",
-            t: performance.now(),
-            generation: this.generation,
-            sequence: this.lastSequence,
-            maxDepth: info.maxDepth,
-            waitMs: info.waitMs,
-            drained: info.drained,
-            overflow: info.overflow
-          });
+          if (!(info.maxDepth === 0 && info.drained === 0 && !info.overflow)) {
+            this.onTelemetry?.({
+              v: telemetry_1.TELEMETRY_WIRE_VERSION,
+              contextId: frame_1.CONTEXT_ID_ROOT,
+              kind: "applyGateDrain",
+              t: performance.now(),
+              generation: this.generation,
+              sequence: this.lastSequence,
+              maxDepth: info.maxDepth,
+              waitMs: info.waitMs,
+              drained: info.drained,
+              overflow: info.overflow
+            });
+          }
+          this.maybeRequestLagCatchUp();
         }
         applyAssembledNow(frame) {
           if (frame.generation !== this.generation) {
@@ -4497,9 +4989,19 @@
               return;
             }
             if (this.everArmed) {
+              const asked = this.lastDesyncReason !== null || this.resyncTimeoutTimer !== null;
+              if (!(0, resyncSwapPolicy_1.shouldApplyUnsolicitedResync)(asked, this.unsolicitedResyncSwapsThisGeneration)) {
+                this.lastSequence = frame.sequence;
+                return;
+              }
+              if (!asked)
+                this.unsolicitedResyncSwapsThisGeneration += 1;
               this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
               return;
             }
+          }
+          if (!frame.resync && this.shouldHoldOrdinaryFrameWhileRecovering()) {
+            return;
           }
           if (frame.sequence !== this.lastSequence + 1) {
             this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
@@ -4508,6 +5010,17 @@
           this.lastSequence = frame.sequence;
           const target = this.resync ?? this.live;
           target.applier.enqueue(frame);
+        }
+        /** Ordinary frames are dropped while the live table is corrupt — not for gap/lag catch-up. */
+        shouldHoldOrdinaryFrameWhileRecovering() {
+          if (this.resync !== null)
+            return true;
+          const reason = this.lastDesyncReason;
+          if (reason === null)
+            return false;
+          if (reason === "sequence_gap" || reason === "lag")
+            return false;
+          return true;
         }
         /**
          * New document install (runtime-redesign.md §7): teardown by object lifetime. The previous
@@ -4523,7 +5036,12 @@
           this.abandonResyncAttempt();
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
+          const previousGeneration = this.generation;
           this.generation = frame.generation;
+          if (frame.generation !== previousGeneration) {
+            this.lagCatchUpsThisGeneration = 0;
+            this.unsolicitedResyncSwapsThisGeneration = 0;
+          }
           this.armed = false;
           this.everArmed = false;
           for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
@@ -4545,7 +5063,6 @@
             this.desync("sequence_gap", { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
             return;
           }
-          this.lastSequence = frame.sequence;
           this.live.applier.enqueue(frame);
           this.live.applier.flush();
         }
@@ -4569,7 +5086,8 @@
           const applier = new applyDom_1.DomFrameApplier(doc, registry, {
             stampUrl: (name, value) => (0, sessionBindingAuth_1.stampAttrAuth)(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
             stampCssText: (text) => (0, sessionBindingAuth_1.stampCssTextAuth)(text, this.resolveToken(), this.resolveAssetBaseUrl()),
-            onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
+            getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || "",
+            onNestedHost: (iframe, childScopeId, hint) => this.installNestedHost(iframe, childScopeId, hint),
             onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
             onWarn: (message) => {
               this.onTelemetry?.({
@@ -4582,7 +5100,13 @@
             },
             onDesync: (info) => {
               if (state.swapped) {
-                this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
+                this.reportApplyResult({
+                  ok: false,
+                  sequence: info.sequence ?? this.lastSequence,
+                  opCount: 0,
+                  applyMs: 0,
+                  reason: info.reason
+                });
                 this.desync(info.reason, {
                   op: info.op,
                   id: info.id,
@@ -4592,11 +5116,22 @@
                   phase: info.phase
                 });
               } else {
-                this.failResyncAttempt(info.reason);
+                this.failResyncAttempt(info.reason, {
+                  op: info.op,
+                  id: info.id,
+                  message: info.message,
+                  phase: info.phase,
+                  sequence: info.sequence
+                });
               }
             },
             onApplied: (frame, applyMs) => {
               if (state.swapped) {
+                this.lastSequence = frame.sequence;
+                if (this.lastDesyncReason === "sequence_gap" || this.lastDesyncReason === "lag") {
+                  this.lastDesyncReason = null;
+                  this.lagCatchUp = false;
+                }
                 this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
                 this.auditPendingNestedHostBindings(applier);
                 if (!this.armed)
@@ -4606,7 +5141,7 @@
                 this.commitResyncSwap(frame, applyMs);
               }
             },
-            onOverrun: (durationMs, lastSequence) => {
+            onOverrun: (durationMs2, lastSequence) => {
               this.onTelemetry?.({
                 v: telemetry_1.TELEMETRY_WIRE_VERSION,
                 contextId: frame_1.CONTEXT_ID_ROOT,
@@ -4614,7 +5149,7 @@
                 t: performance.now(),
                 generation: this.generation,
                 sequence: lastSequence,
-                durationMs,
+                durationMs: durationMs2,
                 budgetMs: 4
               });
             }
@@ -4623,6 +5158,14 @@
         }
         /** Begins (or restarts) a standby build the moment a `resync`-flagged frame is first seen. */
         async beginResyncTargetAsync(frame) {
+          this.resyncBuildPending = true;
+          try {
+            await this.beginResyncTargetAsyncBody(frame);
+          } finally {
+            this.resyncBuildPending = false;
+          }
+        }
+        async beginResyncTargetAsyncBody(frame) {
           if (this.resyncTimeoutTimer !== null) {
             clearTimeout(this.resyncTimeoutTimer);
             this.resyncTimeoutTimer = null;
@@ -4640,13 +5183,9 @@
           const applier = this.createApplier(doc, registry, false);
           this.resync = { applier, registry, attempt: this.resyncAttempts };
           if (frame.sequence !== this.lastSequence + 1) {
-            this.desync("sequence_gap", {
-              expectedSequence: this.lastSequence + 1,
-              gotSequence: frame.sequence
-            });
+            this.failResyncAttempt("sequence_gap");
             return;
           }
-          this.lastSequence = frame.sequence;
           applier.enqueue(frame);
           applier.flush();
         }
@@ -4660,6 +5199,8 @@
           this.resync = null;
           this.resyncAttempts = 0;
           this.resyncExhausted = false;
+          this.lastDesyncReason = null;
+          this.lastSequence = frame.sequence;
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: frame_1.CONTEXT_ID_ROOT,
@@ -4671,6 +5212,29 @@
           });
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
           this.notifyLiveSurfaceReady();
+        }
+        /**
+         * After apply-gate drain: producer may still be ahead (or overflow wiped pending). Live
+         * surface still matches `lastSequence`; request another wholesale resync only if drain did
+         * not close the gap. Do not call from commitResyncSwap (pre-drain).
+         */
+        maybeRequestLagCatchUp() {
+          if (this.applyGate.blocked || this.resyncPlumbingBusy())
+            return;
+          const behind = this.highestSeenSequence > this.lastSequence;
+          if (!behind) {
+            this.lagCatchUp = false;
+            return;
+          }
+          this.lagCatchUp = false;
+          if (this.lagCatchUpsThisGeneration >= 1) {
+            return;
+          }
+          if (this.lastDesyncReason === null) {
+            this.lastDesyncReason = "lag";
+          }
+          this.lagCatchUpsThisGeneration += 1;
+          this.scheduleResyncAttempt("lag");
         }
         /** Live document is interactive (cold arm or post-swap). Idempotent armed flag; callback may re-fire. */
         notifyLiveSurfaceReady() {
@@ -4686,7 +5250,7 @@
          * failure, purely as defensive engineering against a transient blip, not because failure here
          * is expected to be routine.
          */
-        failResyncAttempt(reason) {
+        failResyncAttempt(reason, detail) {
           const attempt = this.resync?.attempt ?? this.resyncAttempts;
           if (this.resync !== null) {
             this.surface.discardBuild();
@@ -4698,14 +5262,22 @@
             kind: "resyncFailed",
             t: performance.now(),
             generation: this.generation,
-            sequence: this.lastSequence,
+            sequence: detail?.sequence ?? this.lastSequence,
             attempt,
             reason,
-            exhausted: false
+            exhausted: false,
+            op: detail?.op,
+            id: detail?.id,
+            message: detail?.message,
+            phase: detail?.phase
           });
           this.scheduleResyncAttempt(reason);
         }
+        resyncPlumbingBusy() {
+          return this.resyncBuildPending || this.resync !== null || this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null;
+        }
         abandonResyncAttempt() {
+          this.resyncBuildPending = false;
           if (this.resyncBackoffTimer !== null) {
             clearTimeout(this.resyncBackoffTimer);
             this.resyncBackoffTimer = null;
@@ -4728,7 +5300,7 @@
         scheduleResyncAttempt(reason, contextId = frame_1.CONTEXT_ID_ROOT) {
           if (this.resyncExhausted)
             return;
-          if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null)
+          if (this.resyncPlumbingBusy())
             return;
           const attempt = this.resyncAttempts + 1;
           if (attempt > MAX_RESYNC_ATTEMPTS) {
@@ -4749,6 +5321,14 @@
           const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
           this.resyncBackoffTimer = setTimeout(() => {
             this.resyncBackoffTimer = null;
+            if (this.resyncBuildPending || this.resync !== null)
+              return;
+            if (reason === "lag" && this.highestSeenSequence <= this.lastSequence) {
+              if (this.lastDesyncReason === "lag")
+                this.lastDesyncReason = null;
+              this.lagCatchUp = false;
+              return;
+            }
             this.resyncAttempts = attempt;
             this.onTelemetry?.({
               v: telemetry_1.TELEMETRY_WIRE_VERSION,
@@ -4764,7 +5344,8 @@
               generation: this.generation,
               sequence: this.lastSequence,
               reason,
-              contextId
+              contextId,
+              attempt
             });
             this.resyncTimeoutTimer = setTimeout(() => {
               this.resyncTimeoutTimer = null;
@@ -4788,12 +5369,18 @@
           });
         }
         desync(reason, extra) {
-          if (this.lastDesyncReason === null) {
-            this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+          const firstInEpisode = this.lastDesyncReason === null;
+          if (!firstInEpisode && reason === "precondition") {
+            return;
           }
-          this.armed = false;
-          this.assembler.reset();
-          this.live.applier.reset();
+          if (firstInEpisode) {
+            this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+            this.assembler.reset();
+            if (reason !== "sequence_gap" && reason !== "lag") {
+              this.armed = false;
+              this.live.applier.reset();
+            }
+          }
           this.onTelemetry?.({
             v: telemetry_1.TELEMETRY_WIRE_VERSION,
             contextId: frame_1.CONTEXT_ID_ROOT,
@@ -4832,7 +5419,7 @@
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.UNIFIED_INTENT_SCHEMA_VERSION = void 0;
-      exports.UNIFIED_INTENT_SCHEMA_VERSION = 1;
+      exports.UNIFIED_INTENT_SCHEMA_VERSION = 2;
     }
   });
 
@@ -4929,6 +5516,8 @@
       }
       var EDGE_SWIPE_PX = 24;
       var EDGE_SWIPE_MIN_DX = 72;
+      var TOUCH_CLICK_POINTER_ID = 1;
+      var NAVIGABLE_TAP_SLOP_PX = 8;
       function historyNavFromKeyboard(event) {
         if (isEditableTarget(event.target))
           return null;
@@ -4948,6 +5537,15 @@
         const buffer = new ClientBuffer_1.ClientBuffer();
         let edgeSwipe = null;
         const pendingPointers = /* @__PURE__ */ new Set();
+        let lastPointerType = null;
+        let touchGesture = null;
+        const tempDiagState = {
+          pointerMoves: 0,
+          tapEmitted: false,
+          cancelled: false,
+          lastScrollAt: 0,
+          scrollOrigins: /* @__PURE__ */ new Map()
+        };
         const fireHistoryNav = (direction) => {
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
@@ -5033,30 +5631,30 @@
           const sy = y * (vh / visH);
           return { x: Math.min(Math.max(sx, 0), vw - 1e-6), y: Math.min(Math.max(sy, 0), vh - 1e-6) };
         };
-        const runPointerEdge = (event, type) => {
+        const resolvePointerGeometry = (event) => {
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
-            return;
+            return null;
           }
           const target = event.target;
           if (!target || typeof target !== "object" || !("nodeType" in target)) {
             opts.metrics?.noteSkip("no_node");
-            return;
+            return null;
           }
-          const el = target;
-          if (el.nodeType !== 1) {
+          const el2 = target;
+          if (el2.nodeType !== 1) {
             opts.metrics?.noteSkip("no_node");
-            return;
+            return null;
           }
-          const nodeId = registry.idOf(el);
+          const nodeId = registry.idOf(el2);
           if (nodeId == null) {
             opts.metrics?.noteSkip("no_node");
-            return;
+            return null;
           }
-          const box = el.getBoundingClientRect();
+          const box = el2.getBoundingClientRect();
           if (box.width <= 0 || box.height <= 0) {
             opts.metrics?.noteSkip("no_coords");
-            return;
+            return null;
           }
           const rawLocalX = (event.clientX - box.left) / box.width;
           const rawLocalY = (event.clientY - box.top) / box.height;
@@ -5065,33 +5663,123 @@
           const coords = surfaceCoordsFromClient(event.clientX, event.clientY);
           if (!coords) {
             opts.metrics?.noteSkip("no_coords");
-            return;
+            return null;
           }
+          return {
+            nodeId,
+            localX,
+            localY,
+            x: coords.x,
+            y: coords.y,
+            button: buttonFromEvent(event.button)
+          };
+        };
+        const emitPointerEdge = (type, geometry, pointerId) => {
           const stamp = viewportStamp();
           enqueue({
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type,
             timestampClient: performance.now(),
             ...stamp,
-            x: coords.x,
-            y: coords.y,
-            localX,
-            localY,
-            button: buttonFromEvent(event.button),
+            x: geometry.x,
+            y: geometry.y,
+            localX: geometry.localX,
+            localY: geometry.localY,
+            button: geometry.button,
             contextId: opts.contextId,
-            nodeId
+            nodeId: geometry.nodeId
           });
           if (type === "down")
-            pendingPointers.add(event.pointerId);
+            pendingPointers.add(pointerId);
           else
-            pendingPointers.delete(event.pointerId);
+            pendingPointers.delete(pointerId);
+        };
+        const runPointerEdge = (event, type) => {
+          const geometry = resolvePointerGeometry(event);
+          if (!geometry)
+            return;
+          emitPointerEdge(type, geometry, event.pointerId);
         };
         const onPointerEdge = (event, type) => {
           runPointerEdge(event, type);
         };
+        const emitTouchTap = (target, clientX, clientY) => {
+          const geometry = resolvePointerGeometry({
+            target,
+            clientX,
+            clientY,
+            button: 0
+          });
+          if (!geometry)
+            return false;
+          tempDiagState.tapEmitted = true;
+          emitPointerEdge("down", geometry, TOUCH_CLICK_POINTER_ID);
+          emitPointerEdge("up", geometry, TOUCH_CLICK_POINTER_ID);
+          return true;
+        };
         const onClick = (event) => {
+          if (event.detail === 0)
+            return;
+          if (lastPointerType !== "touch")
+            return;
+          touchGesture = null;
+          if (!emitTouchTap(event.target, event.clientX, event.clientY)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           event.preventDefault();
           event.stopPropagation();
+        };
+        const beginTouchGesture = (clientX, clientY) => {
+          lastPointerType = "touch";
+          touchGesture = {
+            scrolled: false,
+            startX: clientX,
+            startY: clientY,
+            maxDist: 0
+          };
+        };
+        const trackTouchMove = (clientX, clientY) => {
+          if (!touchGesture)
+            return;
+          const dist = Math.hypot(clientX - touchGesture.startX, clientY - touchGesture.startY);
+          touchGesture.maxDist = Math.max(touchGesture.maxDist, dist);
+        };
+        const touchTargetAt = (clientX, clientY, fallback) => {
+          if (typeof doc.elementFromPoint === "function") {
+            return doc.elementFromPoint(clientX, clientY) ?? fallback;
+          }
+          return fallback;
+        };
+        const onTouchStartTrack = (event) => {
+          const touch = event.changedTouches[0] ?? event.touches[0];
+          if (!touch)
+            return;
+          beginTouchGesture(touch.clientX, touch.clientY);
+        };
+        const onTouchMoveTrack = (event) => {
+          const touch = event.touches[0] ?? event.changedTouches[0];
+          if (!touch)
+            return;
+          trackTouchMove(touch.clientX, touch.clientY);
+        };
+        const onNavigableTouchEnd = (event) => {
+          const gesture = touchGesture;
+          touchGesture = null;
+          if (lastPointerType !== "touch" || !gesture)
+            return;
+          const touch = event.changedTouches[0];
+          if (!touch)
+            return;
+          const target = touchTargetAt(touch.clientX, touch.clientY, event.target);
+          if (!(0, projectedNativeGuard_1.isProjectedNavigable)(target))
+            return;
+          if (gesture.scrolled)
+            return;
+          if (gesture.maxDist > NAVIGABLE_TAP_SLOP_PX)
+            return;
+          emitTouchTap(target, touch.clientX, touch.clientY);
         };
         const onSubmit = (event) => {
           event.preventDefault();
@@ -5126,6 +5814,7 @@
             schemaVersion: unifiedIntentTypes_1.UNIFIED_INTENT_SCHEMA_VERSION,
             type: event.type === "keyup" ? "keyUp" : "keyDown",
             timestampClient: performance.now(),
+            contextId: opts.contextId,
             key: event.key,
             code: event.code,
             modifiers: {
@@ -5137,16 +5826,23 @@
           });
         };
         const onScroll = (event) => {
+          if (touchGesture)
+            touchGesture.scrolled = true;
           if (!opts.isArmed()) {
             opts.metrics?.noteSkip("disarmed");
             return;
           }
-          const el = event.target;
-          if (el === doc || el === win || isElement(el) && el === doc.scrollingElement) {
+          const el2 = event.target;
+          if (el2 === doc || el2 === win || isElement(el2) && el2 === doc.scrollingElement) {
             if (!win)
               return;
-            const top2 = win.scrollY || doc.scrollingElement?.scrollTop || 0;
-            const left2 = win.scrollX || doc.scrollingElement?.scrollLeft || 0;
+            const se = doc.scrollingElement;
+            const top2 = win.scrollY || se?.scrollTop || 0;
+            const left2 = win.scrollX || se?.scrollLeft || 0;
+            const rangeY2 = se ? se.scrollHeight - se.clientHeight : 0;
+            const rangeX2 = se ? se.scrollWidth - se.clientWidth : 0;
+            if (rangeY2 === 0 && rangeX2 === 0)
+              return;
             if (opts.consumeScrollEcho?.("viewport", { top: top2, left: left2 })) {
               opts.onProgrammaticScrollSuppress?.("viewport");
               return;
@@ -5158,20 +5854,24 @@
               timestampClient: performance.now(),
               contextId: opts.contextId,
               nodeId: null,
-              scrollX: left2,
-              scrollY: top2
+              scrollFracX: rangeX2 === 0 ? 0 : left2 / rangeX2,
+              scrollFracY: rangeY2 === 0 ? 0 : top2 / rangeY2
             });
             return;
           }
-          if (!isElement(el))
+          if (!isElement(el2))
             return;
-          const nodeId = registry.idOfNearest(el);
+          const nodeId = registry.idOfNearest(el2);
           if (nodeId == null) {
             opts.metrics?.noteSkip("no_node");
             return;
           }
-          const top = el.scrollTop;
-          const left = el.scrollLeft;
+          const top = el2.scrollTop;
+          const left = el2.scrollLeft;
+          const rangeY = el2.scrollHeight - el2.clientHeight;
+          const rangeX = el2.scrollWidth - el2.clientWidth;
+          if (rangeY === 0 && rangeX === 0)
+            return;
           if (opts.consumeScrollEcho?.(nodeId, { top, left })) {
             opts.onProgrammaticScrollSuppress?.(nodeId);
             return;
@@ -5183,8 +5883,8 @@
             timestampClient: performance.now(),
             contextId: opts.contextId,
             nodeId,
-            scrollX: left,
-            scrollY: top
+            scrollFracX: rangeX === 0 ? 0 : left / rangeX,
+            scrollFracY: rangeY === 0 ? 0 : top / rangeY
           });
         };
         const onInput = (event) => {
@@ -5199,24 +5899,6 @@
           opts.onMarkPropDirty?.(nodeId);
         };
         const pointerOpts = { capture: true, passive: false };
-        const capturePointer = (event) => {
-          const target = event.target;
-          if (!target || typeof target !== "object" || !("setPointerCapture" in target))
-            return;
-          try {
-            target.setPointerCapture(event.pointerId);
-          } catch {
-          }
-        };
-        const releasePointer = (event) => {
-          const target = event.target;
-          if (!target || typeof target !== "object" || !("releasePointerCapture" in target))
-            return;
-          try {
-            target.releasePointerCapture(event.pointerId);
-          } catch {
-          }
-        };
         const onPointerDown = (event) => {
           if (event.pointerType === "touch" && win) {
             const rootWin = opts.getRootWindow?.() ?? win;
@@ -5243,15 +5925,19 @@
               event.stopPropagation();
               return;
             }
+            lastPointerType = "touch";
+            beginTouchGesture(event.clientX, event.clientY);
+            return;
           }
-          if (event.pointerType === "touch") {
-            event.preventDefault();
-            event.stopPropagation();
-            capturePointer(event);
-          }
+          lastPointerType = event.pointerType;
+          touchGesture = null;
           onPointerEdge(event, "down");
         };
         const onPointerMove = (event) => {
+          if (event.pointerType === "touch") {
+            tempDiagState.pointerMoves += 1;
+            trackTouchMove(event.clientX, event.clientY);
+          }
           if (!edgeSwipe || event.pointerId !== edgeSwipe.pointerId)
             return;
           event.preventDefault();
@@ -5290,21 +5976,15 @@
             }
             return;
           }
-          if (event.pointerType === "touch") {
-            event.preventDefault();
-            event.stopPropagation();
-            releasePointer(event);
-          }
+          if (event.pointerType === "touch")
+            return;
           onPointerEdge(event, "up");
         };
         const onPointerCancel = (event) => {
           if (clearEdgeSwipe(event))
             return;
-          if (event.pointerType === "touch") {
-            event.preventDefault();
-            event.stopPropagation();
-            releasePointer(event);
-          }
+          if (event.pointerType === "touch")
+            return;
           finishPendingPointer(event);
         };
         const onLostPointerCapture = (event) => {
@@ -5319,6 +5999,11 @@
         doc.addEventListener("pointerup", onPointerUp, pointerOpts);
         doc.addEventListener("pointercancel", onPointerCancel, pointerOpts);
         doc.addEventListener("lostpointercapture", onLostPointerCapture, pointerOpts);
+        const navigableTouchEndOpts = { capture: true, passive: false };
+        const touchTrackOpts = { capture: true, passive: true };
+        doc.addEventListener("touchstart", onTouchStartTrack, touchTrackOpts);
+        doc.addEventListener("touchmove", onTouchMoveTrack, touchTrackOpts);
+        doc.addEventListener("touchend", onNavigableTouchEnd, navigableTouchEndOpts);
         const detachNativeGuard = (0, projectedNativeGuard_1.attachProjectedNativeGuard)(doc, {
           onTouchStartSeen: () => opts.metrics?.noteTouchStartSeen()
         });
@@ -5332,6 +6017,165 @@
         doc.addEventListener("keyup", onKey, true);
         doc.addEventListener("scroll", onScroll, true);
         win?.addEventListener("scroll", onScroll, true);
+        let tempDiagTouch = null;
+        const tempDiagLog = [];
+        const tempDiagTag = (el2) => {
+          const id = el2.id ? `#${el2.id}` : "";
+          const cls = String(el2.className || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+          return `${el2.tagName}${id}${cls ? `.${cls}` : ""}`.slice(0, 60);
+        };
+        const tempDiagChain = (x, y) => {
+          const rows = [];
+          let el2 = doc.elementFromPoint(x, y);
+          let depth = 0;
+          while (el2 && depth < 24) {
+            const he = el2;
+            const cs = win?.getComputedStyle(he);
+            rows.push({
+              depth,
+              tag: tempDiagTag(el2),
+              touchAction: cs?.touchAction ?? null,
+              overflowX: cs?.overflowX ?? null,
+              overflowY: cs?.overflowY ?? null,
+              overscrollX: cs?.overscrollBehaviorX ?? null,
+              overscrollY: cs?.overscrollBehaviorY ?? null,
+              rangeX: he.scrollWidth - he.clientWidth,
+              rangeY: he.scrollHeight - he.clientHeight
+            });
+            el2 = el2.parentElement;
+            depth += 1;
+          }
+          return rows;
+        };
+        const tempDiagViewport = () => {
+          if (!win)
+            return null;
+          const de = doc.documentElement;
+          const vv = win.visualViewport;
+          return {
+            clientW: de?.clientWidth ?? 0,
+            clientH: de?.clientHeight ?? 0,
+            innerW: win.innerWidth,
+            innerH: win.innerHeight,
+            visualW: vv?.width ?? null,
+            visualH: vv?.height ?? null,
+            visualScale: vv?.scale ?? null,
+            dpr: win.devicePixelRatio,
+            surfaceW: opts.getViewportSize().width,
+            surfaceH: opts.getViewportSize().height
+          };
+        };
+        const tempDiagLabel = () => win.__SCROLL_DIAG_LABEL ?? null;
+        const tempDiagOnTouchStart = (event) => {
+          const t = event.changedTouches[0];
+          if (!t)
+            return;
+          tempDiagTouch = {
+            id: t.identifier,
+            x0: t.clientX,
+            y0: t.clientY,
+            dx: 0,
+            dy: 0,
+            maxDist: 0,
+            moves: 0,
+            preventedMoves: 0,
+            msSincePrevScroll: tempDiagState.lastScrollAt === 0 ? null : Math.round(performance.now() - tempDiagState.lastScrollAt),
+            scrolled: {},
+            chain: tempDiagChain(t.clientX, t.clientY),
+            viewport: tempDiagViewport(),
+            t0: performance.now()
+          };
+          tempDiagState.pointerMoves = 0;
+          tempDiagState.tapEmitted = false;
+          tempDiagState.cancelled = false;
+          tempDiagState.scrollOrigins.clear();
+        };
+        const tempDiagOnTouchMove = (event) => {
+          if (!tempDiagTouch)
+            return;
+          const t = Array.from(event.changedTouches).find((c) => c.identifier === tempDiagTouch.id) ?? event.touches[0];
+          if (!t)
+            return;
+          tempDiagTouch.dx = t.clientX - tempDiagTouch.x0;
+          tempDiagTouch.dy = t.clientY - tempDiagTouch.y0;
+          tempDiagTouch.maxDist = Math.max(tempDiagTouch.maxDist, Math.hypot(tempDiagTouch.dx, tempDiagTouch.dy));
+          tempDiagTouch.moves += 1;
+          if (event.defaultPrevented)
+            tempDiagTouch.preventedMoves += 1;
+        };
+        const tempDiagEmitGesture = (event, ended) => {
+          if (!tempDiagTouch)
+            return;
+          const rec = {
+            phase: "gesture",
+            ended,
+            ...tempDiagTouch,
+            dx: Math.round(tempDiagTouch.dx),
+            dy: Math.round(tempDiagTouch.dy),
+            maxDist: Math.round(tempDiagTouch.maxDist),
+            /** Endpoint displacement — what a slop test would compare. */
+            endDist: Math.round(Math.hypot(tempDiagTouch.dx, tempDiagTouch.dy)),
+            touchMoves: tempDiagTouch.moves,
+            pointerMoves: tempDiagState.pointerMoves,
+            tapEmitted: tempDiagState.tapEmitted,
+            pointerCancelled: tempDiagState.cancelled,
+            durationMs: Math.round(performance.now() - tempDiagTouch.t0),
+            docUrl: (() => {
+              try {
+                return win?.location.href ?? null;
+              } catch {
+                return null;
+              }
+            })(),
+            defaultPrevented: event.defaultPrevented,
+            label: tempDiagLabel()
+          };
+          tempDiagLog.push(rec);
+          console.log("[TEMP-DIAG gesture]", JSON.stringify(rec));
+          tempDiagTouch = null;
+        };
+        const tempDiagOnTouchEnd = (event) => tempDiagEmitGesture(event, "touchend");
+        const tempDiagOnTouchCancel = (event) => tempDiagEmitGesture(event, "touchcancel");
+        const tempDiagOnScroll = (event) => {
+          const t = event.target;
+          if (!t || typeof t !== "object")
+            return;
+          const el2 = "tagName" in t ? t : doc.scrollingElement;
+          if (!el2)
+            return;
+          tempDiagState.lastScrollAt = performance.now();
+          if (!tempDiagTouch)
+            return;
+          const key = tempDiagTag(el2);
+          const origin = tempDiagState.scrollOrigins.get(key);
+          if (!origin) {
+            tempDiagState.scrollOrigins.set(key, { left: el2.scrollLeft, top: el2.scrollTop });
+            tempDiagTouch.scrolled[key] = { dLeft: 0, dTop: 0 };
+            return;
+          }
+          tempDiagTouch.scrolled[key] = {
+            dLeft: Math.round(el2.scrollLeft - origin.left),
+            dTop: Math.round(el2.scrollTop - origin.top)
+          };
+        };
+        const tempDiagOnPointerCancel = (event) => {
+          if (event.pointerType === "touch")
+            tempDiagState.cancelled = true;
+        };
+        const tempDiagOpts = { capture: true, passive: true };
+        doc.addEventListener("touchstart", tempDiagOnTouchStart, tempDiagOpts);
+        doc.addEventListener("touchmove", tempDiagOnTouchMove, tempDiagOpts);
+        doc.addEventListener("touchend", tempDiagOnTouchEnd, tempDiagOpts);
+        doc.addEventListener("touchcancel", tempDiagOnTouchCancel, tempDiagOpts);
+        doc.addEventListener("scroll", tempDiagOnScroll, tempDiagOpts);
+        doc.addEventListener("pointercancel", tempDiagOnPointerCancel, tempDiagOpts);
+        if (win) {
+          win.__SCROLL_DIAG_LOG = tempDiagLog;
+          win.__SCROLL_DIAG_CLEAR = () => {
+            tempDiagLog.length = 0;
+            tempDiagTouch = null;
+          };
+        }
         return () => {
           buffer.dispose();
           detachHistoryTrap();
@@ -5340,8 +6184,12 @@
           doc.removeEventListener("pointerup", onPointerUp, pointerOpts);
           doc.removeEventListener("pointercancel", onPointerCancel, pointerOpts);
           doc.removeEventListener("lostpointercapture", onLostPointerCapture, pointerOpts);
+          doc.removeEventListener("touchstart", onTouchStartTrack, touchTrackOpts);
+          doc.removeEventListener("touchmove", onTouchMoveTrack, touchTrackOpts);
+          doc.removeEventListener("touchend", onNavigableTouchEnd, navigableTouchEndOpts);
           detachNativeGuard();
           pendingPointers.clear();
+          touchGesture = null;
           doc.removeEventListener("click", onClick, true);
           doc.removeEventListener("submit", onSubmit, true);
           doc.removeEventListener("contextmenu", onContextMenu, true);
@@ -5352,6 +6200,12 @@
           doc.removeEventListener("keyup", onKey, true);
           doc.removeEventListener("scroll", onScroll, true);
           win?.removeEventListener("scroll", onScroll, true);
+          doc.removeEventListener("touchstart", tempDiagOnTouchStart, tempDiagOpts);
+          doc.removeEventListener("touchmove", tempDiagOnTouchMove, tempDiagOpts);
+          doc.removeEventListener("touchend", tempDiagOnTouchEnd, tempDiagOpts);
+          doc.removeEventListener("touchcancel", tempDiagOnTouchCancel, tempDiagOpts);
+          doc.removeEventListener("scroll", tempDiagOnScroll, tempDiagOpts);
+          doc.removeEventListener("pointercancel", tempDiagOnPointerCancel, tempDiagOpts);
         };
       }
       exports.attachProjectedInputCapture = attachProjectedInputCapture2;
@@ -5401,16 +6255,16 @@
           this.emitted += 1;
           const key = type || "unknown";
           this.emittedByType[key] = (this.emittedByType[key] ?? 0) + 1;
-          const now = Date.now();
+          const now2 = Date.now();
           if (this.lastEmitWallMs != null) {
-            const gap = now - this.lastEmitWallMs;
+            const gap = now2 - this.lastEmitWallMs;
             if (Number.isFinite(gap) && gap >= 0) {
               this.intervalSamples.push(gap);
               if (this.intervalSamples.length > SAMPLE_CAP)
                 this.intervalSamples.shift();
             }
           }
-          this.lastEmitWallMs = now;
+          this.lastEmitWallMs = now2;
         }
         noteMoveCoalesce() {
           this.moveCoalesced += 1;
@@ -5512,8 +6366,8 @@
         const out = [];
         const nodes = doc.querySelectorAll("input, textarea, option");
         for (let i = 0; i < nodes.length; i++) {
-          const el = nodes[i];
-          const snap = snapshotOne(el);
+          const el2 = nodes[i];
+          const snap = snapshotOne(el2);
           if (snap)
             out.push(snap);
         }
@@ -5521,29 +6375,29 @@
         return out;
       }
       exports.snapshotFormControls = snapshotFormControls2;
-      function snapshotOne(el) {
-        const tag = el.tagName;
+      function snapshotOne(el2) {
+        const tag = el2.tagName;
         if (tag === "TEXTAREA") {
-          const key2 = el.id || null;
+          const key2 = el2.id || null;
           if (!key2)
             return null;
-          return { key: key2, value: el.value };
+          return { key: key2, value: el2.value };
         }
         if (tag === "OPTION") {
-          const select = el.closest("select");
+          const select = el2.closest("select");
           const selectId = select?.id || "";
-          const value = el.value;
+          const value = el2.value;
           if (!selectId && !value)
             return null;
-          return { key: `option:${selectId}:${value}`, selected: el.selected };
+          return { key: `option:${selectId}:${value}`, selected: el2.selected };
         }
         if (tag !== "INPUT")
           return null;
-        const input = el;
+        const input = el2;
         const type = (input.type || "text").toLowerCase();
         if (SKIP_INPUT_TYPES.has(type))
           return null;
-        const key = el.id || null;
+        const key = el2.id || null;
         if (!key)
           return null;
         if (type === "checkbox" || type === "radio")
@@ -5603,13 +6457,13 @@
         return { ok: true, width: w, height: h };
       }
       exports.validateResizeViewport = validateResizeViewport;
-      function measureHostElement2(el) {
-        if (!el) {
+      function measureHostElement2(el2) {
+        if (!el2) {
           return { width: 0, height: 0 };
         }
         return {
-          width: Math.round(el.clientWidth),
-          height: Math.round(el.clientHeight)
+          width: Math.round(el2.clientWidth),
+          height: Math.round(el2.clientHeight)
         };
       }
       exports.measureHostElement = measureHostElement2;
@@ -5672,6 +6526,55 @@
     }
   });
 
+  // ../packages/page-projection/dist/projected/viewportSyncProbe.js
+  var require_viewportSyncProbe = __commonJS({
+    "../packages/page-projection/dist/projected/viewportSyncProbe.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.viewportSyncProbeStartSampler = exports.viewportSyncProbeEmit = exports.viewportSyncProbeActive = void 0;
+      function viewportSyncProbeActive() {
+        if (typeof window === "undefined") {
+          return false;
+        }
+        if (window.__VIEWPORT_SYNC_PROBE__ === true) {
+          return true;
+        }
+        try {
+          return new URLSearchParams(window.location.search).has("viewportSyncProbe");
+        } catch {
+          return false;
+        }
+      }
+      exports.viewportSyncProbeActive = viewportSyncProbeActive;
+      function viewportSyncProbeEmit(record) {
+        if (!viewportSyncProbeActive()) {
+          return;
+        }
+        const log = window.__viewportSyncProbeLog ?? [];
+        log.push(record);
+        window.__viewportSyncProbeLog = log;
+        console.log("[viewportSyncProbe]", JSON.stringify(record));
+      }
+      exports.viewportSyncProbeEmit = viewportSyncProbeEmit;
+      function viewportSyncProbeStartSampler(measure, remote, intervalMs = 250) {
+        if (!viewportSyncProbeActive()) {
+          return () => {
+          };
+        }
+        const id = setInterval(() => {
+          viewportSyncProbeEmit({
+            kind: "tick",
+            t: performance.now(),
+            measure: measure(),
+            remote: remote()
+          });
+        }, intervalMs);
+        return () => clearInterval(id);
+      }
+      exports.viewportSyncProbeStartSampler = viewportSyncProbeStartSampler;
+    }
+  });
+
   // ../packages/page-projection/dist/projected/viewportSync.js
   var require_viewportSync = __commonJS({
     "../packages/page-projection/dist/projected/viewportSync.js"(exports) {
@@ -5683,6 +6586,7 @@
         return viewportPolicy_1.measureHostElement;
       } });
       var viewportDevice_1 = require_viewportDevice();
+      var viewportSyncProbe_1 = require_viewportSyncProbe();
       var ViewportSync2 = class _ViewportSync {
         measure;
         resize;
@@ -5702,6 +6606,7 @@
         observer = null;
         viewportListenersAttached = false;
         disposed = false;
+        stopProbeSampler = null;
         /** Cap automatic retries after applied:false / throw so permanent faults do not spin. */
         static MAX_REJECT_RETRIES = 5;
         constructor(options) {
@@ -5713,6 +6618,7 @@
           this.onApplied = options.onApplied;
           this.onRejected = options.onRejected;
           this.detectDevice = options.detectDevice ?? viewportDevice_1.detectViewportDeviceProfile;
+          this.stopProbeSampler = (0, viewportSyncProbe_1.viewportSyncProbeStartSampler)(() => this.measure(), () => this.remoteSize);
         }
         /** Last confirmed remote viewport (after applied resize / seed from start). */
         get remoteSize() {
@@ -5759,11 +6665,29 @@
           }
           const validated = (0, viewportPolicy_1.validateResizeViewport)(rawW, rawH, this.viewportPolicy);
           if (!validated.ok) {
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: validated.message,
+              measure: this.measure(),
+              remote: this.remoteSize,
+              rawW,
+              rawH
+            });
             return;
           }
           const { width: w, height: h } = validated;
           const nextProfile = this.detectDevice();
           if ((0, viewportPolicy_1.viewportSizesClose)(w, h, this.remoteW, this.remoteH) && (0, viewportDevice_1.deviceProfilesEqual)(this.deviceProfile, nextProfile)) {
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: "viewportSizesClose",
+              measure: { width: w, height: h },
+              remote: this.remoteSize,
+              rawW,
+              rawH
+            });
             return;
           }
           if (this.resizeTimer) {
@@ -5785,6 +6709,8 @@
         }
         dispose() {
           this.disposed = true;
+          this.stopProbeSampler?.();
+          this.stopProbeSampler = null;
           if (this.resizeTimer) {
             clearTimeout(this.resizeTimer);
             this.resizeTimer = null;
@@ -5839,6 +6765,15 @@
           const latest = this.measure();
           const validated = (0, viewportPolicy_1.validateResizeViewport)(latest.width, latest.height, this.viewportPolicy);
           if (!validated.ok) {
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: validated.message,
+              measure: latest,
+              remote: this.remoteSize,
+              rawW: latest.width,
+              rawH: latest.height
+            });
             return;
           }
           const targetW = validated.width;
@@ -5846,11 +6781,26 @@
           const profile = this.detectDevice();
           if ((0, viewportPolicy_1.viewportSizesClose)(targetW, targetH, this.remoteW, this.remoteH) && (0, viewportDevice_1.deviceProfilesEqual)(this.deviceProfile, profile)) {
             this.consecutiveRejects = 0;
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "schedule_skip",
+              t: performance.now(),
+              reason: "invoke_viewportSizesClose",
+              measure: { width: targetW, height: targetH },
+              remote: this.remoteSize,
+              rawW: latest.width,
+              rawH: latest.height
+            });
             return;
           }
           this.resizeInFlight = true;
           try {
             const result = await this.resize({ width: targetW, height: targetH }, profile);
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "resize",
+              t: performance.now(),
+              target: { width: targetW, height: targetH },
+              result
+            });
             if (this.disposed) {
               return;
             }
@@ -5862,6 +6812,11 @@
               this.onApplied?.({ width: targetW, height: targetH }, profile);
             } else {
               const detail = result.message || result.errorCode || "resize rejected";
+              (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+                kind: "resize_reject",
+                t: performance.now(),
+                detail: String(detail)
+              });
               this.onRejected?.(String(detail));
               this.consecutiveRejects++;
               if (this.consecutiveRejects <= _ViewportSync.MAX_REJECT_RETRIES) {
@@ -5870,6 +6825,11 @@
             }
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+            (0, viewportSyncProbe_1.viewportSyncProbeEmit)({
+              kind: "resize_reject",
+              t: performance.now(),
+              detail: message
+            });
             this.onRejected?.(message);
             this.consecutiveRejects++;
             if (this.consecutiveRejects <= _ViewportSync.MAX_REJECT_RETRIES) {
@@ -5894,13 +6854,20 @@
     "../packages/page-projection/dist/projected/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.stripProjectedSkeleton = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.createProjectionClient = exports.ProjectionClient = void 0;
+      exports.stampAuthInServedBody = exports.stampSrcsetAuth = exports.stampCssTextAuth = exports.stampAttrAuth = exports.appendSessionBindingQuery = exports.appendCacheBust = exports.appendSessionAuth = exports.isVirtualAssetUrl = exports.SessionCacheBustQueryParam = exports.SessionAuthQueryParam = exports.deviceProfilesEqual = exports.detectViewportDeviceProfile = exports.viewportSizesClose = exports.validateResizeViewport = exports.normalizeSessionViewport = exports.VIEWPORT_SIZE_EPSILON = exports.LAB_VIEWPORT_POLICY = exports.VIEWPORT_POLICY_BASELINE = exports.measureHostElement = exports.ViewportSync = exports.snapshotFormControls = exports.ScrollEchoGate = exports.ProjectedInputCaptureMetrics = exports.attachProjectedInputCapture = exports.shouldApplyUnsolicitedResync = exports.NestedProjectedApply = exports.whenProjectedStandardsReady = exports.isProjectedStandardsDocument = exports.isProjectedStandardsSkeleton = exports.ensureProjectedK5Csp = exports.ensureProjectedDocumentBase = exports.constructedStyleSheetInit = exports.stripProjectedSkeleton = exports.reincarnateProjectedStandardsSrcdoc = exports.stampProjectedStandardsSrcdoc = exports.PROJECTED_K5_CSP = exports.PROJECTED_SKELETON_META_NAME = exports.PROJECTED_STANDARDS_READY_TIMEOUT_MS = exports.PROJECTED_STANDARDS_SRCDOC = exports.createSurfaceHost = exports.PageProjectionRegistry = exports.DomFrameApplier = exports.isHtmlStylesheetLink = exports.disableProjectedNativeStylesheet = exports.createProjectionClient = exports.ProjectionClient = void 0;
       var ProjectionClient_1 = require_ProjectionClient();
       Object.defineProperty(exports, "ProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.ProjectionClient;
       } });
       Object.defineProperty(exports, "createProjectionClient", { enumerable: true, get: function() {
         return ProjectionClient_1.createProjectionClient;
+      } });
+      var ownedStylesheetLink_1 = require_ownedStylesheetLink();
+      Object.defineProperty(exports, "disableProjectedNativeStylesheet", { enumerable: true, get: function() {
+        return ownedStylesheetLink_1.disableProjectedNativeStylesheet;
+      } });
+      Object.defineProperty(exports, "isHtmlStylesheetLink", { enumerable: true, get: function() {
+        return ownedStylesheetLink_1.isHtmlStylesheetLink;
       } });
       var applyDom_1 = require_applyDom();
       Object.defineProperty(exports, "DomFrameApplier", { enumerable: true, get: function() {
@@ -5930,8 +6897,17 @@
       Object.defineProperty(exports, "stampProjectedStandardsSrcdoc", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stampProjectedStandardsSrcdoc;
       } });
+      Object.defineProperty(exports, "reincarnateProjectedStandardsSrcdoc", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.reincarnateProjectedStandardsSrcdoc;
+      } });
       Object.defineProperty(exports, "stripProjectedSkeleton", { enumerable: true, get: function() {
         return projectedBlankIframe_1.stripProjectedSkeleton;
+      } });
+      Object.defineProperty(exports, "constructedStyleSheetInit", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.constructedStyleSheetInit;
+      } });
+      Object.defineProperty(exports, "ensureProjectedDocumentBase", { enumerable: true, get: function() {
+        return projectedBlankIframe_1.ensureProjectedDocumentBase;
       } });
       Object.defineProperty(exports, "ensureProjectedK5Csp", { enumerable: true, get: function() {
         return projectedBlankIframe_1.ensureProjectedK5Csp;
@@ -5948,6 +6924,10 @@
       var nestedProjectedApply_1 = require_nestedProjectedApply();
       Object.defineProperty(exports, "NestedProjectedApply", { enumerable: true, get: function() {
         return nestedProjectedApply_1.NestedProjectedApply;
+      } });
+      var resyncSwapPolicy_1 = require_resyncSwapPolicy();
+      Object.defineProperty(exports, "shouldApplyUnsolicitedResync", { enumerable: true, get: function() {
+        return resyncSwapPolicy_1.shouldApplyUnsolicitedResync;
       } });
       var projectedInputCapture_1 = require_projectedInputCapture();
       Object.defineProperty(exports, "attachProjectedInputCapture", { enumerable: true, get: function() {
@@ -6053,18 +7033,18 @@
             return { tag: "#doctype", text: dt.name };
           }
           case 1: {
-            const el = node;
+            const el2 = node;
             const attrs = [];
-            const host = el.contentWindow != null;
-            for (let i = 0; i < el.attributes.length; i++) {
-              const a = el.attributes[i];
+            const host = el2.contentWindow != null;
+            for (let i = 0; i < el2.attributes.length; i++) {
+              const a = el2.attributes[i];
               if (host && (a.name === "src" || a.name === "srcdoc"))
                 continue;
               attrs.push([a.name, a.value]);
             }
             attrs.sort((x, y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
-            const result = { tag: el.tagName.toLowerCase() };
-            const ns = (0, elementNs_1.elementNsSnapshotLabel)(el.namespaceURI);
+            const result = { tag: el2.tagName.toLowerCase() };
+            const ns = (0, elementNs_1.elementNsSnapshotLabel)(el2.namespaceURI);
             if (ns !== void 0)
               result.ns = ns;
             if (attrs.length > 0)
@@ -6072,14 +7052,14 @@
             const children = mapChildren(node);
             if (children.length > 0)
               result.children = children;
-            const sr = (0, closedShadowLookup_1.resolveShadowRoot)(el);
+            const sr = (0, closedShadowLookup_1.resolveShadowRoot)(el2);
             if (sr !== null && sr.slotAssignment !== "manual") {
               const shadowKids = mapChildren(sr);
               result.shadow = { tag: "#shadow-root", ...shadowKids.length > 0 ? { children: shadowKids } : {} };
             }
             if (host) {
               try {
-                const iframe = el;
+                const iframe = el2;
                 const win = iframe.contentWindow;
                 if (win)
                   result.frameHref = win.location.href;
@@ -6109,6 +7089,1464 @@
     }
   });
 
+  // ../packages/page-projection/dist/core/domNodeKey.js
+  var require_domNodeKey = __commonJS({
+    "../packages/page-projection/dist/core/domNodeKey.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.NONE_DOM_NODE_KEY = void 0;
+      exports.NONE_DOM_NODE_KEY = 0;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/contextBusConstants.js
+  var require_contextBusConstants = __commonJS({
+    "../packages/page-projection/dist/core/contextBusConstants.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.CONTEXT_BUS_CHANNEL = exports.CONTEXT_ID_PROVISIONAL = exports.CONTEXT_ID_MAX_DOCUMENT = exports.CONTEXT_BUS_RUNTIME = void 0;
+      exports.CONTEXT_BUS_RUNTIME = 4294967295;
+      exports.CONTEXT_ID_MAX_DOCUMENT = 4294967294;
+      exports.CONTEXT_ID_PROVISIONAL = 0;
+      exports.CONTEXT_BUS_CHANNEL = "speculum.context.bus";
+    }
+  });
+
+  // ../packages/page-projection/dist/core/contextIdMint.js
+  var require_contextIdMint = __commonJS({
+    "../packages/page-projection/dist/core/contextIdMint.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ContextIdMint = void 0;
+      var contextBusConstants_1 = require_contextBusConstants();
+      var ContextIdMint = class {
+        next = 2;
+        mint() {
+          const id = this.next;
+          if (id > contextBusConstants_1.CONTEXT_ID_MAX_DOCUMENT)
+            throw new Error("contextId space exhausted");
+          this.next = id + 1;
+          return id >>> 0;
+        }
+        /** True for root (1) or any id already returned by {@link mint}. */
+        hasMinted(id) {
+          if (id === 1)
+            return true;
+          return Number.isInteger(id) && id >= 2 && id < this.next;
+        }
+      };
+      exports.ContextIdMint = ContextIdMint;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/plane/channels.js
+  var require_channels = __commonJS({
+    "../packages/page-projection/dist/core/plane/channels.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.planeChannelName = exports.PlaneChannel = void 0;
+      var PlaneChannel;
+      (function(PlaneChannel2) {
+        PlaneChannel2[PlaneChannel2["Frame"] = 1] = "Frame";
+        PlaneChannel2[PlaneChannel2["Control"] = 2] = "Control";
+        PlaneChannel2[PlaneChannel2["Telemetry"] = 3] = "Telemetry";
+      })(PlaneChannel || (exports.PlaneChannel = PlaneChannel = {}));
+      function planeChannelName(ch) {
+        switch (ch) {
+          case PlaneChannel.Frame:
+            return "frame";
+          case PlaneChannel.Control:
+            return "control";
+          case PlaneChannel.Telemetry:
+            return "telemetry";
+          default:
+            return `channel(${ch})`;
+        }
+      }
+      exports.planeChannelName = planeChannelName;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/loopback/envelope.js
+  var require_envelope = __commonJS({
+    "../packages/page-projection/dist/core/loopback/envelope.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isLoopbackWireMessage = exports.decodeLoopbackToPlane = exports.encodeLoopbackFromPlane = exports.encodeLoopbackInvokeHeartbeat = exports.encodeLoopbackInvokeStarted = exports.encodeLoopbackInvokeResult = exports.encodeLoopbackInvoke = exports.encodeLoopbackHelloReject = exports.encodeLoopbackHelloAck = exports.encodeLoopbackHello = exports.decodeLoopbackEnvelope = exports.encodeLoopbackEnvelope = exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = exports.LOOPBACK_INVOKE_HEARTBEAT_MS = exports.LOOPBACK_INVOKE_IDLE_MS = exports.LOOPBACK_CONTROL_INVOKE_NAME = exports.VIRTUAL_LOOPBACK_CHANNEL = void 0;
+      var channels_1 = require_channels();
+      exports.VIRTUAL_LOOPBACK_CHANNEL = "speculum.virtual.loopback";
+      exports.LOOPBACK_CONTROL_INVOKE_NAME = "__control";
+      exports.LOOPBACK_INVOKE_IDLE_MS = 2e3;
+      exports.LOOPBACK_INVOKE_HEARTBEAT_MS = 500;
+      exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = 15e3;
+      exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = 5e3;
+      exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = 2e4;
+      exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = 4e3;
+      exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = "speculum:generation_superseded";
+      function encodeLoopbackEnvelope(env) {
+        return new TextEncoder().encode(JSON.stringify(env));
+      }
+      exports.encodeLoopbackEnvelope = encodeLoopbackEnvelope;
+      function decodeLoopbackEnvelope(message) {
+        let parsed;
+        try {
+          parsed = JSON.parse(new TextDecoder().decode(message));
+        } catch {
+          return null;
+        }
+        if (typeof parsed !== "object" || parsed === null)
+          return null;
+        const env = parsed;
+        if (env.channel !== exports.VIRTUAL_LOOPBACK_CHANNEL || typeof env.kind !== "string")
+          return null;
+        switch (env.kind) {
+          case "hello": {
+            const h = env;
+            if (typeof h.sessionId !== "string" || typeof h.generation !== "number")
+              return null;
+            if (h.role !== "virtual-root")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "hello",
+              sessionId: h.sessionId,
+              generation: h.generation >>> 0,
+              role: "virtual-root"
+            };
+          }
+          case "hello-ack": {
+            const ack = env;
+            if (typeof ack.sessionId !== "string" || typeof ack.generation !== "number")
+              return null;
+            if (ack.ok !== true)
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "hello-ack",
+              sessionId: ack.sessionId,
+              generation: ack.generation >>> 0,
+              ok: true
+            };
+          }
+          case "hello-reject": {
+            const rej = env;
+            if (typeof rej.sessionId !== "string" || typeof rej.generation !== "number")
+              return null;
+            if (rej.ok !== false)
+              return null;
+            const reason = rej.reason;
+            if (reason !== "generation_mismatch" && reason !== "session_mismatch" && reason !== "already_established" && reason !== "protocol_unsupported" && reason !== "server_shutting_down") {
+              return null;
+            }
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "hello-reject",
+              sessionId: rej.sessionId,
+              generation: rej.generation >>> 0,
+              ok: false,
+              reason
+            };
+          }
+          case "frame": {
+            const bytes = env.bytes;
+            if (!Array.isArray(bytes))
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "frame",
+              bytes
+            };
+          }
+          case "telemetry":
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "telemetry",
+              message: env.message
+            };
+          case "invoke": {
+            const inv = env;
+            if (typeof inv.correlationId !== "number" || typeof inv.name !== "string")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "invoke",
+              correlationId: inv.correlationId >>> 0,
+              name: inv.name,
+              args: inv.args
+            };
+          }
+          case "invoke-started":
+          case "invoke-heartbeat": {
+            const hb = env;
+            if (typeof hb.correlationId !== "number")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: env.kind,
+              correlationId: hb.correlationId >>> 0
+            };
+          }
+          case "invoke-result": {
+            const res = env;
+            if (typeof res.correlationId !== "number" || typeof res.ok !== "boolean")
+              return null;
+            return {
+              channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+              kind: "invoke-result",
+              correlationId: res.correlationId >>> 0,
+              ok: res.ok,
+              value: res.value,
+              error: res.error && typeof res.error.message === "string" ? { message: res.error.message, name: res.error.name } : void 0
+            };
+          }
+          default:
+            return null;
+        }
+      }
+      exports.decodeLoopbackEnvelope = decodeLoopbackEnvelope;
+      function encodeLoopbackHello(sessionId, generation, role = "virtual-root") {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello",
+          sessionId,
+          generation: generation >>> 0,
+          role
+        });
+      }
+      exports.encodeLoopbackHello = encodeLoopbackHello;
+      function encodeLoopbackHelloAck(sessionId, generation) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello-ack",
+          sessionId,
+          generation: generation >>> 0,
+          ok: true
+        });
+      }
+      exports.encodeLoopbackHelloAck = encodeLoopbackHelloAck;
+      function encodeLoopbackHelloReject(sessionId, generation, reason) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "hello-reject",
+          sessionId,
+          generation: generation >>> 0,
+          ok: false,
+          reason
+        });
+      }
+      exports.encodeLoopbackHelloReject = encodeLoopbackHelloReject;
+      function encodeLoopbackInvoke(correlationId, name, args) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke",
+          correlationId: correlationId >>> 0,
+          name,
+          args
+        });
+      }
+      exports.encodeLoopbackInvoke = encodeLoopbackInvoke;
+      function encodeLoopbackInvokeResult(correlationId, result) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke-result",
+          correlationId: correlationId >>> 0,
+          ok: result.ok,
+          value: result.value,
+          error: result.error
+        });
+      }
+      exports.encodeLoopbackInvokeResult = encodeLoopbackInvokeResult;
+      function encodeLoopbackInvokeStarted(correlationId) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke-started",
+          correlationId: correlationId >>> 0
+        });
+      }
+      exports.encodeLoopbackInvokeStarted = encodeLoopbackInvokeStarted;
+      function encodeLoopbackInvokeHeartbeat(correlationId) {
+        return encodeLoopbackEnvelope({
+          channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+          kind: "invoke-heartbeat",
+          correlationId: correlationId >>> 0
+        });
+      }
+      exports.encodeLoopbackInvokeHeartbeat = encodeLoopbackInvokeHeartbeat;
+      function encodeLoopbackFromPlane(channel, payload) {
+        if (channel === channels_1.PlaneChannel.Frame) {
+          return encodeLoopbackEnvelope({
+            channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+            kind: "frame",
+            bytes: Array.from(payload)
+          });
+        }
+        if (channel === channels_1.PlaneChannel.Telemetry) {
+          return encodeLoopbackEnvelope({
+            channel: exports.VIRTUAL_LOOPBACK_CHANNEL,
+            kind: "telemetry",
+            message: JSON.parse(new TextDecoder().decode(payload))
+          });
+        }
+        return encodeLoopbackInvoke(0, exports.LOOPBACK_CONTROL_INVOKE_NAME, JSON.parse(new TextDecoder().decode(payload)));
+      }
+      exports.encodeLoopbackFromPlane = encodeLoopbackFromPlane;
+      function decodeLoopbackToPlane(message) {
+        const env = decodeLoopbackEnvelope(message);
+        if (env === null)
+          return null;
+        switch (env.kind) {
+          case "frame":
+            return { channel: channels_1.PlaneChannel.Frame, payload: Uint8Array.from(env.bytes) };
+          case "telemetry":
+            return {
+              channel: channels_1.PlaneChannel.Telemetry,
+              payload: new TextEncoder().encode(JSON.stringify(env.message ?? null))
+            };
+          case "invoke":
+            if (env.name === exports.LOOPBACK_CONTROL_INVOKE_NAME) {
+              return {
+                channel: channels_1.PlaneChannel.Control,
+                payload: new TextEncoder().encode(JSON.stringify(env.args ?? {}))
+              };
+            }
+            return null;
+          default:
+            return null;
+        }
+      }
+      exports.decodeLoopbackToPlane = decodeLoopbackToPlane;
+      function isLoopbackWireMessage(message) {
+        if (message.length < 2 || message[0] !== 123)
+          return false;
+        try {
+          const parsed = JSON.parse(new TextDecoder().decode(message));
+          return parsed.channel === exports.VIRTUAL_LOOPBACK_CHANNEL;
+        } catch {
+          return false;
+        }
+      }
+      exports.isLoopbackWireMessage = isLoopbackWireMessage;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/plane/envelope.js
+  var require_envelope2 = __commonJS({
+    "../packages/page-projection/dist/core/plane/envelope.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = void 0;
+      var envelope_1 = require_envelope();
+      exports.PLANE_MAGIC = 20563;
+      exports.PLANE_VERSION = 1;
+      exports.PLANE_HEADER_SIZE = 5;
+      function encodePlaneEnvelope(channel, payload, _flags = 0) {
+        void _flags;
+        return (0, envelope_1.encodeLoopbackFromPlane)(channel, payload);
+      }
+      exports.encodePlaneEnvelope = encodePlaneEnvelope;
+      function decodePlaneEnvelope(message) {
+        if ((0, envelope_1.isLoopbackWireMessage)(message)) {
+          const mapped = (0, envelope_1.decodeLoopbackToPlane)(message);
+          if (mapped === null)
+            return null;
+          return { channel: mapped.channel, flags: 0, payload: mapped.payload };
+        }
+        if (message.length < exports.PLANE_HEADER_SIZE)
+          return null;
+        const view = new DataView(message.buffer, message.byteOffset, message.byteLength);
+        if (view.getUint16(0, true) !== exports.PLANE_MAGIC)
+          return null;
+        if (message[2] !== exports.PLANE_VERSION)
+          return null;
+        const channel = message[3];
+        const flags = message[4];
+        return {
+          channel,
+          flags,
+          payload: message.subarray(exports.PLANE_HEADER_SIZE)
+        };
+      }
+      exports.decodePlaneEnvelope = decodePlaneEnvelope;
+      function isPlaneEnvelope(message) {
+        return (0, envelope_1.isLoopbackWireMessage)(message) || decodePlaneEnvelope(message) !== null;
+      }
+      exports.isPlaneEnvelope = isPlaneEnvelope;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/plane/index.js
+  var require_plane = __commonJS({
+    "../packages/page-projection/dist/core/plane/index.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = exports.planeChannelName = exports.PlaneChannel = void 0;
+      var channels_1 = require_channels();
+      Object.defineProperty(exports, "PlaneChannel", { enumerable: true, get: function() {
+        return channels_1.PlaneChannel;
+      } });
+      Object.defineProperty(exports, "planeChannelName", { enumerable: true, get: function() {
+        return channels_1.planeChannelName;
+      } });
+      var envelope_1 = require_envelope2();
+      Object.defineProperty(exports, "PLANE_MAGIC", { enumerable: true, get: function() {
+        return envelope_1.PLANE_MAGIC;
+      } });
+      Object.defineProperty(exports, "PLANE_VERSION", { enumerable: true, get: function() {
+        return envelope_1.PLANE_VERSION;
+      } });
+      Object.defineProperty(exports, "PLANE_HEADER_SIZE", { enumerable: true, get: function() {
+        return envelope_1.PLANE_HEADER_SIZE;
+      } });
+      Object.defineProperty(exports, "encodePlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_1.encodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "decodePlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_1.decodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "isPlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_1.isPlaneEnvelope;
+      } });
+    }
+  });
+
+  // ../packages/page-projection/dist/core/loopback/socket.js
+  var require_socket = __commonJS({
+    "../packages/page-projection/dist/core/loopback/socket.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.LOOPBACK_SOCKET_CLOSED = exports.LOOPBACK_SOCKET_CLOSING = exports.LOOPBACK_SOCKET_OPEN = exports.LOOPBACK_SOCKET_CONNECTING = void 0;
+      exports.LOOPBACK_SOCKET_CONNECTING = 0;
+      exports.LOOPBACK_SOCKET_OPEN = 1;
+      exports.LOOPBACK_SOCKET_CLOSING = 2;
+      exports.LOOPBACK_SOCKET_CLOSED = 3;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/extensionPlane/envelope.js
+  var require_envelope3 = __commonJS({
+    "../packages/page-projection/dist/core/extensionPlane/envelope.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.decodeExtensionPlaneEnvelope = exports.isExtensionPlaneWireMessage = exports.EXTENSION_PLANE_CHANNEL = void 0;
+      exports.EXTENSION_PLANE_CHANNEL = "speculum.extension.plane";
+      function asUint8Array(value) {
+        if (value instanceof Uint8Array)
+          return value;
+        if (ArrayBuffer.isView(value)) {
+          const view = value;
+          return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+        }
+        if (value instanceof ArrayBuffer)
+          return new Uint8Array(value);
+        if (Array.isArray(value) && value.every((x) => typeof x === "number")) {
+          return Uint8Array.from(value);
+        }
+        return null;
+      }
+      function isExtensionPlaneWireMessage(value) {
+        return decodeExtensionPlaneEnvelope(value) !== null;
+      }
+      exports.isExtensionPlaneWireMessage = isExtensionPlaneWireMessage;
+      function decodeExtensionPlaneEnvelope(value) {
+        if (typeof value !== "object" || value === null)
+          return null;
+        const raw = value;
+        if (raw.channel !== exports.EXTENSION_PLANE_CHANNEL)
+          return null;
+        if (typeof raw.token !== "string" || raw.token.length === 0)
+          return null;
+        if (typeof raw.kind !== "string")
+          return null;
+        const token = raw.token;
+        switch (raw.kind) {
+          case "bind":
+          case "bind-ack":
+            return { channel: exports.EXTENSION_PLANE_CHANNEL, token, kind: raw.kind };
+          case "open": {
+            if (typeof raw.url !== "string" || typeof raw.socketId !== "number")
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "open",
+              url: raw.url,
+              socketId: raw.socketId >>> 0
+            };
+          }
+          case "open-ok":
+          case "open-fail": {
+            if (typeof raw.socketId !== "number")
+              return null;
+            if (raw.kind === "open-ok") {
+              return { channel: exports.EXTENSION_PLANE_CHANNEL, token, kind: "open-ok", socketId: raw.socketId >>> 0 };
+            }
+            if (typeof raw.message !== "string")
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "open-fail",
+              socketId: raw.socketId >>> 0,
+              message: raw.message
+            };
+          }
+          case "send":
+          case "message": {
+            if (typeof raw.socketId !== "number")
+              return null;
+            const bytes = asUint8Array(raw.bytes);
+            if (bytes === null)
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: raw.kind,
+              socketId: raw.socketId >>> 0,
+              bytes
+            };
+          }
+          case "close": {
+            if (typeof raw.socketId !== "number")
+              return null;
+            const code = raw.code === void 0 ? void 0 : Number(raw.code);
+            const reason = raw.reason === void 0 ? void 0 : String(raw.reason);
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "close",
+              socketId: raw.socketId >>> 0,
+              code: code !== void 0 && Number.isFinite(code) ? code : void 0,
+              reason
+            };
+          }
+          case "error": {
+            if (typeof raw.socketId !== "number" || typeof raw.message !== "string")
+              return null;
+            return {
+              channel: exports.EXTENSION_PLANE_CHANNEL,
+              token,
+              kind: "error",
+              socketId: raw.socketId >>> 0,
+              message: raw.message
+            };
+          }
+          default:
+            return null;
+        }
+      }
+      exports.decodeExtensionPlaneEnvelope = decodeExtensionPlaneEnvelope;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/input/intentTypes.js
+  var require_intentTypes = __commonJS({
+    "../packages/page-projection/dist/core/input/intentTypes.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.INTENT_SCHEMA_VERSION = void 0;
+      exports.INTENT_SCHEMA_VERSION = 1;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/input/geckoControlInput.js
+  var require_geckoControlInput = __commonJS({
+    "../packages/page-projection/dist/core/input/geckoControlInput.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.encodeControlFromIntent = exports.bytesToBase64 = exports.encodeAssetRequest = exports.encodeDownloadRespond = exports.encodePermissionRespond = exports.encodeBoolRespond = exports.encodeDialogRespond = exports.encodeViewportSet = exports.encodeHistoryGo = exports.encodeInputScroll = exports.encodeInputKey = exports.encodeInputPointer = exports.modsToU8 = exports.buttonToU8 = exports.fracToU16 = exports.GECKO_INPUT_SCROLL_SET = exports.GECKO_INPUT_KEY_UP = exports.GECKO_INPUT_KEY_DOWN = exports.GECKO_INPUT_UP = exports.GECKO_INPUT_DOWN = exports.GECKO_OP_DOWNLOAD_RESPOND = exports.GECKO_OP_PERMISSION_RESPOND = exports.GECKO_OP_DIALOG_RESPOND = exports.GECKO_OP_VIEWPORT_SET = exports.GECKO_OP_HISTORY_GO = exports.GECKO_OP_INPUT = void 0;
+      exports.GECKO_OP_INPUT = 264;
+      exports.GECKO_OP_HISTORY_GO = 262;
+      exports.GECKO_OP_VIEWPORT_SET = 263;
+      exports.GECKO_OP_DIALOG_RESPOND = 266;
+      exports.GECKO_OP_PERMISSION_RESPOND = 267;
+      exports.GECKO_OP_DOWNLOAD_RESPOND = 268;
+      exports.GECKO_INPUT_DOWN = 1;
+      exports.GECKO_INPUT_UP = 2;
+      exports.GECKO_INPUT_KEY_DOWN = 3;
+      exports.GECKO_INPUT_KEY_UP = 4;
+      exports.GECKO_INPUT_SCROLL_SET = 5;
+      var HEADER = 6;
+      function writeU8(buf, off, v) {
+        buf[off] = v & 255;
+        return off + 1;
+      }
+      function writeU16(buf, off, v) {
+        buf[off] = v & 255;
+        buf[off + 1] = v >>> 8 & 255;
+        return off + 2;
+      }
+      function writeU32(buf, off, v) {
+        buf[off] = v & 255;
+        buf[off + 1] = v >>> 8 & 255;
+        buf[off + 2] = v >>> 16 & 255;
+        buf[off + 3] = v >>> 24 & 255;
+        return off + 4;
+      }
+      function writeU64(buf, off, v) {
+        const lo = v >>> 0;
+        const hi = Math.floor(v / 4294967296) >>> 0;
+        off = writeU32(buf, off, lo);
+        return writeU32(buf, off, hi);
+      }
+      function writeI32(buf, off, v) {
+        return writeU32(buf, off, v | 0);
+      }
+      function writeStr(buf, off, value) {
+        const bytes = new TextEncoder().encode(value);
+        off = writeU32(buf, off, bytes.length);
+        buf.set(bytes, off);
+        return off + bytes.length;
+      }
+      function strSize(value) {
+        return 4 + new TextEncoder().encode(value).length;
+      }
+      function header(buf, op, corr2) {
+        let off = 0;
+        off = writeU16(buf, off, op);
+        return writeU32(buf, off, corr2);
+      }
+      function fracToU16(f) {
+        if (f == null || Number.isNaN(f)) {
+          return 32768;
+        }
+        if (f <= 0) {
+          return 0;
+        }
+        if (f >= 1) {
+          return 65535;
+        }
+        return Math.round(f * 65535);
+      }
+      exports.fracToU16 = fracToU16;
+      function buttonToU8(button) {
+        if (button === "middle") {
+          return 1;
+        }
+        if (button === "right") {
+          return 2;
+        }
+        return 0;
+      }
+      exports.buttonToU8 = buttonToU8;
+      function modsToU8(mods) {
+        let v = 0;
+        if (mods?.ctrl)
+          v |= 1;
+        if (mods?.shift)
+          v |= 2;
+        if (mods?.alt)
+          v |= 4;
+        if (mods?.meta)
+          v |= 8;
+        return v;
+      }
+      exports.modsToU8 = modsToU8;
+      function encodeInputPointer(corr2, ctx, type, nodeId, localX, localY, button) {
+        const buf = new Uint8Array(HEADER + 4 + 1 + 4 + 2 + 2 + 1);
+        let off = header(buf, exports.GECKO_OP_INPUT, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU8(buf, off, type);
+        off = writeU32(buf, off, nodeId);
+        off = writeU16(buf, off, localX);
+        off = writeU16(buf, off, localY);
+        writeU8(buf, off, button);
+        return buf;
+      }
+      exports.encodeInputPointer = encodeInputPointer;
+      function encodeInputKey(corr2, ctx, type, key, code, mods) {
+        const buf = new Uint8Array(HEADER + 4 + 1 + strSize(key) + strSize(code) + 1);
+        let off = header(buf, exports.GECKO_OP_INPUT, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU8(buf, off, type);
+        off = writeStr(buf, off, key);
+        off = writeStr(buf, off, code);
+        writeU8(buf, off, mods);
+        return buf;
+      }
+      exports.encodeInputKey = encodeInputKey;
+      function encodeInputScroll(corr2, ctx, nodeId, fracX, fracY) {
+        const buf = new Uint8Array(HEADER + 4 + 1 + 4 + 2 + 2);
+        let off = header(buf, exports.GECKO_OP_INPUT, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU8(buf, off, exports.GECKO_INPUT_SCROLL_SET);
+        off = writeU32(buf, off, nodeId);
+        off = writeU16(buf, off, fracX);
+        writeU16(buf, off, fracY);
+        return buf;
+      }
+      exports.encodeInputScroll = encodeInputScroll;
+      function encodeHistoryGo(corr2, ctx, delta) {
+        const buf = new Uint8Array(HEADER + 4 + 4);
+        let off = header(buf, exports.GECKO_OP_HISTORY_GO, corr2);
+        off = writeU32(buf, off, ctx);
+        writeI32(buf, off, delta);
+        return buf;
+      }
+      exports.encodeHistoryGo = encodeHistoryGo;
+      function encodeViewportSet(corr2, ctx, width, height) {
+        const buf = new Uint8Array(HEADER + 4 + 4 + 4);
+        let off = header(buf, exports.GECKO_OP_VIEWPORT_SET, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeI32(buf, off, width);
+        writeI32(buf, off, height);
+        return buf;
+      }
+      exports.encodeViewportSet = encodeViewportSet;
+      function encodeDialogRespond2(corr2, ctx, requestId, answer) {
+        const buf = new Uint8Array(HEADER + 4 + 4 + strSize(answer));
+        let off = header(buf, exports.GECKO_OP_DIALOG_RESPOND, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU32(buf, off, requestId);
+        writeStr(buf, off, answer);
+        return buf;
+      }
+      exports.encodeDialogRespond = encodeDialogRespond2;
+      function encodeBoolRespond(op, corr2, ctx, requestId, yes) {
+        const buf = new Uint8Array(HEADER + 4 + 4 + 1);
+        let off = header(buf, op, corr2);
+        off = writeU32(buf, off, ctx);
+        off = writeU32(buf, off, requestId);
+        writeU8(buf, off, yes ? 1 : 0);
+        return buf;
+      }
+      exports.encodeBoolRespond = encodeBoolRespond;
+      function encodePermissionRespond2(corr2, ctx, requestId, granted) {
+        return encodeBoolRespond(exports.GECKO_OP_PERMISSION_RESPOND, corr2, ctx, requestId, granted);
+      }
+      exports.encodePermissionRespond = encodePermissionRespond2;
+      function encodeDownloadRespond2(corr2, ctx, requestId, accepted) {
+        return encodeBoolRespond(exports.GECKO_OP_DOWNLOAD_RESPOND, corr2, ctx, requestId, accepted);
+      }
+      exports.encodeDownloadRespond = encodeDownloadRespond2;
+      function encodeAssetRequest2(streamId, dest, url, range, offset) {
+        const urlBytes = new TextEncoder().encode(url);
+        const rangeBytes = new TextEncoder().encode(range);
+        const inner = 1 + 4 + urlBytes.length + 4 + rangeBytes.length;
+        const buf = new Uint8Array(4 + 1 + 8 + 4 + inner);
+        let off = writeU32(buf, 0, streamId);
+        off = writeU8(buf, off, 0);
+        off = writeU64(buf, off, offset);
+        off = writeU32(buf, off, inner);
+        off = writeU8(buf, off, dest & 255);
+        off = writeU32(buf, off, urlBytes.length);
+        buf.set(urlBytes, off);
+        off += urlBytes.length;
+        off = writeU32(buf, off, rangeBytes.length);
+        buf.set(rangeBytes, off);
+        return buf;
+      }
+      exports.encodeAssetRequest = encodeAssetRequest2;
+      function bytesToBase642(bytes) {
+        let s = "";
+        for (let i = 0; i < bytes.length; i++) {
+          s += String.fromCharCode(bytes[i]);
+        }
+        return btoa(s);
+      }
+      exports.bytesToBase64 = bytesToBase642;
+      function encodeControlFromIntent3(corr2, ctx, intent) {
+        if (intent.type === "down" || intent.type === "up") {
+          const nodeId = intent.nodeId ?? 0;
+          return encodeInputPointer(corr2, intent.contextId ?? ctx, intent.type === "down" ? exports.GECKO_INPUT_DOWN : exports.GECKO_INPUT_UP, nodeId, fracToU16(intent.localX), fracToU16(intent.localY), buttonToU8(intent.button));
+        }
+        if (intent.type === "keyDown" || intent.type === "keyUp") {
+          return encodeInputKey(corr2, intent.contextId ?? ctx, intent.type === "keyDown" ? exports.GECKO_INPUT_KEY_DOWN : exports.GECKO_INPUT_KEY_UP, intent.key, intent.code, modsToU8(intent.modifiers));
+        }
+        if (intent.type === "scrollSet") {
+          return encodeInputScroll(corr2, intent.contextId ?? ctx, intent.nodeId ?? 0, fracToU16(intent.scrollFracX), fracToU16(intent.scrollFracY));
+        }
+        if (intent.type === "historyNav") {
+          return encodeHistoryGo(corr2, ctx, intent.direction === "back" ? -1 : 1);
+        }
+        return null;
+      }
+      exports.encodeControlFromIntent = encodeControlFromIntent3;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/tableLiveOracle.js
+  var require_tableLiveOracle = __commonJS({
+    "../packages/page-projection/dist/core/tableLiveOracle.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.compareTableToLiveOrder = void 0;
+      var frame_1 = require_frame();
+      var opcodes_1 = require_opcodes();
+      var MAX_DIVERGENCES = 50;
+      var NONE = 0;
+      function isSkippedKind(kind) {
+        return kind === opcodes_1.NodeKind.Sheet || kind === opcodes_1.NodeKind.Rule || kind === opcodes_1.NodeKind.ShadowRoot;
+      }
+      function orderedDomChildIds(table, parent) {
+        const all = table.orderedChildIds(parent);
+        const out = [];
+        for (let i = 0; i < all.length; i++) {
+          const id = all[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && isSkippedKind(row.kind))
+            continue;
+          out.push(id);
+        }
+        return out;
+      }
+      function idsEqual(a, b) {
+        if (a.length !== b.length)
+          return false;
+        for (let i = 0; i < a.length; i++) {
+          if (a[i] !== b[i])
+            return false;
+        }
+        return true;
+      }
+      function compareTableToLiveOrder(table, liveChildren) {
+        const divergences = [];
+        let count = 0;
+        const record = (path, kind, details) => {
+          count += 1;
+          if (divergences.length < MAX_DIVERGENCES)
+            divergences.push({ path, kind, details });
+        };
+        const liveIds = /* @__PURE__ */ new Set();
+        for (const kids of liveChildren.values()) {
+          for (let i = 0; i < kids.length; i++)
+            liveIds.add(kids[i]);
+        }
+        const parents = /* @__PURE__ */ new Set([frame_1.DOCUMENT_ID]);
+        for (const parent of liveChildren.keys())
+          parents.add(parent);
+        for (const parent of parents) {
+          const tableOrder = orderedDomChildIds(table, parent);
+          const liveOrder = liveChildren.get(parent) ?? [];
+          if (!idsEqual(tableOrder, liveOrder)) {
+            const hashed = table.countAttachedChildren(parent);
+            const lastWalk = tableOrder.length > 0 ? tableOrder[tableOrder.length - 1] : 0;
+            const lastRow = lastWalk !== 0 ? table.getRow(lastWalk) : void 0;
+            record(`#${parent}`, "child_order_mismatch", `walkLen=${tableOrder.length} hashedAttached=${hashed} liveLen=${liveOrder.length} tableHead=[${tableOrder.slice(0, 8).join(",")}] liveHead=[${liveOrder.slice(0, 8).join(",")}] lastWalk=#${lastWalk} lastRow=${lastRow ? `parent=${lastRow.parent} prev=${lastRow.prevSibling}` : "missing"}`);
+          }
+        }
+        for (const id of liveIds) {
+          const row = table.getRow(id);
+          if (row === void 0) {
+            record(`#${id}`, "missing_in_table", "connected mapped id has no table row");
+          } else if (row.parent === NONE) {
+            record(`#${id}`, "detached_but_connected", "table parent=0 but id appears in live child order");
+          }
+        }
+        table.forEachRow((id, row) => {
+          if (row.parent === NONE)
+            return;
+          if (isSkippedKind(row.kind))
+            return;
+          const parentIsLive = row.parent === frame_1.DOCUMENT_ID || liveIds.has(row.parent) || liveChildren.has(row.parent);
+          if (!parentIsLive)
+            return;
+          if (!liveIds.has(id)) {
+            record(`#${id}`, "extra_attached_in_table", `attached under ${row.parent} but absent from live walk`);
+          }
+        });
+        return { kind: "table_live", identical: count === 0, divergenceCount: count, divergences };
+      }
+      exports.compareTableToLiveOrder = compareTableToLiveOrder;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/cssomTableLiveOracle.js
+  var require_cssomTableLiveOracle = __commonJS({
+    "../packages/page-projection/dist/core/cssomTableLiveOracle.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.compareTableToLiveCssom = exports.emptyCssomTableLiveOracleResult = void 0;
+      var frame_1 = require_frame();
+      var opcodes_1 = require_opcodes();
+      var MAX_DIVERGENCES = 50;
+      function idsEqual(a, b) {
+        if (a.length !== b.length)
+          return false;
+        for (let i = 0; i < a.length; i++) {
+          if (a[i] !== b[i])
+            return false;
+        }
+        return true;
+      }
+      function orderedKindChildIds(table, parent, kind) {
+        const all = table.orderedChildIds(parent);
+        const out = [];
+        for (let i = 0; i < all.length; i++) {
+          const id = all[i];
+          const row = table.getRow(id);
+          if (row !== void 0 && row.kind === kind)
+            out.push(id);
+        }
+        return out;
+      }
+      function emptyCssomTableLiveOracleResult() {
+        return { kind: "cssom_table_live", identical: true, divergenceCount: 0, divergences: [] };
+      }
+      exports.emptyCssomTableLiveOracleResult = emptyCssomTableLiveOracleResult;
+      function compareTableToLiveCssom(table, liveSheets) {
+        const divergences = [];
+        let count = 0;
+        const record = (path, kind, details) => {
+          count += 1;
+          if (divergences.length < MAX_DIVERGENCES)
+            divergences.push({ path, kind, details });
+        };
+        const byParent = /* @__PURE__ */ new Map();
+        for (const live of liveSheets) {
+          const parent = live.hostNode ?? frame_1.DOCUMENT_ID;
+          const key = parent === 0 ? frame_1.DOCUMENT_ID : parent;
+          let group = byParent.get(key);
+          if (group === void 0) {
+            group = [];
+            byParent.set(key, group);
+          }
+          group.push(live);
+        }
+        const tableParents = /* @__PURE__ */ new Set([frame_1.DOCUMENT_ID, ...byParent.keys()]);
+        table.forEachRow((_id, row) => {
+          if (row.kind === opcodes_1.NodeKind.Sheet) {
+            tableParents.add(row.parent === 0 ? frame_1.DOCUMENT_ID : row.parent);
+          }
+        });
+        for (const parent of tableParents) {
+          const tableSheets = orderedKindChildIds(table, parent, opcodes_1.NodeKind.Sheet);
+          const liveGroup = byParent.get(parent) ?? [];
+          const liveSheetIds = liveGroup.map((s) => s.id);
+          if (!idsEqual(tableSheets, liveSheetIds)) {
+            record(parent === frame_1.DOCUMENT_ID ? "#sheets" : `#${parent}/sheets`, "sheet_order_mismatch", `table=[${tableSheets.slice(0, 8).join(",")}] live=[${liveSheetIds.slice(0, 8).join(",")}]`);
+          }
+          const liveSheetSet = new Set(liveSheetIds);
+          for (const id of tableSheets) {
+            if (!liveSheetSet.has(id))
+              record(`#${id}`, "extra_in_table", "Sheet row not in live readable list");
+          }
+          for (const live of liveGroup) {
+            if (table.getRow(live.id) === void 0) {
+              record(`#${live.id}`, "missing_in_table", "live readable sheet has no table row");
+              continue;
+            }
+            const tableRules = orderedKindChildIds(table, live.id, opcodes_1.NodeKind.Rule);
+            if (!idsEqual(tableRules, live.ruleIds)) {
+              record(`#${live.id}`, "rule_order_mismatch", `table=[${tableRules.slice(0, 8).join(",")}] live=[${live.ruleIds.slice(0, 8).join(",")}]`);
+            }
+            const n = Math.min(tableRules.length, live.ruleIds.length, live.ruleHashes.length);
+            for (let i = 0; i < n; i++) {
+              const rid = live.ruleIds[i];
+              if (tableRules[i] !== rid)
+                continue;
+              const row = table.getRow(rid);
+              if (row === void 0) {
+                record(`#${rid}`, "missing_in_table", "live rule has no table row");
+                continue;
+              }
+              if (row.contentHash !== live.ruleHashes[i]) {
+                record(`#${rid}`, "rule_content_mismatch", `sheet=#${live.id} contentHash diverged`);
+              }
+            }
+            for (const rid of live.ruleIds) {
+              if (table.getRow(rid) === void 0)
+                record(`#${rid}`, "missing_in_table", "live rule has no table row");
+            }
+            for (const rid of tableRules) {
+              if (!live.ruleIds.includes(rid))
+                record(`#${rid}`, "extra_in_table", `Rule row not in live cssRules of sheet #${live.id}`);
+            }
+          }
+        }
+        return { kind: "cssom_table_live", identical: count === 0, divergenceCount: count, divergences };
+      }
+      exports.compareTableToLiveCssom = compareTableToLiveCssom;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/formControlSnap.js
+  var require_formControlSnap = __commonJS({
+    "../packages/page-projection/dist/core/formControlSnap.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.formControlSnapsEqual = void 0;
+      function formControlSnapsEqual(a, b) {
+        if (a == null || b == null) {
+          return { identical: false, reason: "formProps missing" };
+        }
+        if (a.length !== b.length) {
+          return { identical: false, reason: `count virtual=${a.length} projected=${b.length}` };
+        }
+        for (let i = 0; i < a.length; i++) {
+          const left = a[i];
+          const right = b[i];
+          if (left.key !== right.key) {
+            return { identical: false, reason: `key ${left.key} vs ${right.key}` };
+          }
+          if (left.value !== right.value || left.checked !== right.checked || left.selected !== right.selected) {
+            return {
+              identical: false,
+              reason: `${left.key} virtual=${JSON.stringify(left)} projected=${JSON.stringify(right)}`
+            };
+          }
+        }
+        return { identical: true, reason: `${a.length} controls` };
+      }
+      exports.formControlSnapsEqual = formControlSnapsEqual;
+    }
+  });
+
+  // ../packages/page-projection/dist/core/index.js
+  var require_core = __commonJS({
+    "../packages/page-projection/dist/core/index.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.LOOPBACK_HELLO_ACK_TIMEOUT_MS = exports.LOOPBACK_WS_OPEN_TIMEOUT_MS = exports.LOOPBACK_INVOKE_HEARTBEAT_MS = exports.LOOPBACK_INVOKE_IDLE_MS = exports.LOOPBACK_CONTROL_INVOKE_NAME = exports.VIRTUAL_LOOPBACK_CHANNEL = exports.isPlaneEnvelope = exports.decodePlaneEnvelope = exports.encodePlaneEnvelope = exports.PLANE_HEADER_SIZE = exports.PLANE_VERSION = exports.PLANE_MAGIC = exports.planeChannelName = exports.PlaneChannel = exports.desyncPhase = exports.isProjectionTelemetryMessage = exports.TELEMETRY_BOOL_CAPS = exports.LAB_TELEMETRY_DEFAULTS = exports.DEFAULT_TELEMETRY_CONFIG = exports.TELEMETRY_WIRE_VERSION = exports.PersistentStringTable = exports.FramePartAssembler = exports.peekFrameHeader = exports.decodeFramePart = exports.isNestedHostSandboxAttr = exports.isNestedHostNavAttr = exports.nestedHostSandboxAttrValue = exports.applyNestedHostSandboxAttr = exports.ensureNestedHostSandboxAccess = exports.ContextIdMint = exports.createFrame = exports.INSERT_AT_END = exports.CONTEXT_ID_ROOT = exports.DOCUMENT_ID = exports.FRAME_PREFIX_BYTES = exports.FRAME_WIRE_VERSION = exports.unpackElementNsWireByte = exports.packElementNsWireByte = exports.elementNsSnapshotLabel = exports.elementNsUri = exports.classifyElementNs = exports.ELEMENT_NS_NESTED_HOST_BIT = exports.ELEMENT_NS_MATHML = exports.ELEMENT_NS_SVG = exports.ELEMENT_NS_HTML = exports.ElementNs = exports.NodeKind = exports.opCodeName = exports.OpCode = exports.NONE_DOM_NODE_KEY = void 0;
+      exports.applyOpsToTable = exports.ReplicatedTable = exports.tableDigestsEqual = exports.digestReplicatedTable = exports.snapshotTree = exports.bytesToBase64 = exports.encodeAssetRequest = exports.encodeControlFromIntent = exports.encodeDownloadRespond = exports.encodePermissionRespond = exports.encodeDialogRespond = exports.encodeViewportSet = exports.encodeHistoryGo = exports.encodeInputScroll = exports.encodeInputKey = exports.encodeInputPointer = exports.modsToU8 = exports.buttonToU8 = exports.fracToU16 = exports.GECKO_INPUT_SCROLL_SET = exports.GECKO_INPUT_KEY_UP = exports.GECKO_INPUT_KEY_DOWN = exports.GECKO_INPUT_UP = exports.GECKO_INPUT_DOWN = exports.GECKO_OP_VIEWPORT_SET = exports.GECKO_OP_HISTORY_GO = exports.GECKO_OP_INPUT = exports.INTENT_SCHEMA_VERSION = exports.isExtensionPlaneWireMessage = exports.decodeExtensionPlaneEnvelope = exports.EXTENSION_PLANE_CHANNEL = exports.LOOPBACK_SOCKET_CLOSED = exports.LOOPBACK_SOCKET_CLOSING = exports.LOOPBACK_SOCKET_OPEN = exports.LOOPBACK_SOCKET_CONNECTING = exports.isLoopbackWireMessage = exports.decodeLoopbackToPlane = exports.encodeLoopbackFromPlane = exports.encodeLoopbackInvokeHeartbeat = exports.encodeLoopbackInvokeStarted = exports.encodeLoopbackInvokeResult = exports.encodeLoopbackInvoke = exports.encodeLoopbackHelloReject = exports.encodeLoopbackHelloAck = exports.encodeLoopbackHello = exports.decodeLoopbackEnvelope = exports.encodeLoopbackEnvelope = exports.LOOPBACK_GENERATION_SUPERSEDED_REASON = exports.LOOPBACK_GENERATION_SUPERSEDED_CODE = exports.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS = void 0;
+      exports.formControlSnapsEqual = exports.compareTableToLiveCssom = exports.compareTableToLiveOrder = exports.applyFrameToTableChecked = void 0;
+      var domNodeKey_1 = require_domNodeKey();
+      Object.defineProperty(exports, "NONE_DOM_NODE_KEY", { enumerable: true, get: function() {
+        return domNodeKey_1.NONE_DOM_NODE_KEY;
+      } });
+      var opcodes_1 = require_opcodes();
+      Object.defineProperty(exports, "OpCode", { enumerable: true, get: function() {
+        return opcodes_1.OpCode;
+      } });
+      Object.defineProperty(exports, "opCodeName", { enumerable: true, get: function() {
+        return opcodes_1.opCodeName;
+      } });
+      Object.defineProperty(exports, "NodeKind", { enumerable: true, get: function() {
+        return opcodes_1.NodeKind;
+      } });
+      var elementNs_1 = require_elementNs();
+      Object.defineProperty(exports, "ElementNs", { enumerable: true, get: function() {
+        return elementNs_1.ElementNs;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_HTML", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_HTML;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_SVG", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_SVG;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_MATHML", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_MATHML;
+      } });
+      Object.defineProperty(exports, "ELEMENT_NS_NESTED_HOST_BIT", { enumerable: true, get: function() {
+        return elementNs_1.ELEMENT_NS_NESTED_HOST_BIT;
+      } });
+      Object.defineProperty(exports, "classifyElementNs", { enumerable: true, get: function() {
+        return elementNs_1.classifyElementNs;
+      } });
+      Object.defineProperty(exports, "elementNsUri", { enumerable: true, get: function() {
+        return elementNs_1.elementNsUri;
+      } });
+      Object.defineProperty(exports, "elementNsSnapshotLabel", { enumerable: true, get: function() {
+        return elementNs_1.elementNsSnapshotLabel;
+      } });
+      Object.defineProperty(exports, "packElementNsWireByte", { enumerable: true, get: function() {
+        return elementNs_1.packElementNsWireByte;
+      } });
+      Object.defineProperty(exports, "unpackElementNsWireByte", { enumerable: true, get: function() {
+        return elementNs_1.unpackElementNsWireByte;
+      } });
+      var frame_1 = require_frame();
+      Object.defineProperty(exports, "FRAME_WIRE_VERSION", { enumerable: true, get: function() {
+        return frame_1.FRAME_WIRE_VERSION;
+      } });
+      Object.defineProperty(exports, "FRAME_PREFIX_BYTES", { enumerable: true, get: function() {
+        return frame_1.FRAME_PREFIX_BYTES;
+      } });
+      Object.defineProperty(exports, "DOCUMENT_ID", { enumerable: true, get: function() {
+        return frame_1.DOCUMENT_ID;
+      } });
+      Object.defineProperty(exports, "CONTEXT_ID_ROOT", { enumerable: true, get: function() {
+        return frame_1.CONTEXT_ID_ROOT;
+      } });
+      Object.defineProperty(exports, "INSERT_AT_END", { enumerable: true, get: function() {
+        return frame_1.INSERT_AT_END;
+      } });
+      Object.defineProperty(exports, "createFrame", { enumerable: true, get: function() {
+        return frame_1.createFrame;
+      } });
+      var contextIdMint_1 = require_contextIdMint();
+      Object.defineProperty(exports, "ContextIdMint", { enumerable: true, get: function() {
+        return contextIdMint_1.ContextIdMint;
+      } });
+      var nestedNav_1 = require_nestedNav();
+      Object.defineProperty(exports, "ensureNestedHostSandboxAccess", { enumerable: true, get: function() {
+        return nestedNav_1.ensureNestedHostSandboxAccess;
+      } });
+      Object.defineProperty(exports, "applyNestedHostSandboxAttr", { enumerable: true, get: function() {
+        return nestedNav_1.applyNestedHostSandboxAttr;
+      } });
+      Object.defineProperty(exports, "nestedHostSandboxAttrValue", { enumerable: true, get: function() {
+        return nestedNav_1.nestedHostSandboxAttrValue;
+      } });
+      Object.defineProperty(exports, "isNestedHostNavAttr", { enumerable: true, get: function() {
+        return nestedNav_1.isNestedHostNavAttr;
+      } });
+      Object.defineProperty(exports, "isNestedHostSandboxAttr", { enumerable: true, get: function() {
+        return nestedNav_1.isNestedHostSandboxAttr;
+      } });
+      var decode_1 = require_decode();
+      Object.defineProperty(exports, "decodeFramePart", { enumerable: true, get: function() {
+        return decode_1.decodeFramePart;
+      } });
+      Object.defineProperty(exports, "peekFrameHeader", { enumerable: true, get: function() {
+        return decode_1.peekFrameHeader;
+      } });
+      Object.defineProperty(exports, "FramePartAssembler", { enumerable: true, get: function() {
+        return decode_1.FramePartAssembler;
+      } });
+      Object.defineProperty(exports, "PersistentStringTable", { enumerable: true, get: function() {
+        return decode_1.PersistentStringTable;
+      } });
+      var telemetry_1 = require_telemetry();
+      Object.defineProperty(exports, "TELEMETRY_WIRE_VERSION", { enumerable: true, get: function() {
+        return telemetry_1.TELEMETRY_WIRE_VERSION;
+      } });
+      Object.defineProperty(exports, "DEFAULT_TELEMETRY_CONFIG", { enumerable: true, get: function() {
+        return telemetry_1.DEFAULT_TELEMETRY_CONFIG;
+      } });
+      Object.defineProperty(exports, "LAB_TELEMETRY_DEFAULTS", { enumerable: true, get: function() {
+        return telemetry_1.LAB_TELEMETRY_DEFAULTS;
+      } });
+      Object.defineProperty(exports, "TELEMETRY_BOOL_CAPS", { enumerable: true, get: function() {
+        return telemetry_1.TELEMETRY_BOOL_CAPS;
+      } });
+      Object.defineProperty(exports, "isProjectionTelemetryMessage", { enumerable: true, get: function() {
+        return telemetry_1.isProjectionTelemetryMessage;
+      } });
+      Object.defineProperty(exports, "desyncPhase", { enumerable: true, get: function() {
+        return telemetry_1.desyncPhase;
+      } });
+      var plane_1 = require_plane();
+      Object.defineProperty(exports, "PlaneChannel", { enumerable: true, get: function() {
+        return plane_1.PlaneChannel;
+      } });
+      Object.defineProperty(exports, "planeChannelName", { enumerable: true, get: function() {
+        return plane_1.planeChannelName;
+      } });
+      Object.defineProperty(exports, "PLANE_MAGIC", { enumerable: true, get: function() {
+        return plane_1.PLANE_MAGIC;
+      } });
+      Object.defineProperty(exports, "PLANE_VERSION", { enumerable: true, get: function() {
+        return plane_1.PLANE_VERSION;
+      } });
+      Object.defineProperty(exports, "PLANE_HEADER_SIZE", { enumerable: true, get: function() {
+        return plane_1.PLANE_HEADER_SIZE;
+      } });
+      Object.defineProperty(exports, "encodePlaneEnvelope", { enumerable: true, get: function() {
+        return plane_1.encodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "decodePlaneEnvelope", { enumerable: true, get: function() {
+        return plane_1.decodePlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "isPlaneEnvelope", { enumerable: true, get: function() {
+        return plane_1.isPlaneEnvelope;
+      } });
+      var envelope_1 = require_envelope();
+      Object.defineProperty(exports, "VIRTUAL_LOOPBACK_CHANNEL", { enumerable: true, get: function() {
+        return envelope_1.VIRTUAL_LOOPBACK_CHANNEL;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_CONTROL_INVOKE_NAME", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_CONTROL_INVOKE_NAME;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_INVOKE_IDLE_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_INVOKE_IDLE_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_INVOKE_HEARTBEAT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_INVOKE_HEARTBEAT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_WS_OPEN_TIMEOUT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_WS_OPEN_TIMEOUT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_HELLO_ACK_TIMEOUT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_HELLO_ACK_TIMEOUT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_WAIT_ESTABLISHED_DEFAULT_MS;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_GENERATION_SUPERSEDED_CODE", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_GENERATION_SUPERSEDED_CODE;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_GENERATION_SUPERSEDED_REASON", { enumerable: true, get: function() {
+        return envelope_1.LOOPBACK_GENERATION_SUPERSEDED_REASON;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackEnvelope", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackEnvelope;
+      } });
+      Object.defineProperty(exports, "decodeLoopbackEnvelope", { enumerable: true, get: function() {
+        return envelope_1.decodeLoopbackEnvelope;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackHello", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackHello;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackHelloAck", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackHelloAck;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackHelloReject", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackHelloReject;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvoke", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvoke;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvokeResult", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvokeResult;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvokeStarted", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvokeStarted;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackInvokeHeartbeat", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackInvokeHeartbeat;
+      } });
+      Object.defineProperty(exports, "encodeLoopbackFromPlane", { enumerable: true, get: function() {
+        return envelope_1.encodeLoopbackFromPlane;
+      } });
+      Object.defineProperty(exports, "decodeLoopbackToPlane", { enumerable: true, get: function() {
+        return envelope_1.decodeLoopbackToPlane;
+      } });
+      Object.defineProperty(exports, "isLoopbackWireMessage", { enumerable: true, get: function() {
+        return envelope_1.isLoopbackWireMessage;
+      } });
+      var socket_1 = require_socket();
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_CONNECTING", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_CONNECTING;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_OPEN", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_OPEN;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_CLOSING", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_CLOSING;
+      } });
+      Object.defineProperty(exports, "LOOPBACK_SOCKET_CLOSED", { enumerable: true, get: function() {
+        return socket_1.LOOPBACK_SOCKET_CLOSED;
+      } });
+      var envelope_2 = require_envelope3();
+      Object.defineProperty(exports, "EXTENSION_PLANE_CHANNEL", { enumerable: true, get: function() {
+        return envelope_2.EXTENSION_PLANE_CHANNEL;
+      } });
+      Object.defineProperty(exports, "decodeExtensionPlaneEnvelope", { enumerable: true, get: function() {
+        return envelope_2.decodeExtensionPlaneEnvelope;
+      } });
+      Object.defineProperty(exports, "isExtensionPlaneWireMessage", { enumerable: true, get: function() {
+        return envelope_2.isExtensionPlaneWireMessage;
+      } });
+      var intentTypes_1 = require_intentTypes();
+      Object.defineProperty(exports, "INTENT_SCHEMA_VERSION", { enumerable: true, get: function() {
+        return intentTypes_1.INTENT_SCHEMA_VERSION;
+      } });
+      var geckoControlInput_1 = require_geckoControlInput();
+      Object.defineProperty(exports, "GECKO_OP_INPUT", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_OP_INPUT;
+      } });
+      Object.defineProperty(exports, "GECKO_OP_HISTORY_GO", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_OP_HISTORY_GO;
+      } });
+      Object.defineProperty(exports, "GECKO_OP_VIEWPORT_SET", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_OP_VIEWPORT_SET;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_DOWN", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_DOWN;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_UP", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_UP;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_KEY_DOWN", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_KEY_DOWN;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_KEY_UP", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_KEY_UP;
+      } });
+      Object.defineProperty(exports, "GECKO_INPUT_SCROLL_SET", { enumerable: true, get: function() {
+        return geckoControlInput_1.GECKO_INPUT_SCROLL_SET;
+      } });
+      Object.defineProperty(exports, "fracToU16", { enumerable: true, get: function() {
+        return geckoControlInput_1.fracToU16;
+      } });
+      Object.defineProperty(exports, "buttonToU8", { enumerable: true, get: function() {
+        return geckoControlInput_1.buttonToU8;
+      } });
+      Object.defineProperty(exports, "modsToU8", { enumerable: true, get: function() {
+        return geckoControlInput_1.modsToU8;
+      } });
+      Object.defineProperty(exports, "encodeInputPointer", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeInputPointer;
+      } });
+      Object.defineProperty(exports, "encodeInputKey", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeInputKey;
+      } });
+      Object.defineProperty(exports, "encodeInputScroll", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeInputScroll;
+      } });
+      Object.defineProperty(exports, "encodeHistoryGo", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeHistoryGo;
+      } });
+      Object.defineProperty(exports, "encodeViewportSet", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeViewportSet;
+      } });
+      Object.defineProperty(exports, "encodeDialogRespond", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeDialogRespond;
+      } });
+      Object.defineProperty(exports, "encodePermissionRespond", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodePermissionRespond;
+      } });
+      Object.defineProperty(exports, "encodeDownloadRespond", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeDownloadRespond;
+      } });
+      Object.defineProperty(exports, "encodeControlFromIntent", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeControlFromIntent;
+      } });
+      Object.defineProperty(exports, "encodeAssetRequest", { enumerable: true, get: function() {
+        return geckoControlInput_1.encodeAssetRequest;
+      } });
+      Object.defineProperty(exports, "bytesToBase64", { enumerable: true, get: function() {
+        return geckoControlInput_1.bytesToBase64;
+      } });
+      var domTreeSnapshot_1 = require_domTreeSnapshot();
+      Object.defineProperty(exports, "snapshotTree", { enumerable: true, get: function() {
+        return domTreeSnapshot_1.snapshotTree;
+      } });
+      var tableDigest_1 = require_tableDigest();
+      Object.defineProperty(exports, "digestReplicatedTable", { enumerable: true, get: function() {
+        return tableDigest_1.digestReplicatedTable;
+      } });
+      Object.defineProperty(exports, "tableDigestsEqual", { enumerable: true, get: function() {
+        return tableDigest_1.tableDigestsEqual;
+      } });
+      var replicatedTable_1 = require_replicatedTable();
+      Object.defineProperty(exports, "ReplicatedTable", { enumerable: true, get: function() {
+        return replicatedTable_1.ReplicatedTable;
+      } });
+      var replicatedTableApply_1 = require_replicatedTableApply();
+      Object.defineProperty(exports, "applyOpsToTable", { enumerable: true, get: function() {
+        return replicatedTableApply_1.applyOpsToTable;
+      } });
+      Object.defineProperty(exports, "applyFrameToTableChecked", { enumerable: true, get: function() {
+        return replicatedTableApply_1.applyFrameToTableChecked;
+      } });
+      var tableLiveOracle_1 = require_tableLiveOracle();
+      Object.defineProperty(exports, "compareTableToLiveOrder", { enumerable: true, get: function() {
+        return tableLiveOracle_1.compareTableToLiveOrder;
+      } });
+      var cssomTableLiveOracle_1 = require_cssomTableLiveOracle();
+      Object.defineProperty(exports, "compareTableToLiveCssom", { enumerable: true, get: function() {
+        return cssomTableLiveOracle_1.compareTableToLiveCssom;
+      } });
+      var formControlSnap_1 = require_formControlSnap();
+      Object.defineProperty(exports, "formControlSnapsEqual", { enumerable: true, get: function() {
+        return formControlSnap_1.formControlSnapsEqual;
+      } });
+    }
+  });
+
+  // browser/mirror/projection/lab/client/diagDomApply.ts
+  var diagDomApply_exports = {};
+  __export(diagDomApply_exports, {
+    diagDomApplyFrameUrls: () => diagDomApplyFrameUrls
+  });
+  async function diagDomApplyFrameUrls(urls) {
+    const host = document.createElement("div");
+    host.style.cssText = "position:fixed;left:-10000px;top:0;width:800px;height:600px;";
+    document.body.appendChild(host);
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "width:100%;height:100%;border:0";
+    (0, import_projected.stampProjectedStandardsSrcdoc)(iframe);
+    host.appendChild(iframe);
+    try {
+      await (0, import_projected.whenProjectedStandardsReady)(iframe);
+      const doc = iframe.contentDocument;
+      if (!doc) return { ok: false, frames: 0, lastSequence: null, desync: null, registrySize: 0, htmlLen: 0, error: "no contentDocument" };
+      const registry = new import_projected.PageProjectionRegistry();
+      registry.register(import_frame3.DOCUMENT_ID, doc);
+      let desync = null;
+      let lastSequence = null;
+      const applier = new import_projected.DomFrameApplier(doc, registry, {
+        onDesync: (info) => {
+          desync = {
+            reason: info.reason,
+            op: info.op,
+            id: info.id,
+            message: info.message,
+            sequence: info.sequence
+          };
+        },
+        onApplied: (frame) => {
+          lastSequence = frame.sequence;
+        },
+        applyBudgetMs: 6e4
+      });
+      const strings = new import_decode.PersistentStringTable();
+      const assembler = new import_decode.FramePartAssembler();
+      let frames = 0;
+      for (const url of urls) {
+        const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+        const hdr = (0, import_decode.peekFrameHeader)(buf);
+        if (hdr && hdr.contextId !== import_frame3.CONTEXT_ID_ROOT && hdr.contextId !== 0) continue;
+        const decoded = (0, import_decode.decodeFramePart)(buf, strings);
+        if (!decoded.ok) {
+          return {
+            ok: false,
+            frames,
+            lastSequence,
+            desync: { reason: decoded.reason, message: decoded.message },
+            registrySize: registry.size,
+            htmlLen: doc.documentElement?.outerHTML?.length ?? 0
+          };
+        }
+        const assembled = assembler.ingest(decoded.part);
+        if (assembled === "missing_part" || assembled === "malformed") {
+          return {
+            ok: false,
+            frames,
+            lastSequence,
+            desync: { reason: assembled },
+            registrySize: registry.size,
+            htmlLen: doc.documentElement?.outerHTML?.length ?? 0
+          };
+        }
+        if (assembled === null) continue;
+        frames += 1;
+        applier.enqueue(assembled);
+        applier.flush();
+        if (desync) {
+          return {
+            ok: false,
+            frames,
+            lastSequence,
+            desync,
+            registrySize: registry.size,
+            htmlLen: doc.documentElement?.outerHTML?.length ?? 0
+          };
+        }
+      }
+      return {
+        ok: true,
+        frames,
+        lastSequence,
+        desync: null,
+        registrySize: registry.size,
+        htmlLen: doc.documentElement?.outerHTML?.length ?? 0
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        frames: 0,
+        lastSequence: null,
+        desync: null,
+        registrySize: 0,
+        htmlLen: 0,
+        error: err instanceof Error ? err.message : String(err)
+      };
+    } finally {
+      host.remove();
+    }
+  }
+  var import_decode, import_frame3, import_projected;
+  var init_diagDomApply = __esm({
+    "browser/mirror/projection/lab/client/diagDomApply.ts"() {
+      "use strict";
+      import_decode = __toESM(require_decode());
+      import_frame3 = __toESM(require_frame());
+      import_projected = __toESM(require_projected());
+    }
+  });
+
   // browser/mirror/projection/lab/client/LabProjectedHarness.ts
   var import_ProjectionClient = __toESM(require_ProjectionClient());
   var import_frame = __toESM(require_frame());
@@ -6119,30 +8557,30 @@
   var import_closedShadowLookup = __toESM(require_closedShadowLookup());
 
   // browser/mirror/projection/lab/probes/labPierce.ts
-  function sampleElement(el, name) {
-    if (!el) return { name, ok: false, reason: "missing" };
-    const r = el.getBoundingClientRect();
-    const win = el.ownerDocument.defaultView;
-    const cs = win ? win.getComputedStyle(el) : null;
-    const html = el;
-    const isIframe = el.tagName === "IFRAME";
+  function sampleElement(el2, name) {
+    if (!el2) return { name, ok: false, reason: "missing" };
+    const r = el2.getBoundingClientRect();
+    const win = el2.ownerDocument.defaultView;
+    const cs = win ? win.getComputedStyle(el2) : null;
+    const html = el2;
+    const isIframe = el2.tagName === "IFRAME";
     return {
       name,
       ok: true,
-      tagName: el.tagName.toLowerCase(),
+      tagName: el2.tagName.toLowerCase(),
       rect: { x: r.x, y: r.y, width: r.width, height: r.height },
       offsetWidth: html.offsetWidth,
       offsetHeight: html.offsetHeight,
       display: cs?.display ?? null,
       visibility: cs?.visibility ?? null,
-      hasSrcAttr: isIframe ? el.hasAttribute("src") : null,
-      src: isIframe ? el.getAttribute("src") : null
+      hasSrcAttr: isIframe ? el2.hasAttribute("src") : null,
+      src: isIframe ? el2.getAttribute("src") : null
     };
   }
-  function samplePaint(el) {
-    if (!el) return null;
-    const win = el.ownerDocument.defaultView;
-    const cs = win ? win.getComputedStyle(el) : null;
+  function samplePaint(el2) {
+    if (!el2) return null;
+    const win = el2.ownerDocument.defaultView;
+    const cs = win ? win.getComputedStyle(el2) : null;
     if (!cs) return null;
     return {
       backgroundColor: cs.backgroundColor,
@@ -6166,20 +8604,20 @@
     while (queue.length > 0) {
       const { node: n, shadowHost } = queue.shift();
       if (n.nodeType !== Node.ELEMENT_NODE) continue;
-      const el = n;
-      if (el.tagName === "IFRAME") {
-        const id = el.id || "";
-        const src = el.getAttribute("src") || "";
+      const el2 = n;
+      if (el2.tagName === "IFRAME") {
+        const id = el2.id || "";
+        const src = el2.getAttribute("src") || "";
         if (id.startsWith("cf-chl") || /challenges\.cloudflare\.com|turnstile/i.test(src)) {
-          const hostFromRoot = shadowHost ?? (el.getRootNode() instanceof ShadowRoot ? el.getRootNode().host : null);
-          return { iframe: el, shadowHost: hostFromRoot };
+          const hostFromRoot = shadowHost ?? (el2.getRootNode() instanceof ShadowRoot ? el2.getRootNode().host : null);
+          return { iframe: el2, shadowHost: hostFromRoot };
         }
       }
-      const sr = (0, import_closedShadowLookup.resolveShadowRoot)(el);
+      const sr = (0, import_closedShadowLookup.resolveShadowRoot)(el2);
       if (sr) {
-        for (const c of Array.from(sr.childNodes)) queue.push({ node: c, shadowHost: el });
+        for (const c of Array.from(sr.childNodes)) queue.push({ node: c, shadowHost: el2 });
       }
-      for (const c of Array.from(el.childNodes)) queue.push({ node: c, shadowHost });
+      for (const c of Array.from(el2.childNodes)) queue.push({ node: c, shadowHost });
     }
     return { iframe: null, shadowHost: null };
   }
@@ -6193,34 +8631,36 @@
   }
 
   // browser/mirror/projection/lab/probes/cssomSheetDump.ts
-  var CSSOM_SHEET_DUMP_EXPR = `(() => {
   function dumpSheetList(list, scope, hostId) {
     const out = [];
-    for (let i = 0; i < list.length; i++) {
+    if (!list) return out;
+    const len = list.length;
+    for (let i = 0; i < len; i++) {
       const s = list[i];
       if (!s) continue;
-      let rules = '<<ERROR>>';
+      let rules = "<<ERROR>>";
       let ruleCount = 0;
       try {
         const arr = [];
-        for (let j = 0; j < s.cssRules.length; j++) arr.push(s.cssRules[j].cssText);
+        for (let j = 0; j < s.cssRules.length; j++) {
+          arr.push(s.cssRules.item(j)?.cssText ?? "");
+        }
         rules = arr;
         ruleCount = arr.length;
       } catch {
-        rules = '<<CROSS-ORIGIN>>';
+        rules = "<<CROSS-ORIGIN>>";
       }
       const owner = s.ownerNode;
-      const dataClass =
-        owner && owner.dataset && owner.dataset.class ? String(owner.dataset.class) : null;
+      const dataClass = owner && "dataset" in owner && owner.dataset?.class ? String(owner.dataset.class) : null;
       out.push({
         href: s.href || null,
-        ownerNode: owner ? owner.tagName + (owner.id ? '#' + owner.id : '') : null,
+        ownerNode: owner ? owner.tagName + (owner.id ? "#" + owner.id : "") : null,
         dataClass,
         ruleCount,
         rules,
-        adopted: scope === 'shadow' || !owner,
+        adopted: scope === "shadow" || !owner,
         scope,
-        shadowHostId: hostId || null,
+        shadowHostId: hostId || null
       });
     }
     return out;
@@ -6229,72 +8669,101 @@
     const hostId = hostEl.id || hostEl.tagName.toLowerCase();
     const out = [];
     try {
-      out.push(...dumpSheetList(root.adoptedStyleSheets || [], 'shadow', hostId));
-    } catch {}
+      out.push(...dumpSheetList(root.adoptedStyleSheets, "shadow", hostId));
+    } catch {
+    }
     const queue = [root];
     while (queue.length) {
       const n = queue.shift();
-      for (const c of n.childNodes) {
-        if (c.nodeType !== 1) continue;
-        const el = c;
-        if (el.shadowRoot) {
-          out.push(...dumpSheetList(el.shadowRoot.adoptedStyleSheets || [], 'shadow', el.id || el.tagName));
-          queue.push(el.shadowRoot);
+      const children = "childNodes" in n ? n.childNodes : [];
+      for (let i = 0; i < children.length; i++) {
+        const c = children.item(i);
+        if (!c || c.nodeType !== 1) continue;
+        const el2 = c;
+        if (el2.shadowRoot) {
+          out.push(
+            ...dumpSheetList(
+              el2.shadowRoot.adoptedStyleSheets,
+              "shadow",
+              el2.id || el2.tagName
+            )
+          );
+          queue.push(el2.shadowRoot);
         }
-        queue.push(el);
+        queue.push(el2);
       }
     }
     return out;
   }
-  const entries = dumpSheetList(document.styleSheets, 'document', null);
-  const closedFixture = globalThis.__speculumClosedRoot;
-  if (closedFixture) {
+  function dumpCssomSheets(doc) {
     try {
-      entries.push(...dumpSheetList(closedFixture.styleSheets, 'shadow', 'shadow-host'));
-    } catch {}
-    try {
-      entries.push(...dumpSheetList(closedFixture.adoptedStyleSheets || [], 'shadow', 'shadow-host'));
-    } catch {}
-  }
-  const hosts = document.querySelectorAll('*');
-  for (const h of hosts) {
-    const sr = h.shadowRoot || (globalThis.__speculumResolveShadowRoot ? globalThis.__speculumResolveShadowRoot(h) : null);
-    if (sr) entries.push(...collectShadowSheets(sr, h));
-  }
-  let totalRules = 0;
-  for (const e of entries) {
-    if (Array.isArray(e.rules)) totalRules += e.rules.length;
-  }
-  return JSON.stringify({
-    ok: true,
-    documentUrl: document.URL,
-    entries,
-    styleSheetCount: entries.filter((e) => !e.adopted).length,
-    adoptedCount: entries.filter((e) => e.adopted).length,
-    totalRules,
-  });
-})()`;
-  function parseCssomSheetDump(raw) {
-    if (typeof raw === "string") {
+      const entries = dumpSheetList(doc.styleSheets, "document", null);
       try {
-        raw = JSON.parse(raw);
+        if (doc.adoptedStyleSheets?.length) {
+          const adopted = dumpSheetList(
+            doc.adoptedStyleSheets,
+            "document",
+            null
+          );
+          for (const e of adopted) {
+            e.adopted = true;
+            entries.push(e);
+          }
+        }
       } catch {
-        return { ok: false, reason: "invalid_json", entries: [], styleSheetCount: 0, adoptedCount: 0, totalRules: 0 };
       }
+      const g = globalThis;
+      const closedFixture = g.__speculumClosedRoot;
+      if (closedFixture) {
+        try {
+          entries.push(
+            ...dumpSheetList(
+              closedFixture.styleSheets,
+              "shadow",
+              "shadow-host"
+            )
+          );
+        } catch {
+        }
+        try {
+          entries.push(
+            ...dumpSheetList(
+              closedFixture.adoptedStyleSheets,
+              "shadow",
+              "shadow-host"
+            )
+          );
+        } catch {
+        }
+      }
+      const hosts = doc.querySelectorAll("*");
+      for (let i = 0; i < hosts.length; i++) {
+        const h = hosts[i];
+        const sr = h.shadowRoot || (g.__speculumResolveShadowRoot ? g.__speculumResolveShadowRoot(h) : null);
+        if (sr) entries.push(...collectShadowSheets(sr, h));
+      }
+      let totalRules = 0;
+      for (const e of entries) {
+        if (Array.isArray(e.rules)) totalRules += e.rules.length;
+      }
+      return {
+        ok: true,
+        documentUrl: doc.URL,
+        entries,
+        styleSheetCount: entries.filter((e) => !e.adopted).length,
+        adoptedCount: entries.filter((e) => e.adopted).length,
+        totalRules
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : String(err),
+        entries: [],
+        styleSheetCount: 0,
+        adoptedCount: 0,
+        totalRules: 0
+      };
     }
-    if (!raw || typeof raw !== "object") {
-      return { ok: false, reason: "empty", entries: [], styleSheetCount: 0, adoptedCount: 0, totalRules: 0 };
-    }
-    const o = raw;
-    return {
-      ok: o.ok === true,
-      reason: o.reason,
-      documentUrl: o.documentUrl,
-      entries: Array.isArray(o.entries) ? o.entries : [],
-      styleSheetCount: typeof o.styleSheetCount === "number" ? o.styleSheetCount : 0,
-      adoptedCount: typeof o.adoptedCount === "number" ? o.adoptedCount : 0,
-      totalRules: typeof o.totalRules === "number" ? o.totalRules : 0
-    };
   }
 
   // browser/mirror/projection/lab/client/LabProjectedHarness.ts
@@ -6471,25 +8940,7 @@
           totalRules: 0
         };
       }
-      try {
-        const fn = new Function(`return (${CSSOM_SHEET_DUMP_EXPR})`);
-        const prevDoc = globalThis.document;
-        globalThis.document = doc;
-        try {
-          return parseCssomSheetDump(fn());
-        } finally {
-          if (prevDoc) globalThis.document = prevDoc;
-        }
-      } catch (err) {
-        return {
-          ok: false,
-          reason: err instanceof Error ? err.message : String(err),
-          entries: [],
-          styleSheetCount: 0,
-          adoptedCount: 0,
-          totalRules: 0
-        };
-      }
+      return dumpCssomSheets(doc);
     }
     /**
      * Lab diag — rect ladder from nested widget up to root projected surface.
@@ -6588,9 +9039,9 @@
       for (const [contextId, pending] of c.nestedHostAwaitingLoad) {
         awaitingByIframe.set(pending.iframe, contextId);
       }
-      const isCfIframe = (el) => {
-        const id = el.id || "";
-        const src = el.getAttribute("src") || "";
+      const isCfIframe = (el2) => {
+        const id = el2.id || "";
+        const src = el2.getAttribute("src") || "";
         return id.startsWith("cf-chl") || /challenges\.cloudflare\.com|turnstile/i.test(src);
       };
       const collectCfIframes = (doc) => {
@@ -6601,15 +9052,15 @@
         while (queue.length > 0) {
           const n = queue.shift();
           if (n.nodeType !== Node.ELEMENT_NODE) continue;
-          const el = n;
-          if (el.tagName === "IFRAME" && isCfIframe(el)) {
-            out.push(el);
+          const el2 = n;
+          if (el2.tagName === "IFRAME" && isCfIframe(el2)) {
+            out.push(el2);
           }
-          const sr = (0, import_closedShadowLookup2.resolveShadowRoot)(el);
+          const sr = (0, import_closedShadowLookup2.resolveShadowRoot)(el2);
           if (sr) {
             for (const child of Array.from(sr.childNodes)) queue.push(child);
           }
-          for (const child of Array.from(el.childNodes)) queue.push(child);
+          for (const child of Array.from(el2.childNodes)) queue.push(child);
         }
         return out;
       };
@@ -6763,13 +9214,278 @@
   };
 
   // browser/mirror/projection/lab/client/main.ts
-  var import_projected = __toESM(require_projected());
   var import_projected2 = __toESM(require_projected());
+  var import_projected3 = __toESM(require_projected());
   var import_domTreeSnapshot = __toESM(require_domTreeSnapshot());
   var import_formControlSnapshot = __toESM(require_formControlSnapshot());
-  var import_decode = __toESM(require_decode());
+
+  // browser/mirror/projection/lab/probes/layoutRootCauseProbe.ts
+  var DEFAULT_SELECTORS = [
+    "header",
+    '[class*="header"]',
+    "nav",
+    "main",
+    "body",
+    '[class*="search"]',
+    "form",
+    ".container",
+    "#onetrust-banner-sdk"
+  ];
+  function probeLayoutRootCause(doc, win, selectors = DEFAULT_SELECTORS) {
+    const pick = (sel) => {
+      const el2 = doc.querySelector(sel);
+      if (!el2) return { sel, missing: true };
+      const cs = win.getComputedStyle(el2);
+      const r = el2.getBoundingClientRect();
+      return {
+        sel,
+        tag: el2.tagName,
+        className: String(el2.className || "").slice(0, 120),
+        display: cs.display,
+        position: cs.position,
+        flex: `${cs.flexDirection}/${cs.justifyContent}/${cs.alignItems}`,
+        grid: cs.gridTemplateColumns,
+        width: cs.width,
+        height: cs.height,
+        rect: { x: r.x, y: r.y, w: r.width, h: r.height },
+        bg: cs.backgroundColor
+      };
+    };
+    const samples = selectors.map(pick);
+    const nodes = [
+      ...doc.querySelectorAll('header, nav, [class*="header"], [class*="Header"], a, button')
+    ].slice(0, 80);
+    const rects = nodes.map((el2) => el2.getBoundingClientRect()).filter((r) => r.width > 10 && r.height > 8);
+    let overlaps = 0;
+    const n = Math.min(rects.length, 40);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = rects[i];
+        const b = rects[j];
+        const hit = !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+        if (hit) overlaps++;
+      }
+    }
+    const sheets = [];
+    let adoptedRules = 0;
+    let docSheetRules = 0;
+    const walk = (list, origin) => {
+      const len = list.length;
+      for (let i = 0; i < len; i++) {
+        const s = list[i];
+        let ruleCount = null;
+        let err = null;
+        const ruleTextSample = [];
+        try {
+          const rules = s.cssRules;
+          ruleCount = rules.length;
+          for (let j = 0; j < Math.min(rules.length, 8); j++) {
+            ruleTextSample.push(rules.item(j)?.cssText?.slice(0, 160) ?? "");
+          }
+          if (origin === "document.adoptedStyleSheets") adoptedRules += rules.length;
+          else docSheetRules += rules.length;
+        } catch (e) {
+          err = e instanceof Error ? e.message : String(e);
+        }
+        const owner = s.ownerNode;
+        sheets.push({
+          origin,
+          href: s.href || null,
+          owner: owner?.nodeName ?? null,
+          ownerId: owner && "id" in owner ? String(owner.id || "") || null : null,
+          ruleCount,
+          err,
+          ruleTextSample
+        });
+      }
+    };
+    try {
+      walk(doc.styleSheets, "document.styleSheets");
+    } catch {
+    }
+    try {
+      if (doc.adoptedStyleSheets?.length) {
+        walk(doc.adoptedStyleSheets, "document.adoptedStyleSheets");
+      }
+    } catch {
+    }
+    const allImgs = [...doc.images];
+    const logoImgs = allImgs.filter((img) => {
+      const s = img.currentSrc || img.src || "";
+      return /logo\.svg/i.test(s) || /\/logo(\.|$)/i.test(s);
+    });
+    const isTrackerImgUrl = (s) => /bat\.bing\.com/i.test(s) || /\/action\/0(\?|$)/i.test(s) || /pixel\.(facebook|google|adnxs)/i.test(s);
+    const brokenList = allImgs.filter((i) => {
+      if (!(i.complete && i.naturalWidth === 0)) return false;
+      const s = i.currentSrc || i.src || "";
+      if (isTrackerImgUrl(s)) return false;
+      return true;
+    });
+    const mapImg = (img) => ({
+      src: (img.currentSrc || img.src || "").slice(0, 220),
+      srcset: (img.getAttribute("srcset") || "").slice(0, 160),
+      complete: img.complete,
+      naturalWidth: img.naturalWidth,
+      width: img.width
+    });
+    const seen = /* @__PURE__ */ new Set();
+    const imgs = [];
+    for (const img of [...logoImgs, ...brokenList]) {
+      if (seen.has(img)) continue;
+      seen.add(img);
+      imgs.push(mapImg(img));
+      if (imgs.length >= 80) break;
+    }
+    const brokenImgs = brokenList.length;
+    const styleEls = doc.querySelectorAll("style").length;
+    const linkCss = doc.querySelectorAll('link[rel~="stylesheet"]').length;
+    const adoptedSheetCount = doc.adoptedStyleSheets?.length ?? 0;
+    const docSamples = /* @__PURE__ */ new Set();
+    const adoSamples = /* @__PURE__ */ new Set();
+    for (const s of sheets) {
+      for (const t of s.ruleTextSample) {
+        if (!t) continue;
+        if (s.origin === "document.styleSheets") docSamples.add(t.slice(0, 80));
+        else adoSamples.add(t.slice(0, 80));
+      }
+    }
+    let duplicateAuthorRules = false;
+    for (const t of docSamples) {
+      if (adoSamples.has(t)) {
+        duplicateAuthorRules = true;
+        break;
+      }
+    }
+    return {
+      ok: true,
+      samples,
+      overlapPairsAmong40: overlaps,
+      styleEls,
+      linkCss,
+      adoptedSheetCount,
+      docSheetCount: doc.styleSheets.length,
+      adoptedRules,
+      docSheetRules,
+      sheets,
+      brokenImgs,
+      imgsSample: imgs,
+      bodyBg: doc.body ? win.getComputedStyle(doc.body).backgroundColor : null,
+      dualHint: {
+        styleElCount: styleEls,
+        adoptedSheetCount,
+        bothPlanesSubstantial: docSheetRules >= 50 && adoptedRules >= 50,
+        duplicateAuthorRules
+      }
+    };
+  }
+
+  // browser/mirror/projection/lab/client/assetTrace.ts
+  var MAX = 2e4;
+  var events = [];
+  function now() {
+    return typeof performance !== "undefined" && performance.now ? Math.round(performance.timeOrigin + performance.now()) : Date.now();
+  }
+  function traceAllEnabled() {
+    return !!globalThis.__SPECULUM_ASSET_TRACE;
+  }
+  function enableAssetTraceAll() {
+    globalThis.__SPECULUM_ASSET_TRACE = true;
+  }
+  function bodyFnv16(bytes) {
+    const u8 = bytes instanceof Uint8Array ? bytes : bytes ? new Uint8Array(bytes) : new Uint8Array(0);
+    let h = 14695981039346656037n;
+    const prime = 1099511628211n;
+    for (let i = 0; i < u8.length; i++) {
+      h ^= BigInt(u8[i]);
+      h = BigInt.asUintN(64, h * prime);
+    }
+    return h.toString(16).padStart(16, "0");
+  }
+  function bodyHeadAscii(bytes, n = 64) {
+    const m = Math.min(bytes.length, n);
+    let s = "";
+    for (let i = 0; i < m; i++) {
+      const c = bytes[i];
+      s += c >= 32 && c < 127 ? String.fromCharCode(c) : ".";
+    }
+    return s;
+  }
+  function pushAssetTrace(partial) {
+    const ev = { t: partial.t ?? now(), ...partial };
+    events.push(ev);
+    if (events.length > MAX) events.splice(0, events.length - MAX);
+  }
+  function drainAssetTrace() {
+    return events.slice();
+  }
+  function clearAssetTrace() {
+    events.length = 0;
+  }
+  function urlWorthTracing(url) {
+    return /logo\.svg/i.test(url) || traceAllEnabled();
+  }
+  function installImgTrace(doc) {
+    const seen = /* @__PURE__ */ new WeakSet();
+    const onEvent = (type) => (ev) => {
+      const t = ev.target;
+      if (!(t instanceof HTMLImageElement)) return;
+      if (seen.has(t) && type === "load") return;
+      const src = t.currentSrc || t.src || "";
+      if (!urlWorthTracing(src) && !(t.complete && t.naturalWidth === 0)) {
+        if (!/logo\.svg/i.test(src)) return;
+      }
+      seen.add(t);
+      pushAssetTrace({
+        hop: "img.state",
+        url: src.slice(0, 300),
+        contextId: 1,
+        event: type,
+        complete: t.complete,
+        naturalWidth: t.naturalWidth,
+        naturalHeight: t.naturalHeight,
+        currentSrc: (t.currentSrc || "").slice(0, 300)
+      });
+    };
+    const onLoad = onEvent("load");
+    const onError = onEvent("error");
+    doc.addEventListener("load", onLoad, true);
+    doc.addEventListener("error", onError, true);
+    return () => {
+      doc.removeEventListener("load", onLoad, true);
+      doc.removeEventListener("error", onError, true);
+    };
+  }
+  function sampleImgStates(doc, event = "sameS") {
+    const imgs = [...doc.images];
+    const allBroken = traceAllEnabled();
+    let broken = 0;
+    for (const img of imgs) {
+      const src = img.currentSrc || img.src || "";
+      const isLogo = /logo\.svg/i.test(src);
+      const isBroken = img.complete && img.naturalWidth === 0;
+      if (!isLogo && !isBroken) continue;
+      if (isBroken && !isLogo && !allBroken) {
+        if (broken >= 20) continue;
+        broken++;
+      }
+      pushAssetTrace({
+        hop: "img.state",
+        url: src.slice(0, 300),
+        contextId: 1,
+        event,
+        complete: img.complete,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        currentSrc: (img.currentSrc || "").slice(0, 300)
+      });
+    }
+  }
+
+  // browser/mirror/projection/lab/client/main.ts
+  var import_decode2 = __toESM(require_decode());
   var import_telemetry = __toESM(require_telemetry());
-  var import_frame2 = __toESM(require_frame());
+  var import_frame4 = __toESM(require_frame());
+  var import_core2 = __toESM(require_core());
 
   // browser/mirror/projection/lab/labPublicOrigin.ts
   var NGROK_SKIP_BROWSER_WARNING = "ngrok-skip-browser-warning";
@@ -6779,9 +9495,1191 @@
 
   // browser/mirror/projection/lab/static/labBuildStamp.json
   var labBuildStamp_default = {
-    seq: 32,
-    builtAt: "2026-08-31T12:45:39.918Z"
+    seq: 144,
+    builtAt: "2026-09-17T18:45:28.385Z"
   };
+
+  // browser/mirror/projection/lab/client/runsPanel.ts
+  var DETAIL_SECTIONS = [
+    { id: "overview", label: "Overview" },
+    { id: "timeline", label: "Timeline" },
+    { id: "verdicts", label: "Verdicts" },
+    { id: "acts", label: "Acts" },
+    { id: "artifacts", label: "Artifacts" },
+    { id: "probes", label: "Probes" },
+    { id: "raw", label: "Raw" }
+  ];
+  function fmtTs(iso) {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString(void 0, {
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    } catch {
+      return iso;
+    }
+  }
+  function fmtMs(ms) {
+    if (ms == null || !Number.isFinite(ms)) return "\u2014";
+    if (ms < 1e3) return `${Math.round(ms)} ms`;
+    if (ms < 6e4) return `${(ms / 1e3).toFixed(1)} s`;
+    const m = Math.floor(ms / 6e4);
+    const s = Math.round(ms % 6e4 / 1e3);
+    return `${m}m ${s}s`;
+  }
+  function fmtBytes(n) {
+    if (n == null || !Number.isFinite(n)) return "\u2014";
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  function durationMs(start, end) {
+    const a = Date.parse(start);
+    const b = Date.parse(end);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    return Math.max(0, b - a);
+  }
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  function metric(label, value, tone) {
+    const box = el("div", `runs-metric${tone ? ` runs-metric--${tone}` : ""}`);
+    box.append(el("div", "runs-metric__label", label), el("div", "runs-metric__value", value));
+    return box;
+  }
+  function verdictTone(status) {
+    if (status === "pass") return "pass";
+    if (status === "fail") return "fail";
+    return "skipped";
+  }
+  function runCardTone(run) {
+    if (run.verdicts.fail > 0 || run.status === "faulted") return "fail";
+    if (run.verdicts.pass > 0 && run.verdicts.fail === 0) return "pass";
+    return "neutral";
+  }
+  function truncateText(raw, max = 56) {
+    if (!raw) return "\u2014";
+    return raw.length > max ? `${raw.slice(0, max - 1)}\u2026` : raw;
+  }
+  function truncateUrl(raw, max = 48) {
+    if (!raw) return "\u2014";
+    try {
+      const u = new URL(raw);
+      const compact = `${u.host}${u.pathname}`;
+      return truncateText(compact, max);
+    } catch {
+      return truncateText(raw, max);
+    }
+  }
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function extractRunIdFromDossierPath(path) {
+    const norm = path.replace(/\\/g, "/").replace(/\/+$/, "");
+    const parts = norm.split("/");
+    const last = parts[parts.length - 1];
+    return last && last.length > 0 ? last : null;
+  }
+  function createRunsPanel(opts) {
+    const root = document.getElementById("runsPanelRoot");
+    if (!root) throw new Error("runsPanelRoot missing");
+    let runs = [];
+    let selectedId = null;
+    let detail = null;
+    let filter = "all";
+    let search = "";
+    let detailSection = "overview";
+    let loading = false;
+    const selectedIds = /* @__PURE__ */ new Set();
+    const listEl = document.getElementById("runsList");
+    const detailHeaderEl = document.getElementById("runsDetailHeader");
+    const detailBodyEl = document.getElementById("runsDetailBody");
+    const searchInput = document.getElementById("runsSearch");
+    const filterBar = document.getElementById("runsFilters");
+    const statsEl = document.getElementById("runsStats");
+    const selectAllInput = document.getElementById("runsSelectAll");
+    const deleteSelectedBtn = document.getElementById("runsDeleteSelected");
+    function setLoading(on) {
+      loading = on;
+      root.classList.toggle("runs-panel--loading", on);
+    }
+    function filteredRuns() {
+      const q = search.trim().toLowerCase();
+      return runs.filter((r) => {
+        if (filter === "pass" && (r.verdicts.fail > 0 || r.exitCode !== 0)) return false;
+        if (filter === "fail" && r.verdicts.fail === 0 && r.status !== "faulted") return false;
+        if (filter === "browse" && r.mode !== "browse") return false;
+        if (filter === "run" && r.mode !== "run") return false;
+        if (!q) return true;
+        const hay = [
+          r.id,
+          r.blueprintId ?? "",
+          r.url ?? "",
+          r.status,
+          r.mode
+        ].join(" ").toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    function renderStats() {
+      if (!statsEl) return;
+      const visible = filteredRuns();
+      const pass = visible.filter((r) => r.verdicts.fail === 0 && r.exitCode === 0 && r.verdicts.pass > 0).length;
+      const fail = visible.filter((r) => r.verdicts.fail > 0 || r.status === "faulted" || r.exitCode !== 0).length;
+      statsEl.textContent = visible.length === runs.length ? `${runs.length} runs \xB7 ${pass} pass \xB7 ${fail} fail` : `${visible.length}/${runs.length} shown \xB7 ${pass} pass \xB7 ${fail} fail`;
+    }
+    function syncBulkUi() {
+      const visible = filteredRuns();
+      const visibleIds = visible.map((r) => r.id);
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+      const someSelected = visibleIds.some((id) => selectedIds.has(id));
+      if (selectAllInput) {
+        selectAllInput.checked = allSelected;
+        selectAllInput.indeterminate = someSelected && !allSelected;
+      }
+      if (deleteSelectedBtn) {
+        deleteSelectedBtn.disabled = selectedIds.size === 0 || loading;
+        deleteSelectedBtn.textContent = selectedIds.size > 0 ? `Delete (${selectedIds.size})` : "Delete selected";
+      }
+    }
+    async function deleteRuns(ids, label) {
+      if (ids.length === 0) return;
+      const msg = ids.length === 1 ? `Delete dossier "${ids[0]}"? This removes the folder from disk.` : `Delete ${ids.length} dossiers (${label})? This cannot be undone.`;
+      if (!window.confirm(msg)) return;
+      setLoading(true);
+      try {
+        const res = await opts.fetch("/lab/runs/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        const deleted = body.deleted ?? [];
+        for (const id of deleted) selectedIds.delete(id);
+        if (selectedId && deleted.includes(selectedId)) {
+          selectedId = null;
+          detail = null;
+        }
+        opts.onActivity?.(`runs deleted ${deleted.length}${body.failed?.length ? ` (${body.failed.length} failed)` : ""}`);
+        await refresh();
+      } catch (err) {
+        opts.onActivity?.(`runs.delete failed ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+    function renderFilters() {
+      filterBar.querySelectorAll("[data-runs-filter]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.runsFilter === filter);
+      });
+    }
+    function renderList() {
+      listEl.replaceChildren();
+      const visible = filteredRuns();
+      renderStats();
+      syncBulkUi();
+      if (visible.length === 0) {
+        const empty = el("div", "runs-list-empty", runs.length === 0 ? "No dossiers yet \u2014 start a Browse or Run." : "No runs match filter.");
+        listEl.append(empty);
+        return;
+      }
+      for (const run of visible) {
+        const card = el("div", `runs-card runs-card--${runCardTone(run)}${selectedId === run.id ? " runs-card--selected" : ""}`);
+        card.dataset.runId = run.id;
+        const check = el("input");
+        check.type = "checkbox";
+        check.className = "runs-card__check";
+        check.checked = selectedIds.has(run.id);
+        check.title = "Select for bulk delete";
+        check.addEventListener("click", (ev) => ev.stopPropagation());
+        check.addEventListener("change", () => {
+          if (check.checked) selectedIds.add(run.id);
+          else selectedIds.delete(run.id);
+          syncBulkUi();
+          card.classList.toggle("runs-card--checked", check.checked);
+        });
+        const bodyBtn = el("button", "runs-card__body");
+        bodyBtn.type = "button";
+        const head = el("div", "runs-card__head");
+        const title = el("div", "runs-card__title", run.blueprintId ?? (run.mode === "browse" ? "Browse" : run.id.slice(0, 24)));
+        const when = el("div", "runs-card__when", fmtTs(run.createdAt));
+        head.append(title, when);
+        const urlLine = el("div", "runs-card__url", truncateUrl(run.url));
+        urlLine.title = run.url ?? "";
+        const meta = el("div", "runs-card__meta");
+        meta.append(
+          el("span", `runs-chip runs-chip--mode`, run.mode),
+          el("span", `runs-chip runs-chip--${run.status === "faulted" ? "fail" : "status"}`, run.status)
+        );
+        if (run.verdicts.pass + run.verdicts.fail + run.verdicts.skipped > 0) {
+          meta.append(
+            el("span", "runs-chip runs-chip--pass", `\u2713 ${run.verdicts.pass}`),
+            run.verdicts.fail > 0 ? el("span", "runs-chip runs-chip--fail", `\u2717 ${run.verdicts.fail}`) : document.createDocumentFragment(),
+            run.verdicts.skipped > 0 ? el("span", "runs-chip runs-chip--skip", `\u2298 ${run.verdicts.skipped}`) : document.createDocumentFragment()
+          );
+        }
+        if (run.wallMs != null) {
+          meta.append(el("span", "runs-chip runs-chip--muted", fmtMs(run.wallMs)));
+        }
+        bodyBtn.append(head, urlLine, meta);
+        bodyBtn.addEventListener("click", () => {
+          void selectRun(run.id);
+        });
+        card.append(check, bodyBtn);
+        card.classList.toggle("runs-card--checked", check.checked);
+        listEl.append(card);
+      }
+    }
+    function renderDetailNav() {
+      const nav = el("div", "runs-detail-nav");
+      for (const s of DETAIL_SECTIONS) {
+        const btn = el("button", `runs-detail-nav__btn${detailSection === s.id ? " active" : ""}`, s.label);
+        btn.type = "button";
+        btn.dataset.runsSection = s.id;
+        btn.addEventListener("click", () => {
+          detailSection = s.id;
+          renderDetail();
+        });
+        nav.append(btn);
+      }
+      return nav;
+    }
+    function renderOverview(d) {
+      const wrap = el("div", "runs-section");
+      const vSum = d.verdicts.reduce(
+        (acc, v) => {
+          acc[v.status] += 1;
+          return acc;
+        },
+        { pass: 0, fail: 0, skipped: 0 }
+      );
+      const hero = el("div", "runs-hero");
+      const exitTone = vSum.fail > 0 || d.crash ? "fail" : vSum.pass > 0 ? "pass" : "neutral";
+      hero.append(
+        el("div", `runs-hero__badge runs-hero__badge--${exitTone}`, vSum.fail > 0 ? "FAILED" : vSum.pass > 0 ? "PASSED" : "NO VERDICTS"),
+        el("div", "runs-hero__title", String(d.session.blueprintId ?? d.session.mode ?? "Session")),
+        el("div", "runs-hero__sub", String(d.session.url ?? d.meta?.url ?? "\u2014"))
+      );
+      wrap.append(hero);
+      const grid = el("div", "runs-metric-grid");
+      grid.append(
+        metric("Session", String(d.session.sessionId ?? "\u2014").slice(0, 8) + "\u2026"),
+        metric("Mode", String(d.session.mode ?? "\u2014")),
+        metric("Status", String(d.session.status ?? "\u2014"), String(d.session.status) === "faulted" ? "fail" : void 0),
+        metric("Wall", fmtMs(typeof d.meta?.wallMs === "number" ? d.meta.wallMs : null)),
+        metric("Frame Hz", String(d.session.frameRateHz ?? d.meta?.frameRateHz ?? "\u2014")),
+        metric("Headed", d.session.headed === true ? "yes" : "no"),
+        metric("Verdicts", `${vSum.pass} / ${vSum.fail} / ${vSum.skipped}`, vSum.fail > 0 ? "fail" : "pass"),
+        metric("Timeline", String(d.timeline.length)),
+        metric("Acts", String(d.acts.length)),
+        metric("Artifacts", String(d.manifest?.artifacts?.length ?? 0))
+      );
+      wrap.append(grid);
+      if (d.session.fault && typeof d.session.fault === "object") {
+        const fault = d.session.fault;
+        const box = el("div", "runs-callout runs-callout--fail");
+        box.append(
+          el("strong", void 0, "Session fault"),
+          el("div", void 0, fault.message ?? "unknown"),
+          el("div", "runs-callout__meta", fault.at ? fmtTs(fault.at) : "")
+        );
+        wrap.append(box);
+      }
+      if (d.crash) {
+        const box = el("div", "runs-callout runs-callout--fail");
+        const pre = el("pre", "runs-pre");
+        pre.textContent = JSON.stringify(d.crash, null, 2);
+        box.append(el("strong", void 0, "Crash"), pre);
+        wrap.append(box);
+      }
+      const pathRow = el("div", "runs-path-row");
+      pathRow.append(el("span", "runs-path-row__label", "Dossier"), el("code", "runs-path-row__path", d.dir));
+      wrap.append(pathRow);
+      return wrap;
+    }
+    function renderTimeline(d) {
+      const wrap = el("div", "runs-section");
+      if (d.timeline.length === 0) {
+        wrap.append(el("p", "runs-hint", "No timeline entries \u2014 browse sessions or runs without blueprint actions."));
+        return wrap;
+      }
+      const totalMs = d.timeline.reduce((sum, t) => {
+        const ms = durationMs(t.startedAt, t.endedAt);
+        return sum + (ms ?? 0);
+      }, 0);
+      const maxMs = Math.max(
+        1,
+        ...d.timeline.map((t) => durationMs(t.startedAt, t.endedAt) ?? 0)
+      );
+      const chart = el("div", "runs-timeline-chart");
+      chart.setAttribute("aria-label", "Action duration chart");
+      for (const t of d.timeline) {
+        const ms = durationMs(t.startedAt, t.endedAt) ?? 0;
+        const bar = el("div", `runs-timeline-bar runs-timeline-bar--${t.status}`);
+        bar.style.width = `${Math.max(4, ms / maxMs * 100)}%`;
+        bar.title = `${t.actionId} \xB7 ${t.queue} \xB7 ${fmtMs(ms)}`;
+        chart.append(bar);
+      }
+      wrap.append(
+        el("div", "runs-timeline-chart-label", `Action wall total \xB7 ${fmtMs(totalMs)}`),
+        chart
+      );
+      const list = el("div", "runs-timeline-list");
+      for (const t of d.timeline) {
+        const ms = durationMs(t.startedAt, t.endedAt);
+        const row = el("article", `runs-tl-row runs-tl-row--${t.status}`);
+        const head = el("div", "runs-tl-row__head");
+        head.append(
+          el("span", "runs-tl-row__status", t.status),
+          el("span", "runs-tl-row__id", t.actionId),
+          el("span", "runs-tl-row__queue", t.queue),
+          el("span", "runs-tl-row__dur", ms != null ? fmtMs(ms) : "\u2014")
+        );
+        row.append(head);
+        const sub = el("div", "runs-tl-row__sub");
+        sub.textContent = `${fmtTs(t.startedAt)} \u2192 ${fmtTs(t.endedAt)}`;
+        row.append(sub);
+        if (t.detail) {
+          row.append(el("div", "runs-tl-row__detail", t.detail));
+        }
+        list.append(row);
+      }
+      wrap.append(list);
+      return wrap;
+    }
+    function renderVerdicts(d) {
+      const wrap = el("div", "runs-section");
+      if (d.verdicts.length === 0) {
+        wrap.append(el("p", "runs-hint", "No verdicts recorded."));
+        return wrap;
+      }
+      const groups = { pass: [], fail: [], skipped: [] };
+      for (const v of d.verdicts) groups[v.status].push(v);
+      for (const [status, items] of Object.entries(groups)) {
+        if (items.length === 0) continue;
+        const section = el("section", `runs-verdict-group runs-verdict-group--${status}`);
+        section.append(el("h3", "runs-verdict-group__title", `${status} (${items.length})`));
+        for (const v of items) {
+          const card = el("article", `runs-verdict-card runs-verdict-card--${verdictTone(v.status)}`);
+          card.append(el("div", "runs-verdict-card__id", v.id), el("div", "runs-verdict-card__reason", v.reason || "\u2014"));
+          section.append(card);
+        }
+        wrap.append(section);
+      }
+      return wrap;
+    }
+    function renderActs(d) {
+      const wrap = el("div", "runs-section");
+      if (d.acts.length === 0) {
+        wrap.append(el("p", "runs-hint", "No journal acts."));
+        return wrap;
+      }
+      const table = el("div", "runs-acts-table");
+      const head = el("div", "runs-acts-table__head");
+      head.append(el("span", void 0, "Act"), el("span", void 0, "Result"), el("span", void 0, "Error"));
+      table.append(head);
+      for (const a of d.acts) {
+        const row = el("div", `runs-acts-table__row${a.ok ? " runs-acts-table__row--ok" : " runs-acts-table__row--fail"}`);
+        row.append(
+          el("code", "runs-acts-table__name", a.name),
+          el("span", "runs-acts-table__ok", a.ok ? "ok" : "fail"),
+          el("span", "runs-acts-table__err", a.error ?? "\u2014")
+        );
+        table.append(row);
+      }
+      wrap.append(table);
+      return wrap;
+    }
+    function renderArtifacts(d) {
+      const wrap = el("div", "runs-section");
+      const arts = [...d.manifest?.artifacts ?? []].sort((a, b) => a.path.localeCompare(b.path));
+      if (arts.length === 0) {
+        wrap.append(el("p", "runs-hint", "Manifest empty or not finalized."));
+        return wrap;
+      }
+      const byKind = /* @__PURE__ */ new Map();
+      for (const a of arts) {
+        const k = a.kind || "other";
+        if (!byKind.has(k)) byKind.set(k, []);
+        byKind.get(k).push(a);
+      }
+      for (const [kind, items] of [...byKind.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        const group = el("section", "runs-artifact-group");
+        group.append(el("h3", "runs-artifact-group__title", `${kind} (${items.length})`));
+        const list = el("div", "runs-artifact-list");
+        for (const a of items) {
+          const row = el("div", "runs-artifact-row");
+          const link = el("a", "runs-artifact-row__link");
+          link.href = `/lab/runs/${encodeURIComponent(d.id)}/files/${encodeURIComponent(a.path)}`;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = a.path;
+          row.append(link, el("span", "runs-artifact-row__bytes", fmtBytes(a.bytes)));
+          list.append(row);
+        }
+        group.append(list);
+        wrap.append(group);
+      }
+      return wrap;
+    }
+    function renderProbes(d) {
+      const wrap = el("div", "runs-section runs-probes");
+      const blocks = [
+        ["metrics.json", d.probes.metrics],
+        ["input-pipeline.json", d.probes.inputPipeline],
+        ["iso.json", d.probes.iso],
+        ["iso-browse.json", d.probes.isoBrowse],
+        ["telemetry/counts.json", d.telemetryCounts]
+      ];
+      for (const [label, data] of blocks) {
+        const block = el("details", "runs-probe-block");
+        block.open = label === "input-pipeline.json" && data != null;
+        const sum = el("summary", void 0, label);
+        block.append(sum);
+        if (!data) {
+          block.append(el("p", "runs-hint", "Not present in dossier."));
+        } else {
+          const pre = el("pre", "runs-pre runs-pre--scroll");
+          pre.textContent = JSON.stringify(data, null, 2);
+          block.append(pre);
+        }
+        wrap.append(block);
+      }
+      return wrap;
+    }
+    function renderCopyBar(label, text) {
+      const bar = el("div", "runs-copy-bar");
+      bar.append(el("span", "runs-copy-bar__label", label));
+      const btn = el("button", "runs-copy-bar__btn", "Copy");
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        void copyText(text).then((ok) => {
+          opts.onActivity?.(ok ? `copied ${label}` : `copy failed ${label}`);
+          if (ok) {
+            btn.textContent = "Copied";
+            window.setTimeout(() => {
+              btn.textContent = "Copy";
+            }, 1200);
+          }
+        });
+      });
+      bar.append(btn);
+      return bar;
+    }
+    function renderRaw(d) {
+      const wrap = el("div", "runs-section");
+      const raw = JSON.stringify(d, null, 2);
+      wrap.append(renderCopyBar("JSON", raw));
+      const pre = el("pre", "runs-pre runs-pre--detail");
+      pre.textContent = raw;
+      wrap.append(pre);
+      return wrap;
+    }
+    function renderDetailBody(d) {
+      switch (detailSection) {
+        case "overview":
+          return renderOverview(d);
+        case "timeline":
+          return renderTimeline(d);
+        case "verdicts":
+          return renderVerdicts(d);
+        case "acts":
+          return renderActs(d);
+        case "artifacts":
+          return renderArtifacts(d);
+        case "probes":
+          return renderProbes(d);
+        case "raw":
+          return renderRaw(d);
+        default:
+          return renderOverview(d);
+      }
+    }
+    function renderDetailActions(d, summary) {
+      const actions = el("div", "runs-detail-actions");
+      const delBtn = el("button", "runs-detail-actions__btn runs-detail-actions__btn--danger", "Delete");
+      delBtn.type = "button";
+      delBtn.addEventListener("click", () => {
+        void deleteRuns([d.id], d.id);
+      });
+      const copyId = el("button", "runs-detail-actions__btn", "Copy id");
+      copyId.type = "button";
+      copyId.addEventListener("click", () => {
+        void copyText(d.id).then((ok) => opts.onActivity?.(ok ? "copied run id" : "copy failed"));
+      });
+      const copyPath = el("button", "runs-detail-actions__btn", "Copy path");
+      copyPath.type = "button";
+      copyPath.addEventListener("click", () => {
+        void copyText(d.dir).then((ok) => opts.onActivity?.(ok ? "copied dossier path" : "copy failed"));
+      });
+      actions.append(delBtn, copyId, copyPath);
+      if (summary?.url) {
+        const copyUrl = el("button", "runs-detail-actions__btn", "Copy URL");
+        copyUrl.type = "button";
+        copyUrl.addEventListener("click", () => {
+          void copyText(summary.url).then((ok) => opts.onActivity?.(ok ? "copied url" : "copy failed"));
+        });
+        actions.append(copyUrl);
+      }
+      return actions;
+    }
+    function renderDetail() {
+      detailHeaderEl.replaceChildren();
+      detailBodyEl.replaceChildren();
+      if (!detail) {
+        detailBodyEl.append(
+          el("div", "runs-list-empty", "Select a run to inspect timeline, verdicts, and artifacts.")
+        );
+        return;
+      }
+      const summary = runs.find((r) => r.id === detail.id);
+      const top = el("div", "runs-detail-top");
+      if (summary) {
+        const strip = el("div", "runs-detail-strip");
+        const tone = runCardTone(summary);
+        strip.append(
+          el("span", `runs-hero__badge runs-hero__badge--${tone === "fail" ? "fail" : tone === "pass" ? "pass" : "neutral"}`, tone === "fail" ? "FAIL" : tone === "pass" ? "PASS" : "RUN"),
+          el("span", `runs-chip runs-chip--mode`, summary.mode),
+          el("span", "runs-chip runs-chip--muted", fmtTs(summary.createdAt)),
+          summary.blueprintId ? el("span", "runs-chip runs-chip--accent", summary.blueprintId) : document.createDocumentFragment()
+        );
+        top.append(strip);
+        if (summary.url) {
+          const urlRow = el("div", "runs-detail-url", truncateUrl(summary.url, 72));
+          urlRow.title = summary.url;
+          top.append(urlRow);
+        }
+      }
+      top.append(renderDetailActions(detail, summary));
+      detailHeaderEl.append(top, renderDetailNav());
+      detailBodyEl.append(renderDetailBody(detail));
+    }
+    async function selectRun(id) {
+      selectedId = id;
+      renderList();
+      setLoading(true);
+      try {
+        const res = await opts.fetch(`/lab/runs/${encodeURIComponent(id)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        detail = await res.json();
+        detailSection = detail.verdicts.some((v) => v.status === "fail") ? "verdicts" : "overview";
+        renderDetail();
+      } catch (err) {
+        detail = null;
+        renderDetail();
+        opts.onActivity?.(`runs.load failed ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+    async function refresh() {
+      setLoading(true);
+      try {
+        const res = await opts.fetch("/lab/runs");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        runs = body.runs ?? [];
+        renderList();
+        if (selectedId && runs.some((r) => r.id === selectedId)) {
+          await selectRun(selectedId);
+        } else if (selectedId) {
+          selectedId = null;
+          detail = null;
+          renderDetail();
+        }
+        opts.onActivity?.(`runs refreshed (${runs.length})`);
+      } catch (err) {
+        opts.onActivity?.(`runs.refresh failed ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+    async function selectByDossierDir(dossierDir) {
+      const id = extractRunIdFromDossierPath(dossierDir);
+      if (!id) return;
+      if (runs.length === 0) await refresh();
+      await selectRun(id);
+    }
+    function mount() {
+      document.getElementById("runsRefresh")?.addEventListener("click", () => {
+        void refresh();
+      });
+      searchInput?.addEventListener("input", () => {
+        search = searchInput.value;
+        renderList();
+      });
+      filterBar.querySelectorAll("[data-runs-filter]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          filter = btn.dataset.runsFilter ?? "all";
+          renderFilters();
+          renderList();
+        });
+      });
+      selectAllInput?.addEventListener("change", () => {
+        const visible = filteredRuns();
+        if (selectAllInput.checked) {
+          for (const r of visible) selectedIds.add(r.id);
+        } else {
+          for (const r of visible) selectedIds.delete(r.id);
+        }
+        renderList();
+      });
+      deleteSelectedBtn?.addEventListener("click", () => {
+        void deleteRuns([...selectedIds], "selected");
+      });
+      renderFilters();
+      renderDetail();
+      void refresh();
+    }
+    return { refresh, selectByDossierDir, mount };
+  }
+
+  // browser/mirror/projection/lab/client/labShell.ts
+  var SHEET_SNAP_KEY = "speculum.lab.sheetSnap";
+  var SHEET_H_KEY = "speculum.lab.sheetH";
+  function readPersistedSnap() {
+    try {
+      const v = localStorage.getItem(SHEET_SNAP_KEY);
+      if (v === "collapsed" || v === "peek" || v === "expanded") return v;
+    } catch {
+    }
+    return null;
+  }
+  function snapHeight(snap, viewportH) {
+    const minBar = 96;
+    const max = Math.floor(viewportH * 0.92);
+    if (snap === "collapsed") return minBar;
+    if (snap === "peek") return Math.min(max, Math.max(minBar + 80, Math.floor(viewportH * 0.42)));
+    return Math.min(max, Math.max(minBar + 120, Math.floor(viewportH * 0.78)));
+  }
+  function initLabShell(opts) {
+    let snap = readPersistedSnap() ?? "peek";
+    let dragging = false;
+    let dragStartY = 0;
+    let dragStartH = 0;
+    function clampHeight(px) {
+      const vh = window.innerHeight;
+      const min = 96;
+      const max = Math.floor(vh * 0.92);
+      return Math.min(max, Math.max(min, Math.round(px)));
+    }
+    function applyHeight(px) {
+      const h = clampHeight(px);
+      opts.main.style.setProperty("--sheet-h", `${h}px`);
+      opts.sheet.dataset.snap = snap;
+    }
+    function persistSnap() {
+      try {
+        localStorage.setItem(SHEET_SNAP_KEY, snap);
+        const h = opts.sheet.getBoundingClientRect().height;
+        if (Number.isFinite(h)) localStorage.setItem(SHEET_H_KEY, String(Math.round(h)));
+      } catch {
+      }
+    }
+    function nearestSnap(h, vh) {
+      const collapsed = snapHeight("collapsed", vh);
+      const peek = snapHeight("peek", vh);
+      const expanded = snapHeight("expanded", vh);
+      const dist = (target) => Math.abs(h - target);
+      const dC = dist(collapsed);
+      const dP = dist(peek);
+      const dE = dist(expanded);
+      if (dC <= dP && dC <= dE) return "collapsed";
+      if (dP <= dE) return "peek";
+      return "expanded";
+    }
+    function setSnap(next, persist = true) {
+      snap = next;
+      applyHeight(snapHeight(snap, window.innerHeight));
+      opts.onSnapChange?.(snap);
+      if (persist) persistSnap();
+    }
+    function setHudCollapsed(collapsed) {
+      opts.hud.dataset.collapsed = collapsed ? "true" : "false";
+      opts.hudToggle.textContent = collapsed ? "\u25B8" : "\u25BE";
+      opts.hudToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    }
+    opts.hudToggle.addEventListener("click", () => {
+      const collapsed = opts.hud.dataset.collapsed === "true";
+      setHudCollapsed(!collapsed);
+    });
+    opts.hudMore?.addEventListener("click", () => {
+      const open = opts.hud.dataset.more === "true";
+      opts.hud.dataset.more = open ? "false" : "true";
+      opts.hudMore?.setAttribute("aria-expanded", open ? "false" : "true");
+      if (!open) setHudCollapsed(false);
+    });
+    opts.hud.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    const onPointerMove = (ev) => {
+      if (!dragging) return;
+      const dy = dragStartY - ev.clientY;
+      applyHeight(dragStartH + dy);
+    };
+    const onPointerUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      opts.grabber.classList.remove("is-dragging");
+      const h = opts.sheet.getBoundingClientRect().height;
+      snap = nearestSnap(h, window.innerHeight);
+      applyHeight(snapHeight(snap, window.innerHeight));
+      opts.onSnapChange?.(snap);
+      persistSnap();
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+    opts.grabber.addEventListener("pointerdown", (ev) => {
+      dragging = true;
+      dragStartY = ev.clientY;
+      dragStartH = opts.sheet.getBoundingClientRect().height;
+      opts.grabber.classList.add("is-dragging");
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      ev.preventDefault();
+    });
+    let lastGrabTap = 0;
+    opts.grabber.addEventListener("click", () => {
+      const now2 = Date.now();
+      if (now2 - lastGrabTap < 320) {
+        setSnap(snap === "collapsed" ? "peek" : snap === "peek" ? "expanded" : "collapsed");
+      }
+      lastGrabTap = now2;
+    });
+    window.addEventListener("resize", () => {
+      applyHeight(snapHeight(snap, window.innerHeight));
+    });
+    setHudCollapsed(false);
+    setSnap(snap, false);
+    return {
+      setSnap,
+      getSnap: () => snap,
+      expandForTab: (tab) => {
+        if (tab === "Runs" || tab === "Progress") setSnap("expanded");
+        else if (snap === "collapsed") setSnap("peek");
+      },
+      collapse: () => setSnap("collapsed")
+    };
+  }
+
+  // browser/mirror/projection/lab/client/scrollDiagHost.ts
+  function walkFrames(win, out) {
+    out.push(win);
+    let frames;
+    try {
+      frames = win.document.getElementsByTagName("iframe");
+    } catch {
+      return;
+    }
+    for (let i = 0; i < frames.length; i++) {
+      try {
+        const child = frames[i]?.contentWindow;
+        if (child) walkFrames(child, out);
+      } catch {
+      }
+    }
+  }
+  function collectDiagFrames() {
+    const frames = [];
+    walkFrames(window, frames);
+    const found = [];
+    for (const w of frames) {
+      try {
+        const dw = w;
+        const log = dw.__SCROLL_DIAG_LOG;
+        if (!Array.isArray(log)) continue;
+        found.push({
+          href: (() => {
+            try {
+              return w.location.href;
+            } catch {
+              return "(frame)";
+            }
+          })(),
+          log: [...log],
+          clear: typeof dw.__SCROLL_DIAG_CLEAR === "function" ? () => dw.__SCROLL_DIAG_CLEAR() : void 0
+        });
+      } catch {
+      }
+    }
+    return found;
+  }
+  var sentCounts = /* @__PURE__ */ new WeakMap();
+  var diagSessionId = null;
+  var flushTimer = null;
+  function collectUnsent() {
+    const frames = [];
+    walkFrames(window, frames);
+    const entries = [];
+    const commits = [];
+    for (const w of frames) {
+      try {
+        const log = w.__SCROLL_DIAG_LOG;
+        if (!Array.isArray(log)) continue;
+        const sent = sentCounts.get(w) ?? 0;
+        if (log.length <= sent) continue;
+        entries.push(...log.slice(sent));
+        const total = log.length;
+        commits.push(() => sentCounts.set(w, total));
+      } catch {
+      }
+    }
+    return { entries, commit: () => commits.forEach((c) => c()) };
+  }
+  async function flushDiag() {
+    const { entries, commit } = collectUnsent();
+    if (entries.length === 0) return { ok: true, sent: 0 };
+    try {
+      const res = await fetch("/lab/diag/gesture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        body: JSON.stringify({ sessionId: diagSessionId, entries })
+      });
+      if (!res.ok) return { ok: false, sent: 0, error: `http ${res.status}` };
+      commit();
+      return { ok: true, sent: entries.length };
+    } catch (err) {
+      return { ok: false, sent: 0, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  function setScrollDiagSessionId(id) {
+    diagSessionId = id;
+  }
+  function installScrollDiagHostApis() {
+    const api = window;
+    api.diagFlush = () => flushDiag();
+    api.diagLabel = (label) => {
+      const frames = [];
+      walkFrames(window, frames);
+      for (const w of frames) {
+        try {
+          w.__SCROLL_DIAG_LABEL = label;
+        } catch {
+        }
+      }
+    };
+    if (flushTimer === null) {
+      flushTimer = window.setInterval(() => {
+        const queryLabel = new URLSearchParams(location.search).get("diagLabel");
+        if (queryLabel) api.diagLabel?.(queryLabel);
+        void flushDiag();
+      }, 2e3);
+      window.addEventListener("pagehide", () => {
+        void flushDiag();
+      });
+    }
+    api.diagDump = () => {
+      const frames = collectDiagFrames();
+      const payload = frames.length === 0 ? { ok: false, message: "no __SCROLL_DIAG_LOG in any frame yet \u2014 Connect + Start Virtual first", frames: [] } : {
+        ok: true,
+        dumpedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        frameCount: frames.length,
+        frames: frames.map((f) => ({ href: f.href, entries: f.log })),
+        flat: frames.flatMap((f) => f.log)
+      };
+      const text = JSON.stringify(payload, null, 2);
+      console.log("[diagDump]", payload);
+      console.log(text);
+      void navigator.clipboard.writeText(text).then(
+        () => console.log("[diagDump] copied to clipboard"),
+        (err) => console.warn("[diagDump] clipboard failed", err)
+      );
+      return payload;
+    };
+    api.diagClear = () => {
+      const frames = [];
+      walkFrames(window, frames);
+      for (const w of frames) {
+        try {
+          w.__SCROLL_DIAG_CLEAR?.();
+          sentCounts.set(w, 0);
+        } catch {
+        }
+      }
+      console.log(`[diagClear] cleared ${frames.length} frame(s)`);
+    };
+  }
+
+  // browser/mirror/projection/lab/client/geckoLabWire.ts
+  var import_core = __toESM(require_core());
+  var import_frame2 = __toESM(require_frame());
+  function isobmffImageBrand(body) {
+    if (body.length < 12) return null;
+    const brands = /* @__PURE__ */ new Set(["avif", "avis", "mif1", "msf1", "heic", "heif", "heim", "heis"]);
+    const ascii = (o) => String.fromCharCode(body[o], body[o + 1], body[o + 2], body[o + 3]);
+    if (ascii(4) !== "ftyp") return null;
+    const major = ascii(8);
+    if (brands.has(major)) return major;
+    for (let o = 16; o + 4 <= Math.min(body.length, 64); o += 4) {
+      const b = ascii(o);
+      if (brands.has(b)) return b;
+    }
+    return null;
+  }
+  function classifyFetchDestination(destination) {
+    switch (destination) {
+      case "image":
+        return 1;
+      case "font":
+        return 2;
+      case "audio":
+        return 3;
+      case "video":
+        return 4;
+      case "document":
+      case "frame":
+      case "iframe":
+      case "embed":
+      case "object":
+        return 10;
+      case "script":
+        return 11;
+      case "style":
+        return 12;
+      case "websocket":
+        return 15;
+      case "":
+        return 5;
+      default:
+        return 0;
+    }
+  }
+  var gecko = false;
+  var corr = 1;
+  var pendingAssets = /* @__PURE__ */ new Map();
+  var nextStream = 1;
+  var swReg = null;
+  function setGeckoLab(on) {
+    gecko = on;
+  }
+  function isGeckoLab() {
+    return gecko;
+  }
+  function nextGeckoCorr() {
+    corr += 1;
+    return corr;
+  }
+  function sendGeckoControl(ws, bytes) {
+    ws.send(JSON.stringify({ type: "client.control", bytes: (0, import_core.bytesToBase64)(bytes) }));
+  }
+  function geckoViewportResizeMessage(width, height) {
+    return JSON.stringify({ type: "client.resize", width, height });
+  }
+  function sendGeckoViewport(ws, width, height) {
+    ws.send(geckoViewportResizeMessage(width, height));
+  }
+  function answerGeckoRequest(ws, kind, contextId, requestId, yes, text) {
+    const c = nextGeckoCorr();
+    if (kind === "dialog") {
+      sendGeckoControl(ws, (0, import_core.encodeDialogRespond)(c, contextId, requestId, yes ? text || "ok" : ""));
+      return;
+    }
+    if (kind === "permission") {
+      sendGeckoControl(ws, (0, import_core.encodePermissionRespond)(c, contextId, requestId, yes));
+      return;
+    }
+    sendGeckoControl(ws, (0, import_core.encodeDownloadRespond)(c, contextId, requestId, yes));
+  }
+  function showGeckoPrompt(_kind, description) {
+    const yes = window.confirm(description);
+    return { yes, text: yes ? "ok" : "" };
+  }
+  async function ensureGeckoAssetSw(token) {
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("service worker indispon\xEDvel");
+    }
+    swReg = await navigator.serviceWorker.register("/lab/asset-sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) {
+      await new Promise((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = window.setTimeout(done, 2e3);
+        navigator.serviceWorker.addEventListener("controllerchange", done, { once: true });
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.removeEventListener("controllerchange", done);
+          done();
+        }
+      });
+    }
+    const sw = navigator.serviceWorker.controller ?? swReg.active;
+    sw?.postMessage({ type: "token", token });
+    sw?.postMessage({ type: "ctx", contextId: import_frame2.CONTEXT_ID_ROOT });
+    if (globalThis.__SPECULUM_ASSET_TRACE) {
+      sw?.postMessage({ type: "asset-trace-enable", enable: true });
+    }
+  }
+  function enableGeckoAssetTraceAll() {
+    enableAssetTraceAll();
+    const sw = navigator.serviceWorker.controller ?? swReg?.active;
+    sw?.postMessage({ type: "asset-trace-enable", enable: true });
+  }
+  function registerGeckoAssetContext(contextId, win = window) {
+    if (!("serviceWorker" in win.navigator)) {
+      return;
+    }
+    void win.navigator.serviceWorker.ready.then((reg) => {
+      (reg.active ?? win.navigator.serviceWorker.controller)?.postMessage({ type: "ctx", contextId });
+    });
+  }
+  function sendGeckoAssetFetch(ws, ctx, url, dest, range, fetchId) {
+    const streamId = nextStream++;
+    const destCode = classifyFetchDestination(dest);
+    const payload = (0, import_core.encodeAssetRequest)(streamId, destCode, url, range, 0);
+    if (urlWorthTracing(url)) {
+      pushAssetTrace({
+        hop: "lab.request",
+        streamId,
+        fetchId,
+        contextId: ctx,
+        url: url.slice(0, 300),
+        range,
+        dest,
+        destCode,
+        payloadLen: payload.byteLength
+      });
+    }
+    return new Promise((resolve, reject) => {
+      pendingAssets.set(streamId, {
+        chunks: [],
+        resolve,
+        reject,
+        url,
+        contextId: ctx,
+        range,
+        dest,
+        fetchId
+      });
+      ws.send(JSON.stringify({ type: "client.asset", contextId: ctx, bytes: (0, import_core.bytesToBase64)(payload) }));
+    });
+  }
+  function onGeckoAssetMessage(streamId, phase, data, why) {
+    const pending = pendingAssets.get(streamId);
+    if (!pending) {
+      return;
+    }
+    if (phase === 2) {
+      pendingAssets.delete(streamId);
+      if (urlWorthTracing(pending.url)) {
+        pushAssetTrace({
+          hop: "lab.response",
+          streamId,
+          fetchId: pending.fetchId,
+          contextId: pending.contextId,
+          url: pending.url.slice(0, 300),
+          range: pending.range,
+          dest: pending.dest,
+          phase: "denied",
+          why: why || "denied",
+          chunkTotal: 0,
+          bodySha16: bodyFnv16(null)
+        });
+      }
+      console.warn("[gecko-asset] denied", streamId, why || "denied");
+      pending.reject(new Error(why || "denied"));
+      return;
+    }
+    if (phase === 1 && data.length) {
+      pending.chunks.push(data);
+    }
+    if (phase === 3) {
+      pendingAssets.delete(streamId);
+      const total = pending.chunks.reduce((n, c) => n + c.length, 0);
+      const body = new Uint8Array(total);
+      let o = 0;
+      for (const c of pending.chunks) {
+        body.set(c, o);
+        o += c.length;
+      }
+      const mimeIn = data.length ? new TextDecoder().decode(data) : "";
+      let mime = mimeIn;
+      const genericMime = !mime || mime === "application/octet-stream" || mime === "binary/octet-stream" || mime === "text/plain" || mime === "application/force-download" || mime === "text/html" || !mime.toLowerCase().split(";")[0].trim().startsWith("image/");
+      if (genericMime && body.length) {
+        const head = new TextDecoder().decode(body.slice(0, Math.min(256, body.length))).toLowerCase();
+        if (head.includes("<svg") || head.includes("<!doctype svg")) {
+          mime = "image/svg+xml";
+        } else if (body[0] === 255 && body[1] === 216) {
+          mime = "image/jpeg";
+        } else if (body[0] === 137 && body[1] === 80) {
+          mime = "image/png";
+        } else if (body[0] === 71 && body[1] === 73 && body[2] === 70) {
+          mime = "image/gif";
+        } else if (body.length >= 12 && body[0] === 82 && body[8] === 87 && body[9] === 69 && body[10] === 66 && body[11] === 80) {
+          mime = "image/webp";
+        } else {
+          const brand = isobmffImageBrand(body);
+          if (brand === "avif" || brand === "avis" || brand === "mif1" || brand === "msf1") {
+            mime = "image/avif";
+          } else if (brand === "heic" || brand === "heif" || brand === "heim" || brand === "heis") {
+            mime = "image/heic";
+          }
+        }
+      }
+      if (urlWorthTracing(pending.url)) {
+        pushAssetTrace({
+          hop: "lab.response",
+          streamId,
+          fetchId: pending.fetchId,
+          contextId: pending.contextId,
+          url: pending.url.slice(0, 300),
+          range: pending.range,
+          dest: pending.dest,
+          phase: "complete",
+          chunkTotal: total,
+          mimeIn,
+          mimeOut: mime,
+          genericMime,
+          bodySha16: bodyFnv16(body),
+          bodyHead: bodyHeadAscii(body)
+        });
+      }
+      const headers = new Headers();
+      if (mime) {
+        headers.set("Content-Type", mime);
+      }
+      pending.resolve(new Response(body, { headers }));
+    }
+  }
+  function wireGeckoSwFetch(ws, ctx) {
+    navigator.serviceWorker.addEventListener("message", (ev) => {
+      const msg = ev.data;
+      if (msg?.type === "asset-trace" && msg.event && typeof msg.event === "object") {
+        pushAssetTrace(msg.event);
+        return;
+      }
+      if (msg?.type !== "asset-fetch" || typeof msg.url !== "string" || typeof msg.id !== "number") {
+        return;
+      }
+      const fetchCtx = typeof msg.contextId === "number" && Number.isInteger(msg.contextId) && msg.contextId >= 1 ? msg.contextId : ctx;
+      void sendGeckoAssetFetch(ws, fetchCtx, msg.url, msg.dest ?? "", msg.range ?? "", msg.id).then(
+        async (res) => {
+          const buf = new Uint8Array(await res.arrayBuffer());
+          const contentType = res.headers.get("Content-Type") || "";
+          ev.source?.postMessage(
+            { type: "asset", id: msg.id, ok: true, bytes: buf.buffer, contentType },
+            { transfer: [buf.buffer] }
+          );
+        },
+        (err) => {
+          ev.source?.postMessage({ type: "asset", id: msg.id, ok: false, error: err.message });
+        }
+      );
+    });
+  }
 
   // browser/mirror/projection/lab/client/main.ts
   function labFetch(input, init) {
@@ -6808,9 +10706,9 @@
     };
   }
   function $(id) {
-    const el = document.getElementById(id);
-    if (!el) throw new Error(`#${id} missing`);
-    return el;
+    const el2 = document.getElementById(id);
+    if (!el2) throw new Error(`#${id} missing`);
+    return el2;
   }
   function displayUrl(raw) {
     if (/^https?:\/\//i.test(raw)) return raw;
@@ -6844,10 +10742,10 @@
       }
     };
     for (let i = 0; i < styleEls.length; i++) {
-      const el = styleEls[i];
-      const sheet = el.sheet;
+      const el2 = styleEls[i];
+      const sheet = el2.sheet;
       if (sheet) authorTexts.add(sheetText(sheet));
-      else if (el.textContent) authorTexts.add(el.textContent);
+      else if (el2.textContent) authorTexts.add(el2.textContent);
     }
     let doublePaint = false;
     for (let i = 0; i < adopted.length; i++) {
@@ -6892,37 +10790,51 @@
   function readTelemetryFromUi() {
     const cfg = { ...import_telemetry.LAB_TELEMETRY_DEFAULTS };
     for (const key of import_telemetry.TELEMETRY_BOOL_CAPS) {
-      const el = document.getElementById(`tel_${key}`);
-      if (el) cfg[key] = el.checked;
+      const el2 = document.getElementById(`tel_${key}`);
+      if (el2) cfg[key] = el2.checked;
     }
     const agg = document.getElementById("tel_aggregateIntervalMs");
     if (agg) cfg.aggregateIntervalMs = Number(agg.value) || 2e3;
     return cfg;
   }
   function setChip(id, text, kind) {
-    const el = $(id);
-    el.textContent = text;
-    el.className = kind ? `chip ${kind}` : "chip";
-    el.title = text;
-    el.hidden = false;
+    const el2 = $(id);
+    el2.textContent = text;
+    el2.className = kind ? `chip ${kind}` : "chip";
+    el2.title = text;
+    el2.hidden = false;
   }
   function bootLabClient() {
+    installScrollDiagHostApis();
     const buildLabel = `build #${labBuildStamp_default.seq}`;
     setChip("chipBuild", buildLabel, "live");
     $("chipBuild").title = `${buildLabel}${labBuildStamp_default.builtAt ? ` \xB7 ${labBuildStamp_default.builtAt}` : ""}`;
     let ws = null;
     let projection = null;
+    let disposeImgTrace = null;
     const inputDetachers = /* @__PURE__ */ new Map();
-    let inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
+    let inputCaptureMetrics = new import_projected2.ProjectedInputCaptureMetrics();
     let sessionToken = "";
     let assetBaseUrl = window.location.origin;
+    let documentBaseUrl = "";
     let canonicalViewport = { width: 1280, height: 720 };
     let viewportSync = null;
     let pendingResize = null;
-    let bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
+    let bootDeviceProfile = (0, import_projected3.detectViewportDeviceProfile)();
+    const runsPanel = createRunsPanel({
+      fetch: labFetch,
+      onActivity: logActivity
+    });
+    runsPanel.mount();
     window.__labDiagProjectedPeek = () => projection ? projection.peekNestedHosts() : null;
     window.__labDiagForceLoadAfterDrop = (contextId = 99) => projection ? projection.forceLoadAfterDropRaceForDiag(contextId) : null;
     window.__speculumLabDumpInputClick = () => {
+    };
+    void Promise.resolve().then(() => (init_diagDomApply(), diagDomApply_exports)).then(({ diagDomApplyFrameUrls: diagDomApplyFrameUrls2 }) => {
+      window.__labDiagDomApplyBins = (urls) => diagDomApplyFrameUrls2(urls ?? ["/lab/diag-f1.bin", "/lab/diag-f3.bin"]);
+    });
+    window.__speculumEnableAssetTraceAll = () => {
+      enableGeckoAssetTraceAll();
     };
     function disposeViewportSync() {
       viewportSync?.dispose();
@@ -6945,23 +10857,27 @@
           pendingResize.resolve({ applied: false, message: "superseded", errorCode: "superseded" });
         }
         pendingResize = { resolve };
-        ws.send(
-          JSON.stringify({
-            type: "client.resize",
-            width: size.width,
-            height: size.height,
-            device
-          })
-        );
+        if (isGeckoLab()) {
+          sendGeckoViewport(ws, size.width, size.height);
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: "client.resize",
+              width: size.width,
+              height: size.height,
+              device
+            })
+          );
+        }
       });
     }
     function startViewportSync() {
       disposeViewportSync();
       projection?.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-      const sync = new import_projected2.ViewportSync({
-        measure: () => (0, import_projected2.measureHostElement)(surfaceHost),
+      const sync = new import_projected3.ViewportSync({
+        measure: () => (0, import_projected3.measureHostElement)(surfaceHost),
         resize: requestRemoteResize,
-        viewportPolicy: import_projected2.LAB_VIEWPORT_POLICY,
+        viewportPolicy: import_projected3.LAB_VIEWPORT_POLICY,
         onApplied: (size) => {
           canonicalViewport = size;
           projection?.client.setCssSize(size.width, size.height);
@@ -6976,49 +10892,63 @@
       viewportSync = sync;
     }
     function measureAndNormalizeViewport() {
-      const measured = (0, import_projected2.measureHostElement)(surfaceHost);
-      return (0, import_projected2.normalizeSessionViewport)(measured.width, measured.height, import_projected2.LAB_VIEWPORT_POLICY);
+      const measured = (0, import_projected3.measureHostElement)(surfaceHost);
+      return (0, import_projected3.normalizeSessionViewport)(measured.width, measured.height, import_projected3.LAB_VIEWPORT_POLICY);
     }
     function sendInputIntent(intent) {
       if (surfaceWrap.classList.contains("is-crashed")) return;
-      if (ws?.readyState === WebSocket.OPEN) {
-        const payload = { schemaVersion: intent.schemaVersion, type: intent.type };
-        if (intent.type === "move" || intent.type === "down" || intent.type === "up") {
-          payload.x = intent.x;
-          payload.y = intent.y;
-          payload.viewportW = intent.viewportW;
-          payload.viewportH = intent.viewportH;
-          payload.button = intent.button;
-          if (intent.type !== "move") {
-            if (intent.contextId != null) payload.contextId = intent.contextId;
-            if (intent.nodeId !== void 0) payload.nodeId = intent.nodeId;
-            if (intent.localX != null) payload.localX = intent.localX;
-            if (intent.localY != null) payload.localY = intent.localY;
-          }
-          payload.payload = JSON.stringify({
-            x: intent.x,
-            y: intent.y,
-            button: intent.button,
-            ...intent.type !== "move" && intent.localX != null && intent.localY != null ? { localX: intent.localX, localY: intent.localY } : {}
-          });
-        } else if (intent.type === "keyDown" || intent.type === "keyUp") {
-          payload.key = intent.key;
-          payload.code = intent.code;
-          payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
-        } else if (intent.type === "scrollSet") {
-          payload.contextId = intent.contextId;
-          payload.nodeId = intent.nodeId;
-          payload.scrollX = intent.scrollX;
-          payload.scrollY = intent.scrollY;
-          payload.payload = JSON.stringify({ scrollX: intent.scrollX, scrollY: intent.scrollY });
-        } else if (intent.type === "historyNav") {
-          payload.direction = intent.direction;
-          payload.payload = JSON.stringify({ direction: intent.direction });
+      if (ws?.readyState !== WebSocket.OPEN) return;
+      if (isGeckoLab()) {
+        const bytes = (0, import_core2.encodeControlFromIntent)(
+          nextGeckoCorr(),
+          intent.contextId ?? import_frame4.CONTEXT_ID_ROOT,
+          intent
+        );
+        if (bytes) {
+          sendGeckoControl(ws, bytes);
         }
-        payload.timestampClient = intent.timestampClient;
-        ws.send(JSON.stringify({ type: "client.intent", intent: payload }));
         logActivity(`intent ${formatIntentShort(intent)}`);
+        return;
       }
+      const payload = { schemaVersion: intent.schemaVersion, type: intent.type };
+      if (intent.type === "move" || intent.type === "down" || intent.type === "up") {
+        payload.x = intent.x;
+        payload.y = intent.y;
+        payload.viewportW = intent.viewportW;
+        payload.viewportH = intent.viewportH;
+        payload.button = intent.button;
+        if (intent.type !== "move") {
+          if (intent.contextId != null) payload.contextId = intent.contextId;
+          if (intent.nodeId !== void 0) payload.nodeId = intent.nodeId;
+          if (intent.localX != null) payload.localX = intent.localX;
+          if (intent.localY != null) payload.localY = intent.localY;
+        }
+        payload.payload = JSON.stringify({
+          x: intent.x,
+          y: intent.y,
+          button: intent.button,
+          ...intent.type !== "move" && intent.localX != null && intent.localY != null ? { localX: intent.localX, localY: intent.localY } : {}
+        });
+      } else if (intent.type === "keyDown" || intent.type === "keyUp") {
+        payload.key = intent.key;
+        payload.code = intent.code;
+        payload.payload = JSON.stringify({ key: intent.key, code: intent.code, modifiers: intent.modifiers });
+      } else if (intent.type === "scrollSet") {
+        payload.contextId = intent.contextId;
+        payload.nodeId = intent.nodeId;
+        payload.scrollFracX = intent.scrollFracX;
+        payload.scrollFracY = intent.scrollFracY;
+        payload.payload = JSON.stringify({
+          scrollFracX: intent.scrollFracX,
+          scrollFracY: intent.scrollFracY
+        });
+      } else if (intent.type === "historyNav") {
+        payload.direction = intent.direction;
+        payload.payload = JSON.stringify({ direction: intent.direction });
+      }
+      payload.timestampClient = intent.timestampClient;
+      ws.send(JSON.stringify({ type: "client.intent", intent: payload }));
+      logActivity(`intent ${formatIntentShort(intent)}`);
     }
     function sendInputClickDiag() {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -7056,12 +10986,12 @@
     function bindInputSurfaces(client) {
       for (const detach of inputDetachers.values()) detach();
       inputDetachers.clear();
-      inputCaptureMetrics = new import_projected.ProjectedInputCaptureMetrics();
-      const scrollEcho = new import_projected.ScrollEchoGate();
+      inputCaptureMetrics = new import_projected2.ProjectedInputCaptureMetrics();
+      const scrollEcho = new import_projected2.ScrollEchoGate();
       const rootSurface = client.document.documentElement;
       if (rootSurface && rootSurface.nodeType === 1) {
-        const detach = (0, import_projected.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
-          contextId: import_frame2.CONTEXT_ID_ROOT,
+        const detach = (0, import_projected2.attachProjectedInputCapture)(rootSurface, client.getLiveRegistry(), sendInputIntent, {
+          contextId: import_frame4.CONTEXT_ID_ROOT,
           getGeneration: () => client.getGeneration(),
           getViewportSize: () => canonicalViewport,
           isArmed: () => client.isArmed,
@@ -7069,14 +10999,21 @@
           consumeScrollEcho: (target, observed) => scrollEcho.consume(target, observed),
           metrics: inputCaptureMetrics
         });
-        inputDetachers.set(import_frame2.CONTEXT_ID_ROOT, detach);
+        inputDetachers.set(import_frame4.CONTEXT_ID_ROOT, detach);
       }
       const rootWin = client.document.defaultView;
+      if (isGeckoLab() && rootWin) {
+        registerGeckoAssetContext(import_frame4.CONTEXT_ID_ROOT, rootWin);
+      }
       client.forEachNestedInputSurface((info) => {
         const nestedDoc = info.surface.contentDocument;
         const nestedSurface = nestedDoc?.documentElement;
         if (!nestedSurface || nestedSurface.nodeType !== 1) return;
-        const detach = (0, import_projected.attachProjectedInputCapture)(nestedSurface, info.registry, sendInputIntent, {
+        const nestedWin = nestedDoc.defaultView;
+        if (isGeckoLab() && nestedWin) {
+          registerGeckoAssetContext(info.contextId, nestedWin);
+        }
+        const detach = (0, import_projected2.attachProjectedInputCapture)(nestedSurface, info.registry, sendInputIntent, {
           contextId: info.contextId,
           getGeneration: info.getGeneration,
           // Mode A coords are root Virtual viewport — same canonical size as root capture.
@@ -7094,6 +11031,7 @@
     let mode = "browse";
     let runInFlight = false;
     let sessionLive = false;
+    let browseStarting = false;
     let sessionId = null;
     let phase = "idle";
     let opsTotal = 0;
@@ -7112,7 +11050,9 @@
       if (!ws || ws.readyState !== WebSocket.OPEN || !sessionLive || snapInFlight) return;
       snapInFlight = true;
       syncButtons();
-      ws.send(JSON.stringify({ type: "client.snapshot", label }));
+      const type = isGeckoLab() ? "client.sameS" : "client.snapshot";
+      ws.send(JSON.stringify({ type, label, contextId: 1 }));
+      logActivity(isGeckoLab() ? `same-S capture\u2026 (${label ?? "manual"})` : `snap\u2026 (${label ?? "manual"})`);
     }
     function startAutoSnap() {
       stopAutoSnap();
@@ -7134,7 +11074,7 @@
     }
     function observeStreamTelemetry(msg) {
       const kind = typeof msg.kind === "string" ? msg.kind : "";
-      const ctxId = typeof msg.contextId === "number" && Number.isInteger(msg.contextId) && msg.contextId >= 1 ? msg.contextId : import_frame2.CONTEXT_ID_ROOT;
+      const ctxId = typeof msg.contextId === "number" && Number.isInteger(msg.contextId) && msg.contextId >= 1 ? msg.contextId : import_frame4.CONTEXT_ID_ROOT;
       const row = ctxStats(ctxId);
       if (kind === "frameEmitted") {
         row.emitted += 1;
@@ -7187,10 +11127,32 @@
       const detail = document.getElementById("surfaceCrashDetail");
       if (detail) detail.textContent = "\u2014";
     }
-    function measureHeader() {
-      const h = $("labHeader").getBoundingClientRect().height;
-      document.documentElement.style.setProperty("--hdr-h", `${Math.ceil(h)}px`);
+    function truncateHudUrl(raw, max = 52) {
+      if (!raw) return "\u2014";
+      try {
+        const u = new URL(raw);
+        const compact = `${u.host}${u.pathname}${u.search}`;
+        return compact.length > max ? `${compact.slice(0, max - 1)}\u2026` : compact;
+      } catch {
+        return raw.length > max ? `${raw.slice(0, max - 1)}\u2026` : raw;
+      }
     }
+    function updateHudSummary() {
+      const el2 = document.getElementById("hudSummary");
+      if (!el2) return;
+      if (mode === "browse") {
+        const fix = fixtureSelect.selectedOptions[0]?.textContent?.trim() || "fixture";
+        const url = urlInput.value.trim();
+        el2.textContent = url ? `${fix} \xB7 ${truncateHudUrl(url)}` : fix;
+        el2.title = url || fix;
+      } else {
+        const bp = selectedBlueprint();
+        const url = bp?.defaultUrl ?? "";
+        el2.textContent = bp ? `${bp.id} \xB7 ${truncateHudUrl(url)}` : "Pick blueprint";
+        el2.title = url || bp?.description || "";
+      }
+    }
+    let labShell = null;
     let labFullscreen = false;
     function syncFullscreenUi() {
       document.body.classList.toggle("lab-fullscreen", labFullscreen);
@@ -7198,7 +11160,6 @@
       exitBtn.setAttribute("aria-hidden", labFullscreen ? "false" : "true");
       const enterBtn = $("enterFullscreen");
       enterBtn.setAttribute("aria-pressed", labFullscreen ? "true" : "false");
-      if (!labFullscreen) measureHeader();
     }
     async function enterLabFullscreen() {
       labFullscreen = true;
@@ -7212,7 +11173,7 @@
       }
       logActivity("fullscreen on");
       if (viewportSync) {
-        const measured = (0, import_projected2.measureHostElement)(surfaceHost);
+        const measured = (0, import_projected3.measureHostElement)(surfaceHost);
         viewportSync.schedule(measured.width, measured.height);
       }
     }
@@ -7225,7 +11186,7 @@
       }
       logActivity("fullscreen off");
       if (viewportSync) {
-        const measured = (0, import_projected2.measureHostElement)(surfaceHost);
+        const measured = (0, import_projected3.measureHostElement)(surfaceHost);
         viewportSync.schedule(measured.width, measured.height);
       }
     }
@@ -7251,7 +11212,7 @@
       connectBtn.disabled = open;
       connectBtn.classList.toggle("primary", !open);
       $("disconnect").disabled = !open;
-      $("browseStart").disabled = !open || mode !== "browse" || sessionLive || runInFlight;
+      $("browseStart").disabled = !open || mode !== "browse" || sessionLive || runInFlight || browseStarting;
       $("browseNavigate").disabled = !open || mode !== "browse" || !sessionLive || runInFlight;
       $("browseSnap").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || snapInFlight;
       $("browseWidgetParity").disabled = !open || mode !== "browse" || !sessionLive || runInFlight || widgetParityInFlight || !projection;
@@ -7262,13 +11223,16 @@
       document.querySelectorAll("[data-mode]").forEach((btn) => {
         btn.disabled = runInFlight;
       });
-      $("browseStart").classList.toggle("primary", open && mode === "browse" && !sessionLive);
+      $("browseStart").classList.toggle(
+        "primary",
+        open && mode === "browse" && !sessionLive && !browseStarting
+      );
       $("runStart").classList.toggle("primary", open && mode === "run" && !runInFlight);
       $("browseStart").title = !open ? "Connect first" : sessionLive ? "Virtual already live \u2014 Stop first" : "Cold-start Virtual at the URL";
       $("runStart").title = !open ? "Connect first" : runInFlight ? "Run in flight" : "Cold-boot blueprint DAG (URL comes from blueprint)";
       $("browseNavigate").title = sessionLive ? "Navigate live Virtual to the URL field" : "Start Virtual first";
       refreshStatus();
-      measureHeader();
+      updateHudSummary();
     }
     function selectedBlueprint() {
       return blueprints.find((b) => b.id === blueprintSelect.value);
@@ -7293,6 +11257,10 @@
       });
       $("browseControls").hidden = next !== "browse";
       $("runControls").hidden = next !== "run";
+      const browseSec = document.getElementById("browseControlsSecondary");
+      const runSec = document.getElementById("runControlsSecondary");
+      if (browseSec) browseSec.hidden = next !== "browse";
+      if (runSec) runSec.hidden = next !== "run";
       fixtureField.hidden = next !== "browse";
       blueprintField.hidden = next !== "run";
       blueprintDesc.hidden = next !== "run";
@@ -7309,6 +11277,7 @@
         syncRunTarget();
       }
       syncButtons();
+      updateHudSummary();
     }
     function showTab(name) {
       $("panelStream").hidden = name !== "Stream";
@@ -7317,11 +11286,13 @@
       $("panelConsole").hidden = name !== "Console";
       $("panelConfig").hidden = name !== "Config";
       $("panelProgress").hidden = name !== "Progress";
+      $("panelRuns").hidden = name !== "Runs";
       document.querySelectorAll("[data-tab]").forEach((btn) => {
         const on = btn.dataset.tab === name;
         btn.classList.toggle("active", on);
         btn.setAttribute("aria-selected", on ? "true" : "false");
       });
+      labShell?.expandForTab(name);
     }
     function renderDebugProbe(payload) {
       const wall = typeof payload.wallMs === "number" ? payload.wallMs : null;
@@ -7360,7 +11331,7 @@
       $("dbgDrops").textContent = JSON.stringify(drops, null, 2);
     }
     function updateStream() {
-      const root = ctxStats(import_frame2.CONTEXT_ID_ROOT);
+      const root = ctxStats(import_frame4.CONTEXT_ID_ROOT);
       $("streamFrames").textContent = String(root.wireFrames);
       $("streamApply").textContent = String(root.applyOk);
       $("streamDesync").textContent = String(root.desync);
@@ -7384,12 +11355,12 @@
       for (const id of ids) {
         const s = byContext.get(id);
         const card = document.createElement("article");
-        card.className = id === import_frame2.CONTEXT_ID_ROOT ? "ctx-card stream-root" : "ctx-card";
+        card.className = id === import_frame4.CONTEXT_ID_ROOT ? "ctx-card stream-root" : "ctx-card";
         const head = document.createElement("div");
         head.className = "ctx-card-head";
         const idEl = document.createElement("div");
         idEl.className = "ctx-id";
-        idEl.textContent = id === import_frame2.CONTEXT_ID_ROOT ? `ctx ${id} \xB7 root` : `ctx ${id}`;
+        idEl.textContent = id === import_frame4.CONTEXT_ID_ROOT ? `ctx ${id} \xB7 root` : `ctx ${id}`;
         const seqEl = document.createElement("div");
         seqEl.className = "ctx-seq";
         seqEl.textContent = s.lastSequence !== null ? `seq ${s.lastSequence}` : "seq \u2014";
@@ -7436,33 +11407,58 @@
     }
     async function ensureProjection() {
       if (projection) return projection;
+      if (isGeckoLab()) {
+        await ensureGeckoAssetSw(sessionToken);
+      }
       projection = await LabProjectedHarness.create({
         surfaceHost,
         width: canonicalViewport.width,
         height: canonicalViewport.height,
         getToken: () => sessionToken,
         getAssetBaseUrl: () => assetBaseUrl,
+        getDocumentBaseUrl: () => isGeckoLab() ? documentBaseUrl : "",
         onArmed: () => {
           bindInputSurfaces(projection);
+          disposeImgTrace?.();
+          disposeImgTrace = installImgTrace(projection.document);
         },
         onTelemetry: (msg) => {
           observeStreamTelemetry(msg);
           const m = msg;
-          const ctxId = typeof m.contextId === "number" ? m.contextId : import_frame2.CONTEXT_ID_ROOT;
+          const ctxId = typeof m.contextId === "number" ? m.contextId : import_frame4.CONTEXT_ID_ROOT;
           if (m.kind === "clientWarn" && typeof m.message === "string") {
             logConsole(3, m.message);
             logActivity(m.message);
           }
-          if (m.kind === "applyResult" && m.ok === true && ctxId !== import_frame2.CONTEXT_ID_ROOT && projection) {
+          if (m.kind === "applyResult" && m.ok === true && ctxId !== import_frame4.CONTEXT_ID_ROOT && projection) {
             bindInputSurfaces(projection);
           }
-          if (m.kind === "applyResult" && typeof m.opCount === "number" && ctxId === import_frame2.CONTEXT_ID_ROOT && m.ok === true) {
+          if (m.kind === "applyResult" && typeof m.opCount === "number" && ctxId === import_frame4.CONTEXT_ID_ROOT && m.ok === true) {
             opsTotal += m.opCount;
             $("streamOps").textContent = String(m.opCount);
           }
           if (m.kind === "desynced" || m.kind === "desync") {
+            const tel = msg;
+            const detail = [tel.errorCode ?? m.kind, tel.op ? `op=${tel.op}` : "", tel.message ?? ""].filter(Boolean).join(" ");
+            logActivity(ctxId === import_frame4.CONTEXT_ID_ROOT ? `desync ${detail}` : `ctx${ctxId} desync ${detail}`);
+          }
+          if (m.kind === "resyncFailed") {
+            const tel = msg;
+            const detail = [
+              tel.reason ?? "",
+              tel.op ? `op=${tel.op}` : "",
+              typeof tel.id === "number" ? `id=${tel.id}` : "",
+              tel.message ?? ""
+            ].filter(Boolean).join(" ");
             logActivity(
-              ctxId === import_frame2.CONTEXT_ID_ROOT ? `desync ${msg.errorCode ?? m.kind}` : `ctx${ctxId} desync ${msg.errorCode ?? m.kind}`
+              `resync failed attempt=${tel.attempt ?? "?"} exhausted=${tel.exhausted === true} ${detail}`
+            );
+          }
+          if (m.kind === "resyncCompleted") {
+            ctxStats(ctxId).resync += 1;
+            const seq = msg.sequence ?? "?";
+            logActivity(
+              ctxId === import_frame4.CONTEXT_ID_ROOT ? `resync completed seq=${seq}` : `ctx${ctxId} resync completed seq=${seq}`
             );
           }
           if (ws?.readyState === WebSocket.OPEN) {
@@ -7471,10 +11467,9 @@
           updateStream();
         },
         onRequestResync: (info) => {
-          const ctxId = info.contextId ?? import_frame2.CONTEXT_ID_ROOT;
-          ctxStats(ctxId).resync += 1;
+          const ctxId = info.contextId ?? import_frame4.CONTEXT_ID_ROOT;
           logActivity(
-            ctxId === import_frame2.CONTEXT_ID_ROOT ? `resync requested reason=${info.reason}` : `ctx${ctxId} resync requested reason=${info.reason}`
+            ctxId === import_frame4.CONTEXT_ID_ROOT ? `resync requested reason=${info.reason}` : `ctx${ctxId} resync requested reason=${info.reason}`
           );
           updateStream();
           if (ws?.readyState === WebSocket.OPEN) {
@@ -7486,6 +11481,8 @@
           logActivity(`desync ${reason}`);
         }
       });
+      disposeImgTrace?.();
+      disposeImgTrace = installImgTrace(projection.document);
       setSurfaceEmpty(false);
       if (canonicalViewport.width > 0 && canonicalViewport.height > 0) {
         projection.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
@@ -7595,19 +11592,20 @@
         stopAutoSnap();
         ws = null;
         sessionLive = false;
+        browseStarting = false;
         runInFlight = false;
         snapInFlight = false;
         syncButtons();
       });
       ws.addEventListener("message", (ev) => {
         if (typeof ev.data !== "string") {
+          const bytes = new Uint8Array(ev.data);
+          const hdr = (0, import_decode2.peekFrameHeader)(bytes);
+          const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : import_frame4.CONTEXT_ID_ROOT;
+          ctxStats(ctxId).wireFrames += 1;
+          updateStream();
           void ensureProjection().then((p) => {
-            const bytes = new Uint8Array(ev.data);
-            const hdr = (0, import_decode.peekFrameHeader)(bytes);
-            const ctxId = hdr && hdr.contextId >= 1 ? hdr.contextId : import_frame2.CONTEXT_ID_ROOT;
-            ctxStats(ctxId).wireFrames += 1;
             p.ingest(bytes);
-            updateStream();
           });
           return;
         }
@@ -7643,9 +11641,11 @@
           const cssomSheetDumpReq = typeof sheetDumpRaw === "object" && sheetDumpRaw !== null ? {
             nestedContextId: typeof sheetDumpRaw.nestedContextId === "number" ? sheetDumpRaw.nestedContextId : void 0
           } : void 0;
+          const layoutRootCause = msg.layoutRootCause === true;
           void ensureProjection().then(async (p) => {
             const ctx = p.snapshotContext(contextId);
             const doc = contextId === 1 ? p.document : p.nestedDocument(contextId);
+            const win = contextId === 1 ? p.document?.defaultView ?? null : p.nestedDocument(contextId)?.defaultView ?? null;
             const tree = doc ? (0, import_domTreeSnapshot.snapshotTree)(doc) : null;
             const cascade = doc ? probeCssomPaintBoundary(doc) : null;
             const formProps = doc ? (0, import_formControlSnapshot.snapshotFormControls)(doc) : null;
@@ -7665,7 +11665,12 @@
                 widgetPaintReason: paint.reason
               };
             }
-            const cssomSheetDump = cssomSheetDumpReq ? p.probeCssomSheetDump(cssomSheetDumpReq.nestedContextId ?? contextId) : void 0;
+            const cssomSheetDump = cssomSheetDumpReq || layoutRootCause ? p.probeCssomSheetDump(cssomSheetDumpReq?.nestedContextId ?? contextId) : void 0;
+            const layoutProbe = layoutRootCause && doc && win ? probeLayoutRootCause(doc, win) : void 0;
+            if (doc && isGeckoLab()) {
+              sampleImgStates(doc, "sameS");
+            }
+            const assetTrace = isGeckoLab() ? drainAssetTrace() : void 0;
             ws?.send(
               JSON.stringify({
                 type: "client.snapshotResult",
@@ -7684,7 +11689,9 @@
                 ...registryProbe !== void 0 ? { registryProbe } : {},
                 ...rectLadder !== void 0 ? { rectLadder } : {},
                 ...paintProbe !== void 0 ? { paintProbe } : {},
-                ...cssomSheetDump !== void 0 ? { cssomSheetDump } : {}
+                ...cssomSheetDump !== void 0 ? { cssomSheetDump } : {},
+                ...layoutProbe !== void 0 ? { layoutProbe } : {},
+                ...assetTrace !== void 0 ? { assetTrace } : {}
               })
             );
           });
@@ -7748,20 +11755,55 @@
         }
         if (msg.type === "session.hello") {
           sessionId = String(msg.sessionId ?? "");
+          setScrollDiagSessionId(sessionId);
           sessionToken = String(msg.sessionToken ?? "");
           assetBaseUrl = window.location.origin;
-          logActivity(`session.hello ${sessionId}`);
+          documentBaseUrl = "";
+          setGeckoLab(msg.engine === "gecko");
+          if (isGeckoLab() && ws) {
+            wireGeckoSwFetch(ws, import_frame4.CONTEXT_ID_ROOT);
+            void ensureGeckoAssetSw(sessionToken).then(
+              () => logActivity("gecko sw ready"),
+              (err) => logActivity(`gecko sw falhou: ${err.message}`)
+            );
+          }
+          logActivity(`session.hello ${sessionId}${isGeckoLab() ? " gecko" : ""}`);
           refreshStatus();
+          return;
+        }
+        if (msg.type === "gecko.requested" && isGeckoLab() && ws) {
+          const kind = String(msg.kind ?? "dialog");
+          const contextId = Number(msg.contextId ?? import_frame4.CONTEXT_ID_ROOT);
+          const requestId = Number(msg.requestId ?? 0);
+          const description = String(msg.description ?? "");
+          const { yes, text } = showGeckoPrompt(kind, description);
+          answerGeckoRequest(ws, kind, contextId, requestId, yes, text);
+          logActivity(`gecko.requested ${kind} #${requestId}`);
+          return;
+        }
+        if (msg.type === "gecko.asset" && isGeckoLab()) {
+          const streamId = Number(msg.streamId ?? 0);
+          const phase2 = Number(msg.phase ?? 0);
+          const why = String(msg.why ?? "");
+          let data = new Uint8Array(0);
+          if (typeof msg.bytes === "string" && msg.bytes.length > 0) {
+            const raw = atob(msg.bytes);
+            data = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+          }
+          onGeckoAssetMessage(streamId, phase2, data, why);
           return;
         }
         if (msg.type === "session.booted") {
           clearCrashOverlay();
           sessionLive = true;
           sessionId = String(msg.sessionId ?? sessionId ?? "");
+          setScrollDiagSessionId(sessionId);
           phase = "live";
           browseSnapCount = 0;
           $("streamSnaps").textContent = "0";
           logActivity(`booted mode=${msg.mode} dossier=${msg.dossierDir}`);
+          browseStarting = false;
           logActivity("click diag: __speculumLabDumpInputClick() in devtools after pointer click");
           startViewportSync();
           if (msg.mode === "browse") startAutoSnap();
@@ -7770,6 +11812,7 @@
         }
         if (msg.type === "session.stopped") {
           sessionLive = false;
+          browseStarting = false;
           stopAutoSnap();
           snapInFlight = false;
           disposeViewportSync();
@@ -7780,6 +11823,9 @@
           }
           if (!runInFlight && phase !== "complete" && phase !== "fault") phase = "connected";
           logActivity(`stopped ${msg.reason}${msg.dossierDir ? ` ${msg.dossierDir}` : ""}`);
+          if (msg.dossierDir) {
+            void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(String(msg.dossierDir)));
+          }
           syncButtons();
           return;
         }
@@ -7821,6 +11867,7 @@
           logActivity(`fault ${detail}`);
           if (typeof msg.dossierDir === "string" && msg.dossierDir) {
             logActivity(`fault dossier ${msg.dossierDir}`);
+            void runsPanel.refresh().then(() => runsPanel.selectByDossierDir(msg.dossierDir));
           }
           showCrashOverlay(detail);
           if (msg.errorCode || msg.message) {
@@ -7834,6 +11881,7 @@
             });
           }
           sessionLive = false;
+          browseStarting = false;
           runInFlight = false;
           stopAutoSnap();
           snapInFlight = false;
@@ -7854,6 +11902,21 @@
           const pass = msg.allPass === true ? "pass" : "fail";
           logActivity(
             `snap stored ${msg.id}${msg.label ? ` (${msg.label})` : ""} seq=${msg.sequence ?? "\u2014"} ${pass} (n=${browseSnapCount})`
+          );
+          syncButtons();
+          return;
+        }
+        if (msg.type === "lab.sameSResult") {
+          snapInFlight = false;
+          browseSnapCount += 1;
+          $("streamSnaps").textContent = String(browseSnapCount);
+          const ok = msg.ok === true;
+          const same = msg.sameSequence === true;
+          const vSeq = msg.virtualSequence ?? "\u2014";
+          const pSeq = msg.projectedSequence ?? "\u2014";
+          const err = typeof msg.error === "string" ? msg.error : "";
+          logActivity(
+            `same-S ${ok ? "ok" : "fail"} vSeq=${vSeq} pSeq=${pSeq} sameSeq=${same}${err ? ` err=${err}` : ""} (n=${browseSnapCount})`
           );
           syncButtons();
           return;
@@ -7889,6 +11952,10 @@
             s.fail > 0 ? "danger" : "ok"
           );
           syncButtons();
+          void runsPanel.refresh().then(() => {
+            if (msg.dossierDir) void runsPanel.selectByDossierDir(String(msg.dossierDir));
+          });
+          showTab("Runs");
           return;
         }
         if (msg.type === "error") {
@@ -7921,9 +11988,14 @@
     fixtureSelect.addEventListener("change", () => {
       if (mode !== "browse") return;
       urlInput.value = `${location.origin}/fixtures/${fixtureSelect.value}`;
+      updateHudSummary();
     });
     blueprintSelect.addEventListener("change", () => {
-      if (mode === "run") syncRunTarget();
+      syncRunTarget();
+      updateHudSummary();
+    });
+    urlInput.addEventListener("input", () => {
+      if (mode === "browse") updateHudSummary();
     });
     document.querySelectorAll("[data-mode]").forEach((btn) => {
       btn.addEventListener("click", () => showMode(btn.dataset.mode ?? "browse"));
@@ -7948,34 +12020,59 @@
       }
     );
     $("browseStart").addEventListener("click", () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN || sessionLive || browseStarting) return;
       clearCrashOverlay();
       disposeViewportSync();
       canonicalViewport = measureAndNormalizeViewport();
-      bootDeviceProfile = (0, import_projected2.detectViewportDeviceProfile)();
+      bootDeviceProfile = (0, import_projected3.detectViewportDeviceProfile)();
+      browseStarting = true;
+      syncButtons();
+      if (isGeckoLab()) {
+        try {
+          documentBaseUrl = new URL(urlInput.value).href;
+        } catch {
+          documentBaseUrl = urlInput.value;
+        }
+      }
+      logActivity(
+        `browse.start viewport ${canonicalViewport.width}\xD7${canonicalViewport.height}`
+      );
+      ws.send(
+        JSON.stringify({
+          type: "browse.start",
+          url: urlInput.value,
+          width: canonicalViewport.width,
+          height: canonicalViewport.height,
+          device: bootDeviceProfile,
+          frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
+          telemetry: readTelemetryFromUi(),
+          cpuProfiling: document.getElementById("browseCpu")?.checked === true
+        })
+      );
       void (async () => {
-        const p = await ensureProjection();
-        await p.resetSurface();
-        p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
-        resetStreamCounters();
-        logActivity(
-          `browse.start viewport ${canonicalViewport.width}\xD7${canonicalViewport.height}`
-        );
-        ws?.send(
-          JSON.stringify({
-            type: "browse.start",
-            url: urlInput.value,
-            width: canonicalViewport.width,
-            height: canonicalViewport.height,
-            device: bootDeviceProfile,
-            frameRateHz: Number(document.getElementById("frameRateHz")?.value) || 60,
-            telemetry: readTelemetryFromUi(),
-            cpuProfiling: document.getElementById("browseCpu")?.checked === true
-          })
-        );
+        try {
+          const p = await ensureProjection();
+          await p.resetSurface();
+          clearAssetTrace();
+          disposeImgTrace?.();
+          disposeImgTrace = installImgTrace(p.document);
+          p.client.setCssSize(canonicalViewport.width, canonicalViewport.height);
+          resetStreamCounters();
+        } catch (err) {
+          const text = err instanceof Error ? err.message : String(err);
+          logActivity(`projected boot failed: ${text}`);
+        }
       })();
     });
     $("browseNavigate").addEventListener("click", () => {
       if (!sessionLive) return;
+      if (isGeckoLab()) {
+        try {
+          documentBaseUrl = new URL(urlInput.value).href;
+        } catch {
+          documentBaseUrl = urlInput.value;
+        }
+      }
       ws?.send(JSON.stringify({ type: "browse.navigate", url: urlInput.value }));
       logActivity(`navigate ${urlInput.value}`);
     });
@@ -8048,9 +12145,18 @@
         );
       })();
     });
-    window.addEventListener("resize", measureHeader);
     $("enterFullscreen").addEventListener("click", () => {
       void enterLabFullscreen();
+    });
+    document.getElementById("diagCopy")?.addEventListener("click", () => {
+      const api = window;
+      void api.diagFlush?.().then((r) => {
+        if (!r) return;
+        logActivity(
+          r.ok ? `diag flush ${r.sent} gesto(s) -> lab-runs/gesture-diag` : `diag flush falhou: ${r.error}`
+        );
+      });
+      api.diagDump?.();
     });
     $("exitFullscreen").addEventListener("click", () => {
       void exitLabFullscreen();
@@ -8064,9 +12170,33 @@
     window.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape" && labFullscreen) void exitLabFullscreen();
     });
+    const mainEl = document.getElementById("labMain");
+    const sheetEl = document.getElementById("investigationSheet");
+    const grabberEl = document.getElementById("sheetGrabber");
+    const hudEl = document.getElementById("surfaceHud");
+    const hudToggleEl = document.getElementById("hudToggle");
+    const hudBodyEl = document.getElementById("hudBody");
+    const hudMoreEl = document.getElementById("hudMore");
+    if (mainEl && sheetEl && grabberEl && hudEl && hudToggleEl && hudBodyEl) {
+      labShell = initLabShell({
+        main: mainEl,
+        sheet: sheetEl,
+        grabber: grabberEl,
+        hud: hudEl,
+        hudToggle: hudToggleEl,
+        hudBody: hudBodyEl,
+        hudMore: hudMoreEl ?? void 0,
+        onSnapChange: () => {
+          if (viewportSync) {
+            const measured = (0, import_projected3.measureHostElement)(surfaceHost);
+            viewportSync.schedule(measured.width, measured.height);
+          }
+        }
+      });
+    }
     void Promise.all([loadFixtures(), loadBlueprints()]).then(() => {
       showMode("browse");
-      measureHeader();
+      updateHudSummary();
     });
     showTab("Stream");
     refreshStatus();

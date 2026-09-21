@@ -337,6 +337,28 @@ internal sealed partial class LiveSession
         return result;
     }
 
+    public async Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+        uint contextId,
+        string url,
+        string destination,
+        string range,
+        CancellationToken ct = default)
+    {
+        if (_mirrorMode != MirrorMode.PageProjection)
+        {
+            return Result<VirtualResourceResponse>.Failure(SessionMirrorErrors.PageProjectionRequiredMessage);
+        }
+
+        if (IsReleased || !_connection.IsOpen)
+        {
+            return Result<VirtualResourceResponse>.Failure("Live session is released");
+        }
+
+        return await _connection
+            .FetchProjectedAssetAsync(contextId, url, destination, range, ct)
+            .ConfigureAwait(false);
+    }
+
     private static string VirtualAssetUrlKey(string key)
     {
         var q = key.IndexOf('?', StringComparison.Ordinal);

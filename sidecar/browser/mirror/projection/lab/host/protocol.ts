@@ -112,16 +112,27 @@ export type LabClientMessage =
       tableHash?: string | null;
     }
   | { type: 'client.snapshot'; label?: string }
+  | { type: 'client.control'; bytes: string }
+  | { type: 'client.asset'; contextId?: number; bytes: string }
   | { type: 'client.validateSnaps' };
 
 export type LabHostMessage =
-  | { type: 'session.hello'; sessionId: string; sessionToken: string; protocolVersion: typeof LAB_PROTOCOL_VERSION }
+  | {
+      type: 'session.hello';
+      sessionId: string;
+      sessionToken: string;
+      protocolVersion: typeof LAB_PROTOCOL_VERSION;
+      engine?: 'gecko' | 'chromium';
+    }
   | {
       type: 'session.booted';
       sessionId: string;
       mode: 'browse' | 'run';
       url: string;
       dossierDir: string;
+      caps?: { events: boolean; metrics: boolean };
+      capEvents?: boolean;
+      capMetrics?: boolean;
     }
   | {
       type: 'session.stopped';
@@ -136,6 +147,47 @@ export type LabHostMessage =
       errorCode?: string;
       phase?: string;
       dossierDir?: string;
+    }
+  | {
+      type: 'gecko.requested';
+      kind: 'dialog' | 'permission' | 'download';
+      contextId: number;
+      requestId: number;
+      description: string;
+    }
+  | {
+      type: 'gecko.asset';
+      streamId: number;
+      phase: number;
+      bytes: string;
+      why: string;
+    }
+  | {
+      type: 'gecko.snapshotServed';
+      correlationId: number;
+      contextId: number;
+      sequence: number;
+      generation: number;
+      tableHash: string;
+      dumpBytes: string;
+    }
+  | {
+      type: 'gecko.fault';
+      correlationId: number;
+      contextId: number;
+      errorCode: string;
+      phase: string;
+      message: string;
+    }
+  | {
+      type: 'gecko.navigated';
+      contextId: number;
+      url: string;
+    }
+  | {
+      type: 'gecko.contextCreated';
+      contextId: number;
+      browsingContextId: number;
     }
   | {
       type: 'run.progress';

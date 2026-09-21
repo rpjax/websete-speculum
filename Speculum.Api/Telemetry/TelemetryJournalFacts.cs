@@ -17,8 +17,8 @@ public static class TelemetryJournalFacts
         "Telemetry.Sessions.VideoStreamingInput.ControlReceived";
     public const string VideoStreamingInputSidecarPushWritten =
         "Telemetry.Sessions.VideoStreamingInput.SidecarPushWritten";
-    public const string VideoStreamingInputSidecarAdmitted =
-        "Telemetry.Sessions.VideoStreamingInput.SidecarAdmitted";
+    public const string VideoStreamingInputSidecarEnqueued =
+        "Telemetry.Sessions.VideoStreamingInput.SidecarEnqueued";
     public const string VideoStreamingInputApplied =
         "Telemetry.Sessions.VideoStreamingInput.Applied";
     public const string VideoStreamingInputRejected =
@@ -51,8 +51,8 @@ public static class TelemetryJournalFacts
         "Telemetry.Sessions.PageProjection.Input.AdmissionDropped";
     public const string PageProjectionIntentSidecarPushWritten =
         "Telemetry.Sessions.PageProjection.Input.SidecarPushWritten";
-    public const string PageProjectionIntentSidecarAdmitted =
-        "Telemetry.Sessions.PageProjection.Input.SidecarAdmitted";
+    public const string PageProjectionIntentSidecarEnqueued =
+        "Telemetry.Sessions.PageProjection.Input.SidecarEnqueued";
     public const string PageProjectionIntentCdpDropped =
         "Telemetry.Sessions.PageProjection.Input.CdpDropped";
     public const string PageProjectionIntentApplied =

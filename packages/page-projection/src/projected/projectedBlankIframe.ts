@@ -8,6 +8,8 @@
  *
  * Callers: create → set {@link PROJECTED_STANDARDS_SRCDOC} → insert →
  * {@link whenProjectedStandardsReady} → apply into the stripped document.
+ * Nested host: stamp once at NODE_NEW. Do not restamp on ATTR_SET. A live sandbox
+ * write after srcdoc must {@link reincarnateProjectedStandardsSrcdoc} and restart the waiter.
  */
 
 /** Identity marker — only our stamped srcdoc carries this meta; real navigations do not. */
@@ -52,14 +54,64 @@ function fault(
   return err;
 }
 
-/** Stamp standards `srcdoc` before the iframe is inserted (or to re-seed after a lost context). */
+/** Stamp standards `srcdoc` before the iframe is inserted (birth). Do not call on every ATTR_SET. */
 export function stampProjectedStandardsSrcdoc(iframe: HTMLIFrameElement): void {
   iframe.srcdoc = PROJECTED_STANDARDS_SRCDOC;
+}
+
+/**
+ * Force a new nested browsing context for our skeleton.
+ * Same-value `srcdoc` assignment is a no-op — after a live `sandbox` write (which orphans
+ * the previous context) the waiter must see a real navigation, not the dead document.
+ */
+export function reincarnateProjectedStandardsSrcdoc(iframe: HTMLIFrameElement): void {
+  iframe.srcdoc = '';
+  stampProjectedStandardsSrcdoc(iframe);
 }
 
 /** Remove the srcdoc skeleton so a resync/cold frame owns the tree under id 1. */
 export function stripProjectedSkeleton(doc: Document): void {
   while (doc.firstChild) doc.removeChild(doc.firstChild);
+}
+
+const PROJECTED_DOCUMENT_BASE_ATTR = 'data-speculum-document-base';
+
+/**
+ * Virtual document baseURI on the Projected surface — same class as K5 CSP:
+ * environment, not a replicated node. Relative `src`/`href`/`url()` then
+ * resolve to the site origin so the asset SW can intercept (doc 13).
+ */
+/** Init for `new CSSStyleSheet({ baseURL })` — same origin the `<base>` stamps. */
+export function constructedStyleSheetInit(
+  pageUrl?: string,
+): { baseURL: string } | undefined {
+  if (!pageUrl) return undefined;
+  try {
+    return { baseURL: new URL(pageUrl).href };
+  } catch {
+    return undefined;
+  }
+}
+
+export function ensureProjectedDocumentBase(doc: Document, pageUrl: string): void {
+  if (!pageUrl) return;
+  const head = doc.head;
+  if (!head) return;
+  let href: string;
+  try {
+    href = new URL(pageUrl).href;
+  } catch {
+    return;
+  }
+  const existing = head.querySelector(`base[${PROJECTED_DOCUMENT_BASE_ATTR}]`);
+  if (existing) {
+    if (existing.getAttribute('href') !== href) existing.setAttribute('href', href);
+    return;
+  }
+  const base = doc.createElement('base');
+  base.setAttribute(PROJECTED_DOCUMENT_BASE_ATTR, '1');
+  base.href = href;
+  head.insertBefore(base, head.firstChild);
 }
 
 /**
@@ -134,11 +186,14 @@ export function whenProjectedStandardsReady(
   return new Promise((resolve, reject) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let raf = 0;
 
     const settle = (fn: () => void): void => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
+      raf = 0;
       iframe.removeEventListener('load', onLoad);
       signal?.removeEventListener('abort', onAbort);
       fn();
@@ -154,6 +209,9 @@ export function whenProjectedStandardsReady(
 
     const onLoad = (): void => {
       if (adopt()) return;
+      // First load is often the transient about:blank before srcdoc commits.
+      // Same-value srcdoc restamp is a no-op — keep waiting, do not fail-closed.
+      if (iframe.srcdoc === PROJECTED_STANDARDS_SRCDOC) return;
       settle(() =>
         reject(
           fault(
@@ -184,6 +242,18 @@ export function whenProjectedStandardsReady(
 
     iframe.addEventListener('load', onLoad);
     signal?.addEventListener('abort', onAbort, { once: true });
+
+    // `load` can fire before this waiter is attached (NODE_NEW stamp → INSERT
+    // → then installNestedHost). Poll the skeleton predicate until birth or timeout.
+    const poke = (): void => {
+      if (settled) return;
+      if (adopt()) return;
+      if (typeof requestAnimationFrame === 'function') {
+        raf = requestAnimationFrame(poke);
+      }
+    };
+    poke();
+
     timer = setTimeout(() => {
       settle(() =>
         reject(

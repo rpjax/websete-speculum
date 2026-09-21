@@ -1,0 +1,74 @@
+{
+  "target": "http://127.0.0.1:8080/",
+  "elapsedMs": 25606,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-fix-validate-20260918T001147Z",
+  "sessionId": "c5652b84-48bc-4755-90da-009931ca3f14",
+  "mid": {
+    "probe": null,
+    "sid": null,
+    "stopType": "undefined",
+    "hasHost": true,
+    "hasDoc": true,
+    "imgTotal": 0,
+    "imgBroken": 0,
+    "text": ""
+  },
+  "force": {
+    "beforeProbe": null,
+    "afterProbe": null,
+    "fetchResult": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "img": {
+      "ok": true,
+      "nw": 184
+    }
+  },
+  "clickSetup": {
+    "ok": true,
+    "cx": 640,
+    "cy": 360,
+    "tag": "FALLBACK_CENTER"
+  },
+  "clickSaw": [],
+  "assetNet": [],
+  "vstreamDelta": {
+    "before": 4,
+    "after": 4,
+    "samples": [
+      {
+        "n": 3,
+        "op": 1,
+        "head": "010001"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "head": "02000108"
+      },
+      {
+        "n": 3,
+        "op": 1,
+        "head": "010002"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "head": "02000205"
+      }
+    ]
+  },
+  "verdict": {
+    "probeAlive": false,
+    "noSessionCount": 0,
+    "swOkCount": 0,
+    "forceNoSession": false,
+    "forceFetch": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "clickTrusted": false,
+    "intentOutDelta": 0,
+    "framesIn": 11,
+    "pass": false
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "bodyHeadHex": "c19047002096a8d1aa7675d43bbf217e",
+  "bodyHead": "..G. ....vu.;.!~.sK...F..l$..c.N0..H..Z.}..a..T....,.Z.I4.%..DZ.",
+  "dataLen": 1029,
+  "mime": "image/svg+xml",
+  "magic": "unknown_binary",
+  "teeStarts": [
+    {
+      "event": "ensure",
+      "contentType": "image/svg+xml",
+      "contentEncoding": "br",
+      "contentCharset": "",
+      "applyConversion": "1"
+    },
+    {
+      "event": "tap_attach_ok",
+      "contentType": "image/svg+xml",
+      "contentEncoding": "br",
+      "contentCharset": "",
+      "applyConversion": "1"
+    },
+    {
+      "event": "tap_start",
+      "contentType": "image/svg+xml",
+      "contentEncoding": "br",
+      "contentCharset": "",
+      "applyConversion": "1"
+    }
+  ],
+  "firstData": {
+    "event": "tap_data",
+    "chunkLen": 1029,
+    "dataHeadHex": "c19047002096a8d1aa7675d43bbf217e",
+    "magic": "unknown_binary"
+  }
+}

@@ -147,6 +147,22 @@ export class LiveSession extends Emitter<SessionEventMap> {
     })
   }
 
+  fetchProjectedAsset(request: {
+    contextId: number
+    url: string
+    destination: string
+    range: string
+  }): Promise<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }> {
+    return this.control.fetchProjectedAsset({
+      sessionId: this.sessionId,
+      token: this.token,
+      contextId: request.contextId,
+      url: request.url,
+      destination: request.destination,
+      range: request.range,
+    })
+  }
+
   async stop(options: { skipHub?: boolean } = {}): Promise<void> {
     if (this.stopped) {
       return

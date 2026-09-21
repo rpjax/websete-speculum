@@ -1,0 +1,1003 @@
+{
+  "brokenCount": 32,
+  "formatBuckets": {
+    "avif": 31,
+    "other": 1
+  },
+  "reasonBuckets": {
+    "bytes_ok_browser_decode_fail:avif": 29,
+    "bytes_ok_browser_decode_fail:avif_ftyp": 2,
+    "emit_empty": 1
+  },
+  "rows": [
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_06_00_7/988853c1-19a0-43cf-8f7b-6f2649828fde-blz-play-store.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_06_0",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 3685,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "2b249006581611ac",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_06_11_0/ea85a7c0-77c7-4f19-a3ef-3c32b79bd131-blz-app-store.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_06_1",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 2811,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "aa7a38f0e547df9f",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_06_21_1/c2d1e009-f1af-49f5-bf27-5e7e10063198-na-midia.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_06_2",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 7415,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "ddf5fd43031d2caf",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_08_46_3/1f90ebed-1199-4671-8b73-616fbde1901c-premio3.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_08_4",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 8470,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "20508c50cd95a885",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_15_51_5/5de7d0ba-aa98-48b8-84f1-388f0e901606-security-blz.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_15_5",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 8133,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "b3aaf93f60e359b0",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_05_3/a50821a6-1b92-4ee7-9ed7-1aae10166625-facebook-outline.svg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_0",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 710,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "e5f5a2ba2b091013",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_20_6/36fe392d-7fe0-4a35-ac47-95de0f18acd3-youtube.svg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_2",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 706,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "aaef91cc428ef74b",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_34_7/949e8765-53af-4515-b912-e6e7ff99c5c5-social-instagram.svg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_3",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 795,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "7f950c1fde3d1dbd",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_52_7/a4a35db2-3d08-4060-b7b7-08a73e8c60ea-social-tiktok-solo.svg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_16_5",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 654,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "da10e84e01c764d4",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_20_35_8/7fae621f-5bbb-4b41-9e30-43b12f01f957-logo-gropo-texto-cinza.svg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_05_06_10_20_3",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 2921,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "82432ce369b6d209",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_07_15_18_28_16_7/69589cd0-f68e-493e-8928-298142374946-whatsapp-24px.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_07_15_18_28_1",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 827,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "6213b9372e8da6d6",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_08_11_09_55_16_8/7f1cfcae-38fe-40e8-905b-ba12fbaa9610-pagamentos.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_08_11_09_55_1",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 3866,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "823abf356ee64633",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21a89-prancheta-4-1.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2025_10_13_11_25_4",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 6587,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "e366c97fa702f01d",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61bafc9f-card-1.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_18_1",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 28967,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 2,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "6e15ba335046d87b",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17405-card-3.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_2",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 23576,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "e83bbaec06c22876",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9457-card-4.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_03_16_10_19_3",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 33119,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 2,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "d6520a27115b683c",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_2",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 2033,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 2
+      },
+      "sha": {
+        "gecko": "83ef59fb9fb0c7b5",
+        "lab": null,
+        "sw": null
+      },
+      "iframeFetch": {
+        "ok": true,
+        "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+        "status": 200,
+        "contentType": "image/avif",
+        "byteLength": 2033,
+        "headHex": "00000020667479706176696600000000"
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_20_21_26_34_3/d1cda97d-71c8-4f72-bc98-9c5fea890707-botao-2-4.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_08_20_21_26_3",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 2033,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 2
+      },
+      "sha": {
+        "gecko": "83ef59fb9fb0c7b5",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/70e85088-7312-4abc-9316-7f81db73b8b8-4.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/70e85088-7312-4abc",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 9888,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "7a97bfdf981d9386",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/9ab092c2-e441-41f5-8aa9-62fbb761ba4b-2.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/9ab092c2-e441-41f5",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 17583,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 2,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "6eeddde381b90714",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/cb0cd400-4833-4c9c-b8e6-cab660cccfbd-3.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/cb0cd400-4833-4c9c",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 6310,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 2,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "d5e39ff864364df5",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/e85caf18-2320-4e01-90e9-46f853bead21-1.png",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/e85caf18-2320-4e01",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 17779,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "cb32f57ec1171dab",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/35d2a0b4-458e-4a69-a2e1-156cee72d3dc-sec-escolhaseubrinde-15-09-desk-home-g.jpg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 16576,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "5cfdf7b9581d755f",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/fdb3b3e3-556d-4aa8-9be4-fdc4ff490d43-principal-mimo-lovers-16-09-desk-home-g.jpg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_400/v1/banner/1c1cf6bf-3c36-441",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 23959,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "5a46fe3db60f432b",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/63e1528b-15d1-44cc-a0b9-1daf05ca2b8d-gif-bota-o-menu.gif",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif_ftyp",
+      "truncatedLeaf": false,
+      "srcsetHead": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/63e1528b-15d1-44cc",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 63373,
+      "bodyHeadHex": "0000002c667479706176697300000000",
+      "magic": "isobmff_ftyp",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 2
+      },
+      "sha": {
+        "gecko": "34562da923f092e5",
+        "lab": null,
+        "sw": null
+      },
+      "iframeFetch": {
+        "ok": true,
+        "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/63e1528b-15d1-44cc-a0b9-1daf05ca2b8d-gif-bota-o-menu.gif",
+        "status": 200,
+        "contentType": "image/avif",
+        "byteLength": 63373,
+        "headHex": "0000002c667479706176697300000000"
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:good:sensitive,w_1220/dpr_2.0/v1/banner/5fa55246-daa2-4bf7-976f-73cb2f395f18-topo-desk.gif",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif_ftyp",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 19223,
+      "bodyHeadHex": "0000002c667479706176697300000000",
+      "magic": "isobmff_ftyp",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_data": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.chunk": 3,
+        "gecko.emit.complete": 3,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "451ae6a03c9131c2",
+        "lab": null,
+        "sw": null
+      },
+      "iframeFetch": {
+        "ok": true,
+        "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:good:sensitive,w_1220/dpr_2.0/v1/banner/5fa55246-daa2-4bf7-976f-73cb2f395f18-topo-desk.gif",
+        "status": 200,
+        "contentType": "image/avif",
+        "byteLength": 19223,
+        "headHex": "0000002c667479706176697300000000"
+      }
+    },
+    {
+      "url": "https://bat.bing.com/action/0",
+      "format": "other",
+      "reason": "emit_empty",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "text/plain",
+      "dataLen": 0,
+      "bodyHeadHex": null,
+      "magic": "empty",
+      "joinPath": "emit_complete",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.tee.ensure": 1,
+        "gecko.tee.tap_attach_ok": 1,
+        "gecko.tee.tap_start": 1,
+        "gecko.tee.tap_stop_ok": 1,
+        "gecko.join.emit_complete": 3,
+        "gecko.emit.complete": 3
+      },
+      "sha": {
+        "gecko": "cbf29ce484222325",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/2026_09_09_12_45_29_9/c8efe055-229b-4742-bf81-3700191b9d94-sec-46off-040926-desk-home-g.jpg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 16485,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "open",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.join.open": 1,
+        "gecko.tee.open_start": 1,
+        "gecko.tee.open_data": 1,
+        "gecko.tee.open_stop_ok": 1,
+        "gecko.emit.chunk": 1,
+        "gecko.emit.complete": 1,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "8646a3c3c8d5223c",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/2026_09_13_15_57_57_0/ae8e2904-c7b2-4ab8-b8df-9985ab837834-truss-jpg-desk-padraio-g.jpg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 20042,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "open",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.join.open": 1,
+        "gecko.tee.open_start": 1,
+        "gecko.tee.open_data": 1,
+        "gecko.tee.open_stop_ok": 1,
+        "gecko.emit.chunk": 1,
+        "gecko.emit.complete": 1
+      },
+      "sha": {
+        "gecko": "859f22b1b65fedcf",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/2026_09_13_16_08_58_4/b52412e2-eb5b-45cf-a281-c71c458f0b93-marcas-20260914-oboticario-desk-home-g.jpg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 13784,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "open",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.join.open": 1,
+        "gecko.tee.open_start": 1,
+        "gecko.tee.open_data": 1,
+        "gecko.tee.open_stop_ok": 1,
+        "gecko.emit.chunk": 1,
+        "gecko.emit.complete": 1
+      },
+      "sha": {
+        "gecko": "bbba6e75938f1ed2",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/376825e6-1754-42ad-9e3c-2b79c73d9824-crono-perfume-le-beau-jean-paul-gaultier-15-08-desk-home-g.jpg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 19793,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "open",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.join.open": 1,
+        "gecko.tee.open_start": 1,
+        "gecko.tee.open_data": 3,
+        "gecko.tee.open_stop_ok": 1,
+        "gecko.emit.chunk": 1,
+        "gecko.emit.complete": 1,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "eedd82467424e7b4",
+        "lab": null,
+        "sw": null
+      }
+    },
+    {
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:low,w_1920/v1/banner/37a1cfec-9073-498c-b227-e87243bb88ef-crono-kit-wella-professionals-invigo-nutri-enrich-15-08-desk-home-g.jpg",
+      "format": "avif",
+      "reason": "bytes_ok_browser_decode_fail:avif",
+      "truncatedLeaf": false,
+      "srcsetHead": "",
+      "contentEncoding": null,
+      "mime": "image/avif",
+      "dataLen": 12267,
+      "bodyHeadHex": "00000020667479706176696600000000",
+      "magic": "avif",
+      "joinPath": "open",
+      "swStatus": null,
+      "looksLikeImage": null,
+      "hops": {
+        "gecko.join.open": 1,
+        "gecko.tee.open_start": 1,
+        "gecko.tee.open_data": 1,
+        "gecko.tee.open_stop_ok": 1,
+        "gecko.emit.chunk": 1,
+        "gecko.emit.complete": 1,
+        "img.state.sameS": 1
+      },
+      "sha": {
+        "gecko": "1eb3ec670f72e9d8",
+        "lab": null,
+        "sw": null
+      }
+    }
+  ]
+}

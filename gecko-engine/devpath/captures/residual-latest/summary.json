@@ -1,0 +1,60 @@
+{
+  "ok": false,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/residual-20260916-231302Z",
+  "brokenImgs": 35,
+  "formatBuckets": {
+    "avif": 31,
+    "other": 1
+  },
+  "reasonBuckets": {
+    "bytes_ok_browser_decode_fail:avif": 29,
+    "bytes_ok_browser_decode_fail:avif_ftyp": 2,
+    "emit_empty": 1
+  },
+  "cssom": {
+    "hashMatch": false,
+    "hypothesis": {
+      "status": "root_known",
+      "cause": "gecko_vs_chromium_csstext_serialization",
+      "fixHint": "Não é regra faltando (counts iguais 4656). Wire Gecko vs adopted Chromium expandem border/animation/quotes. Iso: não falhar por hash cssText cru; normalizar ou assert em count/seletores."
+    },
+    "wireCount": 4656,
+    "adoptedCount": 4656
+  },
+  "bugs": [
+    {
+      "id": "avif_browser_decode",
+      "status": "root_known",
+      "cause": "projected_chromium_img_nw0_despite_valid_avif_bytes",
+      "count": 31
+    },
+    {
+      "id": "bing_tracker_pixel",
+      "status": "root_known",
+      "cause": "bat.bing.com empty text/plain tracking pixel",
+      "count": 1
+    },
+    {
+      "id": "cssom_rule_text_hash",
+      "status": "root_known",
+      "cause": "gecko_vs_chromium_csstext_serialization"
+    }
+  ],
+  "nextFixes": [
+    {
+      "id": "avif_browser_decode",
+      "cause": "projected_chromium_img_nw0_despite_valid_avif_bytes",
+      "fixHint": "Tee/emit/iframe fetch 200 image/avif + ftyp avif OK; <img> nw=0. Verificar suporte AVIF do Chromium do lab (patchright), decode no SW path, ou sticky error no img. Não é truncamento srcset."
+    },
+    {
+      "id": "bing_tracker_pixel",
+      "cause": "bat.bing.com empty text/plain tracking pixel",
+      "fixHint": "Fora do accept de imagens do site; ignorar no assert brokenImgs ou filtrar trackers."
+    },
+    {
+      "id": "cssom_rule_text_hash",
+      "cause": "gecko_vs_chromium_csstext_serialization",
+      "fixHint": "Não é regra faltando (counts iguais 4656). Wire Gecko vs adopted Chromium expandem border/animation/quotes. Iso: não falhar por hash cssText cru; normalizar ou assert em count/seletores."
+    }
+  ]
+}

@@ -253,6 +253,12 @@ buffers parts and applies the assembled frame as **one** transaction when `partI
 arrives. A missing part ⇒ desync. Atomicity is never split. Frame-local strings are per part;
 `StrRef` frame-local indices are resolved against the part that carries the instruction.
 
+**Gecko fork violates both today** (2026-09-16): the producer writes `generation = 0` and the parent
+process rewrites that header field from a per-content-process token, and it never splits (`partCount`
+is always 1). "The producing context writes it" and part splitting are **not optional**. Named:
+[open.md](open.md) `GECKO-EPOCH-PARENT-STAMP`, `GECKO-PRODUCER-LIMITS-ABSENT`. Redesign proposal:
+[`21-fluxo-de-entrega-e-epoca.md`](../../gecko-engine/21-fluxo-de-entrega-e-epoca.md).
+
 ---
 
 ## 3. Opcode space — DECIDED
@@ -314,7 +320,7 @@ header; the client rebuilds its applier ([runtime-redesign.md](runtime-redesign.
 
 **`0x20 NODE_NEW`** — `id: u32, kind: u8, descriptor` · phase 1 · idempotent¹
 `descriptor` by `kind`:
-- `ELEMENT`: `ns: u8` (low nibble `ElementNs`; bit 7 `ELEMENT_NS_NESTED_HOST_BIT` ⇒ nested-context host; bits 4–6 reserved 0), if `ns === 4` then `uri: StrRef`, then `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`, then if bit 7 set `childScopeId: u32` (`≥ 2`). Ordinary elements omit the u32 (decode: `nestedHost=false`, `childScopeId=null`). Same omit pattern as custom `uri`. Not hashed. Lab same-origin host: producer sets the bit; Projected creates a blank iframe and skips `src`/`srcdoc`.
+- `ELEMENT`: `ns: u8` (low nibble `ElementNs`; bit 7 `ELEMENT_NS_NESTED_HOST_BIT` ⇒ nested-context host; bits 4–6 reserved 0), if `ns === 4` then `uri: StrRef`, then `name: StrRef`, `attrCount: u16`, `[(nameRef: StrRef, valRef: StrRef)] * attrCount`, then if bit 7 set `childScopeId: u32` (`≥ 2`). Ordinary elements omit the u32 (decode: `nestedHost=false`, `childScopeId=null`). Same omit pattern as custom `uri`. Not hashed. Lab same-origin host: producer sets the bit; Projected creates a blank iframe and skips `src`/`srcdoc`. Gecko: `C` comes from this window’s `BrowsingContext` field (minted at BC create); the producer holds `NODE_NEW` until `C ≥ 2`.
 - `TEXT` | `COMMENT`: `value: StrRef`
 - `SHEET`: `flags: u16`
 - `RULE`: `value: StrRef`
@@ -883,8 +889,14 @@ precondition is state divergence; version skew is a stale peer.
 | `MAX_ROWS` | bounds table growth per session |
 | `MAX_DIRTY_NODES` | bounds the producer's per-tick visited/dirty set (§5.3) — forces a flush rather than unbounded growth under degradation |
 
+These limits bind the **producer** as much as the client. A producer that emits past them turns a
+bounded failure into permanent rejection: the Gecko fork has none of them today and the client
+recuses every frame once `MAX_ROWS` is crossed — [open.md](open.md)
+`GECKO-PRODUCER-LIMITS-ABSENT`.
+
 Every catalogued failure carries `errorCode` + `phase` + `sequence`
-(`docs/engineering-standards.md`).
+(`docs/engineering-standards.md`). A frame that is built and then dropped without a catalogued
+failure is a defect, not backpressure — `GECKO-FRAME-SILENT-DROP`.
 
 ---
 

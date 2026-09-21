@@ -22,7 +22,8 @@ import {
   PersistentStringTable,
   type AssembledFrame,
 } from '../core/decode';
-import { DomFrameApplier } from './applyDom';
+import { DomFrameApplier, type NestedHostInstallHint } from './applyDom';
+import { pendingNestedHostAuditMessage } from './pendingNestedHostAudit';
 import { NestedProjectedApply } from './nestedProjectedApply';
 import { PageProjectionRegistry } from './registry';
 import { createSurfaceHost, type SurfaceHost } from './surface';
@@ -37,8 +38,11 @@ import {
   isProjectedStandardsSkeleton,
   stampProjectedStandardsSrcdoc,
   whenProjectedStandardsReady,
+  PROJECTED_STANDARDS_SRCDOC,
 } from './projectedBlankIframe';
+import { ensureNestedHostSandboxAccess } from '../core/nestedNav';
 import { ProjectedApplyGate, PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK } from './projectedApplyGate';
+import { shouldApplyUnsolicitedResync } from './resyncSwapPolicy';
 
 export type ProjectionClientOptions = {
   surfaceHost: HTMLElement;
@@ -62,6 +66,8 @@ export type ProjectionClientOptions = {
     sequence: number;
     reason: string;
     contextId?: number;
+    /** 1-based attempt; lab may escalate Gecko `force` on later attempts. */
+    attempt?: number;
   }) => void;
   /** Live-session binding token for `/w7s/virtual-*` paint stamp (virtual-assets §1.1). */
   token?: string;
@@ -69,6 +75,8 @@ export type ProjectionClientOptions = {
   /** API/lab origin for absolutizing `/w7s/virtual-*` URLs. */
   assetBaseUrl?: string;
   getAssetBaseUrl?: () => string | undefined;
+  /** Virtual page URL (Gecko). Relative assets resolve here; SW intercepts. */
+  getDocumentBaseUrl?: () => string | undefined;
 };
 
 /** One `DomFrameApplier` + its own registry — either the live surface or an in-flight standby build. */
@@ -98,14 +106,10 @@ export class ProjectionClient {
   private readonly onTelemetry?: (msg: Record<string, unknown>) => void;
   private readonly onArmedCb?: () => void;
   private readonly onDesyncCb?: (reason: string) => void;
-  private readonly onRequestResyncCb?: (info: {
-    generation: number;
-    sequence: number;
-    reason: string;
-    contextId?: number;
-  }) => void;
+  private readonly onRequestResyncCb?: ProjectionClientOptions['onRequestResync'];
   private readonly getToken?: () => string | undefined;
   private readonly getAssetBaseUrl?: () => string | undefined;
+  private readonly getDocumentBaseUrl?: () => string | undefined;
   private readonly token?: string;
   private readonly assetBaseUrl?: string;
 
@@ -118,8 +122,18 @@ export class ProjectionClient {
   private resyncExhausted = false;
   private resyncBackoffTimer: ReturnType<typeof setTimeout> | null = null;
   private resyncTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Standby iframe is being created — `this.resync` is still null; treat as in-flight. */
+  private resyncBuildPending = false;
 
   private lastSequence = 0;
+  /** Highest sequence observed on the wire (including gate-queued / overflow-dropped). */
+  private highestSeenSequence = 0;
+  /** Gate overflowed during a long rebuild — request another resync after swap, do not wipe live. */
+  private lagCatchUp = false;
+  /** Wholesale lag resync is one shot per generation — a live page is always "behind". */
+  private lagCatchUpsThisGeneration = 0;
+  /** Unsolicited resync-flagged frames (producer dump, not client request) — one swap per generation. */
+  private unsolicitedResyncSwapsThisGeneration = 0;
   private generation = 1;
   private armed = false;
   /**
@@ -153,6 +167,7 @@ export class ProjectionClient {
     this.onRequestResyncCb = opts.onRequestResync;
     this.getToken = opts.getToken;
     this.getAssetBaseUrl = opts.getAssetBaseUrl;
+    this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
     this.token = opts.token;
     this.assetBaseUrl = opts.assetBaseUrl;
 
@@ -174,30 +189,43 @@ export class ProjectionClient {
     return new ProjectionClient(opts, surface);
   }
 
-  private installNestedHost(iframe: HTMLIFrameElement, contextId: number): void {
+  private installNestedHost(
+    iframe: HTMLIFrameElement,
+    contextId: number,
+    hint?: NestedHostInstallHint,
+  ): void {
+    const restart = hint?.restart === true;
     const liveDoc = iframe.contentDocument;
     const existing = this.nested.get(contextId);
     if (existing) {
-      // Invariant: host document identity unchanged → keep session; else rebind.
-      try {
-        if (
-          existing.hostIframe === iframe
-          && liveDoc != null
-          && existing.registry.get(DOCUMENT_ID) === liveDoc
-          && liveDoc.defaultView != null
-        ) {
-          return;
+      if (!restart) {
+        // Invariant: host document identity unchanged → keep session; else rebind.
+        try {
+          if (
+            existing.hostIframe === iframe
+            && liveDoc != null
+            && existing.registry.get(DOCUMENT_ID) === liveDoc
+            && liveDoc.defaultView != null
+          ) {
+            return;
+          }
+        } catch {
+          /* rebind */
         }
-      } catch {
-        /* rebind */
       }
       existing.dispose();
       this.nested.delete(contextId);
     }
 
+    const pendingSameIframe = this.nestedHostAwaitingLoad.get(contextId);
+    if (!restart && pendingSameIframe && pendingSameIframe.iframe === iframe) {
+      return;
+    }
+
     this.cancelPendingNestedHost(contextId);
 
-    if (!isProjectedStandardsSkeleton(liveDoc)) {
+    ensureNestedHostSandboxAccess(iframe);
+    if (!isProjectedStandardsSkeleton(liveDoc) && iframe.srcdoc !== PROJECTED_STANDARDS_SRCDOC) {
       stampProjectedStandardsSrcdoc(iframe);
     }
 
@@ -260,7 +288,9 @@ export class ProjectionClient {
       contextId,
       getToken: () => this.resolveToken(),
       getAssetBaseUrl: () => this.resolveAssetBaseUrl(),
-      onNestedHost: (childIframe, childScopeId) => this.installNestedHost(childIframe, childScopeId),
+      getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || '',
+      onNestedHost: (childIframe, childScopeId, hint) =>
+        this.installNestedHost(childIframe, childScopeId, hint),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
       onTelemetry: (msg) => this.onTelemetry?.(msg),
       onArmed: () => {
@@ -310,30 +340,18 @@ export class ProjectionClient {
    */
   private auditPendingNestedHostBindings(applier: DomFrameApplier): void {
     if (this.lastDesyncReason !== null || !this.armed) return;
-    let pendingCount = 0;
-    for (const [, queue] of this.pendingNestedFrames) pendingCount += queue.length;
-    if (pendingCount > 0) {
-      const unmarked = applier.unmarkedNestedHostCandidateIds();
-      if (unmarked.length > 0) {
-        this.desync('precondition', {
-          phase: 'apply',
-          message: `pending nested frames with unmarked host candidates [${unmarked.join(',')}] (${pendingCount} queued)`,
-        });
-        return;
-      }
-    }
+    const pending = new Map<number, number>();
     for (const [contextId, queue] of this.pendingNestedFrames) {
-      if (queue.length === 0) continue;
-      if (this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId)) continue;
-      const hostNodeId = applier.nestedHostNodeForContext(contextId);
-      this.desync('precondition', {
-        phase: 'apply',
-        message:
-          hostNodeId !== undefined
-            ? `pending nested frames ctx${contextId} host node ${hostNodeId} never bound (${queue.length} queued)`
-            : `pending nested frames ctx${contextId} with no nested bind (${queue.length} queued)`,
-      });
-      return;
+      pending.set(contextId, queue.length);
+    }
+    const message = pendingNestedHostAuditMessage(pending, {
+      hasSession: (contextId) =>
+        this.nested.has(contextId) || this.nestedHostAwaitingLoad.has(contextId),
+      hostNodeForContext: (contextId) => applier.nestedHostNodeForContext(contextId),
+      isHostMarked: (hostNodeId) => applier.isNestedHostMarked(hostNodeId),
+    });
+    if (message !== null) {
+      this.desync('precondition', { phase: 'apply', message });
     }
   }
 
@@ -381,6 +399,14 @@ export class ProjectionClient {
    */
   get lastAcceptedSequence(): number {
     return this.lastSequence;
+  }
+
+  /**
+   * Replay/capture harness only — devpath `projected-replay` when the file omits the first
+   * resync frame (common on IPC captures). Same adoption rule as §5.8 resync / generation change.
+   */
+  adoptSequenceContext(nextSequence: number): void {
+    this.lastSequence = nextSequence - 1;
   }
 
   /** Surface's currently-*active* document — changes identity across a resync swap (Stage 4). */
@@ -443,6 +469,10 @@ export class ProjectionClient {
     this.persistentStrings = new PersistentStringTable();
     this.assembler = new FramePartAssembler();
     this.lastSequence = 0;
+    this.highestSeenSequence = 0;
+    this.lagCatchUp = false;
+    this.lagCatchUpsThisGeneration = 0;
+    this.unsolicitedResyncSwapsThisGeneration = 0;
     this.generation = 1;
     this.armed = false;
     this.everArmed = false;
@@ -491,6 +521,7 @@ export class ProjectionClient {
   }
 
   private applyAssembled(frame: AssembledFrame): void {
+    this.highestSeenSequence = Math.max(this.highestSeenSequence, frame.sequence);
     if (this.applyGate.blocked) {
       this.applyGate.push(frame);
       return;
@@ -508,6 +539,7 @@ export class ProjectionClient {
   private handleApplyGateOverflow(info: { cap: number; attemptedDepth: number }): void {
     this.applyGateOverflowStreak++;
     const streak = this.applyGateOverflowStreak;
+    this.lagCatchUp = true;
     this.onTelemetry?.({
       v: TELEMETRY_WIRE_VERSION,
       contextId: CONTEXT_ID_ROOT,
@@ -519,6 +551,12 @@ export class ProjectionClient {
       attemptedDepth: info.attemptedDepth,
       streak,
     });
+    // Beleza-class: resync apply can exceed 1s; 60Hz wire overflows the gate. Wiping live and
+    // cold-resyncing here is the storm. Keep the surface; catch up after the in-flight rebuild.
+    if (this.everArmed) {
+      this.applyGateOverflowStreak = 0;
+      return;
+    }
     if (streak >= PROJECTED_APPLY_GATE_MAX_OVERFLOW_STREAK) {
       this.resyncExhausted = true;
       this.onTelemetry?.({
@@ -546,19 +584,22 @@ export class ProjectionClient {
     if (info.drained > 0 && !info.overflow) {
       this.applyGateOverflowStreak = 0;
     }
-    if (info.maxDepth === 0 && info.drained === 0 && !info.overflow) return;
-    this.onTelemetry?.({
-      v: TELEMETRY_WIRE_VERSION,
-      contextId: CONTEXT_ID_ROOT,
-      kind: 'applyGateDrain',
-      t: performance.now(),
-      generation: this.generation,
-      sequence: this.lastSequence,
-      maxDepth: info.maxDepth,
-      waitMs: info.waitMs,
-      drained: info.drained,
-      overflow: info.overflow,
-    });
+    // onFlightEnd runs after drainLoop — evaluate lag only here (not at swap).
+    if (!(info.maxDepth === 0 && info.drained === 0 && !info.overflow)) {
+      this.onTelemetry?.({
+        v: TELEMETRY_WIRE_VERSION,
+        contextId: CONTEXT_ID_ROOT,
+        kind: 'applyGateDrain',
+        t: performance.now(),
+        generation: this.generation,
+        sequence: this.lastSequence,
+        maxDepth: info.maxDepth,
+        waitMs: info.waitMs,
+        drained: info.drained,
+        overflow: info.overflow,
+      });
+    }
+    this.maybeRequestLagCatchUp();
   }
 
   private applyAssembledNow(frame: AssembledFrame): void {
@@ -585,18 +626,43 @@ export class ProjectionClient {
         return;
       }
       if (this.everArmed) {
+        const asked = this.lastDesyncReason !== null || this.resyncTimeoutTimer !== null;
+        if (!shouldApplyUnsolicitedResync(asked, this.unsolicitedResyncSwapsThisGeneration)) {
+          this.lastSequence = frame.sequence;
+          return;
+        }
+        if (!asked) this.unsolicitedResyncSwapsThisGeneration += 1;
         this.beginAsyncSurfaceApply(frame, () => this.beginResyncTargetAsync(frame));
         return;
       }
+    }
+
+    // §5.8 — after desync the live table was cleared; ordinary ticks still carry the producer's
+    // preTableHash and would precondition-fail forever if we kept applying them. Hold until the
+    // resync-flagged wholesale frame rebuilds the standby surface (or recovery is exhausted).
+    if (!frame.resync && this.shouldHoldOrdinaryFrameWhileRecovering()) {
+      return;
     }
 
     if (frame.sequence !== this.lastSequence + 1) {
       this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
       return;
     }
+    // Claim the sequence before applier rAF flush. Gate drain (and high-rate wire) can
+    // enqueue several frames in one turn; without this, frame N+1 still sees lastSequence=N-1
+    // and false-triggers sequence_gap → resync storm (Beleza OVR/drain).
     this.lastSequence = frame.sequence;
     const target = this.resync ?? this.live;
     target.applier.enqueue(frame);
+  }
+
+  /** Ordinary frames are dropped while the live table is corrupt — not for gap/lag catch-up. */
+  private shouldHoldOrdinaryFrameWhileRecovering(): boolean {
+    if (this.resync !== null) return true;
+    const reason = this.lastDesyncReason;
+    if (reason === null) return false;
+    if (reason === 'sequence_gap' || reason === 'lag') return false;
+    return true;
   }
 
   /**
@@ -613,7 +679,13 @@ export class ProjectionClient {
     this.abandonResyncAttempt();
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
+    const previousGeneration = this.generation;
     this.generation = frame.generation;
+    // Same generation (seq===1 cold-shaped resync) must not refill the one-shot lag.
+    if (frame.generation !== previousGeneration) {
+      this.lagCatchUpsThisGeneration = 0;
+      this.unsolicitedResyncSwapsThisGeneration = 0;
+    }
     this.armed = false;
     this.everArmed = false;
     for (const contextId of [...this.nestedHostAwaitingLoad.keys()]) {
@@ -633,7 +705,6 @@ export class ProjectionClient {
       this.desync('sequence_gap', { expectedSequence: this.lastSequence + 1, gotSequence: frame.sequence });
       return;
     }
-    this.lastSequence = frame.sequence;
     this.live.applier.enqueue(frame);
     this.live.applier.flush();
   }
@@ -660,7 +731,8 @@ export class ProjectionClient {
     const applier = new DomFrameApplier(doc, registry, {
       stampUrl: (name, value) => stampAttrAuth(name, value, this.resolveToken(), this.resolveAssetBaseUrl()),
       stampCssText: (text) => stampCssTextAuth(text, this.resolveToken(), this.resolveAssetBaseUrl()),
-      onNestedHost: (iframe, childScopeId) => this.installNestedHost(iframe, childScopeId),
+      getDocumentBaseUrl: () => this.getDocumentBaseUrl?.() || '',
+      onNestedHost: (iframe, childScopeId, hint) => this.installNestedHost(iframe, childScopeId, hint),
       onNestedHostDrop: (childScopeId) => this.dropNestedHost(childScopeId),
       onWarn: (message) => {
         this.onTelemetry?.({
@@ -673,7 +745,13 @@ export class ProjectionClient {
       },
       onDesync: (info) => {
         if (state.swapped) {
-          this.reportApplyResult({ ok: false, sequence: this.lastSequence, opCount: 0, applyMs: 0, reason: info.reason });
+          this.reportApplyResult({
+            ok: false,
+            sequence: info.sequence ?? this.lastSequence,
+            opCount: 0,
+            applyMs: 0,
+            reason: info.reason,
+          });
           this.desync(info.reason, {
             op: info.op,
             id: info.id,
@@ -683,11 +761,22 @@ export class ProjectionClient {
             phase: info.phase,
           });
         } else {
-          this.failResyncAttempt(info.reason);
+          this.failResyncAttempt(info.reason, {
+            op: info.op,
+            id: info.id,
+            message: info.message,
+            phase: info.phase,
+            sequence: info.sequence,
+          });
         }
       },
       onApplied: (frame, applyMs) => {
         if (state.swapped) {
+          this.lastSequence = frame.sequence;
+          if (this.lastDesyncReason === 'sequence_gap' || this.lastDesyncReason === 'lag') {
+            this.lastDesyncReason = null;
+            this.lagCatchUp = false;
+          }
           this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
           this.auditPendingNestedHostBindings(applier);
           if (!this.armed) this.notifyLiveSurfaceReady();
@@ -714,6 +803,15 @@ export class ProjectionClient {
 
   /** Begins (or restarts) a standby build the moment a `resync`-flagged frame is first seen. */
   private async beginResyncTargetAsync(frame: AssembledFrame): Promise<void> {
+    this.resyncBuildPending = true;
+    try {
+      await this.beginResyncTargetAsyncBody(frame);
+    } finally {
+      this.resyncBuildPending = false;
+    }
+  }
+
+  private async beginResyncTargetAsyncBody(frame: AssembledFrame): Promise<void> {
     if (this.resyncTimeoutTimer !== null) {
       clearTimeout(this.resyncTimeoutTimer);
       this.resyncTimeoutTimer = null;
@@ -732,13 +830,9 @@ export class ProjectionClient {
     const applier = this.createApplier(doc, registry, false);
     this.resync = { applier, registry, attempt: this.resyncAttempts };
     if (frame.sequence !== this.lastSequence + 1) {
-      this.desync('sequence_gap', {
-        expectedSequence: this.lastSequence + 1,
-        gotSequence: frame.sequence,
-      });
+      this.failResyncAttempt('sequence_gap');
       return;
     }
-    this.lastSequence = frame.sequence;
     applier.enqueue(frame);
     applier.flush();
   }
@@ -752,6 +846,8 @@ export class ProjectionClient {
     this.resync = null;
     this.resyncAttempts = 0;
     this.resyncExhausted = false;
+    this.lastDesyncReason = null;
+    this.lastSequence = frame.sequence;
     this.onTelemetry?.({
       v: TELEMETRY_WIRE_VERSION,
       contextId: CONTEXT_ID_ROOT,
@@ -764,6 +860,31 @@ export class ProjectionClient {
     this.reportApplyResult({ ok: true, sequence: frame.sequence, opCount: frame.ops.length, applyMs });
     // New iframe Document — always re-notify so composition roots rebind capture.
     this.notifyLiveSurfaceReady();
+    // Lag catch-up is evaluated in handleApplyGateFlightEnd after finishFlight drains
+    // contiguous gated deltas — requesting here (pre-drain) caused Beleza reason=lag storms.
+  }
+
+  /**
+   * After apply-gate drain: producer may still be ahead (or overflow wiped pending). Live
+   * surface still matches `lastSequence`; request another wholesale resync only if drain did
+   * not close the gap. Do not call from commitResyncSwap (pre-drain).
+   */
+  private maybeRequestLagCatchUp(): void {
+    if (this.applyGate.blocked || this.resyncPlumbingBusy()) return;
+    const behind = this.highestSeenSequence > this.lastSequence;
+    if (!behind) {
+      this.lagCatchUp = false;
+      return;
+    }
+    this.lagCatchUp = false;
+    if (this.lagCatchUpsThisGeneration >= 1) {
+      return;
+    }
+    if (this.lastDesyncReason === null) {
+      this.lastDesyncReason = 'lag';
+    }
+    this.lagCatchUpsThisGeneration += 1;
+    this.scheduleResyncAttempt('lag');
   }
 
   /** Live document is interactive (cold arm or post-swap). Idempotent armed flag; callback may re-fire. */
@@ -781,7 +902,16 @@ export class ProjectionClient {
    * failure, purely as defensive engineering against a transient blip, not because failure here
    * is expected to be routine.
    */
-  private failResyncAttempt(reason: string): void {
+  private failResyncAttempt(
+    reason: string,
+    detail?: {
+      op?: string;
+      id?: number;
+      message?: string;
+      phase?: TelemetryPhase;
+      sequence?: number;
+    },
+  ): void {
     const attempt = this.resync?.attempt ?? this.resyncAttempts;
     if (this.resync !== null) {
       this.surface.discardBuild();
@@ -793,15 +923,29 @@ export class ProjectionClient {
       kind: 'resyncFailed',
       t: performance.now(),
       generation: this.generation,
-      sequence: this.lastSequence,
+      sequence: detail?.sequence ?? this.lastSequence,
       attempt,
       reason,
       exhausted: false,
+      op: detail?.op,
+      id: detail?.id,
+      message: detail?.message,
+      phase: detail?.phase,
     });
     this.scheduleResyncAttempt(reason);
   }
 
+  private resyncPlumbingBusy(): boolean {
+    return (
+      this.resyncBuildPending ||
+      this.resync !== null ||
+      this.resyncBackoffTimer !== null ||
+      this.resyncTimeoutTimer !== null
+    );
+  }
+
   private abandonResyncAttempt(): void {
+    this.resyncBuildPending = false;
     if (this.resyncBackoffTimer !== null) {
       clearTimeout(this.resyncBackoffTimer);
       this.resyncBackoffTimer = null;
@@ -824,7 +968,7 @@ export class ProjectionClient {
    */
   private scheduleResyncAttempt(reason: string, contextId: number = CONTEXT_ID_ROOT): void {
     if (this.resyncExhausted) return;
-    if (this.resyncBackoffTimer !== null || this.resyncTimeoutTimer !== null || this.resync !== null) return;
+    if (this.resyncPlumbingBusy()) return;
     const attempt = this.resyncAttempts + 1;
     if (attempt > MAX_RESYNC_ATTEMPTS) {
       this.resyncExhausted = true;
@@ -844,6 +988,13 @@ export class ProjectionClient {
     const delay = attempt === 1 ? 0 : RESYNC_BACKOFF_MS * (attempt - 1);
     this.resyncBackoffTimer = setTimeout(() => {
       this.resyncBackoffTimer = null;
+      if (this.resyncBuildPending || this.resync !== null) return;
+      // Lag may have been scheduled then closed by gated drain / later ordinary apply.
+      if (reason === 'lag' && this.highestSeenSequence <= this.lastSequence) {
+        if (this.lastDesyncReason === 'lag') this.lastDesyncReason = null;
+        this.lagCatchUp = false;
+        return;
+      }
       this.resyncAttempts = attempt;
       this.onTelemetry?.({
         v: TELEMETRY_WIRE_VERSION,
@@ -860,6 +1011,7 @@ export class ProjectionClient {
         sequence: this.lastSequence,
         reason,
         contextId,
+        attempt,
       });
       this.resyncTimeoutTimer = setTimeout(() => {
         this.resyncTimeoutTimer = null;
@@ -906,12 +1058,21 @@ export class ProjectionClient {
       requestResync?: boolean;
     },
   ): void {
-    if (this.lastDesyncReason === null) {
-      this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+    const firstInEpisode = this.lastDesyncReason === null;
+    if (!firstInEpisode && reason === 'precondition') {
+      // preTableHash/check storms after the first live-table reset — resync already scheduled.
+      return;
     }
-    this.armed = false;
-    this.assembler.reset();
-    this.live.applier.reset();
+    if (firstInEpisode) {
+      this.lastDesyncReason = extra?.op ? `${reason}:${extra.op}` : reason;
+      this.assembler.reset();
+      // sequence_gap / lag: live table still matches lastSequence — Stage 4 keeps the visible
+      // surface. Resetting here wiped a just-swapped Beleza resync and forced a blank storm.
+      if (reason !== 'sequence_gap' && reason !== 'lag') {
+        this.armed = false;
+        this.live.applier.reset();
+      }
+    }
     this.onTelemetry?.({
       v: TELEMETRY_WIRE_VERSION,
       contextId: CONTEXT_ID_ROOT,

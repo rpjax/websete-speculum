@@ -6,11 +6,14 @@ WORKDIR /src
 
 COPY Speculum.Api/Speculum.Api.csproj Speculum.Api/
 COPY proto/ proto/
+COPY gecko-engine/supervisor/Directory.Build.props gecko-engine/supervisor/Directory.Build.props
+COPY gecko-engine/supervisor/src/Speculum.Gecko.Abi/Speculum.Gecko.Abi.csproj gecko-engine/supervisor/src/Speculum.Gecko.Abi/
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
     dotnet restore Speculum.Api/Speculum.Api.csproj
 
 COPY Speculum.Api/ Speculum.Api/
+COPY gecko-engine/supervisor/src/Speculum.Gecko.Abi/ gecko-engine/supervisor/src/Speculum.Gecko.Abi/
 
 # Host obj/ embeds Windows NuGet fallback paths and breaks Linux publish --no-restore.
 RUN rm -rf Speculum.Api/bin Speculum.Api/obj

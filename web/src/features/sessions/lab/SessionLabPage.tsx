@@ -164,6 +164,8 @@ export default function SessionLabPage() {
             attachPageProjectionFrameEndedSink={session.attachPageProjectionFrameEndedSink}
             onInput={session.sendInput}
             onDomInput={session.sendDomInput}
+            fetchProjectedAsset={session.fetchProjectedAsset}
+            getDocumentBaseUrl={() => session.currentUrl ?? undefined}
             onFrameObserve={session.observePageProjectionFrameApply}
             registerApplierProbe={session.registerPageProjectionApplierProbe}
             requestRemoteResize={session.requestRemoteResize}

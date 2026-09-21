@@ -1,0 +1,46 @@
+diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
+--- a/dom/base/nsGlobalWindowInner.cpp
++++ b/dom/base/nsGlobalWindowInner.cpp
+@@ -3,6 +3,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ #include "nsGlobalWindowInner.h"
++#include "SpeculumMarionette.h"
+ 
+ #include <inttypes.h>
+ #include <stdio.h>
+@@ -3986,6 +3987,13 @@ void nsGlobalWindowInner::Alert(nsIPrincipal& aSubjectPrincipal,
+ void nsGlobalWindowInner::Alert(const nsAString& aMessage,
+                                 nsIPrincipal& aSubjectPrincipal,
+                                 ErrorResult& aError) {
++  nsAutoCString ans;
++  if (SpeculumTryAskDialog(GetBrowsingContext(), aMessage, ans)) {
++    return;
++  }
+   FORWARD_TO_OUTER_OR_THROW(AlertOuter, (aMessage, aSubjectPrincipal, aError),
+                             aError, );
+ }
+@@ -3993,6 +4001,13 @@ void nsGlobalWindowInner::Alert(const nsAString& aMessage,
+ bool nsGlobalWindowInner::Confirm(const nsAString& aMessage,
+                                   nsIPrincipal& aSubjectPrincipal,
+                                   ErrorResult& aError) {
++  nsAutoCString ans;
++  if (SpeculumTryAskDialog(GetBrowsingContext(), aMessage, ans)) {
++    return ans.EqualsLiteral("1") || ans.EqualsLiteral("ok") ||
++           ans.EqualsLiteral("true") || ans.EqualsLiteral("allow");
++  }
+   FORWARD_TO_OUTER_OR_THROW(ConfirmOuter, (aMessage, aSubjectPrincipal, aError),
+                             aError, false);
+ }
+@@ -4007,6 +4022,12 @@ void nsGlobalWindowInner::Prompt(const nsAString& aMessage,
+                                  const nsAString& aInitial, nsAString& aReturn,
+                                  nsIPrincipal& aSubjectPrincipal,
+                                  ErrorResult& aError) {
++  nsAutoCString ans;
++  if (SpeculumTryAskDialog(GetBrowsingContext(), aMessage, ans)) {
++    CopyUTF8toUTF16(ans, aReturn);
++    return;
++  }
+   FORWARD_TO_OUTER_OR_THROW(
+       PromptOuter, (aMessage, aInitial, aReturn, aSubjectPrincipal, aError),
+       aError, );

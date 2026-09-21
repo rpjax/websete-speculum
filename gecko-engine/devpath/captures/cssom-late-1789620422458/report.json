@@ -1,0 +1,86 @@
+{
+  "fixture": "http://127.0.0.1:4078/cssom-late-sheet.html",
+  "settleMs": 20000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/cssom-late-1789620422458",
+  "navigated": [
+    "http://127.0.0.1:4078/cssom-late-sheet.html"
+  ],
+  "virtualSelfReport": {
+    "phase": "C-done",
+    "ctrlRules": "21",
+    "dataRules": "21",
+    "httpRules": "21",
+    "httpOutcome": "loaded"
+  },
+  "projected": {
+    "ok": true,
+    "painted": {
+      "ctrl": "rgb(0, 90, 200)",
+      "data": "rgb(0, 170, 0)",
+      "http": "rgb(230, 120, 0)"
+    },
+    "linkPresentInProjectedDom": {
+      "data": true,
+      "http": true
+    },
+    "projectedSheetHrefs": [
+      "(inline/adopted)",
+      "tamark-20%20%7B%20--DATAMARK%3A%2020%3B%20%7D%0A",
+      "http://127.0.0.1:4078/cssom-late-sheet.css"
+    ]
+  },
+  "virtualTableDump": {
+    "sequence": 6,
+    "generation": 1,
+    "contextId": 1,
+    "rowCount": 130,
+    "sheets": 3,
+    "rules": 63,
+    "elements": 25
+  },
+  "sameS": {
+    "ok": true,
+    "sameSequence": true,
+    "virtualSequence": 6,
+    "projectedSequence": 6
+  },
+  "wire": {
+    "frames": 6,
+    "sheetNew": 3,
+    "ruleNew": 63,
+    "ruleSet": 0,
+    "resyncFrames": 2,
+    "decodeFail": 0,
+    "marks": {
+      "CTRLMARK": 20,
+      "DATAMARK": 20,
+      "HTTPMARK": 20
+    },
+    "markerRuleSample": {
+      "CTRLMARK": ".ctrlmark-1 { --CTRLMARK: 1; }",
+      "DATAMARK": ".datamark-1 { --DATAMARK: 1; }",
+      "HTTPMARK": ".httpmark-1 { --HTTPMARK: 1; }"
+    }
+  },
+  "perMark": [
+    {
+      "mark": "CTRLMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 20,
+      "verdict": "travelled"
+    },
+    {
+      "mark": "DATAMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 20,
+      "verdict": "travelled"
+    },
+    {
+      "mark": "HTTPMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 20,
+      "verdict": "travelled"
+    }
+  ],
+  "conclusion": "NAO reproduzido: tudo que o Virtual tem viajou"
+}

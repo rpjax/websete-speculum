@@ -1,0 +1,207 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "elapsedMs": 28459,
+  "out": "C:\\RPJ\\Coding\\Projects\\Seven\\Websete\\Websete Speculum\\gecko-engine\\devpath\\captures\\live-fix-validate-20260918T004242Z",
+  "sessionId": "752c0a88-2309-46eb-8eec-9a50c441762d",
+  "mid": {
+    "probe": null,
+    "ds": {
+      "phase": "live",
+      "sid": "752c0a88-2309-46eb-8eec-9a50c441762d",
+      "live": "1",
+      "open": "1"
+    },
+    "sid": null,
+    "stopType": "undefined",
+    "hasHost": true,
+    "hasDoc": true,
+    "imgTotal": 85,
+    "imgBroken": 0,
+    "text": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trendin"
+  },
+  "force": {
+    "beforeProbe": null,
+    "afterProbe": null,
+    "fetchResult": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "img": {
+      "ok": true,
+      "nw": 184
+    }
+  },
+  "clickSetup": {
+    "ok": true,
+    "cx": 140,
+    "cy": 48.4921875,
+    "tag": "A"
+  },
+  "clickSaw": [
+    {
+      "type": "pointerdown",
+      "trusted": true,
+      "tag": "IMG"
+    },
+    {
+      "type": "pointerup",
+      "trusted": true,
+      "tag": "IMG"
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "tag": "IMG"
+    }
+  ],
+  "assetNet": [
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/fonts/Metropolis-Regular.woff2"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/fonts/Metropolis-Medium.woff2"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/fonts/Metropolis-Bold.woff2"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/ktP11gH3acp-85oSHTsRbd-7z8k0OpdVUVrAW2M7o-8/c:1500:400:nowe:150:0/czM6Ly9zbGlkZXIu/ZW5lYmEuZ2FtZXMv/dzRzYW1zLW1"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/udhfBekMpAzAFD22mdJdsCqm-AvAQw1qCS-RJrA4BSA/c:200:400:nowe:1800:0/czM6Ly9zbGlkZXIu/ZW5lYmEuZ2FtZXMv/dzRzYW1zLW1"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/JqMhLj3mo95McRPN12ImG-sIB3cdGjqJnc-M-SyDITA/c:200:400:nowe:1800:0/czM6Ly9zbGlkZXIu/ZW5lYmEuZ2FtZXMv/Q2V6OFh4Yng"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/IVm4029_4KGuGIRMw0OuqqSzarZ1dqP1gPfrj2_I0oM/c:200:400:nowe:1800:0/czM6Ly9zbGlkZXIu/ZW5lYmEuZ2FtZXMv/azFBbExmcmR"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/u80twGzNDMVBqjwfZnWs4iC4K8Ltz2wC0xLy3T67bvE/c:200:400:nowe:1800:0/czM6Ly9zbGlkZXIu/ZW5lYmEuZ2FtZXMv/UW5wMjNBUnl"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/branding/v2/logoFull.svg"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/flags/lang/v2/brazil.svg"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/8fb0417978c74061522d.png"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/mobile/v1/appAndroidCTA.svg"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/mobile/v1/appAppleCTA.svg"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://static.eneba.games/flags/v1/br.svg"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/3QpOeUJy9V_krSnOa3d8lWhc1KvPo67iRTfMMw9knRE/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy9p/"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://products.eneba.games/drms/Steam%20Gift-1766134086.svg"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/usiJHNXczF6a9iHNBXYWTPXmQYZlduOXYequwohF2Aw/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy8t/"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://products.eneba.games/drms/random%20key-1761745017.svg"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://imgproxy.eneba.games/N2X-XOVDIO9RlgBGDCDv8bMe7721jm3mR4fwWAbByN8/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy9B/"
+    },
+    {
+      "status": 200,
+      "statusText": "",
+      "url": "https://products.eneba.games/drms/v1/steam.svg"
+    }
+  ],
+  "vstreamDelta": {
+    "before": 4,
+    "after": 6,
+    "samples": [
+      {
+        "n": 3,
+        "op": 1,
+        "head": "010001"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "head": "02000108"
+      },
+      {
+        "n": 3,
+        "op": 1,
+        "head": "010002"
+      },
+      {
+        "n": 4,
+        "op": 2,
+        "head": "02000205"
+      },
+      {
+        "n": 267,
+        "op": 2,
+        "head": "020001000001048caa67656e"
+      },
+      {
+        "n": 259,
+        "op": 2,
+        "head": "020001000000fc8caa67656e"
+      }
+    ]
+  },
+  "verdict": {
+    "probeAlive": true,
+    "noSessionCount": 0,
+    "swOkCount": 33,
+    "forceNoSession": false,
+    "forceFetch": {
+      "error": "TypeError: Failed to fetch"
+    },
+    "clickTrusted": true,
+    "intentOutDelta": 2,
+    "framesIn": 163,
+    "pass": true
+  }
+}

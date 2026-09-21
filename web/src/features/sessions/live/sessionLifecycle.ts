@@ -367,6 +367,30 @@ export function useSessionLifecycle({
           return
         }
         bind(session)
+        try {
+          await session.open()
+        } catch (error) {
+          try {
+            await session.stop()
+          } catch {
+            /* already gone */
+          }
+          throw error
+        }
+        // Fail-closed: close may have cleared sessionRef during open. Never promote
+        // UI identity (sessionId/wire) without a live handle — that yields no_session
+        // on assets and silent intent drops.
+        if (sessionRef.current !== session || !session.isOpen) {
+          log('error', 'session closed before live — refusing to promote')
+          try {
+            await session.stop()
+          } catch {
+            /* already gone */
+          }
+          sessionRef.current = null
+          setPhase('error')
+          return
+        }
         setSessionId(session.sessionId)
         setSessionToken(session.token)
         setRemoteViewport({ width: viewportWidth, height: viewportHeight })
@@ -499,7 +523,7 @@ export function useSessionLifecycle({
   const sendDomInput = useCallback(
     (input: PageProjectionIntent) => {
       const session = sessionRef.current
-      if (!session) {
+      if (!session || !session.isOpen) {
         return
       }
       const counters = countersRef.current
@@ -566,6 +590,17 @@ export function useSessionLifecycle({
         })
     },
     [countersRef, sessionRef, trace],
+  )
+
+  const fetchProjectedAsset = useCallback(
+    (args: { contextId: number; url: string; destination: string; range: string }) => {
+      const session = sessionRef.current
+      if (!session || !session.isOpen) {
+        return Promise.resolve({ ok: false as const, error: 'no_session' })
+      }
+      return session.fetchProjectedAsset(args)
+    },
+    [sessionRef],
   )
 
   const onCanvasLayout = useCallback((size: CanvasSize) => {
@@ -686,6 +721,7 @@ export function useSessionLifecycle({
     bind,
     sendInput,
     sendDomInput,
+    fetchProjectedAsset,
     onCanvasLayout,
     onRemoteViewportApplied,
     requestRemoteResize,

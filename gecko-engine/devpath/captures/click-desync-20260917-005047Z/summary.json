@@ -1,0 +1,386 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "coldWaitMs": 50000,
+  "afterClickMs": 25000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/click-desync-20260917-005047Z",
+  "click": {
+    "ok": true,
+    "x": 130,
+    "y": 47.828125,
+    "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+    "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+    "score": 165
+  },
+  "card": {
+    "href": "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+    "text": "Wella Professionals , Kit Invigo Nutri-Enrich Salon Duo (2 Produtos) , de R$654,",
+    "score": 165,
+    "candidateCount": 37,
+    "linkCount": 714,
+    "scrollY": 1221,
+    "nestedIframes": [
+      {
+        "src": "",
+        "w": 0,
+        "h": 0
+      },
+      {
+        "src": "",
+        "w": 0,
+        "h": 0
+      }
+    ],
+    "hrefInventoryTop": [
+      [
+        "https://www.belezanaweb.com.br/sacola/",
+        16
+      ],
+      [
+        "/outlet",
+        13
+      ],
+      [
+        "/autenticacao/entrar",
+        10
+      ],
+      [
+        "/minha-conta",
+        7
+      ],
+      [
+        "/presentes/",
+        7
+      ],
+      [
+        "/cupons-de-descontos/",
+        5
+      ],
+      [
+        "/cabelos/kits-de-tratamento",
+        5
+      ],
+      [
+        "/minha-conta/favoritos",
+        4
+      ],
+      [
+        "/exclusivo-blz/",
+        4
+      ],
+      [
+        "/outlet/",
+        4
+      ],
+      [
+        "/ofertas/",
+        4
+      ],
+      [
+        "/skinceuticals-p-tiox-serum-de-peptideos-antirrugas-30ml",
+        4
+      ],
+      [
+        "/skinceuticals-tonico-facial-blemish-age-solution-125ml",
+        4
+      ],
+      [
+        "/bioderma-atoderm-refil-oleo-de-banho-higiene-hidratante-1l",
+        4
+      ],
+      [
+        "/atendimento/",
+        3
+      ],
+      [
+        "/baixe-o-app/",
+        3
+      ],
+      [
+        "/alto-luxo/alta-perfumaria/",
+        3
+      ],
+      [
+        "/maquiagem/rosto/",
+        3
+      ],
+      [
+        "/maquiagem/olhos/",
+        3
+      ],
+      [
+        "/cuidados-para-pele/tipo-de-pele/de-todos-os-tipos/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/kit-wella-professionals-invigo-nutri-enrich-salon-duo-2-produtos/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/kit-nivea-oleo-de-banho-sabonete-liquido-3-unidades/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/sebastian-professional-dark-oil-mascara-de-tratamento-capilar-500ml/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/kit-kerastase-densifique-densite-deux-2-produtos/",
+        3
+      ],
+      [
+        "https://www.belezanaweb.com.br/celimax-the-vita-a-retinal-shot-booster-facial-15ml/",
+        3
+      ]
+    ]
+  },
+  "before": {
+    "frames": "105",
+    "generation": "2",
+    "sequence": "103",
+    "applyOk": "105",
+    "desync": "0",
+    "resync": "1",
+    "ops": "29989",
+    "phase": "live browse",
+    "activityLen": 18,
+    "activitySample": [
+      "00:51:41 intent scrollSet",
+      "00:51:40 intent scrollSet",
+      "00:51:40 intent scrollSet",
+      "00:51:39 intent scrollSet",
+      "00:51:39 intent scrollSet",
+      "00:51:39 intent scrollSet",
+      "00:50:57 resync completed seq=4",
+      "00:50:55 resync completed seq=2",
+      "00:50:54 resync requested reason=lag",
+      "00:50:52 resync completed seq=2",
+      "00:50:51 viewport 1400×522",
+      "00:50:51 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "00:50:51 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-005048-cdf07139c80b",
+      "00:50:48 browse.start viewport 1400×522",
+      "00:50:48 gecko sw ready",
+      "00:50:48 session.hello cdf07139c80b gecko",
+      "00:50:48 ws open",
+      "00:50:48 runs refreshed (0)"
+    ],
+    "resyncRequested": 1,
+    "resyncCompleted": 3,
+    "desyncLines": 0,
+    "reasons": {
+      "lag": 1
+    },
+    "resyncLines": [
+      "00:50:54 resync requested reason=lag"
+    ],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": []
+  },
+  "after": {
+    "frames": "209",
+    "generation": "0",
+    "sequence": "207",
+    "applyOk": "209",
+    "desync": "0",
+    "resync": "1",
+    "ops": "31968",
+    "phase": "live browse",
+    "activityLen": 19,
+    "activitySample": [
+      "00:51:43 intent scrollSet",
+      "00:51:41 intent scrollSet",
+      "00:51:40 intent scrollSet",
+      "00:51:40 intent scrollSet",
+      "00:51:39 intent scrollSet",
+      "00:51:39 intent scrollSet",
+      "00:51:39 intent scrollSet",
+      "00:50:57 resync completed seq=4",
+      "00:50:55 resync completed seq=2",
+      "00:50:54 resync requested reason=lag",
+      "00:50:52 resync completed seq=2",
+      "00:50:51 viewport 1400×522",
+      "00:50:51 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "00:50:51 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-005048-cdf07139c80b",
+      "00:50:48 browse.start viewport 1400×522",
+      "00:50:48 gecko sw ready",
+      "00:50:48 session.hello cdf07139c80b gecko",
+      "00:50:48 ws open",
+      "00:50:48 runs refreshed (0)"
+    ],
+    "resyncRequested": 1,
+    "resyncCompleted": 3,
+    "desyncLines": 0,
+    "reasons": {
+      "lag": 1
+    },
+    "resyncLines": [
+      "00:50:54 resync requested reason=lag"
+    ],
+    "desyncText": [],
+    "ctxResyncLines": [],
+    "genNavHints": [],
+    "delta": {
+      "resyncRequested": 0,
+      "resyncCompleted": 0,
+      "desyncLines": 0,
+      "reasons": {},
+      "resyncLines": [],
+      "desyncText": [],
+      "ctxResyncLines": [],
+      "genNavHints": []
+    },
+    "polledActivityUnique": [
+      "00:51:41 intent scrollSet",
+      "00:51:40 intent scrollSet",
+      "00:51:39 intent scrollSet",
+      "00:50:57 resync completed seq=4",
+      "00:50:55 resync completed seq=2",
+      "00:50:54 resync requested reason=lag",
+      "00:50:52 resync completed seq=2",
+      "00:50:51 viewport 1400×522",
+      "00:50:51 click diag: __speculumLabDumpInputClick() in devtools after pointer click",
+      "00:50:51 booted mode=browse dossier=/tmp/speculum-lab-runs/20260917-005048-cdf07139c80b",
+      "00:50:48 browse.start viewport 1400×522",
+      "00:50:48 gecko sw ready",
+      "00:50:48 session.hello cdf07139c80b gecko",
+      "00:50:48 ws open",
+      "00:50:48 runs refreshed (0)",
+      "00:51:43 intent scrollSet"
+    ]
+  },
+  "poll": {
+    "samples": 17,
+    "peakDesync": 0,
+    "peakResync": 1,
+    "genSeries": [
+      "2",
+      "2",
+      "2",
+      "2",
+      "0",
+      "0",
+      "0",
+      "0",
+      "2",
+      "0",
+      "0",
+      "2",
+      "2",
+      "2",
+      "2",
+      "0",
+      "0"
+    ],
+    "desyncSeries": [
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "resyncSeries": [
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1"
+    ]
+  },
+  "deltas": {
+    "frames": 104,
+    "desync": 0,
+    "resync": 0,
+    "peakDesyncDelta": 0,
+    "peakResyncDelta": 0,
+    "generationBefore": "2",
+    "generationAfter": "0",
+    "generationChanged": true,
+    "sequenceBefore": "103",
+    "sequenceAfter": "207",
+    "reasonsDelta": {}
+  },
+  "telemetry": {
+    "count": 4,
+    "kinds": {
+      "resyncRequested": 2,
+      "resyncCompleted": 2
+    },
+    "postClick": [],
+    "sample": [
+      {
+        "t": 1789606252349,
+        "kind": "resyncRequested",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": null,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789606252352,
+        "kind": "resyncCompleted",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": true,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789606254782,
+        "kind": "resyncRequested",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": null,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      },
+      {
+        "t": 1789606254865,
+        "kind": "resyncCompleted",
+        "reason": null,
+        "generation": null,
+        "sequence": null,
+        "contextId": 1,
+        "ok": true,
+        "message": null,
+        "expectedSequence": null,
+        "gotSequence": null
+      }
+    ]
+  },
+  "hypothesis": "generation_bump_clean",
+  "note": "Não Fixed. Cascata pós-click ≠ lag storm pré-drain (já fechado em b503a799)."
+}

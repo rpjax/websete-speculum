@@ -21,7 +21,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
     onReject: (code) => rejects.push(code),
   });
   applierStale.enqueue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'move',
     viewportW: 1024,
     viewportH: 600,
@@ -61,7 +61,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
     }),
   });
   applierResolve.enqueue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'down',
     viewportW: 800,
     viewportH: 600,
@@ -93,7 +93,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
     onReject: (code) => rejects2.push(code),
   });
   applierResolveFail.enqueue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'down',
     viewportW: 800,
     viewportH: 600,
@@ -123,7 +123,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
     onReject: (code) => rejects3.push(code),
   });
   const downNull: UnifiedIntent = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'down',
     viewportW: 800,
     viewportH: 600,
@@ -152,7 +152,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
     onReject: (code) => rejectsLocal.push(code),
   });
   applierBadLocal.enqueue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'down',
     viewportW: 800,
     viewportH: 600,
@@ -178,7 +178,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
     clickDelivery: liveNodeResolveClickDelivery(async () => ({ ok: true, x: 0, y: 0 })),
   });
   applierKey.enqueue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'keyDown',
     key: 'a',
     code: 'KeyA',
@@ -188,7 +188,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
 
   keys.length = 0;
   applierKey.enqueue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'keyDown',
     key: ' ',
     code: 'Space',
@@ -210,7 +210,7 @@ export async function runEventApplierUnitTests(): Promise<void> {
     },
   });
   applierNav.enqueue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     type: 'historyNav',
     direction: 'back',
   });

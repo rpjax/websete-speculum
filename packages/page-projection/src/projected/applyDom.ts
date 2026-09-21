@@ -43,7 +43,12 @@ import type { AssembledFrame } from '../core/decode';
 import { ReplicatedTable } from '../core/replicatedTable';
 import { applyFrameToTableChecked } from '../core/replicatedTableApply';
 import type { PageProjectionRegistry } from './registry';
-import { isNestedHostNavAttr } from '../core/nestedNav';
+import {
+  applyNestedHostSandboxAttr,
+  ensureNestedHostSandboxAccess,
+  isNestedHostNavAttr,
+  isNestedHostSandboxAttr,
+} from '../core/nestedNav';
 import {
   installScriptingOnPaintParity,
   paintParityInstalled,
@@ -51,10 +56,17 @@ import {
   withScriptingOnPaintParity,
 } from './scriptingOnPaintParity';
 import {
+  constructedStyleSheetInit,
+  ensureProjectedDocumentBase,
   ensureProjectedK5Csp,
+  reincarnateProjectedStandardsSrcdoc,
   stampProjectedStandardsSrcdoc,
 } from './projectedBlankIframe';
 import { registerClosedShadowRoot } from '../core/closedShadowLookup';
+import { disableProjectedNativeStylesheet } from './ownedStylesheetLink';
+
+/** Skeleton waiter must restart when the nested browsing context was reincarnated. */
+export type NestedHostInstallHint = { restart?: boolean };
 
 export type DomDesyncReason = 'address_miss' | 'bad_target' | 'precondition' | 'malformed';
 export interface DomDesyncInfo {
@@ -72,6 +84,8 @@ export interface DomDesyncInfo {
    * phase-1 *apply*, not decode, unlike every other `'malformed'` source (`models/decode.ts`).
    */
   phase?: 'apply';
+  /** Frame that failed — for telemetry when `lastSequence` is not bumped until apply succeeds. */
+  sequence?: number;
 }
 
 export interface DomFrameApplierOptions {
@@ -81,8 +95,15 @@ export interface DomFrameApplierOptions {
   /** Client-side warn (e.g. paint-parity sheet failed) — not a table desync. */
   onWarn?: (message: string) => void;
   applyBudgetMs?: number;
-  /** Parent installs the nested apply into this blank host. */
-  onNestedHost?: (el: HTMLIFrameElement, childScopeId: number) => void;
+  /**
+   * Parent installs the nested apply into this blank host.
+   * `restart` after a live sandbox write — the browsing context was reincarnated.
+   */
+  onNestedHost?: (
+    el: HTMLIFrameElement,
+    childScopeId: number,
+    hint?: NestedHostInstallHint,
+  ) => void;
   /** Host row dropped — dispose the nested apply for that childScopeId. */
   onNestedHostDrop?: (childScopeId: number) => void;
   /**
@@ -92,6 +113,12 @@ export interface DomFrameApplierOptions {
   stampUrl?: (name: string, value: string) => string;
   /** Stamp cssText / rule text the same way. */
   stampCssText?: (text: string) => string;
+  /**
+   * Virtual page URL — Projected `<base>` + constructed stylesheet `baseURL`.
+   * Relative subresource URLs then match the Virtual document (doc 13).
+   */
+  documentBaseUrl?: string;
+  getDocumentBaseUrl?: () => string | undefined;
 }
 
 export class DomFrameApplier {
@@ -109,6 +136,7 @@ export class DomFrameApplier {
   private readonly childScopes = new Map<number, number>();
   private readonly nestedHostIds = new Set<number>();
   private paritySheet: CSSStyleSheet | null = null;
+  private applyingSequence = 0;
 
   constructor(doc: Document, registry: PageProjectionRegistry, options: DomFrameApplierOptions = {}) {
     this.doc = doc;
@@ -218,6 +246,7 @@ export class DomFrameApplier {
 
   /** @returns `false` when a desync was reported — `flush` must not apply later frames in the batch. */
   private applyFrame(frame: AssembledFrame): boolean {
+    this.applyingSequence = frame.sequence;
     const start = performance.now();
 
     // Phase 1 (table) — §6, §P3: pure memory, no DOM. `preTableHash` is unchecked for resync
@@ -237,6 +266,8 @@ export class DomFrameApplier {
     // Phase 2 (materialize) — §6. Only reached once phase 1 has fully succeeded for the whole
     // frame — "cannot fail" (§6) because every op it touches was already validated above.
     // CSSOM still uses the iframe window's `CSSStyleSheet`; a cross-realm constructor throws.
+    const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || '';
+    if (documentBase) ensureProjectedDocumentBase(this.doc, documentBase);
     for (let i = 0; i < frame.ops.length; i++) {
       const op = frame.ops[i]!;
       try {
@@ -267,16 +298,30 @@ export class DomFrameApplier {
   private fail(reason: DomDesyncReason, opName: string, id: number): false;
   private fail(reason: DomDesyncReason, opName: string, a: number | bigint, b?: bigint): false {
     if (typeof a === 'bigint') {
-      this.options.onDesync?.({ reason, op: opName, id: 0, expected: a, actual: b });
+      this.options.onDesync?.({
+        reason,
+        op: opName,
+        id: 0,
+        expected: a,
+        actual: b,
+        sequence: this.applyingSequence,
+      });
     } else {
-      this.options.onDesync?.({ reason, op: opName, id: a });
+      this.options.onDesync?.({ reason, op: opName, id: a, sequence: this.applyingSequence });
     }
     return false;
   }
 
   /** Phase-1 Pre / `MAX_ROWS` failures — `message` for diagnostics, explicit `phase`. */
   private failOp(reason: 'malformed' | 'precondition', opName: string, id: number, message: string): false {
-    this.options.onDesync?.({ reason, op: opName, id, message, phase: 'apply' });
+    this.options.onDesync?.({
+      reason,
+      op: opName,
+      id,
+      message,
+      phase: 'apply',
+      sequence: this.applyingSequence,
+    });
     return false;
   }
 
@@ -492,7 +537,10 @@ export class DomFrameApplier {
     if (view === null) return this.fail('bad_target', 'sheetNew', op.id);
     let sheet: CSSStyleSheet;
     try {
-      sheet = new view.CSSStyleSheet();
+      const init = constructedStyleSheetInit(
+        this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl,
+      );
+      sheet = init ? new view.CSSStyleSheet(init) : new view.CSSStyleSheet();
     } catch {
       return this.fail('malformed', 'sheetNew', op.id);
     }
@@ -566,8 +614,15 @@ export class DomFrameApplier {
     let inserted: number;
     try {
       inserted = sheet.insertRule(this.options.stampCssText?.(op.text) ?? op.text, index);
-    } catch {
-      return this.fail('malformed', 'ruleNew', op.id);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const text = (op.text || '').slice(0, 180);
+      return this.failOp(
+        'malformed',
+        'ruleNew',
+        op.id,
+        `insertRule failed sheet=${op.sheet} before=${op.before}: ${detail} :: ${text}`,
+      );
     }
     const rule = sheet.cssRules.item(inserted);
     if (rule === null) return this.fail('address_miss', 'ruleNew', op.id);
@@ -648,30 +703,70 @@ export class DomFrameApplier {
     let node: Node;
     if (op.kind === NodeKind.Element) {
       if (op.ns === ElementNs.Custom && !(op.uri && op.uri.length > 0)) {
-        return this.fail('malformed', 'nodeNew', op.id);
+        return this.failOp('malformed', 'nodeNew', op.id, 'NODE_NEW Custom ns without uri');
       }
       const uri = elementNsUri(op.ns, op.uri);
-      node = this.doc.createElementNS(uri, op.name);
-      // K4 nested host: stamp standards srcdoc **before** INSERT so the first navigation is
-      // never about:blank BackCompat. installNestedHost waits for load then strips.
-      if (op.nestedHost === true) {
-        stampProjectedStandardsSrcdoc(node as HTMLIFrameElement);
+      try {
+        node = this.doc.createElementNS(uri, op.name);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return this.failOp(
+          'malformed',
+          'nodeNew',
+          op.id,
+          `createElementNS failed kind=${op.kind} name=${op.name} ns=${op.ns}: ${detail}`,
+        );
       }
       const attrs =
         op.nestedHost === true ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name)) : op.attrs;
       // SEAL-DOM-P0-ATTR: register only after attrs land — failed setAttribute → desync.
       if (!applyAttrs(node as Element, attrs, this.options.stampUrl)) {
-        return this.fail('malformed', 'nodeNew', op.id);
+        const attrNames = attrs.map((a) => a.name).join(',');
+        return this.failOp(
+          'malformed',
+          'nodeNew',
+          op.id,
+          `setAttribute failed on <${op.name}> attrs=[${attrNames}]`,
+        );
+      }
+      disableProjectedNativeStylesheet(node);
+      // K4 nested host: sandbox attrs land first, then srcdoc — `sandbox` after srcdoc orphans
+      // the browsing context. ATTR_SET must not restamp; only a real sandbox token-set change
+      // reincarnates (applyAttrSet) and restarts the waiter.
+      if (op.nestedHost === true && (node as Element).localName.toLowerCase() === 'iframe') {
+        const iframe = node as HTMLIFrameElement;
+        ensureNestedHostSandboxAccess(iframe);
+        stampProjectedStandardsSrcdoc(iframe);
       }
       if (op.nestedHost === true && op.childScopeId != null) {
         this.childScopes.set(op.id, op.childScopeId);
         this.nestedHostIds.add(op.id);
       }
     } else if (op.kind === NodeKind.Text) {
-      node = this.doc.createTextNode(op.value);
+      try {
+        node = this.doc.createTextNode(op.value);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return this.failOp(
+          'malformed',
+          'nodeNew',
+          op.id,
+          `createTextNode failed len=${op.value?.length ?? -1}: ${detail}`,
+        );
+      }
     } else if (op.kind === NodeKind.Comment) {
-      node = this.doc.createComment(op.value);
-      } else if (op.kind === NodeKind.Doctype) {
+      try {
+        node = this.doc.createComment(op.value);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return this.failOp(
+          'malformed',
+          'nodeNew',
+          op.id,
+          `createComment failed: ${detail}`,
+        );
+      }
+    } else if (op.kind === NodeKind.Doctype) {
       const want = op.name || 'html';
       const existing = this.doc.doctype;
       if (existing && existing.name === want) {
@@ -707,11 +802,22 @@ export class DomFrameApplier {
         if (init.mode === 'closed') {
           registerClosedShadowRoot(el, node as ShadowRoot);
         }
-      } catch {
-        return this.fail('malformed', 'nodeNew', op.id);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return this.failOp(
+          'malformed',
+          'nodeNew',
+          op.id,
+          `attachShadow failed host=${op.host} mode=${op.mode} flags=${op.initFlags}: ${detail}`,
+        );
       }
     } else {
-      return this.fail('bad_target', 'nodeNew', op.id);
+      return this.failOp(
+        'malformed',
+        'nodeNew',
+        op.id,
+        `NODE_NEW unsupported kind=${op.kind}`,
+      );
     }
     this.registry.register(op.id, node);
     return true;
@@ -729,7 +835,11 @@ export class DomFrameApplier {
       const id = op.ids[i]!;
       const node = this.registry.get(id);
       if (!node) return this.fail('address_miss', 'insert', id);
-      if (isHtmlScriptElement(node)) ensureProjectedK5Csp(this.doc);
+      if (isHtmlScriptElement(node)) {
+        ensureProjectedK5Csp(this.doc);
+        const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || '';
+        if (documentBase) ensureProjectedDocumentBase(this.doc, documentBase);
+      }
       // Standards seed may already own this DocumentType — re-insert throws HierarchyRequestError.
       if (
         node.nodeType === Node.DOCUMENT_TYPE_NODE
@@ -741,7 +851,13 @@ export class DomFrameApplier {
       parent.insertBefore(node, before);
       this.maybeInstallNestedHost(id, node);
     }
+    this.pinDocumentBase();
     return true;
+  }
+
+  private pinDocumentBase(): void {
+    const documentBase = this.options.getDocumentBaseUrl?.() || this.options.documentBaseUrl || '';
+    if (documentBase) ensureProjectedDocumentBase(this.doc, documentBase);
   }
 
   private applyRemove(op: Extract<FrameOp, { op: OpCode.Remove }>): boolean {
@@ -776,10 +892,30 @@ export class DomFrameApplier {
       ensureProjectedK5Csp(this.doc);
     }
     const attrs = this.nestedHostIds.has(op.node)
-      ? op.attrs.filter((a) => !isNestedHostNavAttr(a.name))
+      ? op.attrs.filter(
+          (a) => !isNestedHostNavAttr(a.name) && !isNestedHostSandboxAttr(a.name),
+        )
       : op.attrs;
     if (!applyAttrs(node as Element, attrs, this.options.stampUrl)) {
       return this.fail('malformed', 'attrSet', op.node);
+    }
+    disableProjectedNativeStylesheet(node);
+    if (
+      this.nestedHostIds.has(op.node)
+      && node.nodeType === Node.ELEMENT_NODE
+      && (node as Element).localName.toLowerCase() === 'iframe'
+    ) {
+      const iframe = node as HTMLIFrameElement;
+      const incomingSandbox = op.attrs.find((a) => isNestedHostSandboxAttr(a.name));
+      const wroteSandbox = incomingSandbox
+        ? applyNestedHostSandboxAttr(iframe, incomingSandbox.value)
+        : ensureNestedHostSandboxAccess(iframe);
+      if (wroteSandbox) {
+        // sandbox after srcdoc orphans the BC — reincarnate and restart the waiter.
+        reincarnateProjectedStandardsSrcdoc(iframe);
+        this.maybeInstallNestedHost(op.node, node, { restart: true });
+        return true;
+      }
     }
     this.maybeInstallNestedHost(op.node, node);
     return true;
@@ -789,7 +925,21 @@ export class DomFrameApplier {
     const node = this.registry.get(op.node);
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return this.fail('address_miss', 'attrDel', op.node);
     const el = node as Element;
-    for (let i = 0; i < op.names.length; i++) el.removeAttribute(op.names[i]!);
+    const isNestedIframe =
+      this.nestedHostIds.has(op.node) && el.localName.toLowerCase() === 'iframe';
+    let wroteSandbox = false;
+    for (let i = 0; i < op.names.length; i++) {
+      const name = op.names[i]!;
+      if (isNestedIframe && isNestedHostSandboxAttr(name)) {
+        wroteSandbox = applyNestedHostSandboxAttr(el as HTMLIFrameElement, null) || wroteSandbox;
+        continue;
+      }
+      el.removeAttribute(name);
+    }
+    if (wroteSandbox) {
+      reincarnateProjectedStandardsSrcdoc(el as HTMLIFrameElement);
+      this.maybeInstallNestedHost(op.node, node, { restart: true });
+    }
     return true;
   }
 
@@ -824,18 +974,19 @@ export class DomFrameApplier {
   }
 
   /**
-   * Install nested apply when the row is a marked host with a live browsing context.
-   * Invariant: install is a function of host state (marked + contentWindow), not which op
-   * revealed it (NODE_NEW, AttrSet, INSERT, …).
+   * Arm nested apply when the row is a marked host. Stamp already happened on
+   * NODE_NEW; wait for the skeleton **before** INSERT so `load` is not missed.
+   * `contentWindow` is optional here — disconnected iframes have none yet.
+   * `restart` after a sandbox write that reincarnated the browsing context.
    */
-  private maybeInstallNestedHost(id: number, node: Node): void {
+  private maybeInstallNestedHost(id: number, node: Node, hint?: NestedHostInstallHint): void {
     if (!this.nestedHostIds.has(id)) return;
+    if (node.nodeType !== Node.ELEMENT_NODE || (node as Element).localName.toLowerCase() !== 'iframe') {
+      return;
+    }
     const childScopeId = this.childScopes.get(id);
     if (childScopeId === undefined) return;
-    const el = node as HTMLIFrameElement;
-    // Projected host stays about:blank. ProjectionClient waits for the initial `load`
-    // before binding NestedProjectedApply (pre-load contentDocument is discarded).
-    if (el.contentWindow) this.options.onNestedHost?.(el, childScopeId);
+    this.options.onNestedHost?.(node as HTMLIFrameElement, childScopeId, hint);
   }
 }
 

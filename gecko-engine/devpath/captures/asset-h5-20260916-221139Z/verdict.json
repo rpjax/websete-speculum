@@ -1,0 +1,54 @@
+{
+  "V1": true,
+  "V2": true,
+  "V3": true,
+  "V4": false,
+  "V5": true,
+  "V6": false,
+  "V7": false,
+  "V8": false,
+  "V9": false,
+  "V10": true,
+  "firstFalse": "V4",
+  "evidence": {
+    "firstComplete": {
+      "dataLen": 1029,
+      "mimeOnComplete": "image/svg+xml",
+      "bodySha16": "859971e281c4e5ec",
+      "bodyHead": "..G. ....vu.;.!~.sK...F..l$..c.N0..H..Z.}..a..T....,.Z.I4.%..DZ.",
+      "looksSvgOrImage": false
+    },
+    "labResponse": {
+      "mimeIn": "image/svg+xml",
+      "mimeOut": "image/svg+xml",
+      "chunkTotal": 1029,
+      "bodySha16": "859971e281c4e5ec",
+      "bodyHead": "..G. ....vu.;.!~.sK...F..l$..c.N0..H..Z.}..a..T....,.Z.I4.%..DZ."
+    },
+    "swRespond": {
+      "status": 502,
+      "looksLikeImage": false,
+      "bodySha16": "cbf29ce484222325",
+      "byteLength": 0
+    },
+    "sameSImg": {
+      "t": 1789596749660,
+      "hop": "img.state",
+      "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+      "contextId": 1,
+      "event": "sameS",
+      "complete": true,
+      "naturalWidth": 0,
+      "naturalHeight": 0,
+      "currentSrc": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg"
+    },
+    "sameNw": 0,
+    "brokenImgs": 68,
+    "sha": {
+      "gecko": "859971e281c4e5ec",
+      "lab": "859971e281c4e5ec",
+      "sw": "cbf29ce484222325"
+    }
+  },
+  "classification": "break_at_V4"
+}

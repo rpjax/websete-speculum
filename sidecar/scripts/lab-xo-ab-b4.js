@@ -47,7 +47,7 @@ async function probeVariant(session, label, consoleBuf) {
     nestedContextId: nestedCtx,
     nestedBootOutcome: nestedOutcome,
     resolveAndClick: click,
-    deliverable: click?.status === 'dispatched',
+    deliverable: click?.status === 'enqueued',
     firstConsole4078: first4078,
     contextConsoleLines: lines4078.slice(-12),
   };

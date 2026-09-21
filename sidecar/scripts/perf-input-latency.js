@@ -94,7 +94,7 @@ async function measureClick(chassis, n, gapMs) {
   for (let i = 0; i < n; i++) {
     t0s.push(Date.now());
     const r = await session.resolveAndClickDomInput('#btn');
-    if (r.status !== 'dispatched') throw new Error(`click dispatch dropped: ${r.reason}`);
+    if (r.status !== 'enqueued') throw new Error(`click dispatch dropped: ${r.reason}`);
     await wait(gapMs);
   }
   const hits = await readLog(session, 'click');
@@ -110,7 +110,7 @@ async function measureType(chassis, n, gapMs) {
     await resetLog(session, 'input');
     const t0 = Date.now();
     const r = await session.resolveAndTypeDomInput('#text', 'x');
-    if (r.status !== 'dispatched') throw new Error(`type dispatch dropped: ${r.reason}`);
+    if (r.status !== 'enqueued') throw new Error(`type dispatch dropped: ${r.reason}`);
     await wait(gapMs);
     const hits = await readLog(session, 'input');
     if (hits.length < 1) throw new Error(`type produced no input event on iteration ${i}`);
@@ -126,7 +126,7 @@ async function measureCheckbox(chassis, n, gapMs) {
     await resetLog(session, 'change');
     const t0 = Date.now();
     const r = await session.resolveAndClickDomInput('#chk');
-    if (r.status !== 'dispatched') throw new Error(`checkbox dispatch dropped: ${r.reason}`);
+    if (r.status !== 'enqueued') throw new Error(`checkbox dispatch dropped: ${r.reason}`);
     await wait(gapMs);
     const hits = await readLog(session, 'change');
     if (hits.length < 1) throw new Error(`checkbox produced no change event on iteration ${i}`);

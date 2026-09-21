@@ -100,8 +100,9 @@ DOM walk without this poll leaves web components unstyled. The implementation pl
 
 ## NIT (not this version)
 
-- UA shadow
+- UA shadow (incl. Gecko `svg:use` impl-shadow — host cannot `attachShadow` on Chromium Projected; producer skips via `isUaOwned`)
 - Declarative closed shadow (`shadowrootmode="closed"` in HTML)
 - `slotAssignment: 'manual'` and `slot.assign` sync
+- Firefox-only CSS (`::-moz-*`, `:-moz-*`, `@-moz-*` at top level) — Projected applies on Chromium; producer omits so `insertRule` does not abort the frame
 
 Do not observe `contentDocument`.

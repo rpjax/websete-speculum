@@ -7,7 +7,8 @@ export {
   createProjectionClient,
   type ProjectionClientOptions,
 } from './ProjectionClient';
-export { DomFrameApplier } from './applyDom';
+export { disableProjectedNativeStylesheet, isHtmlStylesheetLink } from './ownedStylesheetLink';
+export { DomFrameApplier, type NestedHostInstallHint } from './applyDom';
 export { PageProjectionRegistry } from './registry';
 export { createSurfaceHost, type SurfaceHost } from './surface';
 export {
@@ -16,7 +17,10 @@ export {
   PROJECTED_SKELETON_META_NAME,
   PROJECTED_K5_CSP,
   stampProjectedStandardsSrcdoc,
+  reincarnateProjectedStandardsSrcdoc,
   stripProjectedSkeleton,
+  constructedStyleSheetInit,
+  ensureProjectedDocumentBase,
   ensureProjectedK5Csp,
   isProjectedStandardsSkeleton,
   isProjectedStandardsDocument,
@@ -26,6 +30,7 @@ export {
   type WhenProjectedStandardsReadyOpts,
 } from './projectedBlankIframe';
 export { NestedProjectedApply } from './nestedProjectedApply';
+export { shouldApplyUnsolicitedResync } from './resyncSwapPolicy';
 export { attachProjectedInputCapture } from './input/projectedInputCapture';
 export {
   ProjectedInputCaptureMetrics,

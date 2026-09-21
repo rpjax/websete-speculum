@@ -1,0 +1,187 @@
+{
+  "target": "https://eneba-promocoes.com.br/",
+  "t0": 1789685328685,
+  "hubInvokes": [],
+  "swAsset": {
+    "fetch": 0,
+    "ok": 0,
+    "fail": 0,
+    "samples": []
+  },
+  "imgProbe": {
+    "attempted": 5,
+    "results": [
+      {
+        "url": "https://static.eneba.games/branding/v2/logoFull.svg",
+        "error": "TypeError: Failed to fetch"
+      },
+      {
+        "url": "https://static.eneba.games/flags/lang/v2/brazil.svg",
+        "error": "TypeError: Failed to fetch"
+      },
+      {
+        "url": "https://static.eneba.games/8fb0417978c74061522d.png",
+        "error": "TypeError: Failed to fetch"
+      },
+      {
+        "url": "https://imgproxy.eneba.games/2foCPkDYBfYsdRcYeKt95AL2nM8gmo16sUYeA85pL0s/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy80/OTF6WGt6TGVfOTJS/cnVmd0VMbGVrdC1k/SUktVn",
+        "error": "TypeError: Failed to fetch"
+      },
+      {
+        "url": "https://products.eneba.games/drms/v1/psn.svg",
+        "error": "TypeError: Failed to fetch"
+      }
+    ]
+  },
+  "clickProbe": {
+    "ok": true,
+    "targetTag": "BUTTON",
+    "targetText": "Sim",
+    "rect": {
+      "x": 995,
+      "y": 835,
+      "w": 340,
+      "h": 35
+    },
+    "events": [
+      {
+        "type": "pointerdown",
+        "target": "BUTTON",
+        "defaultPrevented": false
+      },
+      {
+        "type": "pointerup",
+        "target": "BUTTON",
+        "defaultPrevented": false
+      },
+      {
+        "type": "click",
+        "target": "BUTTON",
+        "defaultPrevented": true
+      }
+    ],
+    "stillSim": true,
+    "before": {
+      "intentCount": 0,
+      "swFetch": 0
+    }
+  },
+  "surface": {
+    "host": true,
+    "bodyLen": 301941,
+    "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ BroPacks NEW BroPacks | AUG 26 EA FC 27 MAI",
+    "imgStats": {
+      "total": 85,
+      "complete": 40,
+      "natural0": 37,
+      "brokenAlt": 1,
+      "samples": [
+        {
+          "src": "https://static.eneba.games/branding/v2/logoFull.svg",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "Eneba logo"
+        },
+        {
+          "src": "https://static.eneba.games/flags/lang/v2/brazil.svg",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "brazil"
+        },
+        {
+          "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgDTD2qgAAAAASUVORK5CYII=",
+          "complete": true,
+          "nw": 1,
+          "nh": 1,
+          "alt": "Psn Giftcard"
+        },
+        {
+          "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgDTD2qgAAAAASUVORK5CYII=",
+          "complete": true,
+          "nw": 1,
+          "nh": 1,
+          "alt": "Steam Giftcard"
+        },
+        {
+          "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgDTD2qgAAAAASUVORK5CYII=",
+          "complete": true,
+          "nw": 1,
+          "nh": 1,
+          "alt": "Xbox Giftcard"
+        },
+        {
+          "src": "https://static.eneba.games/8fb0417978c74061522d.png",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        },
+        {
+          "src": "https://imgproxy.eneba.games/2foCPkDYBfYsdRcYeKt95AL2nM8gmo16sUYeA85pL0s/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy80/OTF6WGt6TGVfOTJS/cnVmd0VMbGVrdC1k/SUktVn",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "PlayStation Network Card 150 BRL (BR) PSN Key BRAZIL"
+        },
+        {
+          "src": "https://products.eneba.games/drms/v1/psn.svg",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "PSN"
+        },
+        {
+          "src": "https://products.eneba.games/drms/v1/psn.svg",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "PSN"
+        },
+        {
+          "src": "https://imgproxy.eneba.games/m4kLXzpVSR_0E7IdqTxdX7JRW9v2b5IcY0v00-R0p14/rs:fit:300/ar:1/czM6Ly9wcm9kdWN0/cy5lbmViYS5nYW1l/cy9wcm9kdWN0cy9L/aTRXLUkyRXR4bzIt/VWNJa3RITDZLVWpU/TUN4UG",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "PlayStation Network Card 100 BRL (BR) PSN Key BRAZIL"
+        },
+        {
+          "src": "https://products.eneba.games/drms/v1/psn.svg",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "PSN"
+        },
+        {
+          "src": "https://products.eneba.games/drms/v1/psn.svg",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": "PSN"
+        }
+      ]
+    },
+    "swController": true
+  },
+  "sessionId": null,
+  "console": [
+    {
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-D6kIJsWljszIXxJDOIeWtxGiAkRdcKDRq3AW/aaYg40='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-D6kIJsWljszIXxJDOIeWtxGiAkRdcKDRq3AW/aaYg40='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-D6kIJsWljszIXxJDOIeWtxGiAkRdcKDRq3AW/aaYg40='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    }
+  ],
+  "pageErrors": [],
+  "surfaceAfterClick": {
+    "textSample": "English EU BRL Log in | Register Categories Games -90% Software eGift Cards Eneba Gift Cards Trending now EA FC27 ⚽️ BroPacks NEW BroPacks | AUG 26 EA FC 27 MAI",
+    "stillSim": true
+  }
+}

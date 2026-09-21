@@ -49,6 +49,7 @@ import { runFrameCdpSessionUnitTests } from './browser/mirror/projection/inject/
 import { runInjectScriptBodiesUnitTests } from './browser/mirror/projection/inject/injectScriptBodies.unit';
 import { runExtensionC2HostUnitTests } from './browser/mirror/projection/session/extensionC2Host.unit';
 import { runPageProjectionSessionUnitTests } from './browser/mirror/projection/session/pageProjectionSession.unit';
+import { runInputPathTelemetryEmitUnitTests } from './browser/mirror/projection/session/inputPathTelemetryEmit.unit';
 import { runNodeDataPlaneUnitTests } from './browser/mirror/projection/session/nodeDataPlane.unit';
 import { runExtensionPlaneEnvelopeUnitTests } from './browser/mirror/projection/session/extensionPlaneEnvelope.unit';
 import { runExtensionPlaneBridgeEdgeUnitTests } from './browser/mirror/projection/session/extensionPlaneBridge.unit';
@@ -58,6 +59,7 @@ import { runChromeLnaPolicyUnitTests } from './browser/patchright/chromeLnaPolic
 import { runPageProjectionInputClickUnitTests } from './browser/mirror/projection/input/pageProjectionInputClick.unit';
 import { runViewportChainUnitTests } from './browser/mirror/projection/input/viewportChain.unit';
 import { runProjectedInputCaptureUnitTests } from './browser/mirror/projection/input/projectedInputCapture.unit';
+import { runApplyScrollPositionsUnitTests } from './browser/mirror/projection/input/applyScrollPositions.unit';
 import { runLabPublicOriginUnitTests } from './browser/mirror/projection/lab/labPublicOrigin.unit';
 import { runContextBusUnitTests } from './browser/mirror/projection/bus/contextBus.unit';
 import { runChildScopeBusRouteUnitTests } from './browser/mirror/projection/bus/childScopeBusRoute.unit';
@@ -65,6 +67,12 @@ import { runPortCarrierUnitTests } from './browser/mirror/projection/bus/portCar
 import { runMintHoldUnitTests } from './browser/mirror/projection/bus/mintHold.unit';
 import { runScriptingOnPaintParityUnitTests } from './browser/mirror/projection/projected/scriptingOnPaintParity.unit';
 import { runProjectedApplyGateUnitTests } from './browser/mirror/projection/projected/projectedApplyGate.unit';
+import { runLagCatchUpOrderUnitTests } from './browser/mirror/projection/projected/lagCatchUpOrder.unit';
+import { runUnsolicitedResyncSwapUnitTests } from './browser/mirror/projection/projected/unsolicitedResyncSwap.unit';
+import { runGeckoViewportResizeUnitTests } from './browser/mirror/projection/lab/client/geckoViewportResize.unit';
+import { runPendingNestedHostAuditUnitTests } from './browser/mirror/projection/projected/pendingNestedHostAudit.unit';
+import { runNestedNavUnitTests } from './browser/mirror/projection/projected/nestedNav.unit';
+import { runOwnedStylesheetLinkUnitTests } from './browser/mirror/projection/projected/ownedStylesheetLink.unit';
 import { runProjectedK5UnitTests } from './browser/mirror/projection/projected/projectedK5.unit';
 import { runProjectedNativeGuardUnitTests } from './browser/mirror/projection/input/projectedNativeGuard.unit';
 import { runCdpConsoleRelayUnitTests } from './browser/patchright/cdpConsoleRelay.unit';
@@ -4461,6 +4469,12 @@ async function main(): Promise<void> {
   await runMintHoldUnitTests();
   runScriptingOnPaintParityUnitTests();
   await runProjectedApplyGateUnitTests();
+  await runLagCatchUpOrderUnitTests();
+  runUnsolicitedResyncSwapUnitTests();
+  runGeckoViewportResizeUnitTests();
+  runPendingNestedHostAuditUnitTests();
+  runNestedNavUnitTests();
+  runOwnedStylesheetLinkUnitTests();
   await runProjectedK5UnitTests();
   runProjectedNativeGuardUnitTests();
   runCdpConsoleRelayUnitTests();
@@ -4472,8 +4486,10 @@ async function main(): Promise<void> {
   await runSharedAssetK2UnitTests();
   await runPermissionGateUnitTests();
   await runEventApplierUnitTests();
+  await runInputPathTelemetryEmitUnitTests();
   await runSparseCdpInputAdapterUnitTests();
   await runProjectedInputCaptureUnitTests();
+  await runApplyScrollPositionsUnitTests();
   await runLabPublicOriginUnitTests();
   await runRelaxCspUnitTests();
   await runInjectScriptBodiesUnitTests();

@@ -1,0 +1,39 @@
+{
+  "url": "https://www.belezanaweb.com.br/",
+  "waitMs": 45000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/avif-decode-20260916-233555Z",
+  "ok": true,
+  "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+  "brokenCount": 1,
+  "pageImg": {
+    "src": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=d7445890-186a-47c1-9390-b44877c5750a&bo=1&sid=61aed7a0b22711f1bc88f16511b98468&vid=61af0120b22711f1a5edf17ce1640b98&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+    "complete": true,
+    "naturalWidth": 0,
+    "naturalHeight": 0
+  },
+  "pageDecode": {
+    "ok": false,
+    "error": "EncodingError: The source image cannot be decoded.",
+    "naturalWidth": 0
+  },
+  "fetchInfo": {
+    "status": 204,
+    "contentType": null,
+    "byteLength": 0,
+    "headHex": "",
+    "looksAvif": false
+  },
+  "blobImage": {
+    "ok": false,
+    "error": "blob_image_error",
+    "naturalWidth": 0
+  },
+  "createBitmap": {
+    "ok": false,
+    "error": "InvalidStateError: The source image could not be decoded."
+  },
+  "verdict": "chromium_cannot_decode_avif",
+  "cause": "blob_Image_and_page_img_both_nw0",
+  "fixHint": "Chromium do lab Projected não decoda AVIF (ou tipo/blob). Fix: engine AVIF no browser do Projected / lab Chromium, não tee.",
+  "siteAccept": "not Fixed — decode fork only"
+}

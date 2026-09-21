@@ -1,0 +1,8 @@
+url=http://127.0.0.1:4078/static-dom.html
+label=static-dom
+stamp=20260917-015008
+gecko=/root/speculum-gecko/checkout
+supervisor_ws=ws://127.0.0.1:4199/session
+gecko_commit=9aaffa3b3d8877c6d00c8d55cc196aac276cbd2d
+speculum_commit=b503a799e902c99a8635ce5c3fed6a89e1afb51d
+binary_mtime=2026-09-17 01:12:58.724321485 -0300

@@ -1,0 +1,84 @@
+{
+  "fixture": "http://127.0.0.1:4078/cssom-early-sheet.html",
+  "settleMs": 16000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/cssom-late-1789610899992",
+  "navigated": [
+    "http://127.0.0.1:4078/cssom-early-sheet.html"
+  ],
+  "virtualSelfReport": {
+    "phase": "early-done",
+    "ctrlRules": "21",
+    "dataRules": "0",
+    "httpRules": "21",
+    "httpOutcome": "parsed-in-html"
+  },
+  "projected": {
+    "ok": true,
+    "painted": {
+      "ctrl": "rgb(0, 90, 200)",
+      "data": "rgb(190, 190, 190)",
+      "http": "rgb(230, 120, 0)"
+    },
+    "linkPresentInProjectedDom": {
+      "data": false,
+      "http": true
+    },
+    "projectedSheetHrefs": [
+      "http://127.0.0.1:4078/cssom-late-sheet.css",
+      "(inline/adopted)"
+    ]
+  },
+  "virtualTableDump": {
+    "sequence": 2,
+    "generation": 0,
+    "contextId": 1,
+    "rowCount": 98,
+    "sheets": 2,
+    "rules": 42,
+    "elements": 20
+  },
+  "sameS": {
+    "ok": true,
+    "sameSequence": true,
+    "virtualSequence": 2,
+    "projectedSequence": 2
+  },
+  "wire": {
+    "frames": 2,
+    "sheetNew": 4,
+    "ruleNew": 84,
+    "ruleSet": 0,
+    "resyncFrames": 2,
+    "decodeFail": 0,
+    "marks": {
+      "CTRLMARK": 40,
+      "DATAMARK": 0,
+      "HTTPMARK": 40
+    },
+    "markerRuleSample": {
+      "HTTPMARK": ".httpmark-1 { --HTTPMARK: 1; }",
+      "CTRLMARK": ".ctrlmark-20 { --CTRLMARK: 20; }"
+    }
+  },
+  "perMark": [
+    {
+      "mark": "CTRLMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 40,
+      "verdict": "travelled"
+    },
+    {
+      "mark": "DATAMARK",
+      "virtualHasRules": false,
+      "rulesOnWire": 0,
+      "verdict": "inconclusive_virtual_missing"
+    },
+    {
+      "mark": "HTTPMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 40,
+      "verdict": "travelled"
+    }
+  ],
+  "conclusion": "inconclusivo — ver perMark"
+}

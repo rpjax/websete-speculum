@@ -1,0 +1,82 @@
+{
+  "fixture": "http://127.0.0.1:4078/cssom-late-sheet.html",
+  "settleMs": 20000,
+  "outDir": "/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/cssom-late-1789609558751",
+  "navigated": [
+    "http://127.0.0.1:4078/cssom-late-sheet.html"
+  ],
+  "virtualSelfReport": {
+    "phase": "C-done",
+    "ctrlRules": "21",
+    "dataRules": "21",
+    "httpRules": "21",
+    "httpOutcome": "loaded"
+  },
+  "projected": {
+    "ok": true,
+    "painted": {
+      "ctrl": "rgb(190, 190, 190)",
+      "data": "rgb(0, 170, 0)",
+      "http": "rgb(190, 190, 190)"
+    },
+    "linkPresentInProjectedDom": {
+      "data": true,
+      "http": true
+    },
+    "projectedSheetHrefs": [
+      "(inline/adopted)",
+      "tamark-20%20%7B%20--DATAMARK%3A%2020%3B%20%7D%0A",
+      "http://127.0.0.1:4078/cssom-late-sheet.css"
+    ]
+  },
+  "virtualTableDump": {
+    "sequence": 6,
+    "generation": 0,
+    "contextId": 1,
+    "rowCount": 64,
+    "sheets": 0,
+    "rules": 0,
+    "elements": 25
+  },
+  "sameS": {
+    "ok": true,
+    "sameSequence": true,
+    "virtualSequence": 6,
+    "projectedSequence": 6
+  },
+  "wire": {
+    "frames": 6,
+    "sheetNew": 0,
+    "ruleNew": 0,
+    "ruleSet": 0,
+    "resyncFrames": 2,
+    "decodeFail": 0,
+    "marks": {
+      "CTRLMARK": 0,
+      "DATAMARK": 0,
+      "HTTPMARK": 0
+    },
+    "markerRuleSample": {}
+  },
+  "perMark": [
+    {
+      "mark": "CTRLMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 0,
+      "verdict": "LOST_ON_WIRE"
+    },
+    {
+      "mark": "DATAMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 0,
+      "verdict": "LOST_ON_WIRE"
+    },
+    {
+      "mark": "HTTPMARK",
+      "virtualHasRules": true,
+      "rulesOnWire": 0,
+      "verdict": "LOST_ON_WIRE"
+    }
+  ],
+  "conclusion": "CONFIRMADO: regra existente no Virtual não viajou"
+}

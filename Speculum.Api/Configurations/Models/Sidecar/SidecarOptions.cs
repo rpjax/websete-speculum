@@ -1,6 +1,6 @@
 namespace Speculum.Api.Configurations.Models.Sidecar;
 
-/// <summary>gRPC transport address for the BrowserSession sidecar.</summary>
+/// <summary>Transport to the browser host: Gecko orchestrator (product) or Chromium gRPC (SessionsTest CI).</summary>
 public sealed class SidecarOptions
 {
     public const string SectionName = "Sidecar";
@@ -8,6 +8,7 @@ public sealed class SidecarOptions
     /// <summary>
     /// Default send/receive ceiling for the BrowserSession gRPC channel (64 MiB).
     /// Covers OOB PageProjection.Resync snapshots for large SPAs (Beleza-scale).
+    /// Chromium engine only.
     /// </summary>
     public const int DefaultMaxGrpcMessageBytes = 64 * 1024 * 1024;
 
@@ -17,8 +18,15 @@ public sealed class SidecarOptions
     /// <summary>Inclusive upper bound for <see cref="MaxGrpcMessageBytes"/>.</summary>
     public const int AbsoluteMaxGrpcMessageBytes = 256 * 1024 * 1024;
 
+    /// <summary>Product default is Gecko. SessionsTest CI sets Chromium.</summary>
+    public SidecarEngine Engine { get; set; } = SidecarEngine.Gecko;
+
+    /// <summary>Gecko orchestrator base, e.g. <c>http://sidecar:4100</c>. Required when <see cref="Engine"/> is Gecko.</summary>
+    public string OrchestratorAddress { get; set; } = "http://127.0.0.1:4100";
+
     /// <summary>
-    /// gRPC base address, e.g. <c>http://sidecar:50051</c> or <c>http://127.0.0.1:50051</c>.
+    /// Chromium gRPC base address, e.g. <c>http://sidecar:50051</c>.
+    /// Required when <see cref="Engine"/> is Chromium. Not an alias of <see cref="OrchestratorAddress"/>.
     /// </summary>
     public string GrpcAddress { get; set; } = "http://127.0.0.1:50051";
 

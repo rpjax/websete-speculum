@@ -1,0 +1,8 @@
+url=https://example.com
+label=ctxpai
+stamp=20260912-145435
+gecko=/root/speculum-gecko/checkout
+speculum_frame_dir=/mnt/c/RPJ/Coding/Projects/Seven/Websete/Websete Speculum/gecko-engine/devpath/captures/20260912-145435-ctxpai
+gecko_commit=9aaffa3b3d8877c6d00c8d55cc196aac276cbd2d
+speculum_commit=eba3bf8622a1fadc064e8e5f6faf116071355402
+binary_mtime=2026-09-12 14:52:24.870285219 -0300

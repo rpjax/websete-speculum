@@ -233,6 +233,15 @@ public sealed class SessionBindingRegistryTests
             string? traceId = null,
             long? clientTimestampMs = null) { }
 
+        public void TracePageProjectionIntentAdmissionFailed(
+            string kind,
+            long? generation,
+            string? anchor,
+            string errorCode,
+            string message,
+            string? traceId = null,
+            long? clientTimestampMs = null) { }
+
         public void TracePageProjectionFrameWireDelivered(
             PageProjectionFrame diff,
             long durationMs = 0,
@@ -336,6 +345,14 @@ public sealed class SessionBindingRegistryTests
             CancellationToken ct = default,
             string? kind = null,
             string? rangeHeader = null)
+            => throw new NotSupportedException();
+
+        public Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+            uint contextId,
+            string url,
+            string destination,
+            string range,
+            CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public Task<IResult> RequestResyncAsync(uint contextId = 1, string? reason = null, CancellationToken ct = default)

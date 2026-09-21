@@ -192,6 +192,14 @@ public interface ISessionConnection
         string? kind = null,
         string? rangeHeader = null);
 
+    /// <summary>Gecko Kind 0x06 — original URL, no virtual-assets rewrite.</summary>
+    Task<IResult<VirtualResourceResponse>> FetchProjectedAssetAsync(
+        uint contextId,
+        string url,
+        string destination,
+        string range,
+        CancellationToken ct = default);
+
     /// <summary>Sealed one-path resync — frame arrives on Diff watch stream.</summary>
     Task<IResult> RequestResyncAsync(
         uint contextId = 1,

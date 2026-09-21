@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>speculum-gfx-probe</title>
+</head>
+<body>
+  <h1>speculum-gfx-probe</h1>
+  <pre id="out">running…</pre>
+  <script>
+(function () {
+  const out = document.getElementById('out');
+  const result = {
+    probe: 'gfx-v1',
+    href: location.href,
+    ua: navigator.userAgent,
+    webdriver: !!navigator.webdriver,
+    hardwareConcurrency: navigator.hardwareConcurrency || null,
+    deviceMemory: navigator.deviceMemory || null,
+    outerInner: { outerW: window.outerWidth, outerH: window.outerHeight, innerW: window.innerWidth, innerH: window.innerHeight },
+    screen: {
+      w: screen.width, h: screen.height,
+      availW: screen.availWidth, availH: screen.availHeight,
+      colorDepth: screen.colorDepth, pixelDepth: screen.pixelDepth
+    },
+    dpr: window.devicePixelRatio,
+    canvas2d: null,
+    webgl: null,
+    webgl2: null,
+    webglRenderer: null,
+    webglVendor: null,
+    errors: []
+  };
+
+  try {
+    const c = document.createElement('canvas');
+    c.width = 16; c.height = 16;
+    const ctx = c.getContext('2d');
+    if (!ctx) {
+      result.canvas2d = { ok: false, reason: 'null' };
+    } else {
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(0, 0, 16, 16);
+      const url = c.toDataURL();
+      result.canvas2d = { ok: true, dataUrlLen: url.length, sample: url.slice(0, 32) };
+    }
+  } catch (e) {
+    result.canvas2d = { ok: false, reason: String(e && e.message || e) };
+    result.errors.push('canvas2d:' + String(e && e.message || e));
+  }
+
+  function probeGl(name) {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 16; c.height = 16;
+      const gl = c.getContext(name) || c.getContext('experimental-' + name);
+      if (!gl) return { ok: false, reason: 'null-context' };
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+      const vendor = ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+      const pixels = new Uint8Array(4);
+      gl.clearColor(0, 1, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return {
+        ok: true,
+        renderer: String(renderer),
+        vendor: String(vendor),
+        readPixels: Array.from(pixels),
+        err: gl.getError()
+      };
+    } catch (e) {
+      return { ok: false, reason: String(e && e.message || e) };
+    }
+  }
+
+  result.webgl = probeGl('webgl');
+  result.webgl2 = probeGl('webgl2');
+  if (result.webgl && result.webgl.ok) {
+    result.webglRenderer = result.webgl.renderer;
+    result.webglVendor = result.webgl.vendor;
+  }
+
+  // Marker line for wire text grep (keep stable prefix).
+  const json = JSON.stringify(result);
+  out.textContent = 'PROBE_JSON ' + json;
+  document.title = 'probe|' + (result.webgl && result.webgl.ok ? 'webgl_ok' : 'webgl_fail') +
+    '|' + (result.canvas2d && result.canvas2d.ok ? 'c2d_ok' : 'c2d_fail');
+})();
+  </script>
+</body>
+</html>

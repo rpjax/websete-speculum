@@ -1,0 +1,128 @@
+{
+  "ok": true,
+  "href": "/ofertas/",
+  "text": "",
+  "className": "",
+  "rectInDoc": {
+    "x": 91,
+    "y": 881.5625,
+    "w": 178.328125,
+    "h": 54.53125
+  },
+  "clickPoint": {
+    "x": 131,
+    "y": 908.828125
+  },
+  "candidateCount": 9,
+  "candidatesSample": [
+    {
+      "href": "/ofertas/",
+      "text": "",
+      "rect": {
+        "x": 91,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    },
+    {
+      "href": "/outlet/",
+      "text": "",
+      "rect": {
+        "x": 294.328125,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    },
+    {
+      "href": "/ganhe-brindes/",
+      "text": "",
+      "rect": {
+        "x": 497.65625,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    },
+    {
+      "href": "/cupons-de-descontos/",
+      "text": "",
+      "rect": {
+        "x": 700.984375,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    },
+    {
+      "href": "/presentes/",
+      "text": "",
+      "rect": {
+        "x": 904.3125,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    },
+    {
+      "href": "/exclusivo-blz/",
+      "text": "",
+      "rect": {
+        "x": 1107.640625,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    },
+    {
+      "href": "/baixe-o-app/",
+      "text": "",
+      "rect": {
+        "x": 1310.96875,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    },
+    {
+      "href": "/alto-luxo/",
+      "text": "",
+      "rect": {
+        "x": 1514.296875,
+        "y": 881.5625,
+        "w": 178.328125,
+        "h": 54.53125
+      },
+      "tag": "A",
+      "className": ""
+    }
+  ],
+  "iframeCount": 1,
+  "nestedIframes": [
+    {
+      "src": "",
+      "w": 0,
+      "h": 0
+    },
+    {
+      "src": "",
+      "w": 0,
+      "h": 0
+    }
+  ]
+}

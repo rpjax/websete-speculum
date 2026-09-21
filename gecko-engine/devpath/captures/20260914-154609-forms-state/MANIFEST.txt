@@ -1,0 +1,8 @@
+url=http://127.0.0.1:4077/fixtures/forms-state.html
+label=forms-state
+stamp=20260914-154609
+gecko=/root/speculum-gecko/checkout
+supervisor_ws=ws://127.0.0.1:4199/session
+gecko_commit=9aaffa3b3d8877c6d00c8d55cc196aac276cbd2d
+speculum_commit=cd19cb19d5ee1dcac4ed34c5f206cb5d5a6ad930
+binary_mtime=2026-09-14 14:48:04.023250854 -0300

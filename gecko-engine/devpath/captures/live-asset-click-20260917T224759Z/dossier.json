@@ -1,0 +1,156 @@
+{
+  "target": "http://127.0.0.1:8080/",
+  "t0": 1789685280472,
+  "hubInvokes": [],
+  "swAsset": {
+    "fetch": 0,
+    "ok": 0,
+    "fail": 0,
+    "samples": []
+  },
+  "imgProbe": {
+    "attempted": 5,
+    "results": [
+      {
+        "url": "http://127.0.0.1:8080/tia/tia.png",
+        "status": 200,
+        "statusText": "OK",
+        "ct": "text/html",
+        "bytes": 401,
+        "viaSw": false
+      }
+    ]
+  },
+  "clickProbe": {
+    "ok": true,
+    "targetTag": "BUTTON",
+    "targetText": "Adicionar imagens",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    },
+    "events": [
+      {
+        "type": "pointerdown",
+        "target": "BUTTON",
+        "defaultPrevented": false
+      },
+      {
+        "type": "pointerup",
+        "target": "BUTTON",
+        "defaultPrevented": false
+      },
+      {
+        "type": "click",
+        "target": "BUTTON",
+        "defaultPrevented": true
+      }
+    ],
+    "stillSim": false,
+    "before": {
+      "intentCount": 0,
+      "swFetch": 0
+    }
+  },
+  "surface": {
+    "host": true,
+    "bodyLen": 143686,
+    "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona a Pesquisa Privacidade Termos Configura",
+    "imgStats": {
+      "total": 7,
+      "complete": 7,
+      "natural0": 7,
+      "brokenAlt": 0,
+      "samples": [
+        {
+          "src": "http://127.0.0.1:8080/tia/tia.png",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        },
+        {
+          "src": "",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        },
+        {
+          "src": "",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        },
+        {
+          "src": "",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        },
+        {
+          "src": "",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        },
+        {
+          "src": "",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        },
+        {
+          "src": "",
+          "complete": true,
+          "nw": 0,
+          "nh": 0,
+          "alt": ""
+        }
+      ]
+    },
+    "swController": false
+  },
+  "sessionId": null,
+  "console": [
+    {
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-i/M3kfTZswl6vx1Ur01S4DmOHmrxilUaj9GkqIQQcG0='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-i/M3kfTZswl6vx1Ur01S4DmOHmrxilUaj9GkqIQQcG0='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "type": "error",
+      "text": "Executing inline script violates the following Content Security Policy directive 'script-src 'none''. Either the 'unsafe-inline' keyword, a hash ('sha256-i/M3kfTZswl6vx1Ur01S4DmOHmrxilUaj9GkqIQQcG0='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked."
+    },
+    {
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.QJpEmRiXQqA.2023.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAA"
+    },
+    {
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.QJpEmRiXQqA.2023.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAA"
+    },
+    {
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.QJpEmRiXQqA.2023.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAA"
+    },
+    {
+      "type": "error",
+      "text": "Loading the script 'http://127.0.0.1:8080/xjs/_/js/k=xjs.hd.pt_BR.QJpEmRiXQqA.2023.O/am=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAIAAAAAAAAAAAAAABAACAAAAAAAAAAAAAAAAAAAAAAgIAAAAASAAAAAAAAAAAgAAAAAAgAAAAAAMAAAAEgAAIAAIABAAAAAAAAAAAAAAAAAAAAECACAACAAAAAAOAfGGAEAAAAAAAAAACQAAAAAAAAAAAALAAAAAgCAAAAIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAKAAAAAEAAAAAAAAAAAAAA"
+    }
+  ],
+  "pageErrors": [],
+  "surfaceAfterClick": {
+    "textSample": "GmailImagens Fazer login Modo IA Disponibilizado pelo Google em: English Brasil Sobre Publicidade Negócios Como funciona a Pesquisa Privacidade Termos Configura",
+    "stillSim": false
+  }
+}

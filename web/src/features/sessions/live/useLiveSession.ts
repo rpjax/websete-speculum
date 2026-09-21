@@ -131,16 +131,28 @@ export function useLiveSession({
     setStatus,
   })
 
+  // Gate hub listeners on `client` only — never on `observation.log` identity.
+  // A log recreate must not null sessionRef while sessionId/wire still look live
+  // (that was the no_session / dead-click hole).
+  const logRef = useRef(observation.log)
+  logRef.current = observation.log
+
   useEffect(() => {
     const disposers = [
       client.on('hubClose', (error) => {
-        observation.log('warn', 'hub closed', error)
+        logRef.current('warn', 'hub closed', error)
+        const live = sessionRef.current
+        sessionRef.current = null
         setPhase('idle')
         setConnectionId(null)
         setSessionId(null)
+        setSessionToken(null)
+        if (live) {
+          void live.stop({ skipHub: true }).catch(() => {})
+        }
       }),
-      client.on('hubReconnecting', () => observation.log('warn', 'hub reconnecting')),
-      client.on('hubReconnected', () => observation.log('info', 'hub reconnected')),
+      client.on('hubReconnecting', () => logRef.current('warn', 'hub reconnecting')),
+      client.on('hubReconnected', () => logRef.current('info', 'hub reconnected')),
     ]
     return () => {
       for (const dispose of disposers) {
@@ -148,6 +160,10 @@ export function useLiveSession({
       }
       const live = sessionRef.current
       sessionRef.current = null
+      setSessionId(null)
+      setSessionToken(null)
+      setPhase('idle')
+      setConnectionId(null)
       void (async () => {
         if (live) {
           try {
@@ -159,30 +175,7 @@ export function useLiveSession({
         await client.disconnect()
       })()
     }
-  }, [client, observation.log, sessionRef])
-
-  // Oracle / lab: always expose stop + session id/token (not gated on ClientObservation).
-  useEffect(() => {
-    const w = window as Window & {
-      __speculumSessionId?: string | null
-      __speculumSessionToken?: string | null
-      __speculumStopSession?: () => Promise<void>
-    }
-    w.__speculumSessionId = sessionId
-    w.__speculumSessionToken = sessionToken
-    w.__speculumStopSession = () => {
-      const live = sessionRef.current
-      if (!live) {
-        return Promise.resolve()
-      }
-      return live.stop()
-    }
-    return () => {
-      delete w.__speculumSessionId
-      delete w.__speculumSessionToken
-      delete w.__speculumStopSession
-    }
-  }, [sessionId, sessionToken, sessionRef])
+  }, [client, sessionRef])
 
   // Diagnostics: expose front Activity ring for Playwright / Cursor smoke export
   // when ClientObservation is on (same ring as SessionObservationChrome).
@@ -222,6 +215,45 @@ export function useLiveSession({
     observation.entries,
   ])
 
+  // Oracle / lab — after all hooks (never between them: rolldown turned an
+  // inter-hook `if (typeof window)` into a `return useEffect(...)` shape).
+  document.documentElement.dataset.speculumPhase = phase
+  document.documentElement.dataset.speculumSessionId = sessionId ?? ''
+  document.documentElement.dataset.speculumLive = sessionRef.current != null ? '1' : '0'
+  document.documentElement.dataset.speculumOpen =
+    sessionRef.current?.isOpen === true ? '1' : '0'
+  const g = globalThis as typeof globalThis & {
+    __speculumSessionId?: string | null
+    __speculumSessionToken?: string | null
+    __speculumStopSession?: () => Promise<void>
+    __speculumSessionProbe?: () => {
+      phase: LiveSessionPhase
+      sessionId: string | null
+      hasToken: boolean
+      hasLiveSession: boolean
+      isOpen: boolean
+    }
+  }
+  g.__speculumSessionId = sessionId
+  g.__speculumSessionToken = sessionToken
+  g.__speculumStopSession = () => {
+    const live = sessionRef.current
+    if (!live) {
+      return Promise.resolve()
+    }
+    return live.stop()
+  }
+  g.__speculumSessionProbe = () => {
+    const live = sessionRef.current
+    return {
+      phase,
+      sessionId,
+      hasToken: sessionToken != null && sessionToken.length > 0,
+      hasLiveSession: live != null,
+      isOpen: live?.isOpen === true,
+    }
+  }
+
   return {
     phase,
     origins,
@@ -259,6 +291,7 @@ export function useLiveSession({
     stop: lifecycle.stop,
     sendInput: lifecycle.sendInput,
     sendDomInput: lifecycle.sendDomInput,
+    fetchProjectedAsset: lifecycle.fetchProjectedAsset,
     onCanvasLayout: lifecycle.onCanvasLayout,
     onRemoteViewportApplied: lifecycle.onRemoteViewportApplied,
     requestRemoteResize: lifecycle.requestRemoteResize,

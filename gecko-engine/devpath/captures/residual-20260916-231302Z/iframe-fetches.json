@@ -1,0 +1,42 @@
+[
+  {
+    "ok": true,
+    "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:good:sensitive,w_1220/dpr_2.0/v1/banner/5fa55246-daa2-4bf7-976f-73cb2f395f18-topo-desk.gif",
+    "status": 200,
+    "contentType": "image/avif",
+    "byteLength": 19223,
+    "headHex": "0000002c667479706176697300000000"
+  },
+  {
+    "ok": true,
+    "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+    "status": 200,
+    "contentType": "image/avif",
+    "byteLength": 2033,
+    "headHex": "00000020667479706176696600000000"
+  },
+  {
+    "ok": true,
+    "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bcd95-botao-2-3.png",
+    "status": 200,
+    "contentType": "image/avif",
+    "byteLength": 2033,
+    "headHex": "00000020667479706176696600000000"
+  },
+  {
+    "ok": true,
+    "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/63e1528b-15d1-44cc-a0b9-1daf05ca2b8d-gif-bota-o-menu.gif",
+    "status": 200,
+    "contentType": "image/avif",
+    "byteLength": 63373,
+    "headHex": "0000002c667479706176697300000000"
+  },
+  {
+    "ok": true,
+    "url": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif,fl_progressive,q_auto:eco,w_iw/v1/banner/63e1528b-15d1-44cc-a0b9-1daf05ca2b8d-gif-bota-o-menu.gif",
+    "status": 200,
+    "contentType": "image/avif",
+    "byteLength": 63373,
+    "headHex": "0000002c667479706176697300000000"
+  }
+]

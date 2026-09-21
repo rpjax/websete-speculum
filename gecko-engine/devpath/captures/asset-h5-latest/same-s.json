@@ -1,0 +1,463 @@
+{
+  "ok": true,
+  "error": null,
+  "sameSequence": true,
+  "virtualSequence": 163,
+  "projectedSequence": 163,
+  "layoutProbe": {
+    "headerHeight": null,
+    "brokenImgs": 61,
+    "logo": {
+      "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+      "srcset": "",
+      "complete": true,
+      "naturalWidth": 120,
+      "width": 139
+    },
+    "imgsSample": [
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 120,
+        "width": 139
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_svg,fl_progressive,q_auto:eco/v1/blz/assets-store/0.0.625/images/store/1/logo.svg",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 120,
+        "width": 94
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1220
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bc",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 348
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2026_07_31_17_49_28_3/90b8d642-8acc-41c3-9a57-1ba73e5bc",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 348
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/63e1528b-15d1-44cc-a0b9-1daf05ca2b8d-gif-bota-o-menu.gi",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 139
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/63e1528b-15d1-44cc-a0b9-1daf05ca2b8d-gif-bota-o-menu.gi",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1044
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2026_03_16_10_18_12_6/33a22cd6-22bd-4080-b60c-266b61baf",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1000
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2026_03_16_10_19_24_0/8b9a8e7a-80e6-4136-93ba-ce83f7c17",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1000
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2026_03_16_10_19_39_8/c935d650-6d19-4c8f-bb75-342a701a9",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1000
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2026_08_20_21_26_34_3/d1cda97d-71c8-4f72-bc98-9c5fea890",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 139
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2026_08_20_21_26_34_3/d1cda97d-71c8-4f72-bc98-9c5fea890",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 348
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_10_13_11_25_41_3/e4c38339-e796-48a6-bec9-1b06f2c21",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 441
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/9ab092c2-e441-41f5-8aa9-62fbb761ba4b-2.png 1x, https://",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 440
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/cb0cd400-4833-4c9c-b8e6-cab660cccfbd-3.png 1x, https://",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 440
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/70e85088-7312-4abc-9316-7f81db73b8b8-4.png 1x, https://",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 440
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/e85caf18-2320-4e01-90e9-46f853bead21-1.png 1x, https://",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 440
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:low, w_400/v1/banner/1c1cf6bf-3c36-4417-8bb1-ba60e091712e-principal-mimo-lo",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1062
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 786
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 929
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 941
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 930
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 969
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 884
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 256
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 825
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 330
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 606
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1398
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 789
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 104
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 50
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 129
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 134
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 72
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 178
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 123
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 178
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 92
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 916
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 640
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 640
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 640
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 640
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 70
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 70
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 70
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 70
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 257
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_webp",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 1218
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_06_00_7/988853c1-19a0-43cf-8f7b-6f2649828",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 178
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_06_11_0/ea85a7c0-77c7-4f19-a3ef-3c32b79bd",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 172
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_06_21_1/c2d1e009-f1af-49f5-bf27-5e7e10063",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 46
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_08_46_3/1f90ebed-1199-4671-8b73-616fbde19",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 59
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_08_11_09_55_16_8/7f1cfcae-38fe-40e8-905b-ba12fbaa9",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 141
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_15_51_5/5de7d0ba-aa98-48b8-84f1-388f0e901",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 130
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_16_05_3/a50821a6-1b92-4ee7-9ed7-1aae10166",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 24
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_16_20_6/36fe392d-7fe0-4a35-ac47-95de0f18a",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 24
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_16_34_7/949e8765-53af-4515-b912-e6e7ff99c",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 24
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_16_52_7/a4a35db2-3d08-4060-b7b7-08a73e8c6",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 24
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_07_15_18_28_16_7/69589cd0-f68e-493e-8928-298142374",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 24
+      },
+      {
+        "src": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif",
+        "srcset": "https://res.cloudinary.com/beleza-na-web/image/upload/f_avif, fl_progressive, q_auto:eco, w_iw/v1/banner/2025_05_06_10_20_35_8/7fae621f-5bbb-4b41-9e30-43b12f01f",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 103
+      },
+      {
+        "src": "https://bat.bing.com/action/0?ti=307001494&Ver=2&mid=b836dd15-0a9a-48e9-84ec-3ecba2289c9a&bo=1&sid=2415db50b22111f1afab07ef1cfb020b&vid=241610b0b22111f18e68dffc471415df&vids=1&msclkid=N&pi=918639831&lg=en-US&sw=1440&sh=9",
+        "srcset": "",
+        "complete": true,
+        "naturalWidth": 0,
+        "width": 0
+      }
+    ]
+  },
+  "assetTraceCount": 34,
+  "geckoTraceCount": 1126
+}

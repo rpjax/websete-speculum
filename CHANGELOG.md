@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/rpjax/websete-speculum/compare/v0.2.0...v0.3.0) (2026-09-21)
+
+
+### Features
+
+* **gecko:** engine fork, PageProjection parity, and API orchestrator wire ([#11](https://github.com/rpjax/websete-speculum/issues/11)) ([cfc78e1](https://github.com/rpjax/websete-speculum/commit/cfc78e143f26295d97a0b9ed5905db3e2444d779))
+* **motor:** PageProjection 0.3.0 migration M0–M8 + Live PP gates ([#9](https://github.com/rpjax/websete-speculum/issues/9)) ([8005496](https://github.com/rpjax/websete-speculum/commit/8005496bf67ba23cdbefeee4dd029e84fd3d9f89))
+
+
+### Continuous Integration
+
+* dispatch Publish images after Release Please creates a release ([#7](https://github.com/rpjax/websete-speculum/issues/7)) ([6369dcc](https://github.com/rpjax/websete-speculum/commit/6369dcc8059a1d0f06f7aae68c7e0293bf25b30a))
+
 ## [0.3.0] — unreleased
 
 ### PageProjection (motor)

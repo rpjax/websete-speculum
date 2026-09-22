@@ -1,6 +1,6 @@
 # Sessão mínima: abrir viewport, navegar, primeira mutação, um patch.
 !roteiro 1
-!schema  0000000000000000
+!schema  019b629d0cc8374708a62af3177a1f22d06dd0b817a22a32db6dd34a61137142
 !seed    1
 
 @0

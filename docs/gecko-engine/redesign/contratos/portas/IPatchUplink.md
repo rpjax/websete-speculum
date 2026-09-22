@@ -14,8 +14,9 @@ vão.
 ## Contrato
 ```cpp
 struct IPatchUplink {
-  virtual void publish(DocumentRef, uint32_t sequence, std::span<const uint8_t> patch) = 0;
-  virtual void publishSnapshot(DocumentRef, CorrelationId, const SnapshotHeader&,
+  // DocumentId = { HostId, Generation } — 11-identidade; sem DocumentRef mintado.
+  virtual void publish(DocumentId, uint32_t sequence, std::span<const uint8_t> patch) = 0;
+  virtual void publishSnapshot(DocumentId, CorrelationId, const SnapshotHeader&,
                                std::span<const uint8_t>) = 0;
   virtual bool isDrained() const = 0;
   virtual ~IPatchUplink() = default;

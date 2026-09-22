@@ -14,23 +14,21 @@ despacho de entrada nele.
 ## Contrato
 ```cpp
 struct IEngineDocument {
-  virtual DocumentRef id() const = 0;
-  virtual HostId    frame() const = 0;
-  virtual ProcessId  process() const = 0;
-  virtual bool       isAlive() const = 0;
+  virtual DocumentId id() const = 0;   // { host, generation } — 11-identidade
 
   virtual const IDocumentView& view() const = 0;
   virtual void  attach(IDocumentObserver*) = 0;
 
-  virtual Result<void> dispatch(const ResolvedGesture&) = 0;
-  virtual Result<Box>  boxOf(Ref<Node>) const = 0;
+  virtual Result<void> dispatch(NodeRef, const ResolvedGesture&) = 0;
+  virtual Box          boxOf(NodeRef) const = 0;
   virtual ~IEngineDocument() = default;
 };
 ```
 
 ## Semântica
-- **`DocumentRef` é novo a cada navegação.** O que sobrevive é o `HostId`. Por isso não existe
-  `generation`: "o conteúdo do slot foi trocado" é dito por o id do documento ter mudado.
+- **Identidade = `(HostId, Generation)`.** Contador por host; sem mint global. Ver
+  [`../../11-identidade.md`](../../11-identidade.md). O que sobrevive à navegação é o `HostId`
+  (slot); a `Generation` sobe a cada carga.
 - **Teardown por destruição de objeto.** Navegar destrói este objeto e cria outro. A projeção,
   a tabela de identidade e o ledger são dele e morrem junto — não há rotina de reset limpando
   sete estruturas na mão, e não há a oitava que alguém esqueceu.

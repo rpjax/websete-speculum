@@ -33,14 +33,22 @@ class Writer { bool ok(); /* simétrico */ size_t length(); };
 - `str` devolve vista para dentro do buffer: sem cópia, sem alocação.
 - Nenhuma leitura ultrapassa o span, jamais.
 
-## `Envelope` — 12 bytes alinhados
+## `Envelope` — 16 bytes fixos
 
 ```cpp
-struct Envelope { OpCode op; uint16_t flags; DocumentRef document; uint32_t length;
-                  CorrelationId correlation; /* só se flags.HasCorrelation */ };
+struct Envelope {
+  uint16_t opcode;
+  uint16_t reserved;     // zero; alinha target em 4
+  uint32_t target;       // host ou viewport; 0 = sessão
+  uint32_t length;
+  uint32_t correlation;  // 0 = espontânea
+};
 ```
 
-**Não é responsável por:** interpretar payload. Frame é opaco aqui, sempre.
+Autoridade: [`schema/speculum.wire.toml`](../../schema/speculum.wire.toml) +
+[`schema/README.md`](../../schema/README.md) §5. Sem flags, sem ramo no decoder.
+
+**Não é responsável por:** interpretar payload. Payload é opaco aqui, sempre.
 
 ## `Framer` — bytes picados → envelopes
 

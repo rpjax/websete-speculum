@@ -26,12 +26,17 @@ consome um id que nunca aparece no fio. O supervisor tolera; é propriedade do p
 
 `ProcessId` vem do motor, não é mintado aqui.
 
-## `generation` não existe
+## Identidade do documento — `(HostId, Generation)`
 
-Era um eixo inventado para dizer "o conteúdo do slot foi trocado" numa época em que o id
-sobrevivia à navegação e portanto **não identificava um documento**. Agora o `HostId` é o
-slot e o `DocumentRef` é novo a cada carga: o conteúdo ter sido trocado é dito por o id do
-documento ter mudado. Um conceito a menos, sem perder nada.
+Verdade em [`../../11-identidade.md`](../../11-identidade.md). O `HostId` é o **slot** (frame).
+Cada navegação incrementa um contador `Generation` **por host** (nunca zero enquanto há
+documento; `0` = slot vazio). O documento vivo é o par:
+
+```cpp
+struct DocumentId { HostId host; Generation generation; };
+```
+
+Não há mint global de documento. `DocumentRef` como id opaco mintado **não existe**.
 
 ## `HostNode` e `Hosts`
 
@@ -39,7 +44,7 @@ documento ter mudado. Um conceito a menos, sem perder nada.
 struct HostNode {
   HostId id, parent;             // parent == 0 → raiz de um viewport
   ViewportId viewport;
-  DocumentRef document;            // o de agora; 0 entre uma carga e outra
+  Generation generation;         // 0 = vazio; senão documento = (id, generation)
   Extent     extent;
   NavigationState nav;
 };
@@ -48,7 +53,7 @@ class Hosts {
   void attach(const HostNode&);
   void detach(HostId);                        // fecha a subárvore
   const HostNode* find(HostId) const;
-  void installDocument(HostId, DocumentRef);   // navegou
+  void installDocument(HostId, Generation);   // navegou
   void discardDocument(HostId);
   void forEachChild(HostId, Visitor&) const;
   void forEachInSubtree(HostId, Visitor&) const;
@@ -70,10 +75,10 @@ subárvore atravessando processos. Uma regra, explícita.
 
 ```cpp
 class Documents {
-  void install(DocumentRef, HostId, ProcessId);
-  void discard(DocumentRef);
+  void install(DocumentId, ProcessId);
+  void discard(DocumentId);
   void discardAllOfProcess(ProcessId);
-  const DocumentRecord* find(DocumentRef) const;
+  const DocumentRecord* find(DocumentId) const;
   bool checkInvariants() const;                // todo documento com frame vivo e processo vivo
 };
 ```

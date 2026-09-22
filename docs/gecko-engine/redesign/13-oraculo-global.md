@@ -164,12 +164,16 @@ ser lida por gente.
 ## 7. A afirmação completa
 
 > Com tudo congelado num corte coerente:
-> a **ida** prova que o caminho incremental chegou onde o caminho de construção chega;
+> a **ida** prova que o estado armazenado (`d(VTR)`) coincide com a leitura fresca do vivo
+> (`d(VN)`);
 > a **volta** prova que a tabela descreve a realidade sem faltar nada que deveria estar lá;
 > e o **livro-razão** mostra o que foi deixado de fora, item por item.
 >
 > Sustentado sobre a suíte de fixtures, isso estabelece o produtor.
 > **Divergência depois disso é do cliente.**
+
+(Texto anterior que falava em “caminho incremental chegou onde o caminho de construção chega”
+para a ida está alinhado a 13 §2: fontes de verdade, não dois algoritmos.)
 
 ## 8. Custo, e onde roda
 

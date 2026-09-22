@@ -1,0 +1,7 @@
+# refuse rule 2 — direction disagrees with high bit
+[[message]]
+name = "Bad"
+opcode = 0x8101
+direction = "inbound"
+target = "session"
+fields = []

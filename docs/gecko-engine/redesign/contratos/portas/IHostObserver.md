@@ -20,7 +20,7 @@ struct IHostObserver {
   virtual void onLocationChanged(std::string_view url) = 0;
 
   virtual void onDocumentInstalled(IEngineDocument&) = 0;
-  virtual void onDocumentDiscarded(DocumentRef) = 0;
+  virtual void onDocumentDiscarded(DocumentId) = 0;  // { host, generation }
 
   virtual void onPromptRequested(PromptKind, RequestId, std::span<const uint8_t> description) = 0;
   virtual void onPromptAbandoned(RequestId) = 0;

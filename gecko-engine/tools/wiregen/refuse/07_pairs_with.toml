@@ -1,0 +1,15 @@
+# refuse rule 7 — pairs_with not reciprocal
+[[message]]
+name = "Ask"
+opcode = 0x0101
+direction = "inbound"
+target = "session"
+pairs_with = "Ans"
+fields = []
+
+[[message]]
+name = "Ans"
+opcode = 0x8101
+direction = "outbound"
+target = "session"
+fields = []

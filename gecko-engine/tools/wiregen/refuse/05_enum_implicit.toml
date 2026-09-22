@@ -1,0 +1,12 @@
+# refuse rule 5 — enum value missing number (implicit)
+[[enum]]
+name = "E"
+width = "u8"
+values = [ { name = "A" } ]
+
+[[message]]
+name = "M"
+opcode = 0x0101
+direction = "inbound"
+target = "session"
+fields = []

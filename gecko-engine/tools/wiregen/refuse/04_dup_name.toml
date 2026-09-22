@@ -1,0 +1,14 @@
+# refuse rule 4 — duplicate message name
+[[message]]
+name = "Dup"
+opcode = 0x0101
+direction = "inbound"
+target = "session"
+fields = []
+
+[[message]]
+name = "Dup"
+opcode = 0x0102
+direction = "inbound"
+target = "session"
+fields = []

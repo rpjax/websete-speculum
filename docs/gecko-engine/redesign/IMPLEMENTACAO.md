@@ -70,7 +70,8 @@ verificável em vez de aposta.
 **Ler:** [02](02-camadas.md) · [03](03-portas.md) · [06](06-taxonomia.md) · [08](08-fio.md) · [schema/](schema/README.md) · [fault](contratos/dominio/fault.md) · [wire](contratos/dominio/wire.md)
 
 **Entregar:** layout `domain/ ports/ engines/ host/` · regra de camada no CI · `Fault` + tabela
-`actionOf` · tipos de id (`ViewportId`, `HostId`, `Generation`, `DocumentRef`, `Ref<Space>`) ·
+`actionOf` · tipos de id (`ViewportId`, `HostId`, `Generation`, `Ref<Space>` — identidade de
+documento é o par `(HostId, Generation)`, sem mint global) ·
 gerador TOML→C++/TS/C# · `Cursor`, `Envelope`, `Framer`, `Limits`.
 
 **Aceite:**
@@ -249,6 +250,9 @@ caminho de produto; nível em vez de toggle.
 - Custo por op **plano** com o tamanho do lote, medido, não afirmado.
 
 **Proibido:** amolecer fixture para ficar verde ([assert-failure-policy](../../assert-failure-policy.md)).
+
+**Entregue:** `tests/phase7/fixtures/` (sete classes + adversárias nomeadas) · `SpecDriver` ·
+`scripts/phase7/run.ps1`.
 
 ---
 

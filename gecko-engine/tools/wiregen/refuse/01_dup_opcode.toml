@@ -1,0 +1,19 @@
+# refuse rule 1 — duplicate opcode
+[[enum]]
+name = "E"
+width = "u8"
+values = [ { name = "A", number = 1 } ]
+
+[[message]]
+name = "A"
+opcode = 0x0101
+direction = "inbound"
+target = "session"
+fields = []
+
+[[message]]
+name = "B"
+opcode = 0x0101
+direction = "inbound"
+target = "session"
+fields = []

@@ -88,7 +88,8 @@ fio verde — e pega **no tick em que acontece**, não na próxima varredura.
 
 ```cpp
 // Total sobre ausência dos dois lados. Sem estado, sem DOM, sem motor.
-RowChanges emit(const NodeDescriptor* prev, const NodeDescriptor* curr);
+// DirtyMask (projection.md) limita quais campos o diff toca — O(sujos).
+RowChanges emit(const NodeDescriptor* prev, const NodeDescriptor* curr, DirtyMask);
 ```
 
 | entrada | saída |

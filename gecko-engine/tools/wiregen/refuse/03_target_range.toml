@@ -1,0 +1,7 @@
+# refuse rule 3 — opcode range disagrees with target
+[[message]]
+name = "Bad"
+opcode = 0x0201
+direction = "inbound"
+target = "session"
+fields = []

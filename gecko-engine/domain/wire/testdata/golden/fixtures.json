@@ -1,0 +1,401 @@
+{
+  "schema_sha256": "019b629d0cc8374708a62af3177a1f22d06dd0b817a22a32db6dd34a61137142",
+  "message_count": 48,
+  "fixtures": {
+    "FreezeAll": {
+      "opcode": 3856,
+      "fields": {
+        "timeoutMs": 2684354561
+      }
+    },
+    "CaptureState": {
+      "opcode": 3857,
+      "fields": {
+        "token": 2684354561,
+        "kind": 3
+      }
+    },
+    "ThawAll": {
+      "opcode": 3858,
+      "fields": {
+        "token": 2684354561
+      }
+    },
+    "Probe": {
+      "opcode": 3841,
+      "fields": {
+        "id": 2,
+        "args": [
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    "Shutdown": {
+      "opcode": 257,
+      "fields": {}
+    },
+    "ViewportOpen": {
+      "opcode": 258,
+      "fields": {
+        "extent": {
+          "width": -1002,
+          "height": -1002
+        }
+      }
+    },
+    "ViewportClose": {
+      "opcode": 513,
+      "fields": {}
+    },
+    "ViewportResize": {
+      "opcode": 514,
+      "fields": {
+        "extent": {
+          "width": -1002,
+          "height": -1002
+        }
+      }
+    },
+    "Navigate": {
+      "opcode": 769,
+      "fields": {
+        "url": "s1"
+      }
+    },
+    "Reload": {
+      "opcode": 770,
+      "fields": {}
+    },
+    "StopLoad": {
+      "opcode": 771,
+      "fields": {}
+    },
+    "HistoryGo": {
+      "opcode": 772,
+      "fields": {
+        "delta": -1001
+      }
+    },
+    "HostResize": {
+      "opcode": 773,
+      "fields": {
+        "extent": {
+          "width": -1002,
+          "height": -1002
+        }
+      }
+    },
+    "Resync": {
+      "opcode": 774,
+      "fields": {
+        "force": 1,
+        "scope": 0
+      }
+    },
+    "ClocksHalt": {
+      "opcode": 775,
+      "fields": {
+        "scope": 1
+      }
+    },
+    "ClocksResume": {
+      "opcode": 776,
+      "fields": {
+        "scope": 1
+      }
+    },
+    "PromptRespond": {
+      "opcode": 777,
+      "fields": {
+        "request": 2684354561,
+        "answer": [
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    "Flush": {
+      "opcode": 1025,
+      "fields": {
+        "generation": 2684354561
+      }
+    },
+    "Snapshot": {
+      "opcode": 1026,
+      "fields": {
+        "generation": 2684354561
+      }
+    },
+    "InputPointerDown": {
+      "opcode": 1040,
+      "fields": {
+        "generation": 2684354561,
+        "node": 2684354562,
+        "localX": 4099,
+        "localY": 4100,
+        "button": 2
+      }
+    },
+    "InputPointerUp": {
+      "opcode": 1041,
+      "fields": {
+        "generation": 2684354561,
+        "node": 2684354562,
+        "localX": 4099,
+        "localY": 4100,
+        "button": 2
+      }
+    },
+    "InputKeyDown": {
+      "opcode": 1042,
+      "fields": {
+        "stroke": {
+          "key": "s2",
+          "code": "s2",
+          "mods": 2
+        }
+      }
+    },
+    "InputKeyUp": {
+      "opcode": 1043,
+      "fields": {
+        "stroke": {
+          "key": "s2",
+          "code": "s2",
+          "mods": 2
+        }
+      }
+    },
+    "InputScroll": {
+      "opcode": 1044,
+      "fields": {
+        "generation": 2684354561,
+        "node": 2684354562,
+        "fracX": 4099,
+        "fracY": 4100
+      }
+    },
+    "AssetRequest": {
+      "opcode": 1056,
+      "fields": {
+        "generation": 2684354561,
+        "stream": 2684354562,
+        "url": "s3"
+      }
+    },
+    "AssetCancel": {
+      "opcode": 1057,
+      "fields": {
+        "stream": 2684354561
+      }
+    },
+    "Ready": {
+      "opcode": 33025,
+      "fields": {}
+    },
+    "Heartbeat": {
+      "opcode": 33026,
+      "fields": {
+        "monotonicMs": 12682136550675316737
+      }
+    },
+    "ViewportOpened": {
+      "opcode": 33281,
+      "fields": {
+        "rootHost": 2684354561
+      }
+    },
+    "ViewportClosed": {
+      "opcode": 33282,
+      "fields": {}
+    },
+    "HostAttached": {
+      "opcode": 33537,
+      "fields": {
+        "parent": 2684354561,
+        "viewport": 2684354562
+      }
+    },
+    "HostDetached": {
+      "opcode": 33538,
+      "fields": {}
+    },
+    "DocumentInstalled": {
+      "opcode": 33539,
+      "fields": {
+        "generation": 2684354561
+      }
+    },
+    "DocumentDiscarded": {
+      "opcode": 33540,
+      "fields": {
+        "generation": 2684354561
+      }
+    },
+    "Navigated": {
+      "opcode": 33541,
+      "fields": {
+        "url": "s1"
+      }
+    },
+    "LoadStateChanged": {
+      "opcode": 33542,
+      "fields": {
+        "state": 2
+      }
+    },
+    "PromptRequested": {
+      "opcode": 33543,
+      "fields": {
+        "request": 2684354561,
+        "kind": 3,
+        "description": [
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    "PromptAbandoned": {
+      "opcode": 33544,
+      "fields": {
+        "request": 2684354561
+      }
+    },
+    "Patch": {
+      "opcode": 33793,
+      "fields": {
+        "generation": 2684354561,
+        "sequence": 2684354562,
+        "flags": 4099,
+        "builtAt": 2684354564,
+        "metrics": [
+          {
+            "id": 2,
+            "value": 12682136550675316742
+          },
+          {
+            "id": 3,
+            "value": 12682136550675316743
+          }
+        ],
+        "deltas": [
+          6,
+          7,
+          8
+        ]
+      }
+    },
+    "Snapshotted": {
+      "opcode": 33794,
+      "fields": {
+        "generation": 2684354561,
+        "sequence": 2684354562,
+        "digest": 12682136550675316739,
+        "dump": [
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    "AssetChunk": {
+      "opcode": 33824,
+      "fields": {
+        "stream": 2684354561,
+        "offset": 12682136550675316738,
+        "data": [
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    "AssetEnd": {
+      "opcode": 33825,
+      "fields": {
+        "stream": 2684354561,
+        "total": 12682136550675316738
+      }
+    },
+    "AssetDenied": {
+      "opcode": 33826,
+      "fields": {
+        "stream": 2684354561,
+        "code": 3
+      }
+    },
+    "Fault": {
+      "opcode": 36609,
+      "fields": {
+        "code": 2,
+        "flags": 2684354562,
+        "origin": "s3",
+        "message": "s4",
+        "data": [
+          {
+            "key": 7,
+            "tag": 2,
+            "num": 12682136550675316742,
+            "text": "s6"
+          },
+          {
+            "key": 8,
+            "tag": 3,
+            "num": 12682136550675316743,
+            "text": "s7"
+          }
+        ]
+      }
+    },
+    "FreezeResult": {
+      "opcode": 36624,
+      "fields": {
+        "token": 2684354561,
+        "frozen": 2684354562,
+        "expected": 2684354563
+      }
+    },
+    "StateCaptured": {
+      "opcode": 36625,
+      "fields": {
+        "token": 2684354561,
+        "host": 2684354562,
+        "generation": 2684354563,
+        "kind": 2,
+        "digest": 12682136550675316741,
+        "image": [
+          6,
+          7,
+          8
+        ]
+      }
+    },
+    "ProbeResult": {
+      "opcode": 36611,
+      "fields": {
+        "id": 2,
+        "enabled": true,
+        "payload": [
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    "Telemetry": {
+      "opcode": 36610,
+      "fields": {
+        "id": 2,
+        "payload": [
+          2,
+          3,
+          4
+        ]
+      }
+    }
+  }
+}

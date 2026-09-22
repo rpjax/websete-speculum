@@ -99,9 +99,11 @@ diz qual mentiu.
 ### O1 — tabela × estado real do Gecko
 **Reformulado em [`13-oraculo-global.md`](13-oraculo-global.md).** Não é "caminhar o DOM e
 comparar": essa comparação seria uma segunda implementação da semântica, com ponto cego
-silencioso. É congelamento global coordenado + duas travessias — **ida** (reconstruir a tabela
-do estado congelado e comparar tabela com tabela) e **volta** (reconstruir a estrutura a
-partir da tabela e comparar com varredura ingênua do real).
+silencioso. É congelamento global coordenado + duas travessias — **ida** (`d(VN)` fresco ×
+`d(VTR)` armazenado, hash contra hash) e **volta** (reconstruir a estrutura a partir da
+tabela e comparar com varredura ingênua do real). Texto antigo que falava em "dois
+algoritmos" / "reconstruir a tabela do estado congelado" para a ida está **superado** por
+13 §2.
 **Custo: o mais alto do sistema.** Sob demanda, nunca por tick.
 
 ### O2 — quadros × tabela
@@ -186,6 +188,10 @@ A última linha é a que faz a suíte crescer em valor em vez de envelhecer.
 
 **Critério de aceite da suíte:** todas as capacidades de oráculo verdes em todas, e o roteiro de cada uma reexecuta
 byte-idêntico no `sim`.
+
+**Implementação (Fase 7):** fixtures em `gecko-engine/tests/phase7/fixtures/<classe>/`;
+replay das linhas `>` via `SpecDriver`; gate `scripts/phase7/run.ps1`. Todo defeito novo vira
+`.spec` permanente em `adversaria/`.
 
 ## 7. Descartados
 

@@ -23,14 +23,17 @@ segue de pé.
 
 ```
 u16  OpCode
-u16  Flags
-u32  TargetId         roteamento: frame OU documento, conforme o opcode; 0 = sessão
+u16  Reserved       // zero; alinha target
+u32  TargetId       // host ou viewport; 0 = sessão
 u32  Length
-[u32 Correlation]     presente só se Flags.HasCorrelation
-...  Payload
+u32  Correlation    // 0 = espontânea
 ```
 
-Doze bytes, alinhados. Mudanças em relação ao fio antigo, e o motivo de cada uma:
+Dezesseis bytes, alinhados, **sem flags e sem ramo** no decoder. Autoridade do layout:
+[`schema/speculum.wire.toml`](schema/speculum.wire.toml). (Trechos mais velhos deste doc que
+falavam em 12 bytes + flags opcionais estão superados pelo schema ESTABELECIDO.)
+
+Mudanças em relação ao fio antigo, e o motivo de cada uma:
 
 | mudou | antes | por quê |
 |---|---|---|
@@ -38,12 +41,12 @@ Doze bytes, alinhados. Mudanças em relação ao fio antigo, e o motivo de cada 
 | uma taxonomia | `Kind` **e** faixas de opcode | dois eixos respondiam "que mensagem é essa" |
 | `Hello` morreu | Kind próprio, payload vazio | `Ready` já era a mesma mensagem |
 | ativo deixou de ser sub-protocolo | Kind `0x06` com byte de fase | protocolo dentro do protocolo; agora são opcodes |
-| correlação opcional | em toda mensagem de controle | `Heartbeat` e mudança de estado de carga não respondem nada |
+| correlação sempre presente | flags + campo opcional | ramo no decoder é onde mora bug; 4 bytes fixos saem mais baratos |
 | id uma vez | no envelope **e** no prefixo do patch | duas cópias da mesma verdade |
-| `Frame` virou `Patch` | a palavra significava três coisas | o slot é `Frame`; o lote de deltas é `Patch` |
+| `Frame` virou `Patch` | a palavra significava três coisas | o slot é `Host`; o lote de deltas é `Patch` |
 
-Direção é estrutural: o bit `Flags.Inbound` diz de onde a mensagem pode vir, e o gerador
-recusa declarar um opcode nas duas direções.
+Direção é o bit alto do opcode (`0x8xxx` = motor→supervisor). O gerador recusa declaração
+cujo `direction` discorde do bit.
 
 ## 3. Vocabulário — em linguagem de domínio
 

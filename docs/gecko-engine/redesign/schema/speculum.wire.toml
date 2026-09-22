@@ -113,7 +113,7 @@ name   = "CaptureKind"
 width  = "u8"
 values = [
   { name = "Table",   number = 1 },   # tabela viva do produtor
-  { name = "Rebuilt", number = 2 },   # IDA: tabela reconstruída do estado congelado
+  { name = "Rebuilt", number = 2 },   # fio: dump d(VN)/captureLive até rename formal (não é "dois algoritmos")
   { name = "Naive",   number = 3 },   # varredura ingênua do DOM/CSSOM real
 ]
 

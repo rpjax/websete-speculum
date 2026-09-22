@@ -1,0 +1,7 @@
+# refuse rule 6 — list max > 255
+[[message]]
+name = "M"
+opcode = 0x0101
+direction = "inbound"
+target = "session"
+fields = [ { name = "xs", type = "list<u8>", max = 300 } ]

@@ -75,15 +75,17 @@ schema — sem buraco e sem sobra.
 
 ```cpp
 class Correlations {
-  void                  remember(CorrelationId, PendingKind, DocumentRef);
+  void                  remember(CorrelationId, PendingKind, HostId, Generation);
   std::optional<Pending> take(CorrelationId);        // consome
-  void                  forgetDocument(DocumentRef);
+  void                  forgetHost(HostId, Generation);
   size_t                pending() const;
 };
 ```
 
+Identidade de documento é o par `(HostId, Generation)` — sem mint global ([`11-identidade.md`](../../11-identidade.md)).
+
 - `take` consome: uma resposta atende um pedido, uma vez. Segunda é órfã, descartada com log.
-- `forgetDocument` impede o vazamento quando um documento morre com pedidos pendentes.
+- `forgetHost` impede o vazamento quando aquele documento morre com pedidos pendentes.
 - `pending() == 0` ao fim de uma sessão limpa é asserção de teste, não esperança — foi ela que
   revelou a correlação vazando no cenário de dois `Navigate` em rajada.
 

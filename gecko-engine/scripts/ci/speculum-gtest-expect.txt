@@ -1,0 +1,16 @@
+# Expected Speculum gtest cases. Format: Suite\tCaseName
+# Gate: scripts/ci/assert-gtest-registration.sh (+ mach count in run-speculum-gtest.sh)
+SpeculumPhase7	FixtureSuiteOnGecko
+SpeculumPhase8	XulGlueLinked
+SpeculumPhase8	RawNodeMapForget
+SpeculumPhase8	A1_LeakTeardown
+SpeculumPhase8	VerticalSliceLeak
+SpeculumPhase8	A2_CssomProcessOwned
+SpeculumPhase8	A3_NestedShadow
+SpeculumPhase8	A4_LinkApplicableNoRule
+SpeculumPhase8	A5_SiteIsolationProcessSwap
+SpeculumPhase8	A6_VerticalSlice
+SpeculumPhase8	A8_CompositionGlueLinked
+SpeculumPhase8	A9_CssomAndNodeLeakZero
+SpeculumPhase9	DigestVectors
+SpeculumPhase9	SimGeckoWireParity

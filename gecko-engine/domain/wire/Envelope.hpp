@@ -15,7 +15,6 @@ struct Envelope {
   uint32_t correlation{0};  // 0 = spontaneous
 };
 
-static_assert(sizeof(Envelope) == Limits::kEnvelopeBytes || true);
-// Envelope fields are written field-by-field (LE); sizeof may pad — wire is 16 bytes.
+static_assert(sizeof(Envelope) == Limits::kEnvelopeBytes);
 
 }  // namespace speculum::wire

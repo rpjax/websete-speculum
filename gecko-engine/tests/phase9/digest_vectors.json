@@ -1,0 +1,11 @@
+{
+  "digestBytes": [
+    { "name": "empty", "bytes": [], "digest": "14695981039346656037" },
+    { "name": "abc", "bytes": [1, 2, 3], "digest": "15035938162879559083" },
+    { "name": "pp-prefix", "bytes": [80, 80, 1, 0], "digest": "12371602691264503308" }
+  ],
+  "digestTable": [
+    { "tableHash": "0", "sequence": 1, "digest": "15568218984286027500" },
+    { "tableHash": "123456789", "sequence": 42, "digest": "1290199026284317214" }
+  ]
+}

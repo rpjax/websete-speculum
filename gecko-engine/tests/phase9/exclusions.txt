@@ -1,0 +1,4 @@
+# Phase 9 — cenários que só rodam em um motor.
+# Formato: path/relativo.spec<TAB>motivo (obrigatório; silêncio = fail no harness)
+# Exemplo:
+# cssom/only-gecko.spec	Gecko stylesheet cascade not modelled in SimDocument

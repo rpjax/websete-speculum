@@ -14,6 +14,7 @@ class IStateFreezer {
   virtual void thawAll(oracle::FreezeToken) = 0;
   virtual uint32_t frozenCount() const = 0;
   virtual uint32_t expectedCount() const = 0;
+  virtual bool isValid(oracle::FreezeToken) const = 0;
 };
 
 }  // namespace speculum

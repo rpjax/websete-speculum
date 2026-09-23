@@ -12,8 +12,10 @@
 #include "domain/roteiro/Recorder.hpp"
 #include "domain/roteiro/Symbols.hpp"
 #include "domain/session/fakes/ManualClock.hpp"
-#include "engines/sim/SimEngine.hpp"
 #include "ports/IAssetReader.hpp"
+
+// Concrete engines live in the test layer (tests/phase7/EngineTraits.hpp).
+// RunnerT is Traits-parameterized — domain must not include engines/** (02-camadas).
 
 namespace speculum::roteiro {
 
@@ -40,11 +42,14 @@ struct Scenario {
   bool haltCoalesce{false};
 };
 
-class Runner {
+template <typename Traits>
+class RunnerT {
  public:
-  explicit Runner(std::string schemaHash) : schema_(std::move(schemaHash)) {}
+  using Engine = typename Traits::Engine;
 
-  // record: drive sim, return .spec text
+  explicit RunnerT(std::string schemaHash) : schema_(std::move(schemaHash)) {}
+
+  // record: drive engine, return .spec text
   RunResult record(const Scenario& sc, BlobStore* blobs = nullptr) {
     RunResult rr;
     ManualClock clock;
@@ -56,7 +61,7 @@ class Runner {
     RecordingClock rclock(clock, &rec);
     RecordingPatchUplink ruplink(uplink, &rec);
 
-    sim::SimEngine eng;
+    Engine eng;
     eng.setProducerDeps(&rclock, &ruplink);
 
     auto pSym = rec.symbols().mint(SymKind::Process);
@@ -72,8 +77,7 @@ class Runner {
     }
     auto vSym = rec.symbols().intern(SymKind::Viewport, vr.value().value());
     auto fSym = rec.symbols().intern(SymKind::Frame, root.value());
-    rec.noteIn(EventName::HostViewportOpen,
-               vSym + " " + fSym + " 1280x720");
+    rec.noteIn(EventName::HostViewportOpen, vSym + " " + fSym + " 1280x720");
 
     if (!eng.doNavigate(root, sc.url, 1).ok()) {
       rr.ok = false;
@@ -84,7 +88,7 @@ class Runner {
     rec.noteIn(EventName::FrameLoadStart, fSym);
     eng.emitLoadStarted(root);
     rec.noteTime(120);
-    auto* doc = eng.simDocumentOf(root);
+    auto* doc = Traits::documentOf(eng, root);
     auto* prod = eng.producerOf(doc->id());
     auto dSym = rec.symbols().intern(
         SymKind::Document,
@@ -110,7 +114,6 @@ class Runner {
       prod->patchClock().resume();
     } else if (prod) {
       rec.noteTime(137);
-      // Fire pending timer if any
       clock.advance(200);
       prod->flush();
     }
@@ -151,7 +154,6 @@ class Runner {
       return rr;
     }
 
-    // Compare `<` lines in order (canonical event+args).
     std::vector<const SpecLine*> expOut, gotOut;
     for (const auto& l : parsed.file.lines)
       if (l.kind == LineKind::Out) expOut.push_back(&l);
@@ -180,7 +182,6 @@ class Runner {
     return rr;
   }
 
-  // checkFile with schema refuse
   RunResult checkRefuseBadSchema(std::string_view text) {
     RunResult rr;
     auto parsed = parseSpec(text);

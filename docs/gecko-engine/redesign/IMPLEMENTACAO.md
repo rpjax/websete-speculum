@@ -57,6 +57,9 @@ divergência silenciosa três meses depois. Pergunte.
 3. Implementa.
 4. O aceite é **mecânico**: roda, ou não roda. Nenhum item de aceite é opinião.
 5. Nenhuma fase começa com a anterior amarela.
+6. **O gate de uma fase é um comando só**, e ele é alvo do w7s ou script de pacote
+   versionado. Script de fase ad-hoc (`scripts/phaseN/*`) não é gate: é lista de
+   modificação concorrente disfarçada, e foi exatamente o que apodreceu antes.
 
 **Ordem não é sugestão.** Ela existe porque cada fase constrói a rede que torna a seguinte
 verificável em vez de aposta.
@@ -252,7 +255,7 @@ caminho de produto; nível em vez de toggle.
 **Proibido:** amolecer fixture para ficar verde ([assert-failure-policy](../../assert-failure-policy.md)).
 
 **Entregue:** `tests/phase7/fixtures/` (sete classes + adversárias nomeadas) · `SpecDriver` ·
-`scripts/phase7/run.ps1`.
+gate da fase (ver §2).
 
 ---
 
@@ -260,21 +263,45 @@ caminho de produto; nível em vez de toggle.
 
 **Objetivo:** o primeiro contato com libxul — com rede embaixo.
 
+**Pré-condição (bloqueante):** `w7s gecko make gecko-binary` fecha do zero, por um comando
+só, sem script auxiliar. Verificação: `.w7s/state.json` tem `artifacts.gecko-binary` com
+fingerprint; uma segunda corrida reporta *current* sem rebuild forçado; `--dry-run` sobre
+`gecko-source` reporta zero escritas; nenhum `scripts/**` e nenhum `*.py` de apply/fix/patch
+participa do caminho. **Enquanto isso não estiver verde, a Fase 8 não começa.** O que falha
+antes disso é ferramenta de build, não adaptador, e o conserto vai no w7s ou em
+`modifications/` — nunca em script de fase.
+
 **Ler:** [ITERACAO-06](iteracoes/ITERACAO-06-gecko-real.md) · [IDocumentView](contratos/portas/IDocumentView.md) · [02 §4](02-camadas.md)
 
 **Entregar:** `engines/gecko/` implementando as mesmas portas.
 
 **Aceite:**
 - **Zero referência forte a nó.** Ponteiro cru limpo em `NodeWillBeDestroyed`. Verificado por
-  teste de vazamento, não por leitura.
-- Tabela de CSSOM possuída pelo **processo**, nunca pelo documento. Ciclo provado ausente.
-- Shadow root anexado **recursivamente**; fixture com shadow aninhado prova que nada some.
-- Nenhuma operação alcançável de uma notificação roda script — provado pelo grafo de injeção,
-  não por inspeção.
-- Adaptador **sem decisão**: nenhum `if` de política. Revisão rejeita qualquer um.
-- A suíte da Fase 7 verde sobre `engines/gecko`.
+  `mach gtest SpeculumPhase8.*` (teardown + cycle collector → `RawNodeMap` vazio; CSSOM/StyleSheet
+  limpos no A9), não por leitura.
+- Tabela de CSSOM possuída pelo **processo**, nunca pelo documento (A2).
+- Shadow root anexado **recursivamente**; fixture `aninhamento/nested-shadow.spec` + A3.
+- Nenhuma operação na cola xul (`engines/gecko/xul/*`) menciona APIs de entrada de script —
+  gate textual `scripts/ci/assert-observer-no-script.sh` (não grafo transitivo de includes).
+- **Incapacidade de política:** `engines/gecko/**` não inclui `domain/producer/Policy.hpp`
+  (único header de política em [02 §1](02-camadas.md) sob `producer/`). Mesmo gate textual.
+- A suíte da Fase 7 verde sobre `engines/gecko`: `mach gtest SpeculumPhase7.*` (único sítio;
+  não há A7 no Phase8).
 
 **Proibido:** lógica no adaptador; `RefPtr` de nó; qualquer atalho "só para subir".
+
+**Entregue:** `engines/gecko/` nas mesmas portas · cola `nsI*` em `engines/gecko/xul/` ·
+`RawNodeMap` / `CssomTable` no processo · `MutationBridge` · w7s `modifications/`
+(`dom/speculum` + install `dom/moz.build`) · `tests/phase7/FixtureSuite.hpp` (corpo único;
+host Sim + gtest Gecko) · gate `gecko-binary` + `mach gtest SpeculumPhase7.*` +
+`mach gtest SpeculumPhase8.*`, executado pelo w7s. Sem script de fase.
+
+**Porta =** `ports/*.hpp` (não o markdown visitor).
+
+**Sistema de arquivos:** o w7s recusa aplicar `modifications/` sobre árvore em drive Windows.
+Manifesto e árvore vivem em filesystem WSL, com bind-mount real do host WSL — o que exige a
+integração WSL do Docker Desktop ligada para a distro. Named volume alimentado por cópia
+(`tar`/`rsync`) é contorno e não fecha a fase.
 
 ---
 
@@ -288,14 +315,27 @@ caminho de produto; nível em vez de toggle.
 comportamento reexecutado.
 
 **Aceite:**
-- **Mesmo roteiro ⇒ mesmos bytes em `sim` e `gecko`.** Cenário que só roda em um é declarado,
-  com motivo, nunca calado.
-- Cliente TS usa **o codec gerado**, sem uma linha escrita à mão.
-- `d(PTR) == d(PN)` no cliente — a terceira igualdade de [14 §3](14-nodedescriptor.md).
-- Paridade de `Digest` C++ × TS sobre a suíte inteira.
-- **Pronto = último salto vivo.** Página real projetada 1:1, não fixture verde.
+- **Mesmo roteiro ⇒ mesmos bytes em `sim` e `gecko`.** Cada lado ainda passa o oráculo
+  (Fase 7 = fidelidade por motor; Fase 9 = acordo + oráculo nos dois — dois errados iguais
+  falham). Cenário excluído exige `SPECULUM_PHASE9_ALLOW_EXCLUSIONS=1` e motivo em
+  `exclusions.txt`; `compared == 0` ou linha malformada = fail. Gate: `npm run ci:all`
+  (`tests/phase9/WireParity.hpp`).
+- Cliente TS usa **o codec gerado**, sem uma linha escrita à mão no envelope (`speculum_wire.gen.ts`
+  via `packages/page-projection/src/wire/`; `ProjectionClient.ingest` → `decodeSchemaPatchMessage`).
+  ISA em `Patch.deltas` permanece o frame-protocol.
+- `d(PTR) == d(PN)` no cliente — `checkPtrEqualsPn` / `assertDescriptors` ([14 §3](14-nodedescriptor.md)).
+- Paridade de `Digest` C++ × TS: `digest_vectors.json` + `assert-digest-parity.sh` +
+  `SpeculumPhase9.DigestVectors`. O gate define `SPECULUM_PHASE9_DIGEST_OUT` (não é opcional
+  por memória). Lab/digest exigem `SPECULUM_MONOREPO_ROOT` explícito (sem `../`).
+- Lista única de gtest: `modifications/runtime/gtest/moz.build` (+ `TEST_DIRS`); install não
+  lista Speculum. `assert-gtest-registration.sh` falha em segundos se `TestPhase*.cpp` e
+  `TEST(SpeculumPhaseN,…)` divergirem do expect — antes de qualquer build.
+- **Pronto = último salto vivo.** `npm run ci:all` verde + página real com
+  `assertDescriptors: true`. Fixture verde sozinha não fecha.
 
----
+**Entregue:** `tests/phase9/` · `TestPhase9.cpp` · gen no produto · `ci:all` · README do lab.
+
+**Porta =** `ports/*.hpp` (não o markdown visitor).
 
 ---
 

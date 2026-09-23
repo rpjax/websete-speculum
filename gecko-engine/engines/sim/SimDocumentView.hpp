@@ -24,6 +24,7 @@ struct SimNode {
   std::string data;
   NodeRef parent{};
   std::vector<NodeRef> children;
+  std::vector<NodeRef> shadowRoots;
   std::vector<std::pair<std::string, std::string>> attrs;
 };
 
@@ -196,8 +197,31 @@ class SimDocumentView final : public IDocumentView {
     const auto* n = node(r);
     return n ? n->parent : NodeRef{};
   }
-  NodeRef shadowRoot(NodeRef) const override { return {}; }
-  NodeRef shadowHost(NodeRef) const override { return {}; }
+  NodeRef shadowRoot(NodeRef host) const override {
+    const auto* h = node(host);
+    if (!h || h->shadowRoots.empty()) return {};
+    return h->shadowRoots.front();
+  }
+  NodeRef shadowHost(NodeRef sr) const override {
+    const auto* n = node(sr);
+    return n ? n->parent : NodeRef{};
+  }
+
+  NodeRef attachShadow(NodeRef host) {
+    auto* h = node(host);
+    if (!h) return {};
+    NodeRef id = mintNode(NodeKind::Document, "#shadow");
+    auto* s = node(id);
+    if (!s) return {};
+    s->parent = host;
+    h->shadowRoots.push_back(id);
+    return id;
+  }
+
+  std::vector<NodeRef> shadowRootsOf(NodeRef host) const {
+    const auto* h = node(host);
+    return h ? h->shadowRoots : std::vector<NodeRef>{};
+  }
   uint32_t attrCount(NodeRef r) const override {
     const auto* n = node(r);
     return n ? uint32_t(n->attrs.size()) : 0;

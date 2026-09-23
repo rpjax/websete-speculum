@@ -1,34 +1,48 @@
 # gecko-engine
 
-Fork do Firefox/Gecko (ESR) — lado **B** da avaliacao Speculum.
+Fork Speculum do Firefox/Gecko (ESR). Código do Gecko **não** vive no git —
+o **w7s** materializa, aplica `modifications/` e compila.
 
-O codigo do Gecko **nao** vive neste repo. Este diretorio guarda apenas:
+## Build (caminho novo)
 
-- `UPSTREAM` — o pin (tag + commit ESR). Unica fonte de verdade da base do fork.
-- `mozconfig` — flags de build Speculum (sem artifact builds).
-- `scripts/fork-init.sh` — materializa `checkout/` na tag pinada e cria o branch do fork.
-- `scripts/build.sh` — wrapper `./mach build` / `./mach build binaries`.
-- `patches/` — patches Speculum no fork (observer, runtime, ABI). O produtor
-  é C++ nativo; não se porta `packages/page-projection/virtual`.
+```bash
+cd gecko-engine
+npm install
+npx w7s gecko validate
+npx w7s gecko status
+npx w7s gecko make gecko-source    # árvore + mods
+npx w7s gecko make gecko-binary    # mach build (longo)
+npx w7s gecko make sidecar-package
+```
 
-Docs: `docs/gecko-engine/`. Constituicao da projecao completa (leis + planos +
-o que falta): [`docs/gecko-engine/20-projecao-completa.md`](../docs/gecko-engine/20-projecao-completa.md).
+| artefato | host |
+|---|---|
+| árvore | `.w7s/gecko/<version>/` |
+| objdir | `.w7s/build/<version>/` |
+| pacote | `out/<version>/linux-x64/` |
 
-Gate sem Gecko: `gecko-engine/tests/run.sh` (sem `--stack`). L0–L3-PP + L5.
-Cola V1 está no `patches/`. Aceite 1:1 e L4 precisam do Firefox deste mach.
+Para o redesign (`engines/gecko/`) no container:
 
-## Uso
+```powershell
+npx w7s gecko shell -- ls /gecko-source/dom/base/nsINode.h
+. .\scripts\w7s-env.ps1   # imprime volume / SPECULUM_GECKO_ROOT
+```
 
-    ./scripts/fork-init.sh     # clona o upstream na tag pinada
-    ./scripts/bootstrap.sh     # mach bootstrap (Firefox for Desktop, sem artifact)
-    ./scripts/build.sh         # build a frio
+**Windows NTFS:** a árvore fica num *Docker named volume* (não no folder
+`.w7s/gecko/…` do host). Edits de `modifications/` que precisam bind-mount
+pedem o workspace em disco WSL. Ver design 0.2.0 § Windows NTFS.
 
-Por default, `checkout/`, `build/` e `.ccache/` ficam em `gecko-engine/` (gitignored).
-Para ext4 nativa da WSL (**obrigatorio** — nunca `/mnt/c`):
+Contrato da ferramenta: [`@rodrigopjax/w7s`](https://www.npmjs.com/package/@rodrigopjax/w7s) · design 0.2.0.
+Pin do commit também em `UPSTREAM` (mesma SHA que `w7s.json`).
 
-    export SPECULUM_GECKO_ROOT=~/speculum-gecko
-    bash scripts/fork-init.sh
-    bash scripts/bootstrap.sh
-    JOBS=6 bash scripts/build.sh
+`out/` e `.w7s/` são gerados e estão no `.gitignore`.
 
-`SPECULUM_GECKO_ROOT` e override de ambiente; o default mantem o comportamento atual.
+## Legado (ainda no repo)
+
+`patches/`, `scripts/fork-init.sh`, `mozconfig`, `gecko-dist/` — caminho antigo.
+Não use `gecko-dist/` como SDK. Migração de patches → `modifications/` é trabalho
+posterior; o manifesto hoje declara `modifications: []`.
+
+Docs de sistema: `docs/gecko-engine/`. Redesign: `docs/gecko-engine/redesign/`.
+**Nota:** `docs/gecko-engine/22-w7s.md` ainda descreve o modelo 0.1.0 (imagem
+publicada); a ferramenta publicada é 0.2.0 (clone + verify no manifesto).

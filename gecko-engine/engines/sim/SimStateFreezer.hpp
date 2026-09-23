@@ -67,8 +67,7 @@ class SimStateFreezer final : public IStateFreezer {
 
   uint32_t frozenCount() const override { return frozen_; }
   uint32_t expectedCount() const override { return expected_; }
-
-  bool isValid(oracle::FreezeToken t) const { return t != 0 && t == token_; }
+  bool isValid(oracle::FreezeToken t) const override { return t != 0 && t == token_; }
   oracle::FreezeToken active() const { return token_; }
 
  private:

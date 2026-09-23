@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Layer gates for redesign domain/ + ports/ (01-alvo §3.1 + noreturn ban).
+# Layer gates for redesign domain/ + ports/ (01-alvo §3.1 + noreturn ban + no engines).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -30,6 +30,18 @@ else
   echo "PASS: layer_gate_noreturn"
 fi
 
+# domain/** must not include engines/** (Runner/SpecDriver Traits live in tests/).
+if find domain -type f \( -name '*.hpp' -o -name '*.h' -o -name '*.cpp' \) \
+    -print0 2>/dev/null | xargs -0 -r grep -lE '#include[[:space:]]*["<]engines/' 2>/dev/null \
+    | grep -q .; then
+  echo "FAIL: domain/ includes engines/"
+  find domain -type f \( -name '*.hpp' -o -name '*.h' -o -name '*.cpp' \) \
+    -print0 2>/dev/null | xargs -0 -r grep -nE '#include[[:space:]]*["<]engines/' || true
+  fail=1
+else
+  echo "PASS: layer_gate_no_engines"
+fi
+
 probe="domain/.gate_probe_ns.tmp.cpp"
 printf '%s\n' '#include "nsIFoo.h"' >"$probe"
 if ! sources | xargs -r grep -lE '"ns[A-Z]|mozilla/|nsI[A-Z]' 2>/dev/null | grep -q .; then
@@ -49,5 +61,17 @@ else
   echo "PASS: layer_gate_noreturn closes"
 fi
 rm -f "$probe2"
+
+probe3="domain/.gate_probe_engines.tmp.hpp"
+printf '%s\n' '#include "engines/sim/SimEngine.hpp"' >"$probe3"
+if ! find domain -type f \( -name '*.hpp' -o -name '*.h' -o -name '*.cpp' \) \
+    -print0 2>/dev/null | xargs -0 -r grep -lE '#include[[:space:]]*["<]engines/' 2>/dev/null \
+    | grep -q .; then
+  echo "FAIL: layer_gate_no_engines did not detect planted engines include"
+  fail=1
+else
+  echo "PASS: layer_gate_no_engines closes"
+fi
+rm -f "$probe3"
 
 exit "$fail"

@@ -1,0 +1,121 @@
+{
+  "gecko": {
+    "version": "153.2.0",
+    "repository": "https://github.com/mozilla-firefox/firefox.git",
+    "commit": "feec67e62a5148b41fd017ccbbc463e8a6f9e83d"
+  },
+  "toolchain": {
+    "target": "linux-x64",
+    "baseImage": "ubuntu:24.04",
+    "aptPackages": [
+      "build-essential",
+      "ca-certificates",
+      "cmake",
+      "curl",
+      "git",
+      "gnupg",
+      "jq",
+      "libasound2-dev",
+      "libdbus-glib-1-dev",
+      "libgtk-3-dev",
+      "libpulse-dev",
+      "libssl-dev",
+      "libx11-xcb-dev",
+      "llvm-19",
+      "clang-19",
+      "lld-19",
+      "m4",
+      "nasm",
+      "pkg-config",
+      "python3",
+      "python3-pip",
+      "unzip",
+      "wget",
+      "zip"
+    ],
+    "rustVersion": "1.90.0",
+    "sccacheVersion": "0.17.0",
+    "extraCommands": [
+      "update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100",
+      "update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100",
+      "update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 100",
+      "git config --system --add safe.directory /gecko-source",
+      "git config --system --add safe.directory '*'"
+    ],
+    "mozconfigOptions": [
+      "ac_add_options --enable-application=browser",
+      "ac_add_options --enable-optimize",
+      "ac_add_options --disable-debug",
+      "ac_add_options --enable-debug-symbols",
+      "ac_add_options --with-ccache=sccache",
+      "ac_add_options --enable-tests",
+      "mk_add_options AUTOCLOBBER=1"
+    ]
+  },
+  "modifications": [
+    {
+      "name": "speculum redesign runtime",
+      "description": "moz.build + gtest under dom/speculum",
+      "type": "directory",
+      "localPath": "./modifications/runtime",
+      "geckoPath": "dom/speculum",
+      "replacesGeckoSource": false
+    },
+    {
+      "name": "speculum engines",
+      "description": "engines/ (gecko xul glue + ports impl)",
+      "type": "directory",
+      "localPath": "./engines",
+      "geckoPath": "dom/speculum/engines",
+      "replacesGeckoSource": false
+    },
+    {
+      "name": "speculum domain",
+      "description": "domain headers/types for engine",
+      "type": "directory",
+      "localPath": "./domain",
+      "geckoPath": "dom/speculum/domain",
+      "replacesGeckoSource": false
+    },
+    {
+      "name": "speculum ports",
+      "description": "ports headers",
+      "type": "directory",
+      "localPath": "./ports",
+      "geckoPath": "dom/speculum/ports",
+      "replacesGeckoSource": false
+    },
+    {
+      "name": "speculum phase7 suite",
+      "description": "FixtureSuite + fixtures + EngineTraits (test layer)",
+      "type": "directory",
+      "localPath": "./tests/phase7",
+      "geckoPath": "dom/speculum/tests/phase7",
+      "replacesGeckoSource": false
+    },
+    {
+      "name": "speculum phase9 parity",
+      "description": "WireParity harness + exclusions (sim × gecko)",
+      "type": "directory",
+      "localPath": "./tests/phase9",
+      "geckoPath": "dom/speculum/tests/phase9",
+      "replacesGeckoSource": false
+    },
+    {
+      "name": "speculum host composition",
+      "description": "host/ GeckoComposition for gtest A8",
+      "type": "directory",
+      "localPath": "./host",
+      "geckoPath": "dom/speculum/host",
+      "replacesGeckoSource": false
+    },
+    {
+      "name": "speculum install points",
+      "description": "dom DIRS + gtest registration (whole-file)",
+      "type": "directory",
+      "localPath": "./modifications/install",
+      "geckoPath": ".",
+      "replacesGeckoSource": true
+    }
+  ]
+}

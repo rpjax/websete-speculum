@@ -8,13 +8,11 @@ que o desenho está fechado.
 ## 1. O que está declarado mas não existe
 
 ### 1.1 A declaração de mensagens do fio
-`08-fio.md` diz "um schema, três lados gerados" — e o schema **não existe**. É o artefato de
-origem de três bases de código e hoje é uma frase.
 
-Escrevê-lo vai levantar decisão de verdade: tipagem de campo opcional, como o gerador trata
-evolução durante o desenvolvimento (quando as duas pontas mudam junto), e se o gerador é
-ferramenta nossa ou algo de prateleira. **Nenhuma dessas perguntas dá para responder sem
-tentar.**
+`08-fio.md` diz "um schema, três lados gerados". **Estado 2026-09:** o schema existe
+(`docs/gecko-engine/redesign/schema/speculum.wire.toml`) e o `wiregen` emite C++/TS/C#.
+Falta o último salto vivo nas três pontas de produto (Fase 9–10); o gen no cliente de
+projeção começa na Fase 9 (`packages/page-projection/src/wire/`).
 
 ### 1.2 O formato do roteiro
 `09-observabilidade.md` dá três papéis a um formato — teste, replay, oráculo — e o formato não

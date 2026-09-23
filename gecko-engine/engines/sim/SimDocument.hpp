@@ -93,6 +93,14 @@ class SimDocument final : public IEngineDocument {
     return r;
   }
 
+  NodeRef attachShadow(NodeRef host) {
+    auto root = view_.attachShadow(host);
+    if (observer_ && root.valid()) {
+      observer_->onShadow(host, ShadowMode::Open, root);
+    }
+    return root;
+  }
+
  private:
   DocumentId id_;
   SimDocumentView view_;

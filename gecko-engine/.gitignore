@@ -1,7 +1,13 @@
-# O checkout do Gecko NUNCA entra neste repo. Materializado fora (SPECULUM_GECKO_ROOT).
+# O checkout do Gecko NUNCA entra neste repo. Materializado por w7s em .w7s/.
 checkout/
 build/
 .ccache/
+
+# w7s generated (validate fails if these are not ignored)
+.w7s/
+out/
+node_modules/
+.w7s-make-source.log
 
 # Perfil de prefs apenas; nunca cache/SQLite gerado por mach run.
 baseline-profile/*

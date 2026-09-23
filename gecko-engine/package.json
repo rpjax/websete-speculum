@@ -1,0 +1,20 @@
+{
+  "name": "speculum-gecko-engine",
+  "private": true,
+  "description": "Speculum Gecko engine — build via @rodrigopjax/w7s",
+  "scripts": {
+    "w7s": "w7s",
+    "w7s:validate": "w7s gecko validate",
+    "w7s:status": "w7s gecko status",
+    "w7s:paths": "w7s gecko paths",
+    "w7s:toolchain": "w7s gecko toolchain",
+    "w7s:source": "w7s gecko make gecko-source",
+    "w7s:binary": "w7s gecko make gecko-binary",
+    "w7s:package": "w7s gecko make sidecar-package",
+    "ci:layer": "bash scripts/phase1/layer_gates.sh",
+    "ci:all": "bash scripts/ci/ci-all.sh"
+  },
+  "devDependencies": {
+    "@rodrigopjax/w7s": "^0.2.1"
+  }
+}

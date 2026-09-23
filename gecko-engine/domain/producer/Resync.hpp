@@ -76,6 +76,11 @@ class Resync {
       walkCreate(view, identity, table, c, id, childPrev);
       childPrev = identity.lookup(c.value(), KeySpace::Node);
     }
+    // Shadow roots are not light children — walk them or FromWalk diverges (Phase 8 A3).
+    NodeRef sr = view.shadowRoot(node);
+    if (sr.valid()) {
+      walkCreate(view, identity, table, sr, id, /*prev*/ 0);
+    }
   }
 };
 

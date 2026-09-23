@@ -22,6 +22,8 @@ import {
   PersistentStringTable,
   type AssembledFrame,
 } from '../core/decode';
+import { checkPtrEqualsPn } from '../core/descriptorEquality';
+import { decodeSchemaPatchMessage, isSchemaWire } from '../wire/schemaPatch';
 import { DomFrameApplier, type NestedHostInstallHint } from './applyDom';
 import { pendingNestedHostAuditMessage } from './pendingNestedHostAudit';
 import { NestedProjectedApply } from './nestedProjectedApply';
@@ -77,6 +79,11 @@ export type ProjectionClientOptions = {
   getAssetBaseUrl?: () => string | undefined;
   /** Virtual page URL (Gecko). Relative assets resolve here; SW intercepts. */
   getDocumentBaseUrl?: () => string | undefined;
+  /**
+   * Phase 9 — after each successful live apply, assert d(PTR)==d(PN) (14 §3).
+   * Default false (hot path); lab / accept harness turns it on.
+   */
+  assertDescriptors?: boolean;
 };
 
 /** One `DomFrameApplier` + its own registry — either the live surface or an in-flight standby build. */
@@ -112,6 +119,7 @@ export class ProjectionClient {
   private readonly getDocumentBaseUrl?: () => string | undefined;
   private readonly token?: string;
   private readonly assetBaseUrl?: string;
+  private readonly assertDescriptors: boolean;
 
   /** The currently-live target — reassigned wholesale on a successful resync swap. */
   private live: ApplyTarget;
@@ -170,6 +178,7 @@ export class ProjectionClient {
     this.getDocumentBaseUrl = opts.getDocumentBaseUrl;
     this.token = opts.token;
     this.assetBaseUrl = opts.assetBaseUrl;
+    this.assertDescriptors = opts.assertDescriptors === true;
 
     const registry = new PageProjectionRegistry();
     registry.register(DOCUMENT_ID, this.surface.document);
@@ -494,6 +503,21 @@ export class ProjectionClient {
   }
 
   ingest(bytes: Uint8Array): void {
+    // Phase 9 — schema envelope (generated codec) carries ISA in Patch.deltas.
+    if (isSchemaWire(bytes)) {
+      const msg = decodeSchemaPatchMessage(bytes);
+      if (!msg) {
+        this.desync('schema_patch', { message: 'expected Patch envelope' });
+        return;
+      }
+      this.ingestIsa(msg.deltas);
+      return;
+    }
+    this.ingestIsa(bytes);
+  }
+
+  /** ISA frame-protocol bytes (legacy hub path and Patch.deltas). */
+  private ingestIsa(bytes: Uint8Array): void {
     const hdr = peekFrameHeader(bytes);
     if (hdr && hdr.contextId !== CONTEXT_ID_ROOT && hdr.contextId !== 0) {
       const nested = this.nested.get(hdr.contextId);
@@ -518,6 +542,23 @@ export class ProjectionClient {
     }
     if (assembled === null) return;
     this.applyAssembled(assembled);
+  }
+
+  /**
+   * Phase 9 — d(PTR)==d(PN). Safe to call from lab after flush.
+   * Returns false and desyncs when assertDescriptors is on and equality fails.
+   */
+  verifyDescriptors(): boolean {
+    const eq = checkPtrEqualsPn(this.live.applier.replicatedTable, this.live.registry);
+    if (!eq.ok) {
+      if (this.assertDescriptors) {
+        this.desync('descriptor_ptr_pn', {
+          message: `id=${eq.mismatch.id} field=${eq.mismatch.field}`,
+        });
+      }
+      return false;
+    }
+    return true;
   }
 
   private applyAssembled(frame: AssembledFrame): void {
@@ -891,6 +932,7 @@ export class ProjectionClient {
   private notifyLiveSurfaceReady(): void {
     this.armed = true;
     this.everArmed = true;
+    if (this.assertDescriptors) this.verifyDescriptors();
     this.onArmedCb?.();
   }
 

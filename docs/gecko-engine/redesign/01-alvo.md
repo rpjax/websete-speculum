@@ -37,11 +37,17 @@ Três, todos mecânicos. Nenhum depende de alguém lembrar de alguma coisa.
 ### 3.1 Camada — grep no CI
 
 ```
-grep -rlE '"ns[A-Z]|mozilla/|nsI[A-Z]' domain/ ports/ && exit 1
+grep -rlE 'ns[A-Z]|mozilla/|nsI[A-Z]' domain/ ports/ && exit 1
 ```
 
 Camada violada = build vermelho. Sem convenção implícita, sem revisão humana no caminho
 crítico.
+
+Complementos em `gecko-engine/scripts/ci/assert-observer-no-script.sh`:
+
+- cola `engines/gecko/xul/*` sem símbolos de entrada de script (gate **textual**, não grafo);
+- `domain/session/` e `domain/producer/` sem Traits / includes de motores concretos;
+- `engines/gecko/**` sem `#include` de `domain/producer/Policy.hpp` (incapacidade de política).
 
 ### 3.2 Paridade com o corpus de evidência
 

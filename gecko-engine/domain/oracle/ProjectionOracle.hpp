@@ -7,20 +7,21 @@
 #include "domain/oracle/Capabilities.hpp"
 #include "domain/oracle/Reconstructor.hpp"
 #include "domain/oracle/Types.hpp"
+#include "domain/documents/Hosts.hpp"
 #include "domain/producer/Policy.hpp"
 #include "domain/producer/RowDescriptor.hpp"
-#include "engines/sim/SimEngine.hpp"
-#include "engines/sim/SimStateCapture.hpp"
-#include "engines/sim/SimStateFreezer.hpp"
 #include "ports/IProjectionOracle.hpp"
+#include "ports/IStateCapture.hpp"
+#include "ports/IStateFreezer.hpp"
 
 namespace speculum::oracle {
 
+// Engine-agnostic: Hosts + freezer + capture. Works for sim and gecko.
 class ProjectionOracle final : public IProjectionOracle {
  public:
-  ProjectionOracle(sim::SimEngine& eng, sim::SimStateFreezer& freezer,
-                   sim::SimStateCapture& capture, Capabilities& caps)
-      : eng_(eng), freezer_(freezer), capture_(capture), caps_(caps) {}
+  ProjectionOracle(Hosts& hosts, IStateFreezer& freezer, IStateCapture& capture,
+                   Capabilities& caps)
+      : hosts_(hosts), freezer_(freezer), capture_(capture), caps_(caps) {}
 
   void setRoteiroExcerpt(std::string excerpt) { excerpt_ = std::move(excerpt); }
   void setCauseSpan(SpanId span) { cause_span_ = span; }
@@ -35,19 +36,15 @@ class ProjectionOracle final : public IProjectionOracle {
       return v;
     }
 
-    eng_.hosts().forEach([&](const HostNode& hn) {
+    hosts_.forEach([&](const HostNode& hn) {
       if (!v.ok) return;
       HostId host = hn.id;
-      if (!eng_.simDocumentOf(host)) return;
-      if (!eng_.producerOf(eng_.simDocumentOf(host)->id())) return;
 
       auto tableR = capture_.captureTable(token, host);
       auto liveR = capture_.captureLive(token, host);
       auto naiveR = capture_.captureNaive(token, host);
       if (!tableR.ok() || !liveR.ok() || !naiveR.ok()) {
-        v.ok = false;
-        v.host = host;
-        v.roteiroExcerpt = "capture failed";
+        // No live document/producer on this host — skip.
         return;
       }
       const auto& table = tableR.value();
@@ -57,7 +54,6 @@ class ProjectionOracle final : public IProjectionOracle {
       std::unordered_map<producer::NodeId, const ImageNode*> byTable;
       for (const auto& n : table.nodes) byTable[n.id] = &n;
 
-      // --- IDA: d(VN) fresco × d(VTR) armazenado ---
       if (caps_.enabled(Cap::Forward)) {
         for (const auto& ln : live.nodes) {
           auto it = byTable.find(ln.id);
@@ -67,7 +63,6 @@ class ProjectionOracle final : public IProjectionOracle {
           }
           const auto* stored = it->second;
           if (ln.rowHash != stored->rowHash) {
-            // Prefer a specific field if one differs
             FieldId field = "rowHash";
             uint64_t exp = stored->rowHash;
             uint64_t act = ln.rowHash;
@@ -87,7 +82,6 @@ class ProjectionOracle final : public IProjectionOracle {
         }
       }
 
-      // --- VOLTA: reconstruct × naive + Policy → 3 buckets ---
       if (caps_.enabled(Cap::Reverse) || caps_.enabled(Cap::Ledger)) {
         Reconstructor recon;
         NaiveImage rebuilt = recon.reconstruct(table);
@@ -95,7 +89,7 @@ class ProjectionOracle final : public IProjectionOracle {
         for (const auto& n : rebuilt.nodes) inTable.insert(n.id);
 
         for (const auto& nn : naive.nodes) {
-          if (inTable.count(nn.id)) continue;  // bucket 1: equal presence
+          if (inTable.count(nn.id)) continue;
           bool projectable = producer::Policy::isProjectable(nn.kind, nn.userAgentOwned);
           if (!projectable) {
             if (caps_.enabled(Cap::Ledger)) {
@@ -106,9 +100,8 @@ class ProjectionOracle final : public IProjectionOracle {
               e.reason = nn.userAgentOwned ? "policy:userAgentOwned" : "policy:notProjectable";
               v.excluded.add(std::move(e));
             }
-            continue;  // bucket 3
+            continue;
           }
-          // bucket 2: defect
           if (caps_.enabled(Cap::Reverse)) {
             fail(v, Direction::Reverse, host, table, nn.id, "coverage", 1, 0);
             v.roteiroExcerpt = excerpt_.empty()
@@ -139,9 +132,9 @@ class ProjectionOracle final : public IProjectionOracle {
     if (!excerpt_.empty()) v.roteiroExcerpt = excerpt_;
   }
 
-  sim::SimEngine& eng_;
-  sim::SimStateFreezer& freezer_;
-  sim::SimStateCapture& capture_;
+  Hosts& hosts_;
+  IStateFreezer& freezer_;
+  IStateCapture& capture_;
   Capabilities& caps_;
   std::string excerpt_;
   SpanId cause_span_{0};

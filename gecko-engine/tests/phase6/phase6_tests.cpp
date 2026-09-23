@@ -67,7 +67,7 @@ static void test_a1_halt_incomplete() {
 
   // No verdict path when incomplete
   lab.caps.applyPresetLab();
-  ProjectionOracle oracle(lab.eng, lab.freezer, lab.capture, lab.caps);
+  ProjectionOracle oracle(lab.eng.hosts(), lab.freezer, lab.capture, lab.caps);
   Verdict v = oracle.run(1);
   CHECK(!v.ok, "no verdito on stale");
 }
@@ -102,7 +102,7 @@ static void test_a2_forward() {
 
   auto tok = lab.freezer.freezeAll(1000);
   CHECK(tok.ok(), "freeze");
-  ProjectionOracle oracle(lab.eng, lab.freezer, lab.capture, lab.caps);
+  ProjectionOracle oracle(lab.eng.hosts(), lab.freezer, lab.capture, lab.caps);
   oracle.setRoteiroExcerpt("> navigate https://p6.test");
   oracle.setCauseSpan(1);
   Verdict v = oracle.run(tok.value());
@@ -156,7 +156,7 @@ static void test_a6_injected() {
   row->fieldHash["a:id"] ^= 1;
   row->rowHash ^= 1;
 
-  ProjectionOracle oracle(lab.eng, lab.freezer, lab.capture, lab.caps);
+  ProjectionOracle oracle(lab.eng.hosts(), lab.freezer, lab.capture, lab.caps);
   oracle.setCauseSpan(9);
   oracle.setRoteiroExcerpt("> setAttr id=t");
   Verdict v = oracle.run(tok.value());
@@ -186,7 +186,7 @@ static void test_a3_ledger_and_reverse() {
   doc->mutableView().setUserAgentOwned(ua, true);
 
   auto tok = lab.freezer.freezeAll(1000);
-  ProjectionOracle oracle(lab.eng, lab.freezer, lab.capture, lab.caps);
+  ProjectionOracle oracle(lab.eng.hosts(), lab.freezer, lab.capture, lab.caps);
   Verdict v = oracle.run(tok.value());
   CHECK(v.ok, "A3 ua ok (ledger only)");
   CHECK(!v.excluded.entries.empty(), "A3 ledger has entry");
@@ -220,7 +220,7 @@ static void test_a4_five_fields() {
   if (!mut->fieldHash.empty())
     mut->fieldHash.begin()->second ^= 0x22;
 
-  ProjectionOracle oracle(lab.eng, lab.freezer, lab.capture, lab.caps);
+  ProjectionOracle oracle(lab.eng.hosts(), lab.freezer, lab.capture, lab.caps);
   oracle.setCauseSpan(3);
   oracle.setRoteiroExcerpt("> tick");
   Verdict v = oracle.run(tok.value());

@@ -1,0 +1,26 @@
+# dom/speculum — Speculum redesign (Phase 8) into libxul.
+
+DIST_INSTALL = False
+
+LOCAL_INCLUDES += [
+    "/dom/base",
+    "/dom/html",
+    "/dom/speculum",
+    "/layout/style",
+    "/xpcom/base",
+]
+
+DEFINES["SPECULUM_HAS_LIBXUL"] = True
+
+SOURCES += [
+    "engines/gecko/GeckoXulGlue.cpp",
+    "engines/gecko/xul/XulCssomBinder.cpp",
+    "engines/gecko/xul/XulDocumentView.cpp",
+    "engines/gecko/xul/XulMutationObserver.cpp",
+]
+
+FINAL_LIBRARY = "xul"
+
+# Sole Speculum gtest registrar: modifications/runtime/gtest → dom/speculum/gtest.
+TEST_DIRS += ["gtest"]
+

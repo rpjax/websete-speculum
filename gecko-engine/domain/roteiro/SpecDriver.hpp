@@ -23,9 +23,10 @@
 #include "domain/roteiro/Symbols.hpp"
 #include "domain/roteiro/Types.hpp"
 #include "domain/session/fakes/ManualClock.hpp"
-#include "engines/sim/SimEngine.hpp"
-#include "engines/sim/SimStateCapture.hpp"
-#include "engines/sim/SimStateFreezer.hpp"
+
+// Concrete engines + Traits live in the test layer (tests/phase7/EngineTraits.hpp).
+// SpecDriverT is Traits-parameterized; domain/session and domain/producer must not
+// include engine headers (02-camadas).
 
 namespace speculum::roteiro {
 
@@ -54,23 +55,29 @@ inline std::string argVal(const std::vector<std::string>& a, std::string_view ke
   return {};
 }
 
-// Replays `>` lines against the sim. Records `<` via SpecRecorder when enabled.
-class SpecDriver {
+// Replays `>` lines against Traits::Engine. Records `<` via SpecRecorder.
+template <typename Traits>
+class SpecDriverT {
  public:
-  explicit SpecDriver(std::string schemaHash) : schema_(std::move(schemaHash)) {}
+  using Engine = typename Traits::Engine;
+  using Document = typename Traits::Document;
+  using Freezer = typename Traits::Freezer;
+  using Capture = typename Traits::Capture;
+
+  explicit SpecDriverT(std::string schemaHash) : schema_(std::move(schemaHash)) {}
 
   struct DriveResult {
     bool ok{true};
     std::string message;
     std::string recordedText;
     std::vector<uint8_t> lastPatch;
+    std::vector<std::vector<uint8_t>> patches;  // full uplink sequence (Phase 9 parity)
     oracle::Verdict verdict;
     bool oracleRan{false};
     uint64_t tableHash{0};
     size_t knownSheets{0};
   };
 
-  // Apply every input/time line; compare output lines to expected when present.
   DriveResult replay(const SpecFile& file, oracle::Capabilities& caps,
                      bool runOracle = true) {
     DriveResult dr;
@@ -110,20 +117,19 @@ class SpecDriver {
       }
     }
 
-    // Flush remaining
     if (auto* prod = activeProducer()) {
       clock_.advance(50);
       prod->flush();
     }
 
     dr.recordedText = rec.toText();
+    dr.patches = uplink_.patches();
     if (!uplink_.lastPatch().empty()) dr.lastPatch = uplink_.lastPatch();
     if (auto* prod = activeProducer()) {
       dr.tableHash = prod->table().tableHash();
       dr.knownSheets = prod->knownSheetCount();
     }
 
-    // Byte-identical `<` check against expected file outs
     auto got = parseSpec(dr.recordedText);
     std::vector<const SpecLine*> expOut, gotOut;
     for (const auto& l : file.lines)
@@ -194,20 +200,22 @@ class SpecDriver {
     return dr;
   }
 
-  sim::SimEngine& engine() { return *eng_; }
+  Engine& engine() { return *eng_; }
   ManualClock& clock() { return clock_; }
   producer::RecordingUplink& uplink() { return uplink_; }
 
   producer::Producer* activeProducer() {
     if (!root_.valid() || !eng_) return nullptr;
-    auto* doc = eng_->simDocumentOf(root_);
+    auto* doc = Traits::documentOf(*eng_, root_);
     if (!doc) return nullptr;
     return eng_->producerOf(doc->id());
   }
 
+  void enablePostcondition(bool v) { caps_post_ = v; }
+
  private:
   void reset() {
-    eng_ = std::make_unique<sim::SimEngine>();
+    eng_ = std::make_unique<Engine>();
     clock_ = ManualClock{};
     uplink_ = producer::RecordingUplink{};
     ruplink_.reset();
@@ -225,11 +233,9 @@ class SpecDriver {
     producer::Identity id2;
     producer::ProducerTable shadow;
     auto root = prod.view().root();
-    // Reuse live identity keys by walking with a fresh identity — compare size + invariants.
     auto r = producer::Resync::run(producer::ResyncForce::FromWalk, prod.view(), id2, shadow,
                                    root);
     if (!r.ok()) return false;
-    // Shadow rebuild may mint different NodeIds; compare structure via Snapshot size + inv.
     if (!shadow.checkInvariants()) return false;
     if (shadow.size() != prod.table().size()) return false;
     return true;
@@ -239,27 +245,21 @@ class SpecDriver {
     using producer::IsaOp;
     using producer::PatchBuilder;
     auto sp = std::span<const uint8_t>(patch.data(), patch.size());
-    int news = PatchBuilder::countOp(sp, IsaOp::NodeNew);
-    int inserts = PatchBuilder::countOp(sp, IsaOp::Insert);
-    int attrs = PatchBuilder::countOp(sp, IsaOp::AttrSet);
-    int texts = PatchBuilder::countOp(sp, IsaOp::TextSet);
-    int removes = PatchBuilder::countOp(sp, IsaOp::Remove);
-    // Encode sanity: buffer parses without early abort and digest is stable.
+    (void)PatchBuilder::countOp(sp, IsaOp::NodeNew);
+    (void)PatchBuilder::countOp(sp, IsaOp::Insert);
+    (void)PatchBuilder::countOp(sp, IsaOp::AttrSet);
+    (void)PatchBuilder::countOp(sp, IsaOp::TextSet);
+    (void)PatchBuilder::countOp(sp, IsaOp::Remove);
     auto d1 = producer::digestBytes(sp);
     auto d2 = producer::digestBytes(sp);
     if (d1 != d2) return false;
-    (void)news;
-    (void)inserts;
-    (void)attrs;
-    (void)texts;
-    (void)removes;
     return !patch.empty();
   }
 
   oracle::Verdict runOraclePass(oracle::Capabilities& caps) {
-    sim::SimStateFreezer freezer(*eng_);
-    sim::SimStateCapture capture(*eng_, freezer);
-    oracle::ProjectionOracle oracle(*eng_, freezer, capture, caps);
+    Freezer freezer(*eng_);
+    Capture capture(*eng_, freezer);
+    oracle::ProjectionOracle oracle(Traits::hosts(*eng_), freezer, capture, caps);
     auto tok = freezer.freezeAll(1000);
     if (!tok.ok()) {
       oracle::Verdict v;
@@ -284,7 +284,6 @@ class SpecDriver {
         return Result<void>::success();
       }
       case EventName::HostViewportOpen: {
-        // v1 f1 1280x720
         Extent ext{1280, 720};
         if (args.size() >= 3) {
           auto x = args[2].find('x');
@@ -308,7 +307,6 @@ class SpecDriver {
         return Result<void>::success();
       }
       case EventName::HostFrameAttach: {
-        // f2 parent=f1 viewport=v1
         std::string child = args.empty() ? sym_.mint(SymKind::Frame) : args[0];
         std::string parent = argVal(args, "parent");
         HostId ph = frames_.count(parent) ? frames_[parent] : root_;
@@ -332,12 +330,12 @@ class SpecDriver {
       case EventName::FrameLoadStart: {
         std::string f = args.empty() ? "f1" : args[0];
         HostId h = frames_.count(f) ? frames_[f] : root_;
-        if (!eng_->simDocumentOf(h)) {
+        if (!Traits::documentOf(*eng_, h)) {
           if (!eng_->doNavigate(h, "https://fixture.test", 1).ok()) {
             return Result<void>::failure(
                 fault::makeFault(fault::FaultCode::NavigateRefused, "SpecDriver", "nav"));
           }
-          auto* doc = eng_->simDocumentOf(h);
+          auto* doc = Traits::documentOf(*eng_, h);
           if (doc) {
             docs_["d1"] = h;
             NodeRef r = doc->view().root();
@@ -359,16 +357,15 @@ class SpecDriver {
         return Result<void>::success();
       }
       case EventName::FrameDocumentInstall: {
-        // Navigate if no doc yet
         std::string f = args.empty() ? "f1" : args[0];
         HostId h = frames_.count(f) ? frames_[f] : root_;
-        if (!eng_->simDocumentOf(h)) {
+        if (!Traits::documentOf(*eng_, h)) {
           if (!eng_->doNavigate(h, "https://fixture.test", 1).ok()) {
             return Result<void>::failure(
                 fault::makeFault(fault::FaultCode::NavigateRefused, "SpecDriver", "nav"));
           }
         }
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         auto dSym = args.size() > 1 ? args[1] : "d1";
         docs_[dSym] = h;
         if (doc) {
@@ -376,7 +373,6 @@ class SpecDriver {
                       (uint64_t(doc->id().host.value()) << 32) | doc->id().generation.value);
           auto* prod = eng_->producerOf(doc->id());
           if (prod && caps_post_) prod->enablePostcondition(true);
-          // Bind root node
           NodeRef r = doc->view().root();
           nodes_["n1"] = r;
           sym_.intern(SymKind::Node, r.value());
@@ -385,13 +381,12 @@ class SpecDriver {
         return Result<void>::success();
       }
       case EventName::DocChildInsert: {
-        // d1 parent=n1 child=n2 [index=0]
         auto parent = argVal(args, "parent");
         auto child = argVal(args, "child");
         auto idxS = argVal(args, "index");
         HostId h = docs_.empty() ? root_ : docs_.begin()->second;
         if (!docs_.empty() && args.size() > 0 && docs_.count(args[0])) h = docs_[args[0]];
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         if (!doc) {
           return Result<void>::failure(
               fault::makeFault(fault::FaultCode::NoSuchDocument, "SpecDriver", "insert"));
@@ -412,7 +407,7 @@ class SpecDriver {
         auto parent = argVal(args, "parent");
         auto child = argVal(args, "child");
         HostId h = docs_.empty() ? root_ : docs_.begin()->second;
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         if (!doc || !nodes_.count(parent) || !nodes_.count(child)) {
           return Result<void>::failure(
               fault::makeFault(fault::FaultCode::NoSuchDocument, "SpecDriver", "remove"));
@@ -423,7 +418,6 @@ class SpecDriver {
         return Result<void>::success();
       }
       case EventName::DocAttr: {
-        // d1 n2 name=class value=x
         std::string nsym;
         for (const auto& a : args) {
           if (a.size() >= 2 && a[0] == 'n' && std::isdigit(static_cast<unsigned char>(a[1])) &&
@@ -434,7 +428,7 @@ class SpecDriver {
         auto value = argVal(args, "value");
         if (value.empty()) value = "x";
         HostId h = docs_.empty() ? root_ : docs_.begin()->second;
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         if (!doc || !nodes_.count(nsym)) {
           return Result<void>::failure(
               fault::makeFault(fault::FaultCode::NoSuchDocument, "SpecDriver", "attr"));
@@ -451,7 +445,7 @@ class SpecDriver {
             nsym = a;
         }
         HostId h = docs_.empty() ? root_ : docs_.begin()->second;
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         if (!doc || !nodes_.count(nsym)) {
           return Result<void>::failure(
               fault::makeFault(fault::FaultCode::NoSuchDocument, "SpecDriver", "text"));
@@ -461,11 +455,10 @@ class SpecDriver {
         return Result<void>::success();
       }
       case EventName::DocSheetAdd: {
-        // d1 s1 owner=n2
         auto sSym = args.size() > 1 ? args[1] : "s1";
         auto owner = argVal(args, "owner");
         HostId h = docs_.empty() ? root_ : docs_.begin()->second;
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         if (!doc) {
           return Result<void>::failure(
               fault::makeFault(fault::FaultCode::NoSuchDocument, "SpecDriver", "sheet"));
@@ -479,10 +472,9 @@ class SpecDriver {
       }
       case EventName::DocSheetApplicable: {
         auto sSym = args.size() > 1 ? args[1] : (args.empty() ? "s1" : args[0]);
-        // args: d1 s1
         if (args.size() >= 2) sSym = args[1];
         HostId h = docs_.empty() ? root_ : docs_.begin()->second;
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         if (!doc || !sheets_.count(sSym)) {
           return Result<void>::failure(
               fault::makeFault(fault::FaultCode::CaptureUnavailable, "SpecDriver", "applicable"));
@@ -495,12 +487,29 @@ class SpecDriver {
         auto sSym = argVal(args, "sheet");
         if (sSym.empty() && args.size() > 1) sSym = args[1];
         HostId h = docs_.empty() ? root_ : docs_.begin()->second;
-        auto* doc = eng_->simDocumentOf(h);
+        auto* doc = Traits::documentOf(*eng_, h);
         if (!doc || !sheets_.count(sSym)) {
           return Result<void>::failure(
               fault::makeFault(fault::FaultCode::CaptureUnavailable, "SpecDriver", "rule"));
         }
         doc->addRule(sheets_[sSym], "div");
+        if (recorder_) recorder_->noteIn(line.event, line.args);
+        return Result<void>::success();
+      }
+      case EventName::DocShadowAttach: {
+        auto hostSym = argVal(args, "host");
+        auto rootSym = argVal(args, "root");
+        if (rootSym.empty()) rootSym = argVal(args, "child");
+        HostId h = docs_.empty() ? root_ : docs_.begin()->second;
+        if (!docs_.empty() && !args.empty() && docs_.count(args[0])) h = docs_[args[0]];
+        auto* doc = Traits::documentOf(*eng_, h);
+        if (!doc || !nodes_.count(hostSym)) {
+          return Result<void>::failure(
+              fault::makeFault(fault::FaultCode::NoSuchDocument, "SpecDriver", "shadow"));
+        }
+        NodeRef sr = doc->attachShadow(nodes_[hostSym]);
+        if (!rootSym.empty()) nodes_[rootSym] = sr;
+        sym_.intern(SymKind::Node, sr.value());
         if (recorder_) recorder_->noteIn(line.event, line.args);
         return Result<void>::success();
       }
@@ -510,18 +519,13 @@ class SpecDriver {
         return Result<void>::success();
       }
       default:
-        // Ignored / no-op events for this phase
         if (recorder_) recorder_->noteIn(line.event, line.args);
         return Result<void>::success();
     }
   }
 
- public:
-  void enablePostcondition(bool v) { caps_post_ = v; }
-
- private:
   std::string schema_;
-  std::unique_ptr<sim::SimEngine> eng_;
+  std::unique_ptr<Engine> eng_;
   ManualClock clock_;
   producer::RecordingUplink uplink_;
   std::unique_ptr<RecordingPatchUplink> ruplink_;

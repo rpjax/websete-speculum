@@ -1,0 +1,22 @@
+# Phase 7–9 gtests — sole SOURCES list for Speculum → xul-gtest.
+# Do not duplicate Speculum TestPhase*.cpp in install/dom/base/test/gtest.
+
+Library("speculum_gtest")
+
+
+LOCAL_INCLUDES += [
+    "/dom/base",
+    "/dom/speculum",
+    "/xpcom/base",
+]
+
+DEFINES["SPECULUM_HAS_LIBXUL"] = True
+
+SOURCES += [
+    "/dom/speculum/domain/fault/Fault.cpp",
+    "TestPhase7Fixtures.cpp",
+    "TestPhase8.cpp",
+    "TestPhase9.cpp",
+]
+
+FINAL_LIBRARY = "xul-gtest"

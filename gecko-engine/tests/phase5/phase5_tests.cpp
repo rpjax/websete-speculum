@@ -10,11 +10,10 @@
 #include "domain/roteiro/CauseSpan.hpp"
 #include "domain/roteiro/Parse.hpp"
 #include "domain/roteiro/Recorder.hpp"
-#include "domain/roteiro/Runner.hpp"
 #include "domain/roteiro/Symbols.hpp"
 #include "domain/producer/RecordingUplink.hpp"
 #include "domain/session/fakes/ManualClock.hpp"
-#include "engines/sim/SimEngine.hpp"
+#include "tests/phase7/EngineTraits.hpp"
 
 using namespace speculum;
 using namespace speculum::roteiro;

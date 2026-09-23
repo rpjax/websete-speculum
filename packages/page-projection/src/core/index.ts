@@ -160,6 +160,8 @@ export {
 export { snapshotTree } from './snapshot/domTreeSnapshot';
 export type { TreeNode } from './treeNode';
 export { digestReplicatedTable, tableDigestsEqual, type ReplicatedTableDigest } from './tableDigest';
+export { digestBytes, digestTable } from './digestBytes';
+export { checkPtrEqualsPn, type DescriptorEqualityResult } from './descriptorEquality';
 export { ReplicatedTable } from './replicatedTable';
 export {
   applyOpsToTable,

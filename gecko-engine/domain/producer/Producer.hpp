@@ -162,7 +162,12 @@ class Producer final : public IDocumentObserver {
     ledger_.markField(el.value(), DirtyKind::Attr, name);
     clock_.onDirty();
   }
-  void onShadow(NodeRef, ShadowMode, NodeRef) override {}
+  void onShadow(NodeRef host, ShadowMode, NodeRef root) override {
+    if (!root.valid()) return;
+    identity_.assign(root.value(), KeySpace::Node);
+    ledger_.markChild(host.value(), root.value(), ChildChange::Inserted, 0);
+    clock_.onDirty();
+  }
   void onCustomElement(NodeRef, std::string_view) override {}
   void onSheetAdded(SheetRef sheet, uint32_t) override {
     identity_.assign(sheet.value(), KeySpace::Sheet);

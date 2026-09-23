@@ -41,6 +41,17 @@ Cada lado tem menos portas, e a incapacidade fica trivial de conferir: o produto
 
 Verificada por grep (`01-alvo.md` §3.1), não por acordo.
 
+**Traits e motores concretos** (`SimEngine`, `GeckoEngine`, `SimEngineTraits`,
+`GeckoEngineTraits`) são exclusivos da **camada de teste** (`tests/`). Em particular
+`domain/session/` e `domain/producer/` não os incluem — gate
+`scripts/ci/assert-observer-no-script.sh` (secção de camada). `domain/roteiro/SpecDriverT`
+e `RunnerT` são templates sem include de engine; Traits vivem em `tests/phase7/EngineTraits.hpp`.
+`scripts/phase1/layer_gates.sh` proíbe `#include "engines/…"` em `domain/**` (com sonda).
+
+**Incapacidade — política fora do adaptador:** sob `producer/` a política mora em
+`domain/producer/Policy.hpp` (§1). `engines/gecko/**` **não** o inclui — mesmo gate
+textual (não grafo). Quem decide projeção é o serviço; o engine só implementa portas.
+
 ### Por que `wire/` fica em `domain/`
 
 Hoje existem três codecs: `SpeculumControlAbi` (reader/writer), `Wire.h` no speculum-wire,

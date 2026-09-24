@@ -22,6 +22,9 @@ if [[ ! -d "$SPECULUM_MONOREPO_ROOT/packages/page-projection" ]]; then
   exit 1
 fi
 
+echo "=== ci:all — test discipline (5 permanent rules) ==="
+bash scripts/ci/assert-test-discipline.sh
+
 echo "=== ci:all — static gtest registration (no build) ==="
 bash scripts/ci/assert-gtest-registration.sh
 
@@ -36,6 +39,9 @@ bash scripts/ci/assert-digest-parity.sh
 
 echo "=== ci:all — lab schema ingest ==="
 node tests/phase9/lab-schema-ingest.mjs
+
+echo "=== ci:all — Phase 10 supervisor / client / hash ==="
+bash scripts/ci/run-phase10.sh
 
 echo "=== ci:all — mach gtest Phase 7 / 8 / 9 (name-set checked) ==="
 bash scripts/ci/run-speculum-gtest.sh SpeculumPhase7

@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Speculum.Supervisor.Wire;
+using Speculum.Wire;
 
 namespace Speculum.Lab.Upstream;
 
@@ -22,10 +23,10 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
     /// <summary>Pedido do browser (diálogo / permissão / download), payload ABI cru.</summary>
     public event Action<byte[]>? EventReceived;
 
-    /// <summary>Ativo Kind 0x06, payload sem o envelope.</summary>
+    /// <summary>Ativo schema (AssetChunk/End/Denied), payload sem o envelope.</summary>
     public event Action<uint, byte[]>? AssetReceived;
 
-    /// <summary>Telemetria Kind 0x05, payload sem o envelope (catálogo Gecko).</summary>
+    /// <summary>Telemetria schema OpTelemetry, payload sem o envelope.</summary>
     public event Action<uint, byte[]>? TelemetryReceived;
 
     public bool Connected { get; private set; }
@@ -33,7 +34,7 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
     /// <summary>Todo binário recebido do supervisor (PP + telemetria + ativo no fio).</summary>
     public long MessagesReceived => Interlocked.Read(ref _messagesReceived);
 
-    /// <summary>Frames de projeção (Kind 0x01, carga PP sem envelope).</summary>
+    /// <summary>Frames de projeção (OpPatch, envelope completo).</summary>
     public long ProjectionFramesReceived => Interlocked.Read(ref _projectionFramesReceived);
 
     /// <summary>Envelopes de telemetria decodificados.</summary>
@@ -135,29 +136,38 @@ public sealed class SupervisorClient(LabOptions options, ILogger<SupervisorClien
             var frame = assembled.ToArray();
             Interlocked.Increment(ref _messagesReceived);
             Interlocked.Add(ref _bytesReceived, frame.LongLength);
-            if (Envelope.TryReadComplete(frame, EnvelopeKind.Asset, out var assetCtx, out var assetLen))
+            if (frame.Length >= SchemaEnvelope.HeaderBytes)
             {
-                var body = new byte[assetLen];
-                Buffer.BlockCopy(frame, Envelope.HeaderBytes, body, 0, assetLen);
-                AssetReceived?.Invoke(assetCtx, body);
-                continue;
-            }
-
-            if (Envelope.TryReadComplete(frame, EnvelopeKind.Telemetry, out var telCtx, out var telLen))
-            {
-                var body = new byte[telLen];
-                Buffer.BlockCopy(frame, Envelope.HeaderBytes, body, 0, telLen);
-                Interlocked.Increment(ref _telemetryEnvelopesReceived);
-                TelemetryReceived?.Invoke(telCtx, body);
-                continue;
-            }
-
-            if (Envelope.TryReadComplete(frame, EnvelopeKind.BrowserEvent, out _, out var eventLen))
-            {
-                var body = new byte[eventLen];
-                Buffer.BlockCopy(frame, Envelope.HeaderBytes, body, 0, eventLen);
-                EventReceived?.Invoke(body);
-                continue;
+                try
+                {
+                    var (opcode, target, length, _) = SchemaEnvelope.ReadHeader(frame);
+                    var body = length == 0
+                        ? Array.Empty<byte>()
+                        : frame.AsSpan(SchemaEnvelope.HeaderBytes, length).ToArray();
+                    if (opcode == OpPatch.Code)
+                    {
+                        Interlocked.Increment(ref _projectionFramesReceived);
+                        FrameReceived?.Invoke(frame);
+                        continue;
+                    }
+                    if (opcode == OpAssetChunk.Code || opcode == OpAssetEnd.Code || opcode == OpAssetDenied.Code)
+                    {
+                        AssetReceived?.Invoke(target, body);
+                        continue;
+                    }
+                    if (opcode == OpTelemetry.Code)
+                    {
+                        Interlocked.Increment(ref _telemetryEnvelopesReceived);
+                        TelemetryReceived?.Invoke(target, body);
+                        continue;
+                    }
+                    // Control / lifecycle events — full envelope to Lab.
+                    EventReceived?.Invoke(frame);
+                    continue;
+                }
+                catch (InvalidDataException)
+                {
+                }
             }
 
             Interlocked.Increment(ref _projectionFramesReceived);

@@ -7,6 +7,7 @@ using Speculum.Lab.Protocol;
 using Speculum.Lab.Upstream;
 using Speculum.Lab.Session;
 using Speculum.Supervisor.Control;
+using Speculum.Wire;
 using Speculum.Supervisor.Wire;
 
 namespace Speculum.Lab.Web;
@@ -123,66 +124,66 @@ public sealed class LabSessionConnection
         {
             try
             {
-                var reader = new ControlReader(payload);
-                switch (reader.OpCode)
+                if (payload.Length < SchemaEnvelope.HeaderBytes)
                 {
-                    case ControlOpCode.DialogRequested:
-                    case ControlOpCode.PermissionRequested:
-                    case ControlOpCode.DownloadRequested:
-                    {
-                        var ev = BrowserEvent.Decode(payload);
-                        var kind = ev.OpCode switch
-                        {
-                            ControlOpCode.PermissionRequested => "permission",
-                            ControlOpCode.DownloadRequested => "download",
-                            _ => "dialog",
-                        };
-                        Send(new GeckoRequested(kind, ev.ContextId, (uint)ev.BrowsingContextId, ev.Text ?? ""));
-                        break;
-                    }
-                    case ControlOpCode.ContextCreated:
-                    {
-                        var ev = BrowserEvent.Decode(payload);
-                        Send(new GeckoContextCreated(ev.ContextId, ev.BrowsingContextId));
-                        break;
-                    }
-                    case ControlOpCode.Navigated:
-                    {
-                        var ev = BrowserEvent.Decode(payload);
-                        Send(new GeckoNavigated(ev.ContextId, ev.Text ?? ""));
-                        break;
-                    }
-                    case ControlOpCode.SnapshotServed:
-                    {
-                        var snap = SnapshotServedPayload.Decode(payload);
-                        var msg = new GeckoSnapshotServed(
-                            snap.CorrelationId,
-                            snap.ContextId,
-                            snap.Sequence,
-                            snap.Generation,
-                            snap.TableHash.ToString("x16"),
-                            Convert.ToBase64String(snap.Dump));
-                        _journal.StoreVirtualSnapshot(msg);
-                        Send(msg);
-                        var pending = _pendingVirtualSnap;
-                        if (pending is not null && snap.CorrelationId == _pendingVirtualSnapCorr)
-                        {
-                            pending.TrySetResult(msg);
-                        }
+                    return;
+                }
 
-                        break;
-                    }
-                    case ControlOpCode.Fault:
+                var (opcode, target, length, correlation) = SchemaEnvelope.ReadHeader(payload);
+                var body = length == 0
+                    ? Array.Empty<byte>()
+                    : payload.AsSpan(SchemaEnvelope.HeaderBytes, length).ToArray();
+
+                if (opcode == OpPromptRequested.Code)
+                {
+                    var ev = Codecs.DecodePromptRequestedBytes(body);
+                    Send(new GeckoRequested("dialog", target, ev.request, System.Text.Encoding.UTF8.GetString(ev.description)));
+                    return;
+                }
+
+                if (opcode == OpViewportOpened.Code)
+                {
+                    Send(new GeckoContextCreated(target, target));
+                    return;
+                }
+
+                if (opcode == OpNavigated.Code)
+                {
+                    var ev = Codecs.DecodeNavigatedBytes(body);
+                    Send(new GeckoNavigated(target, ev.url));
+                    return;
+                }
+
+                if (opcode == OpSnapshotted.Code)
+                {
+                    var snap = SnapshotServedPayload.Decode(opcode, target, correlation, body);
+                    var msg = new GeckoSnapshotServed(
+                        snap.CorrelationId,
+                        snap.Target,
+                        snap.Sequence,
+                        snap.Generation,
+                        snap.TableHash.ToString("x16"),
+                        Convert.ToBase64String(snap.Dump));
+                    _journal.StoreVirtualSnapshot(msg);
+                    Send(msg);
+                    var pending = _pendingVirtualSnap;
+                    if (pending is not null && snap.CorrelationId == _pendingVirtualSnapCorr)
                     {
-                        var fault = FaultPayload.Decode(payload);
-                        Send(new GeckoFault(
-                            fault.CorrelationId,
-                            fault.ContextId,
-                            fault.ErrorCode,
-                            fault.Phase,
-                            fault.Reason));
-                        break;
+                        pending.TrySetResult(msg);
                     }
+
+                    return;
+                }
+
+                if (opcode == OpFault.Code)
+                {
+                    var fault = FaultPayload.Decode(opcode, correlation, body);
+                    Send(new GeckoFault(
+                        fault.CorrelationId,
+                        0,
+                        fault.Code.ToString(),
+                        fault.Origin,
+                        fault.Message));
                 }
             }
             catch (InvalidDataException ex)
@@ -330,7 +331,7 @@ public sealed class LabSessionConnection
                 _logger.LogInformation("{Id} browse.navigate url={Url}", Id, url);
                 if (url.Length > 0)
                 {
-                    var command = ControlCommand.Navigate(NextCorrelation(), contextId: 0, url);
+                    var command = SchemaCommands.Navigate(NextCorrelation(), target: 0, url);
                     TrySendUpstream(command, "browse.navigate");
                 }
 
@@ -358,9 +359,7 @@ public sealed class LabSessionConnection
                 }
 
                 var ctx = message.ContextId ?? 0;
-                var envelope = new byte[Envelope.HeaderBytes + assetPayload.Length];
-                Envelope.WriteHeader(envelope, EnvelopeKind.Asset, ctx, assetPayload.Length);
-                Buffer.BlockCopy(assetPayload, 0, envelope, Envelope.HeaderBytes, assetPayload.Length);
+                var envelope = SchemaEnvelope.Pack(OpAssetRequest.Code, ctx, assetPayload);
                 TrySendUpstream(envelope, "client.asset");
                 break;
             }
@@ -379,7 +378,7 @@ public sealed class LabSessionConnection
                     break;
                 }
 
-                var command = ControlCommand.ViewportSet(NextCorrelation(), 0, width, height);
+                var command = SchemaCommands.ViewportResize(NextCorrelation(), 0, width, height);
                 if (!TrySendUpstream(command, "client.resize"))
                 {
                     Send(new SessionResized(false, width, height, "not_streaming", "aba não é dona da sessão"));
@@ -449,7 +448,7 @@ public sealed class LabSessionConnection
                     contextId,
                     attempt,
                     force);
-                var command = ControlCommand.Resync(NextCorrelation(), contextId, force);
+                var command = SchemaCommands.Resync(NextCorrelation(), contextId, force);
                 TrySendUpstream(command, "client.requestResync");
                 break;
             }
@@ -578,9 +577,9 @@ public sealed class LabSessionConnection
             _logger.LogInformation("{Id} same-S start ctx={ContextId}", Id, ctx);
 
             await _upstream.SendCommandAsync(
-                ControlCommand.HaltClocks(NextCorrelation()), cancellationToken).ConfigureAwait(false);
+                SchemaCommands.ClocksHalt(NextCorrelation()), cancellationToken).ConfigureAwait(false);
             await _upstream.SendCommandAsync(
-                ControlCommand.FlushFrame(NextCorrelation(), ctx), cancellationToken).ConfigureAwait(false);
+                SchemaCommands.Flush(NextCorrelation(), ctx, generation: 0), cancellationToken).ConfigureAwait(false);
 
             // Flush emite o frame S; espera o Projected aplicar antes do dump.
             await Task.Delay(1500, cancellationToken).ConfigureAwait(false);
@@ -592,7 +591,7 @@ public sealed class LabSessionConnection
             _pendingVirtualSnap = virtualTcs;
 
             await _upstream.SendCommandAsync(
-                ControlCommand.Snapshot(snapCorr, ctx), cancellationToken).ConfigureAwait(false);
+                SchemaCommands.Snapshot(snapCorr, ctx, generation: 0), cancellationToken).ConfigureAwait(false);
 
             var projectedTcs = new TaskCompletionSource<JsonElement>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -642,7 +641,7 @@ public sealed class LabSessionConnection
             try
             {
                 await _upstream.SendCommandAsync(
-                    ControlCommand.ResumeClocks(NextCorrelation()), CancellationToken.None)
+                    SchemaCommands.ClocksResume(NextCorrelation()), CancellationToken.None)
                     .ConfigureAwait(false);
             }
             catch

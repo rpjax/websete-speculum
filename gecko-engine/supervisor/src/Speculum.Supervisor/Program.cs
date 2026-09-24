@@ -10,7 +10,7 @@ using Speculum.Supervisor.Consumers;
 ProcessDeath.BindToParent();
 
 var options = SupervisorOptions.FromEnvironment();
-
+var schemaSha = Speculum.Supervisor.SchemaIdentity.AssertDeployOrThrow();
 
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.AddSimpleConsole(c => c.SingleLine = true);
@@ -23,6 +23,7 @@ builder.Services.AddSingleton<ConsumerHub>();
 builder.Services.AddHostedService<BrowserLink>();
 
 var app = builder.Build();
+app.Logger.LogInformation("schema_sha256={Hash}", schemaSha);
 app.UseWebSockets();
 
 var hub = app.Services.GetRequiredService<ConsumerHub>();

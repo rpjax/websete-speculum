@@ -356,6 +356,27 @@ class SimEngine final : public IEngine {
     return it == docs_.end() ? nullptr : it->second.get();
   }
 
+  // Apply wire Resync force — motor does not choose policy.
+  Result<void> doResync(HostId host, producer::ResyncForce force) {
+    auto* n = hosts_.find(host);
+    if (!n || n->generation.value == 0) {
+      return Result<void>::failure(
+          fault::makeFault(fault::FaultCode::NoSuchDocument, "SimEngine", "resync"));
+    }
+    DocumentId did{host, n->generation};
+    auto* prod = producerOf(did);
+    if (!prod) {
+      return Result<void>::failure(
+          fault::makeFault(fault::FaultCode::NoSuchDocument, "SimEngine", "no producer"));
+    }
+    auto* doc = simDocumentOf(host);
+    if (!doc) {
+      return Result<void>::failure(
+          fault::makeFault(fault::FaultCode::NoSuchDocument, "SimEngine", "no doc"));
+    }
+    return prod->resync(force, doc->view().root());
+  }
+
   SimDocument* simDocumentOf(HostId host) {
     return const_cast<SimDocument*>(
         static_cast<const SimDocument*>(documentOf(host)));

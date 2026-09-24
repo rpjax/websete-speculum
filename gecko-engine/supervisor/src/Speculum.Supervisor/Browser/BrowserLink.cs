@@ -4,15 +4,13 @@ using Microsoft.Extensions.Logging;
 using Speculum.Supervisor.Consumers;
 using Speculum.Supervisor.Control;
 using Speculum.Supervisor.Wire;
+using Speculum.Wire;
 
 namespace Speculum.Supervisor.Browser;
 
 /// <summary>
-/// A sessão: o supervisor abre o socket, sobe o browser, recebe a conexão dele,
-/// repassa os frames aos consumidores e morre junto com ele.
-///
-/// Um supervisor, um browser, uma vida. Sem opção que mude isso — se houvesse,
-/// o lab estaria exercitando um supervisor que não é o de produção.
+/// Session: supervisor opens the socket, starts the browser, speaks schema wire
+/// (16-byte envelope + generated payloads). No Kind/ControlAbi.
 /// </summary>
 public sealed class BrowserLink(
     SupervisorOptions options,
@@ -21,16 +19,13 @@ public sealed class BrowserLink(
     ILogger<BrowserLink> logger) : BackgroundService
 {
     private readonly ContextTable _contexts = new();
-    private ControlChannel? _control;
+    private SchemaControlChannel? _control;
     private CancellationToken _sessionToken;
-    /// <summary>
-    /// Root document commit (Navigated). Cold seed is Gecko COMPLETE, not this
-    /// event. Late consumer after commit gets map Resync in OnConsumerAttached —
-    /// once per navigation. Reconnect of the same lab consumer must not dump the
-    /// tree again (that remounts Projected on every attach).
-    /// </summary>
     private bool _rootNavigationCommitted;
     private bool _attachResyncServed;
+    private uint _rootViewport;
+    private readonly TaskCompletionSource _consumerPresent =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -44,16 +39,10 @@ public sealed class BrowserLink(
 
         try
         {
-            // O supervisor sobe o browser e espera a PONTE DE CONTROLE — não um
-            // consumidor (doc 17 §1). Consumidor que chega depois do bootstrap se
-            // resolve com resync, não atrasando o lançamento.
             browser.Start();
 
-            // Ou o browser conecta, ou ele morre antes de conectar. Esperar só
-            // pelo accept deixaria o supervisor pendurado num filho morto.
             var accept = listener.AcceptAsync(stoppingToken).AsTask();
             var finished = await Task.WhenAny(accept, browser.Exited).ConfigureAwait(false);
-
             if (finished != accept)
             {
                 logger.LogError("browser morreu antes de se conectar");
@@ -65,7 +54,6 @@ public sealed class BrowserLink(
         }
         catch (OperationCanceledException)
         {
-            // encerramento normal
         }
         catch (Exception ex)
         {
@@ -75,24 +63,23 @@ public sealed class BrowserLink(
         {
             browser.Stop();
             TryDeleteSocketPath(options.BrowserSocketPath);
-
-            // Doc 15 — caiu = morre. A sessão acabou; o supervisor acabou.
             logger.LogInformation("sessão encerrada — supervisor saindo");
             lifetime.StopApplication();
         }
     }
 
-    private async Task ServeBrowserAsync(Socket socket, CancellationToken cancellationToken)
+    private async Task ServeBrowserAsync(System.Net.Sockets.Socket socket, CancellationToken cancellationToken)
     {
         logger.LogInformation("browser conectado");
 
         await using var stream = new NetworkStream(socket, ownsSocket: false);
-        var reader = new EnvelopeReader(stream);
-        await using var writer = new EnvelopeWriter(stream);
-        var control = new ControlChannel(writer, logger);
+        var reader = new SchemaEnvelopeReader(stream);
+        await using var writer = new SchemaLinkWriter(stream);
+        var control = new SchemaControlChannel(writer, logger);
         _control = control;
         _sessionToken = cancellationToken;
-        control.EventReceived += OnBrowserEvent;
+        control.MessageReceived += OnMotorMessage;
+        control.FaultReceived += OnFault;
         consumers.CommandReceived += OnConsumerCommand;
         consumers.ConsumerAttached += OnConsumerAttached;
         consumers.LastConsumerLeft += OnLastConsumerLeft;
@@ -103,6 +90,7 @@ public sealed class BrowserLink(
 
         try
         {
+            // Schema Ready from motor starts the session vocabulary.
             while (!cancellationToken.IsCancellationRequested)
             {
                 var message = await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
@@ -112,37 +100,20 @@ public sealed class BrowserLink(
                     break;
                 }
 
-                switch (message.Value.Kind)
+                var msg = message.Value;
+                if (msg.Opcode == OpPatch.Code)
                 {
-                    case EnvelopeKind.Hello:
-                        logger.LogInformation("browser apresentou-se");
-                        break;
-
-                    case EnvelopeKind.Frame:
-                        frames++;
-                        bytes += message.Value.Payload.Length;
-                        consumers.Broadcast(message.Value.ContextId, message.Value.Payload);
-                        break;
-
-                    case EnvelopeKind.BrowserEvent:
-                        control.Receive(message.Value.Payload);
-                        break;
-
-                    case EnvelopeKind.Telemetry:
-                    case EnvelopeKind.Asset:
-                        consumers.BroadcastEnvelope(
-                            message.Value.Kind, message.Value.ContextId, message.Value.Payload);
-                        break;
-
-                    default:
-                        logger.LogWarning("envelope desconhecido do browser: {Kind}", message.Value.Kind);
-                        break;
+                    frames++;
+                    bytes += msg.Payload.Length;
+                    consumers.BroadcastSchema(msg.Opcode, msg.Target, msg.Payload, msg.Correlation);
+                    continue;
                 }
+
+                control.Receive(msg.Opcode, msg.Target, msg.Correlation, msg.Payload);
             }
         }
         catch (OperationCanceledException)
         {
-            // encerramento normal
         }
         catch (IOException ex)
         {
@@ -154,189 +125,105 @@ public sealed class BrowserLink(
         }
         finally
         {
-            control.EventReceived -= OnBrowserEvent;
+            control.MessageReceived -= OnMotorMessage;
+            control.FaultReceived -= OnFault;
             consumers.CommandReceived -= OnConsumerCommand;
             consumers.ConsumerAttached -= OnConsumerAttached;
             consumers.LastConsumerLeft -= OnLastConsumerLeft;
             consumers.AssetFromConsumer -= OnAssetFromConsumer;
             _control = null;
-            logger.LogInformation("{Frames} frames, {Bytes} bytes", frames, bytes);
+            logger.LogInformation("{Frames} patches, {Bytes} bytes", frames, bytes);
         }
     }
 
-    private void OnBrowserEvent(BrowserEvent message, byte[] payload)
+    private void OnFault(Fault fault)
     {
-        switch (message.OpCode)
+        if (!FaultDispatcher.IsCatalogued(fault.code))
         {
-            case ControlOpCode.Ready:
-                logger.LogInformation("browser pronto — pedindo o contexto da sessão");
-                _ = RequestContextAsync();
-                break;
+            logger.LogError("Fault com código fora do catálogo: {Code}", (ushort)fault.code);
+            return;
+        }
 
-            case ControlOpCode.ContextCreated:
+        logger.LogError(
+            "Fault tipado code={Code} origin={Origin} message={Message}",
+            fault.code,
+            fault.origin,
+            fault.message);
+        consumers.BroadcastSchema(
+            OpFault.Code, 0, Codecs.EncodeFaultBytes(fault));
+    }
+
+    private void OnMotorMessage(ushort opcode, uint target, uint correlation, byte[] payload)
+    {
+        consumers.BroadcastSchema(opcode, target, payload, correlation);
+
+        if (opcode == OpReady.Code)
+        {
+            logger.LogInformation("motor Ready — abrindo viewport");
+            _ = OpenSessionAsync();
+            return;
+        }
+
+        if (opcode == OpViewportOpened.Code)
+        {
+            _rootViewport = target;
+            var hostId = _contexts.Allocate(options.BrowserUrl);
+            _contexts.MarkCreated(hostId, target);
+            logger.LogInformation("ViewportOpened target={Target} host={Host}", target, hostId);
+            _ = NavigateRootAsync(target);
+            return;
+        }
+
+        if (opcode == OpDocumentInstalled.Code || opcode == OpLoadStateChanged.Code)
+        {
+            if (target == _rootViewport)
             {
-                _contexts.MarkCreated(message.ContextId, message.BrowsingContextId);
-                logger.LogInformation(
-                    "contexto {ContextId} criado (browsingContext {Bc})",
-                    message.ContextId,
-                    message.BrowsingContextId);
-                consumers.BroadcastEnvelope(EnvelopeKind.BrowserEvent, message.ContextId, payload);
-
-                var url = _contexts.TryGet(message.ContextId, out var entry) && entry.Url.Length > 0
-                    ? entry.Url
-                    : options.BrowserUrl;
-                MarkRootNavigationPending(message.ContextId);
-                logger.LogInformation(
-                    "Navigate frio após ContextCreated ctx={ContextId} url={Url}",
-                    message.ContextId,
-                    url);
-                _ = NavigateAsync(message.ContextId, url);
-                break;
+                _rootNavigationCommitted = true;
             }
-
-            case ControlOpCode.ContextDestroyed:
-                if (_contexts.TryGetRoot(out var destroyed) && destroyed.ContextId == message.ContextId)
-                {
-                    _rootNavigationCommitted = false;
-                    _attachResyncServed = false;
-                }
-                _contexts.Remove(message.ContextId);
-                logger.LogInformation("contexto {ContextId} destruído", message.ContextId);
-                break;
-
-            case ControlOpCode.Navigated:
-                logger.LogInformation("contexto {ContextId} navegou para {Url}", message.ContextId, message.Text);
-                // Consumidor precisa ver a URL commitada (oráculo de estado / lab).
-                consumers.BroadcastEnvelope(EnvelopeKind.BrowserEvent, message.ContextId, payload);
-                if (_contexts.TryGetRoot(out var rootNav) && rootNav.ContextId == message.ContextId)
-                {
-                    _rootNavigationCommitted = true;
-                }
-                break;
-
-            case ControlOpCode.Fault:
-                logger.LogError(
-                    "browser reportou falha (contexto {ContextId}): {Reason}", message.ContextId, message.Text);
-                break;
-
-            case ControlOpCode.SnapshotServed:
-            case ControlOpCode.DialogRequested:
-            case ControlOpCode.PermissionRequested:
-            case ControlOpCode.DownloadRequested:
-                consumers.BroadcastEnvelope(EnvelopeKind.BrowserEvent, message.ContextId, payload);
-                break;
-
-            default:
-                break;
         }
     }
 
-    /// <summary>
-    /// Comando vindo de um consumidor. O supervisor é a interface: o consumidor
-    /// pede, o supervisor comanda, e o contextId é atribuído aqui — nunca pelo
-    /// consumidor nem pelo C++.
-    /// </summary>
     private void OnConsumerCommand(byte[] payload)
     {
-        ControlReader reader;
+        if (payload.Length < SchemaEnvelope.HeaderBytes)
+        {
+            return;
+        }
+
+        ushort opcode;
+        uint target;
+        uint correlation;
+        byte[] body;
         try
         {
-            reader = new ControlReader(payload);
+            var (op, tgt, len, corr) = SchemaEnvelope.ReadHeader(payload);
+            opcode = op;
+            target = tgt;
+            correlation = corr;
+            body = new byte[len];
+            Buffer.BlockCopy(payload, SchemaEnvelope.HeaderBytes, body, 0, len);
         }
-        catch (InvalidDataException ex)
+        catch (Exception ex)
         {
             logger.LogWarning("comando de consumidor ilegível: {Reason}", ex.Message);
             return;
         }
 
-        switch (reader.OpCode)
+        if (target == 0 && _rootViewport != 0)
         {
-            case ControlOpCode.Navigate:
-            {
-                var requested = reader.ReadUInt32();
-                var url = reader.ReadString();
-
-                // contextId 0 do consumidor significa "o contexto raiz da sessão".
-                // Quem resolve isso é o supervisor, porque ele é quem nomeia.
-                if (requested == 0 && _contexts.TryGetRoot(out var root))
-                {
-                    requested = root.ContextId;
-                }
-
-                if (requested == 0)
-                {
-                    logger.LogWarning("navegação pedida sem contexto existente; ignorada");
-                    break;
-                }
-
-                logger.LogInformation("consumidor pediu navegação do contexto {ContextId} para {Url}", requested, url);
-                MarkRootNavigationPending(requested);
-                _ = NavigateAsync(requested, url);
-                break;
-            }
-
-            case ControlOpCode.Resync:
-            {
-                var requested = reader.ReadUInt32();
-                var force = reader.ReadUInt8();
-                if (requested == 0 && _contexts.TryGetRoot(out var root))
-                {
-                    requested = root.ContextId;
-                }
-
-                if (requested == 0)
-                {
-                    logger.LogWarning("resync pedido sem contexto existente; ignorado");
-                    break;
-                }
-
-                logger.LogInformation("consumidor pediu resync do contexto {ContextId} força={Force}", requested, force);
-                _ = ResyncAsync(requested, force);
-                break;
-            }
-
-            case ControlOpCode.HaltClocks:
-                _ = SendRawAsync(ControlCommand.HaltClocks(_control?.NextId() ?? 0), 0);
-                break;
-
-            case ControlOpCode.ResumeClocks:
-                _ = SendRawAsync(ControlCommand.ResumeClocks(_control?.NextId() ?? 0), 0);
-                break;
-
-            case ControlOpCode.FlushFrame:
-            case ControlOpCode.Snapshot:
-            case ControlOpCode.Input:
-            case ControlOpCode.ViewportSet:
-            case ControlOpCode.HistoryGo:
-            case ControlOpCode.Reload:
-            case ControlOpCode.Stop:
-            case ControlOpCode.DialogRespond:
-            case ControlOpCode.PermissionRespond:
-            case ControlOpCode.DownloadRespond:
-            {
-                var requested = reader.ReadUInt32();
-                if (requested == 0 && _contexts.TryGetRoot(out var root))
-                {
-                    requested = root.ContextId;
-                }
-
-                if (requested == 0)
-                {
-                    logger.LogWarning("comando {OpCode} sem contexto; ignorado", reader.OpCode);
-                    break;
-                }
-
-                _ = SendRawAsync(RewriteContext(payload, requested), requested);
-                break;
-            }
-
-            default:
-                logger.LogInformation("comando de consumidor ignorado: {OpCode}", reader.OpCode);
-                break;
+            target = _rootViewport;
         }
+
+        var channel = _control;
+        if (channel is null)
+        {
+            return;
+        }
+
+        _ = channel.SendAsync(opcode, target, body, correlation == 0 ? channel.NextId() : correlation, _sessionToken);
     }
 
-    private async Task SendRawAsync(byte[] command, uint contextId)
+    private async Task OpenSessionAsync()
     {
         var channel = _control;
         if (channel is null)
@@ -346,44 +233,21 @@ public sealed class BrowserLink(
 
         try
         {
-            await channel.SendAsync(command, contextId, _sessionToken).ConfigureAwait(false);
+            var corr = channel.NextId();
+            await channel.SendViewportOpenAsync(
+                    0,
+                    new Extent { width = (ushort)options.ViewportWidth, height = (ushort)options.ViewportHeight },
+                    corr,
+                    _sessionToken)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            logger.LogError("falha ao encaminhar comando: {Reason}", ex.Message);
+            logger.LogError("falha ao abrir viewport: {Reason}", ex.Message);
         }
     }
 
-    private void OnAssetFromConsumer(uint contextId, byte[] payload)
-    {
-        var channel = _control;
-        if (channel is null)
-        {
-            return;
-        }
-
-        var ctx = contextId;
-        if (ctx == 0 && _contexts.TryGetRoot(out var root))
-        {
-            ctx = root.ContextId;
-        }
-
-        _ = channel.SendKindAsync(EnvelopeKind.Asset, ctx, payload, _sessionToken);
-    }
-
-    private static byte[] RewriteContext(byte[] payload, uint contextId)
-    {
-        var copy = (byte[])payload.Clone();
-        if (copy.Length >= ControlWriter.HeaderBytes + sizeof(uint))
-        {
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(
-                copy.AsSpan(ControlWriter.HeaderBytes), contextId);
-        }
-
-        return copy;
-    }
-
-    private async Task RequestContextAsync()
+    private async Task NavigateRootAsync(uint viewportTarget)
     {
         var channel = _control;
         if (channel is null)
@@ -393,35 +257,17 @@ public sealed class BrowserLink(
 
         try
         {
-            var contextId = _contexts.Allocate(options.BrowserUrl);
-            var command = ControlCommand.ContextCreate(
-                channel.NextId(), contextId, options.ViewportWidth, options.ViewportHeight);
-            await channel.SendAsync(command, contextId, _sessionToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("falha ao pedir contexto: {Reason}", ex.Message);
-        }
-    }
+            // Brief wait so a consumer that connects on listen does not miss the Navigate Patch.
+            // If nobody attaches in time, navigate anyway (headless / no client).
+            if (consumers.Count == 0)
+            {
+                await Task.WhenAny(_consumerPresent.Task, Task.Delay(3000, _sessionToken))
+                    .ConfigureAwait(false);
+            }
 
-    private async Task NavigateAsync(uint contextId, string url)
-    {
-        var channel = _control;
-        if (channel is null)
-        {
-            return;
-        }
-
-        try
-        {
-            var correlationId = channel.NextId();
-            logger.LogInformation(
-                "Navigate enviado corr={CorrelationId} ctx={ContextId} url={Url}",
-                correlationId,
-                contextId,
-                url);
-            var command = ControlCommand.Navigate(correlationId, contextId, url);
-            await channel.SendAsync(command, contextId, _sessionToken).ConfigureAwait(false);
+            MarkRootNavigationPending(viewportTarget);
+            await channel.SendNavigateAsync(viewportTarget, options.BrowserUrl, channel.NextId(), _sessionToken)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -431,36 +277,39 @@ public sealed class BrowserLink(
 
     private void OnConsumerAttached()
     {
-        // Late attach: missed the COMPLETE bootstrap — one map snapshot now.
-        // Before root commit the load seed has not run; skip about:blank dump.
-        if (!_rootNavigationCommitted)
+        _consumerPresent.TrySetResult();
+
+        if (!_rootNavigationCommitted || _attachResyncServed)
         {
             return;
         }
 
-        if (_attachResyncServed)
+        if (_rootViewport == 0)
         {
-            logger.LogInformation("consumidor atrasado: resync desta navegação já servido — skip");
             return;
         }
 
-        if (_contexts.TryGetRoot(out var root) && root.BrowsingContextId != 0)
+        _attachResyncServed = true;
+        var channel = _control;
+        if (channel is null)
         {
-            _attachResyncServed = true;
-            _ = ResyncAsync(root.ContextId);
+            return;
         }
+
+        var force = channel.Policy.ChooseResyncForce();
+        _ = channel.SendResyncAsync(_rootViewport, force, channel.NextId(), _sessionToken);
     }
 
-    private void MarkRootNavigationPending(uint contextId)
+    private void MarkRootNavigationPending(uint target)
     {
-        if (_contexts.TryGetRoot(out var root) && root.ContextId == contextId)
+        if (target == _rootViewport || _rootViewport == 0)
         {
             _rootNavigationCommitted = false;
             _attachResyncServed = false;
         }
     }
 
-    private async Task ResyncAsync(uint contextId, byte force = 0)
+    private void OnAssetFromConsumer(uint target, byte[] payload)
     {
         var channel = _control;
         if (channel is null)
@@ -468,20 +317,19 @@ public sealed class BrowserLink(
             return;
         }
 
-        try
-        {
-            var command = ControlCommand.Resync(channel.NextId(), contextId, force);
-            await channel.SendAsync(command, contextId, _sessionToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("falha ao pedir resync: {Reason}", ex.Message);
-        }
+        var ctx = target == 0 ? _rootViewport : target;
+        _ = channel.SendAsync(OpAssetRequest.Code, ctx, payload, channel.NextId(), _sessionToken);
     }
 
     private void OnLastConsumerLeft()
     {
         logger.LogInformation("último consumidor saiu — supervisor+browser encerrando");
+        var channel = _control;
+        if (channel is not null)
+        {
+            _ = channel.SendShutdownAsync(channel.NextId(), CancellationToken.None);
+        }
+
         lifetime.StopApplication();
     }
 
@@ -507,7 +355,6 @@ public sealed class BrowserLink(
         }
         catch (IOException)
         {
-            // socket órfão de outra execução; o bind falha com mensagem clara
         }
     }
 }

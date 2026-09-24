@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Phase10.Cs</RootNamespace>
+    <!--
+      Test runner only. WSL builds under /mnt/c (NTFS) cannot chmod the native apphost;
+      gates invoke via `dotnet run` / `dotnet dll`. Product Speculum.Supervisor keeps UseAppHost.
+    -->
+    <UseAppHost>false</UseAppHost>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\wire-clients\cs\SpeculumWire.gen.cs" Link="SpeculumWire.gen.cs" />
+    <Compile Include="..\..\..\supervisor\src\Speculum.Gecko.Abi\Wire\SchemaIdentity.cs" Link="SchemaIdentity.cs" />
+    <Compile Include="..\..\..\supervisor\src\Speculum.Gecko.Abi\Control\SessionPolicy.cs" Link="SessionPolicy.cs" />
+    <Compile Include="..\..\..\supervisor\src\Speculum.Gecko.Abi\Control\FaultDispatcher.cs" Link="FaultDispatcher.cs" />
+  </ItemGroup>
+</Project>

@@ -357,8 +357,11 @@ comportamento reexecutado.
   swap é **byte-idêntico**.
 - `Fault` do motor chega ao supervisor com `code` catalogado e chaves tipadas, e é casado
   programaticamente — nunca lido como texto.
-- Sessão fim a fim em lab: `ViewportOpen` → `Navigate` → patches → input → `Shutdown`, com o
-  oráculo ligado.
+- Sessão fim a fim em lab: `ViewportOpen` → `Navigate` → patches → input → `Shutdown`, com
+  contagens exatas de hops (patches recebidos == esperados). O corpo do `Patch` é **opaco**
+  para o supervisor por desenho do fio — não há oráculo de conteúdo nesta fase. Verificação
+  de conteúdo de patch (ISA / frame-protocol / veredito) pertence às fases 7 e 9, onde há
+  produtor real e oráculo de verdade.
 - Hash do schema gravado no metadado de build das três pontas; divergência é erro de
   implantação diagnosticável.
 

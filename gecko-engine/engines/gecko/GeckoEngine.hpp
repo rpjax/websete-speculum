@@ -229,6 +229,27 @@ class GeckoEngine final : public IEngine {
     return it == docs_.end() ? nullptr : it->second.get();
   }
 
+  // Apply wire Resync force — motor does not choose policy.
+  Result<void> doResync(HostId host, producer::ResyncForce force) {
+    auto* n = hosts_.find(host);
+    if (!n || n->generation.value == 0) {
+      return Result<void>::failure(
+          fault::makeFault(fault::FaultCode::NoSuchDocument, "GeckoEngine", "resync"));
+    }
+    DocumentId did{host, n->generation};
+    auto* prod = producerOf(did);
+    if (!prod) {
+      return Result<void>::failure(
+          fault::makeFault(fault::FaultCode::NoSuchDocument, "GeckoEngine", "no producer"));
+    }
+    auto it = docs_.find(key(did));
+    if (it == docs_.end()) {
+      return Result<void>::failure(
+          fault::makeFault(fault::FaultCode::NoSuchDocument, "GeckoEngine", "no doc"));
+    }
+    return prod->resync(force, it->second->view().root());
+  }
+
   Result<void> doResize(HostId host, Extent extent) {
     auto* n = hosts_.find(host);
     if (!n) {

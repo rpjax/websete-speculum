@@ -4,6 +4,7 @@
 // Host entry: phase7_tests.cpp (Sim). In-tree: SpeculumPhase7.* (Gecko).
 // No motor ifs. No copy of body.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -30,7 +31,8 @@ using namespace speculum::roteiro;
 
 struct SuiteReport {
   int fails{0};
-  int compared{0};
+  int fixtureReplays{0};  // .spec SpecDriver replays (Phase 9 compared count)
+  std::vector<std::string> labScenarios;  // Lab scenario names (Suite/Case style)
   void check(bool c, const char* m, const char* file, int line) {
     if (!c) {
       std::fprintf(stderr, "FAIL %s:%d %s\n", file, line, m);
@@ -39,11 +41,12 @@ struct SuiteReport {
   }
 };
 
+// Verdict only. Progress (scenario names / timings) goes through reportProgress.
 #define P7_CHECK(rep, c, m) (rep).check(!!(c), (m), __FILE__, __LINE__)
 
-// Named fixtures the suite must actually run (same role as phase9 compared).
-inline constexpr const char* kExpectedFixtures[] = {
-    "gate/fixture-files",
+// Lab scenarios counted by name (same shape as scripts/ci/speculum-gtest-expect.txt).
+// Not the 13 .spec fixture replays — those are fixtureReplays.
+inline constexpr const char* kExpectedLabScenarios[] = {
     "correção/replay-identical",
     "correção/attr-text",
     "estrutural/list-tail-remove",
@@ -57,10 +60,11 @@ inline constexpr const char* kExpectedFixtures[] = {
     "lab/oracle-injected",
 };
 
-inline void report(SuiteReport& rep, const char* cls, const char* name, bool ok,
-                   double ms) {
-  std::printf("%s %s/%s (%.2f ms)\n", ok ? "PASS" : "FAIL", cls, name, ms);
-  ++rep.compared;
+// Progress line only — does not assert. Verdict is P7_CHECK.
+inline void reportProgress(SuiteReport& rep, const char* cls, const char* name,
+                           double ms) {
+  std::printf("PROGRESS %s/%s (%.2f ms)\n", cls, name, ms);
+  rep.labScenarios.emplace_back(std::string(cls) + "/" + name);
 }
 
 inline std::string defaultSchemaHash() {
@@ -197,8 +201,7 @@ inline void test_a3_replay_identical(SuiteReport& rep, const std::string& schema
   auto r2 = d2.replay(parsed.file, caps, true);
   P7_CHECK(rep, r2.ok, "A3 second replay byte-identical");
   auto t1 = std::chrono::steady_clock::now();
-  report(rep, "correção", "replay-identical", r2.ok,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(rep, "correção", "replay-identical", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -216,8 +219,7 @@ inline void test_correcao_attr_text(FixtureLab<Traits>& lab) {
   P7_CHECK(lab.rep, checkEncodeShadow(*prod, lab.uplink.lastPatch()), "encode/shadow");
   P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "correção", "attr-text", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "correção", "attr-text", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -235,8 +237,7 @@ inline void test_estrutural_list_remove(FixtureLab<Traits>& lab) {
   P7_CHECK(lab.rep, prod->table().checkInvariants(), "inv");
   P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "estrutural", "list-tail-remove", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "estrutural", "list-tail-remove", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -255,8 +256,7 @@ inline void test_cssom_link_applicable(FixtureLab<Traits>& lab) {
            "A8 sheet projected");
   P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "cssom", "link-applicable-no-rule", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "cssom", "link-applicable-no-rule", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -269,8 +269,7 @@ inline void test_aninhamento_host(FixtureLab<Traits>& lab) {
   P7_CHECK(lab.rep, Traits::hosts(lab.eng).find(child) == nullptr, "detached");
   P7_CHECK(lab.rep, lab.oracleOk(), "oracle root");
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "aninhamento", "host-born-die-same-interval", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "aninhamento", "host-born-die-same-interval", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -290,8 +289,7 @@ inline void test_aninhamento_nested_shadow(FixtureLab<Traits>& lab) {
   P7_CHECK(lab.rep, prod->table().checkInvariants(), "inv");
   P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "aninhamento", "nested-shadow", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "aninhamento", "nested-shadow", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -312,8 +310,7 @@ inline void test_ciclo_nav_dirty(FixtureLab<Traits>& lab) {
   P7_CHECK(lab.rep, prod2->table().checkInvariants(), "clean table");
   P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "ciclo", "nav-under-load-pending-dirt", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "ciclo", "nav-under-load-pending-dirt", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -339,16 +336,19 @@ inline void test_estresse_flat(SuiteReport& rep, typename Traits::Engine& engTem
     usPerOp[ki] =
         std::chrono::duration<double, std::micro>(a1 - a0).count() / double(K);
     P7_CHECK(rep, prod->table().checkInvariants(), "inv");
-    // Aceite: uma corrida de irmãos ⇒ um INSERT (before resolvido uma vez). Tempo só sinal.
+    // Aceite A6: uma corrida de irmãos ⇒ um INSERT e uma resolução de before.
+    // Tempo (us/op) é só sinal impresso — não portão.
     P7_CHECK(rep,
              PatchBuilder::countOp(lab.uplink.lastPatch(), IsaOp::Insert) == 1,
              "A6 one INSERT per sibling run");
+    P7_CHECK(rep, prod->beforeResolvesLastFlush() == 1,
+             "A6 one before-resolve per sibling run");
   }
   std::printf("COST us/op K100=%.3f K400=%.3f K1600=%.3f (signal only)\n", usPerOp[0],
               usPerOp[1], usPerOp[2]);
   auto t1 = std::chrono::steady_clock::now();
-  report(rep, "estresse", "batch-insert", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(rep, "estresse", "batch-insert",
+                 std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -371,8 +371,7 @@ inline void test_adv_prepend(FixtureLab<Traits>& lab) {
   P7_CHECK(lab.rep, prod->table().checkInvariants(), "inv");
   P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "adversaria", "prepend-stress", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "adversaria", "prepend-stress", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -394,8 +393,7 @@ inline void test_adv_insert_before_remove(FixtureLab<Traits>& lab) {
   (void)x;
   (void)b;
   auto t1 = std::chrono::steady_clock::now();
-  report(lab.rep, "adversaria", "insert-before-remove", true,
-         std::chrono::duration<double, std::milli>(t1 - t0).count());
+  reportProgress(lab.rep, "adversaria", "insert-before-remove", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
 template <typename Traits>
@@ -426,7 +424,7 @@ inline void test_a5_oracle_points(FixtureLab<Traits>& lab) {
   P7_CHECK(lab.rep, v.causeSpan == 1, "A5 cause");
   P7_CHECK(lab.rep, !v.roteiroExcerpt.empty(), "A5 excerpt");
   lab.freezer.thawAll(tok.value());
-  report(lab.rep, "lab", "oracle-injected", true, 0);
+  reportProgress(lab.rep, "lab", "oracle-injected", 0);
 }
 
 template <typename Traits>
@@ -469,10 +467,10 @@ inline void test_fixture_files(SuiteReport& rep, const fs::path& fixtureRoot,
     SpecDriverT<Traits> drv(schema);
     drv.enablePostcondition(true);
     auto r = drv.replay(parsed.file, caps, true);
+    ++rep.fixtureReplays;
     P7_CHECK(rep, r.ok, rel);
     if (!r.ok) std::fprintf(stderr, "replay %s: %s\n", rel, r.message.c_str());
   }
-  report(rep, "gate", "fixture-files", true, 0);
 }
 
 // Full suite. Returns fail count.
@@ -552,24 +550,62 @@ inline int runFixtureSuite(const fs::path& fixtureRoot,
     test_a5_oracle_points(lab);
   }
 
-  constexpr int expected =
-      static_cast<int>(sizeof(kExpectedFixtures) / sizeof(kExpectedFixtures[0]));
-  if (rep.compared == 0) {
-    std::fprintf(stderr, "FAIL phase7: compared == 0 (suite did no work)\n");
+  constexpr int expectedFixtureReplays = 13;
+  constexpr int expectedLab =
+      static_cast<int>(sizeof(kExpectedLabScenarios) /
+                       sizeof(kExpectedLabScenarios[0]));
+
+  if (rep.fixtureReplays == 0 && rep.labScenarios.empty()) {
+    std::fprintf(stderr, "FAIL phase7: suite did no work\n");
     ++rep.fails;
   }
-  if (rep.compared != expected) {
+  if (rep.fixtureReplays != expectedFixtureReplays) {
     std::fprintf(stderr,
-                 "FAIL phase7: compared=%d expected=%d fixtures\n",
-                 rep.compared, expected);
+                 "FAIL phase7: fixtureReplays=%d expected=%d\n",
+                 rep.fixtureReplays, expectedFixtureReplays);
+    ++rep.fails;
+  }
+
+  // Lab scenarios: set equality by name (expect.txt model).
+  std::vector<std::string> wantLab;
+  for (auto* s : kExpectedLabScenarios) wantLab.emplace_back(s);
+  std::vector<std::string> gotLab = rep.labScenarios;
+  std::sort(wantLab.begin(), wantLab.end());
+  std::sort(gotLab.begin(), gotLab.end());
+  if (gotLab != wantLab) {
+    std::fprintf(stderr,
+                 "FAIL phase7: lab scenario set mismatch (got %zu want %d)\n",
+                 gotLab.size(), expectedLab);
+    for (const auto& g : gotLab) {
+      bool found = false;
+      for (const auto& w : wantLab) {
+        if (g == w) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) std::fprintf(stderr, "  unexpected: %s\n", g.c_str());
+    }
+    for (const auto& w : wantLab) {
+      bool found = false;
+      for (const auto& g : gotLab) {
+        if (g == w) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) std::fprintf(stderr, "  missing: %s\n", w.c_str());
+    }
     ++rep.fails;
   }
 
   if (rep.fails) {
-    std::fprintf(stderr, "phase7 FAIL (%d fails, %d compared)\n", rep.fails,
-                 rep.compared);
+    std::fprintf(stderr,
+                 "phase7 FAIL (%d fails, %d fixtureReplays, %zu labScenarios)\n",
+                 rep.fails, rep.fixtureReplays, rep.labScenarios.size());
   } else {
-    std::printf("phase7 PASS (%d compared)\n", rep.compared);
+    std::printf("phase7 PASS (%d fixtureReplays, %zu labScenarios)\n",
+                rep.fixtureReplays, rep.labScenarios.size());
   }
   return rep.fails;
 }

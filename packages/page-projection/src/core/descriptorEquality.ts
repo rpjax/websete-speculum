@@ -18,7 +18,7 @@ import {
   hashValue,
 } from './rowHash';
 import type { ReplicatedTable } from './replicatedTable';
-import { ElementNs, classifyElementNs } from './elementNs';
+import { classifyElementNs } from './elementNs';
 import { SHADOW_MODE_CLOSED, SHADOW_MODE_OPEN } from './frame';
 
 export type DescriptorMismatch = {
@@ -74,12 +74,9 @@ function contentHashFromDom(node: Node, kind: number): bigint {
   }
   if (kind === NodeKind.Element && node.nodeType === Node.ELEMENT_NODE) {
     const el = node as Element;
-    const ns = classifyElementNs(el.namespaceURI);
+    const { ns, uri } = classifyElementNs(el.namespaceURI);
     let h = 0n;
-    h = addMod64(
-      h,
-      hashNs(ns, ns === ElementNs.Custom ? (el.namespaceURI ?? undefined) : undefined),
-    );
+    h = addMod64(h, hashNs(ns, uri));
     h = addMod64(h, hashName(el.localName));
     for (let i = 0; i < el.attributes.length; i++) {
       const a = el.attributes.item(i)!;

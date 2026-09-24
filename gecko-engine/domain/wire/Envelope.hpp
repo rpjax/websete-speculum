@@ -16,5 +16,6 @@ struct Envelope {
 };
 
 static_assert(sizeof(Envelope) == Limits::kEnvelopeBytes);
+// Fields are 2+2+4+4+4 = 16 with no padding — wire layout is the struct layout.
 
 }  // namespace speculum::wire

@@ -370,7 +370,8 @@ interface DomInputIngress {
 
 /**
  * Mid-session resync request. Matches lab/Control today: which context + optional diag reason.
- * No generation/sequence watermark — producer always re-describes current truth (emitResyncFrame).
+ * Watermark is `Patch.builtAt` on the Resync-flagged schema frame (redesign 11 §4.1):
+ * client buffers while in resync mode and discards buffered frames with `sequence ≤ builtAt`.
  */
 interface PageProjectionResyncRequest {
   /** Which Virtual instance should emit (OPEN-6). Omit / default = root `1`. */

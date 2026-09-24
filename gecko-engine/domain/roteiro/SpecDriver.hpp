@@ -93,6 +93,9 @@ class SpecDriverT {
     rec.setSeed(file.seed ? file.seed : 1);
     recorder_ = &rec;
     ruplink_ = std::make_unique<RecordingPatchUplink>(uplink_, &rec);
+    // SpecRecorder is stack-local; Producer keeps RecordingPatchUplink*. Detach on every
+    // exit (success or failure) — no early return may leave &rec dangling.
+    RecordingPatchUplink::DetachGuard detach(ruplink_.get(), &recorder_);
     eng_->setProducerDeps(&clock_, ruplink_.get());
 
     CauseSpan spans;
@@ -196,7 +199,6 @@ class SpecDriverT {
       }
     }
 
-    recorder_ = nullptr;
     return dr;
   }
 

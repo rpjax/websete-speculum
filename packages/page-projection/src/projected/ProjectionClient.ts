@@ -23,7 +23,11 @@ import {
   type AssembledFrame,
 } from '../core/decode';
 import { checkPtrEqualsPn } from '../core/descriptorEquality';
-import { decodeSchemaPatchMessage, isSchemaWire } from '../wire/schemaPatch';
+import { decodeSchemaPatchMessage, isSchemaWire, SCHEMA_SHA256 } from '../wire/schemaPatch';
+import { orderAfterBuiltAt } from './schemaResyncBuffer';
+
+/** Patch.flags bit1 — Resync (speculum.wire.toml). */
+const SCHEMA_PATCH_FLAG_RESYNC = 0b10;
 import { DomFrameApplier, type NestedHostInstallHint } from './applyDom';
 import { pendingNestedHostAuditMessage } from './pendingNestedHostAudit';
 import { NestedProjectedApply } from './nestedProjectedApply';
@@ -84,6 +88,10 @@ export type ProjectionClientOptions = {
    * Default false (hot path); lab / accept harness turns it on.
    */
   assertDescriptors?: boolean;
+  /**
+   * Phase 10 A6 — if set, must equal SCHEMA_SHA256 from the generated tip or create throws.
+   */
+  expectSchemaSha256?: string;
 };
 
 /** One `DomFrameApplier` + its own registry — either the live surface or an in-flight standby build. */
@@ -167,6 +175,13 @@ export class ProjectionClient {
   /** Consecutive apply-gate overflows — overflow→cold-resync can re-trigger itself. */
   private applyGateOverflowStreak = 0;
 
+  /**
+   * Phase 10 §4.1 — schema path: after desync/resync request, buffer ordinary Patches;
+   * discard those with sequence ≤ Patch.builtAt when the Resync-flagged Patch arrives.
+   */
+  private schemaResyncMode = false;
+  private schemaPatchBuffer: Array<{ sequence: number; deltas: Uint8Array }> = [];
+
   private constructor(opts: ProjectionClientOptions, surface: SurfaceHost) {
     this.surface = surface;
     this.onTelemetry = opts.onTelemetry;
@@ -191,10 +206,29 @@ export class ProjectionClient {
 
   /** Composition-root entry — surface iframe is born with standards srcdoc before use. */
   static async create(opts: ProjectionClientOptions): Promise<ProjectionClient> {
+    // Phase 10 A6 — schema hash must match the wire tip embedded in this package.
+    if (opts.expectSchemaSha256 != null && opts.expectSchemaSha256 !== SCHEMA_SHA256) {
+      throw new Error(
+        `schema_hash_mismatch expected=${opts.expectSchemaSha256} got=${SCHEMA_SHA256}`,
+      );
+    }
     const surface = await createSurfaceHost(opts.surfaceHost, {
       width: opts.width ?? 1280,
       height: opts.height ?? 720,
     });
+    return new ProjectionClient(opts, surface);
+  }
+
+  /**
+   * Harness entry — inject an already-built {@link SurfaceHost} (lab / Phase10 builtAt).
+   * Same class as production; does not skip ingest or builtAt logic.
+   */
+  static fromSurfaceHost(opts: ProjectionClientOptions, surface: SurfaceHost): ProjectionClient {
+    if (opts.expectSchemaSha256 != null && opts.expectSchemaSha256 !== SCHEMA_SHA256) {
+      throw new Error(
+        `schema_hash_mismatch expected=${opts.expectSchemaSha256} got=${SCHEMA_SHA256}`,
+      );
+    }
     return new ProjectionClient(opts, surface);
   }
 
@@ -503,17 +537,62 @@ export class ProjectionClient {
   }
 
   ingest(bytes: Uint8Array): void {
-    // Phase 9 — schema envelope (generated codec) carries ISA in Patch.deltas.
+    // Phase 9/10 — schema envelope (generated codec) carries ISA in Patch.deltas.
     if (isSchemaWire(bytes)) {
       const msg = decodeSchemaPatchMessage(bytes);
       if (!msg) {
         this.desync('schema_patch', { message: 'expected Patch envelope' });
         return;
       }
-      this.ingestIsa(msg.deltas);
+      this.ingestSchemaPatch(msg.patch);
       return;
     }
     this.ingestIsa(bytes);
+  }
+
+  /**
+   * Schema Patch path — uses generation/sequence/flags/builtAt (11 §4.1).
+   * Resync mode buffers ordinary patches; Resync-flagged patch discards ≤ builtAt then applies.
+   */
+  private ingestSchemaPatch(patch: {
+    generation: number;
+    sequence: number;
+    flags: number;
+    builtAt: number;
+    deltas: Uint8Array;
+  }): void {
+    const isResync = (patch.flags & SCHEMA_PATCH_FLAG_RESYNC) !== 0;
+
+    if (this.schemaResyncMode && !isResync) {
+      this.schemaPatchBuffer.push({
+        sequence: patch.sequence >>> 0,
+        deltas: patch.deltas.slice(),
+      });
+      return;
+    }
+
+    if (isResync) {
+      const builtAt = patch.builtAt >>> 0;
+      const ordered = orderAfterBuiltAt(this.schemaPatchBuffer, builtAt, patch.deltas);
+      this.schemaPatchBuffer = [];
+      this.schemaResyncMode = false;
+      for (const deltas of ordered) {
+        this.ingestIsa(deltas);
+      }
+      return;
+    }
+
+    this.ingestIsa(patch.deltas);
+  }
+
+  /** Enter §4.1 buffer mode (precondition failed / resync requested). */
+  enterSchemaResyncMode(): void {
+    this.schemaResyncMode = true;
+  }
+
+  /** Test/lab — current schema resync buffer depth. */
+  get schemaResyncBufferLength(): number {
+    return this.schemaPatchBuffer.length;
   }
 
   /** ISA frame-protocol bytes (legacy hub path and Patch.deltas). */
@@ -1038,6 +1117,7 @@ export class ProjectionClient {
         return;
       }
       this.resyncAttempts = attempt;
+      this.enterSchemaResyncMode();
       this.onTelemetry?.({
         v: TELEMETRY_WIRE_VERSION,
         contextId,

@@ -1,8 +1,19 @@
-/** Base da página projetada: URL relativa resolve no site, não no lab. Sem Gecko. */
-import {
-  constructedStyleSheetInit,
-  ensureProjectedDocumentBase,
-} from '../../../packages/page-projection/src/projected/projectedBlankIframe.ts';
+/** Base da página projetada: URL relativa resolve no site, não no lab. Sem Gecko.
+ * Requires SPECULUM_MONOREPO_ROOT (never parent-walk into packages/).
+ */
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const monorepo = process.env.SPECULUM_MONOREPO_ROOT;
+if (!monorepo) {
+  console.error('FAIL documentBase: SPECULUM_MONOREPO_ROOT required');
+  process.exit(1);
+}
+
+const projectedDir = join(monorepo, 'packages/page-projection/src/projected');
+const { constructedStyleSheetInit, ensureProjectedDocumentBase } = await import(
+  pathToFileURL(join(projectedDir, 'projectedBlankIframe.ts')).href,
+);
 
 function fail(msg: string): never {
   console.error('FALHOU:', msg);

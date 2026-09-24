@@ -39,6 +39,7 @@ class RecordingUplink final : public IPatchUplink {
   const std::vector<uint8_t>& lastPatch() const { return last_patch_; }
   const std::vector<uint8_t>& lastSnapshot() const { return last_snapshot_; }
   const std::vector<std::vector<uint8_t>>& patches() const { return patches_; }
+  const std::vector<uint32_t>& sequences() const { return sequences_; }
   const SnapshotHeader& lastHeader() const { return last_header_; }
 
   void clear() {

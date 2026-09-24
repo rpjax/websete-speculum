@@ -305,8 +305,9 @@ static void test_golden_files(const std::string& goldenDir) {
     auto bytes = readFile(path);
     // Empty payload messages may be empty files — still valid.
     if (std::strcmp(name, "Ready") == 0 || std::strcmp(name, "Shutdown") == 0) {
-      CHECK(bytes.empty() || true, "empty ok");
+      CHECK(bytes.empty(), "Ready/Shutdown golden may be empty");
       Ready r{};
+
       Reader rd(bytes);
       if (std::strcmp(name, "Ready") == 0) {
         CHECK(decode_Ready(rd, r), "golden Ready");

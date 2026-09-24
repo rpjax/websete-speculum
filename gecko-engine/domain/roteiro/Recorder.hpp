@@ -148,6 +148,25 @@ class RecordingPatchUplink final : public IPatchUplink {
 
   bool isDrained() const override { return inner_.isDrained(); }
 
+  void detachRecorder() { rec_ = nullptr; }
+
+  /// RAII: detach SpecRecorder so stack-local recorders cannot dangle past scope exit.
+  class DetachGuard {
+   public:
+    explicit DetachGuard(RecordingPatchUplink* uplink, SpecRecorder** recorderSlot = nullptr)
+        : uplink_(uplink), recorderSlot_(recorderSlot) {}
+    DetachGuard(const DetachGuard&) = delete;
+    DetachGuard& operator=(const DetachGuard&) = delete;
+    ~DetachGuard() {
+      if (uplink_) uplink_->detachRecorder();
+      if (recorderSlot_) *recorderSlot_ = nullptr;
+    }
+
+   private:
+    RecordingPatchUplink* uplink_;
+    SpecRecorder** recorderSlot_;
+  };
+
  private:
   IPatchUplink& inner_;
   SpecRecorder* rec_;

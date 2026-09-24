@@ -6,4 +6,8 @@
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\..\wire-clients\cs\SpeculumWire.gen.cs" Link="SpeculumWire.gen.cs" />
+  </ItemGroup>
+
 </Project>

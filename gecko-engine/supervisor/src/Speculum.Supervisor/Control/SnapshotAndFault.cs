@@ -1,59 +1,50 @@
+using Speculum.Wire;
+
 namespace Speculum.Supervisor.Control;
 
-/// <summary>Decode completo de SnapshotServed (dump incluído) para o consumidor.</summary>
+/// <summary>Decode schema Snapshotted for consumers.</summary>
 public readonly record struct SnapshotServedPayload(
     uint CorrelationId,
     uint Sequence,
     uint Generation,
-    uint ContextId,
+    uint Target,
     ulong TableHash,
     byte[] Dump)
 {
-    public static SnapshotServedPayload Decode(ReadOnlySpan<byte> payload)
+    public static SnapshotServedPayload Decode(ushort opcode, uint target, uint correlation, ReadOnlySpan<byte> payload)
     {
-        var reader = new ControlReader(payload);
-        if (reader.OpCode != ControlOpCode.SnapshotServed)
+        if (opcode != OpSnapshotted.Code)
         {
-            throw new InvalidDataException($"esperado SnapshotServed, veio {reader.OpCode}");
+            throw new InvalidDataException($"esperado Snapshotted, veio 0x{opcode:X4}");
         }
 
-        var sequence = reader.ReadUInt32();
-        var generation = reader.ReadUInt32();
-        var contextId = reader.ReadUInt32();
-        var tableHash = reader.ReadUInt64();
-        var dump = reader.ReadBytes();
+        var msg = Codecs.DecodeSnapshottedBytes(payload);
         return new SnapshotServedPayload(
-            reader.CorrelationId, sequence, generation, contextId, tableHash, dump);
+            correlation, msg.sequence, msg.generation, target, msg.digest, msg.dump);
     }
 }
 
-/// <summary>Fault ABI com errorCode|phase quando a causa usa esse formato.</summary>
+/// <summary>Typed Fault from schema — never string-split errorCode|phase.</summary>
 public readonly record struct FaultPayload(
     uint CorrelationId,
-    uint ContextId,
-    string Reason,
-    string ErrorCode,
-    string Phase)
+    FaultCode Code,
+    string Origin,
+    string Message,
+    FaultDatum[] Data)
 {
-    public static FaultPayload Decode(ReadOnlySpan<byte> payload)
+    public static FaultPayload Decode(ushort opcode, uint correlation, ReadOnlySpan<byte> payload)
     {
-        var reader = new ControlReader(payload);
-        if (reader.OpCode != ControlOpCode.Fault)
+        if (opcode != OpFault.Code)
         {
-            throw new InvalidDataException($"esperado Fault, veio {reader.OpCode}");
+            throw new InvalidDataException($"esperado Fault, veio 0x{opcode:X4}");
         }
 
-        var contextId = reader.ReadUInt32();
-        var reason = reader.ReadString();
-        var errorCode = reason;
-        var phase = "";
-        var sep = reason.IndexOf('|');
-        if (sep >= 0)
+        var fault = Codecs.DecodeFaultBytes(payload);
+        if (!FaultDispatcher.IsCatalogued(fault.code))
         {
-            errorCode = reason[..sep];
-            phase = reason[(sep + 1)..];
+            throw new InvalidDataException($"FaultCode {(ushort)fault.code} fora do catálogo");
         }
 
-        return new FaultPayload(reader.CorrelationId, contextId, reason, errorCode, phase);
+        return new FaultPayload(correlation, fault.code, fault.origin, fault.message, fault.data);
     }
 }

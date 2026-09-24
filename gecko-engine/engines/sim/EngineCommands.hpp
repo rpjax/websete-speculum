@@ -60,7 +60,12 @@ class EngineCommands final : public session::ISessionCommands,
       h->resize(Extent{m.extent.width, m.extent.height});
     }
   }
-  void onResync(const wire::Resync&) override {}
+  void onResync(const wire::Resync& m) override {
+    // Apply force from the wire — never choose policy here (A2).
+    auto force = m.force == wire::ResyncForce::FromMap ? producer::ResyncForce::FromMap
+                                                       : producer::ResyncForce::FromWalk;
+    (void)engine_.doResync(HostId{target_}, force);
+  }
   void onClocksHalt(const wire::ClocksHalt&) override {}
   void onClocksResume(const wire::ClocksResume&) override {}
   void onPromptRespond(const wire::PromptRespond&) override {}

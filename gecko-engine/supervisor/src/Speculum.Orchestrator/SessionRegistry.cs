@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Speculum.Supervisor.Control;
 using Speculum.Supervisor.Wire;
+using Speculum.Wire;
 
 namespace Speculum.Orchestrator;
 
@@ -393,34 +394,27 @@ public sealed class SessionPair : IDisposable
 
     private void ObserveLifecycle(byte[] frame)
     {
-        if (!Envelope.TryReadComplete(frame, EnvelopeKind.BrowserEvent, out _, out var eventLen))
+        if (frame.Length < SchemaEnvelope.HeaderBytes)
         {
             return;
         }
 
-        var body = frame.AsSpan(Envelope.HeaderBytes, eventLen);
-        ControlOpCode op;
         try
         {
-            op = new ControlReader(body).OpCode;
+            var (opcode, _, _, _) = SchemaEnvelope.ReadHeader(frame);
+            if (opcode == OpViewportOpened.Code)
+            {
+                _lastContextCreated = frame;
+                _ready = true;
+            }
+            else if (opcode == OpNavigated.Code || opcode == OpDocumentInstalled.Code)
+            {
+                _lastNavigated = frame;
+                _ready = true;
+            }
         }
         catch (InvalidDataException)
         {
-            return;
-        }
-
-        switch (op)
-        {
-            case ControlOpCode.ContextCreated:
-                _lastContextCreated = frame;
-                _ready = true;
-                break;
-            case ControlOpCode.Navigated:
-                _lastNavigated = frame;
-                _ready = true;
-                break;
-            case ControlOpCode.Ready:
-                break;
         }
     }
 
@@ -494,7 +488,7 @@ public sealed class SessionPair : IDisposable
             return;
         }
 
-        var command = ControlCommand.Resync(1, 0, 0);
+        var command = SchemaCommands.Resync(1, 0, ResyncForce.FromWalk);
         await socket.SendAsync(command, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken)
             .ConfigureAwait(false);
     }

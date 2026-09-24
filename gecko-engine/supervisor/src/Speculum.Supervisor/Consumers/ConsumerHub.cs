@@ -3,14 +3,12 @@ using System.Net.WebSockets;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Speculum.Supervisor.Wire;
+using Speculum.Wire;
 
 namespace Speculum.Supervisor.Consumers;
 
 /// <summary>
-/// Registro dos consumidores conectados e distribuição dos frames para eles.
-///
-/// O hub nunca interpreta o conteúdo do frame — recebe bytes e reenvia bytes.
-/// Roteamento, quando existir, usa o <c>contextId</c> do envelope.
+/// Consumer hub — broadcasts opaque schema envelopes. Never interprets Patch ISA.
 /// </summary>
 public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
 {
@@ -18,37 +16,21 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
 
     public int Count => _consumers.Count;
 
-    /// <summary>
-    /// Comando vindo de um consumidor, no mesmo ABI de controle do doc 18.
-    /// O supervisor é a interface: quem pede contexto e navegação é o consumidor.
-    /// </summary>
     public event Action<byte[]>? CommandReceived;
-
-    /// <summary>
-    /// Um consumidor acabou de atar. Cliente novo = Resync no mapa, não buffer de frame.
-    /// </summary>
     public event Action? ConsumerAttached;
-
-    /// <summary>Saiu o último consumidor. A sessão não tem pra quem entregar — morre.</summary>
     public event Action? LastConsumerLeft;
-
-    /// <summary>Ativo vindo do consumidor (Kind 0x06 no plano de consumo).</summary>
     public event Action<uint, byte[]>? AssetFromConsumer;
 
-    /// <summary>
-    /// Serve um consumidor até que ele desconecte. O <see cref="WebSocket"/> pertence
-    /// ao chamador (o pipeline do Kestrel) e é fechado por ele.
-    /// </summary>
     public async Task ServeAsync(WebSocket socket, CancellationToken cancellationToken)
     {
         var consumer = new ConsumerConnection(socket, payload =>
         {
-            // Envelope Asset completo — não o primeiro byte. HistoryGo é 0x0106 LE.
-            if (Envelope.TryReadComplete(payload, EnvelopeKind.Asset, out var contextId, out var length))
+            if (SchemaEnvelope.TryReadComplete(
+                    payload, OpAssetRequest.Code, out var target, out var length, out _))
             {
                 var body = new byte[length];
-                Buffer.BlockCopy(payload, Envelope.HeaderBytes, body, 0, length);
-                AssetFromConsumer?.Invoke(contextId, body);
+                Buffer.BlockCopy(payload, SchemaEnvelope.HeaderBytes, body, 0, length);
+                AssetFromConsumer?.Invoke(target, body);
                 return;
             }
 
@@ -64,7 +46,6 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
         }
         catch (OperationCanceledException)
         {
-            // encerramento normal
         }
         catch (WebSocketException ex)
         {
@@ -82,12 +63,7 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
         }
     }
 
-    /// <summary>
-    /// Enfileira um frame para todos os consumidores. Nunca bloqueia: consumidor
-    /// lento perde o frame mais antigo da própria fila, não segura os outros nem o
-    /// browser. Perda de frame é desync, e desync tem mecanismo próprio (resync).
-    /// </summary>
-    public void Broadcast(uint contextId, byte[] frame)
+    public void Broadcast(uint target, byte[] frame)
     {
         foreach (var consumer in _consumers.Values)
         {
@@ -95,30 +71,25 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
             {
                 Interlocked.Increment(ref _framesDropped);
                 logger.LogWarning(
-                    "consumidor {ConsumerId} descartou frame ctx={ContextId} drops={Drops}",
+                    "consumidor {ConsumerId} descartou frame target={Target} drops={Drops}",
                     consumer.Id,
-                    contextId,
+                    target,
                     FramesDropped);
             }
         }
     }
 
     public long FramesDropped => Interlocked.Read(ref _framesDropped);
-
     private long _framesDropped;
 
-    public void BroadcastEnvelope(EnvelopeKind kind, uint contextId, byte[] payload)
+    public void BroadcastSchema(ushort opcode, uint target, byte[] payload, uint correlation = 0)
     {
-        var message = new byte[Envelope.HeaderBytes + payload.Length];
-        Envelope.WriteHeader(message, kind, contextId, payload.Length);
-        Buffer.BlockCopy(payload, 0, message, Envelope.HeaderBytes, payload.Length);
-        Broadcast(contextId, message);
+        Broadcast(target, SchemaEnvelope.Pack(opcode, target, payload, correlation));
     }
 
     private sealed class ConsumerConnection(WebSocket socket, Action<byte[]> onCommand)
     {
         private const int QueueCapacity = 256;
-
         private readonly Channel<byte[]> _queue = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(QueueCapacity)
             {
@@ -135,69 +106,53 @@ public sealed class ConsumerHub(ILogger<ConsumerHub> logger)
 
         public async Task PumpAsync(CancellationToken cancellationToken)
         {
-            var drain = DrainIncomingAsync(cancellationToken);
-
-            await foreach (var frame in _queue.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
-            {
-                if (socket.State != WebSocketState.Open)
-                {
-                    break;
-                }
-
-                await socket
-                    .SendAsync(frame, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            await drain.ConfigureAwait(false);
+            var send = SendLoopAsync(cancellationToken);
+            var recv = RecvLoopAsync(cancellationToken);
+            await Task.WhenAny(send, recv).ConfigureAwait(false);
+            Complete();
+            await Task.WhenAll(IgnoreCancel(send), IgnoreCancel(recv)).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Lê comandos do consumidor. Mensagem binária é controle (doc 18);
-        /// qualquer outra coisa é ignorada.
-        /// </summary>
-        private async Task DrainIncomingAsync(CancellationToken cancellationToken)
+        private async Task SendLoopAsync(CancellationToken cancellationToken)
         {
-            var buffer = new byte[8 * 1024];
-            using var assembled = new MemoryStream();
+            await foreach (var frame in _queue.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await socket.SendAsync(frame, WebSocketMessageType.Binary, true, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
 
+        private async Task RecvLoopAsync(CancellationToken cancellationToken)
+        {
+            var buffer = new byte[64 * 1024];
+            while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
+            {
+                using var ms = new MemoryStream();
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await socket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        return;
+                    }
+
+                    ms.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
+                onCommand(ms.ToArray());
+            }
+        }
+
+        private static async Task IgnoreCancel(Task task)
+        {
             try
             {
-                while (socket.State == WebSocketState.Open)
-                {
-                    assembled.SetLength(0);
-
-                    WebSocketReceiveResult result;
-                    do
-                    {
-                        result = await socket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
-                        if (result.MessageType == WebSocketMessageType.Close)
-                        {
-                            Complete();
-                            return;
-                        }
-
-                        assembled.Write(buffer, 0, result.Count);
-                    }
-                    while (!result.EndOfMessage);
-
-                    if (result.MessageType == WebSocketMessageType.Binary && assembled.Length > 0)
-                    {
-                        onCommand(assembled.ToArray());
-                    }
-                }
+                await task.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
-                // encerramento normal
-            }
-            catch (WebSocketException)
-            {
-                // queda do consumidor — tratada por quem chamou
-            }
-            finally
-            {
-                Complete();
             }
         }
     }

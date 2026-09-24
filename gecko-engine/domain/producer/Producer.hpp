@@ -46,13 +46,22 @@ class Producer final : public IDocumentObserver {
   bool hasSheet(SheetRef s) const { return known_sheets_.count(s.value()) != 0; }
   size_t knownSheetCount() const { return known_sheets_.size(); }
 
+  // How many times doFlush resolved ISA `before` for an Insert sibling run.
+  // One resolve per run (not per child) — the O(N²) defect returned when this grows with batch size.
+  uint32_t beforeResolvesLastFlush() const { return before_resolves_last_flush_; }
+
   // oracle.postcondition — launch toggle; off by default.
   void enablePostcondition(bool v) { postcondition_ = v; }
   bool postconditionEnabled() const { return postcondition_; }
 
-  // Cold start / resync — same emit(prev=nullptr) path.
+  // Cold start — same emit(prev=nullptr) path. Force is fixed here (not recovery).
   Result<void> establish(NodeRef root) {
-    auto r = Resync::run(ResyncForce::FromWalk, view_, identity_, table_, root);
+    return resync(ResyncForce::FromWalk, root);
+  }
+
+  // Recovery path — force comes from the wire (Supervisor chooses; motor only applies).
+  Result<void> resync(ResyncForce force, NodeRef root) {
+    auto r = Resync::run(force, view_, identity_, table_, root);
     if (!r.ok()) return r;
     ledger_.discardPending();
     publishColdFromTable();
@@ -214,6 +223,7 @@ class Producer final : public IDocumentObserver {
   static void staticFlush(void* self) { static_cast<Producer*>(self)->doFlush(); }
 
   void doFlush() {
+    before_resolves_last_flush_ = 0;
     if (ledger_.empty() && table_.size() > 0 && !pending_establish_) {
       // Still may need to publish establish — handled below
     }
@@ -231,6 +241,8 @@ class Producer final : public IDocumentObserver {
         NodeId beforeId = run.before ? identity_.lookup(run.before, KeySpace::Node) : 0;
         // before in ISA = id of sibling currently at insert point (the node we insert before).
         // Our mark stores prevSibling handle; ISA before = next of prev = first of old or 0.
+        // One resolve per sibling run (not per child).
+        ++before_resolves_last_flush_;
         if (run.before) {
           auto* prevRow = table_.find(beforeId);
           beforeId = prevRow ? prevRow->nextSibling : 0;
@@ -405,6 +417,7 @@ class Producer final : public IDocumentObserver {
   std::vector<uint8_t> scratch_;
   bool pending_establish_{false};
   bool postcondition_{false};
+  uint32_t before_resolves_last_flush_{0};
   std::unordered_set<uint32_t> known_sheets_;
   std::unordered_set<uint32_t> known_rules_;
 };

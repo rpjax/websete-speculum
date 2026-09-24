@@ -165,7 +165,7 @@ static void test_a6_injected() {
   CHECK(v.field == "a:id", "A6 field");
   CHECK(v.causeSpan == 9, "A6 cause");
   CHECK(v.roteiroExcerpt.find("setAttr") != std::string::npos, "A6 excerpt");
-  CHECK(v.generation.value != 0 || true, "A6 gen");
+  CHECK(v.generation.value != 0, "A6 gen");
   lab.freezer.thawAll(tok.value());
 }
 

@@ -1,0 +1,14 @@
+{
+  "note": "Registered signal baseline for Phase 11 launch knobs + STR_DEF. Never a fail gate. Absolutes (us/op, ms) in reports are same-run signals only. Structural ratio gates stay in thresholds.json.",
+  "defaults": {
+    "kPatchClockIntervalMs": 16,
+    "kScratchCapacityBytes": 262144,
+    "kMaxConcurrentAssetStreams": 32
+  },
+  "interning": {
+    "decision": "ship_str_def",
+    "fixture": "tests/phase11/fixtures/markup-vocab.json",
+    "R_vocab_ship_min": 0.15,
+    "wireShipped": false
+  }
+}

@@ -11,12 +11,14 @@
 #include "domain/producer/DirtyLedger.hpp"
 #include "domain/producer/Emit.hpp"
 #include "domain/producer/Identity.hpp"
+#include "domain/producer/LaunchTuning.hpp"
 #include "domain/producer/LiveDescriptor.hpp"
 #include "domain/producer/PatchBuilder.hpp"
 #include "domain/producer/PatchClock.hpp"
 #include "domain/producer/Resync.hpp"
 #include "domain/producer/RowDescriptor.hpp"
 #include "domain/producer/RowHash.hpp"
+#include "domain/producer/SiblingScan.hpp"
 #include "domain/producer/Table.hpp"
 #include "domain/producer/Types.hpp"
 #include "ports/IClock.hpp"
@@ -30,11 +32,17 @@ namespace speculum::producer {
 class Producer final : public IDocumentObserver {
  public:
   Producer(DocumentId doc, const IDocumentView& view, IClock& clock, IPatchUplink& uplink,
-           Millis tick = 16)
+           Millis tick = Millis(kPatchClockIntervalMs))
       : doc_(doc),
         view_(view),
         uplink_(uplink),
-        clock_(clock, uplink, tick, &Producer::staticFlush, this) {}
+        clock_(clock, uplink, tick, &Producer::staticFlush, this) {
+    scratch_.reserve(kScratchCapacityBytes);
+  }
+
+  // Peak scratch size observed this producer (same-run signal for Fase 11).
+  std::size_t scratchPeakBytes() const { return scratch_peak_; }
+  std::size_t scratchCapacityBytes() const { return kScratchCapacityBytes; }
 
   Identity& identity() { return identity_; }
   ProducerTable& table() { return table_; }
@@ -46,9 +54,11 @@ class Producer final : public IDocumentObserver {
   bool hasSheet(SheetRef s) const { return known_sheets_.count(s.value()) != 0; }
   size_t knownSheetCount() const { return known_sheets_.size(); }
 
-  // How many times doFlush resolved ISA `before` for an Insert sibling run.
-  // One resolve per run (not per child) — the O(N²) defect returned when this grows with batch size.
-  uint32_t beforeResolvesLastFlush() const { return before_resolves_last_flush_; }
+  // Sibling-proportional walk meter (defect class). Mark vs flush windows.
+  // O(1) index/hint paths charge 0; any childAt loop must note(path, examined).
+  const SiblingScanMeter& siblingScanMark() const { return scan_mark_; }
+  const SiblingScanMeter& siblingScanFlush() const { return scan_flush_; }
+  void resetSiblingScanMark() { scan_mark_.reset(); }
 
   // oracle.postcondition — launch toggle; off by default.
   void enablePostcondition(bool v) { postcondition_ = v; }
@@ -122,6 +132,7 @@ class Producer final : public IDocumentObserver {
       if (!ordered.empty()) b.insert(parent, 0, ordered);
     }
     auto span = b.end();
+    noteScratch_(span.size());
     if (span.empty()) return;
     uplink_.publish(doc_, sequence_.next(), span);
   }
@@ -141,15 +152,12 @@ class Producer final : public IDocumentObserver {
       if (!ch.valid()) continue;
       ledger_.markChild(ph, ch.value(), ChildChange::Removed, 0);
     }
+    // Engine already gives insertion index — O(1) prev.
+    // Sibling *loops* must scan_mark_.note(OnChildList, examined). Index path charges 0.
     OpaqueRef prev = 0;
-    if (addCount > 0 && parent.valid()) {
-      uint32_t n = view_.childCount(parent);
-      for (uint32_t i = 0; i < n; ++i) {
-        if (view_.childAt(parent, i) == add[0]) {
-          if (i > 0) prev = view_.childAt(parent, i - 1).value();
-          break;
-        }
-      }
+    if (addCount > 0 && parent.valid() && index > 0) {
+      NodeRef before = view_.childAt(parent, index - 1);
+      if (before.valid()) prev = before.value();
     }
     for (uint32_t i = 0; i < addCount; ++i) {
       OpaqueRef ch = add[i].value();
@@ -223,7 +231,7 @@ class Producer final : public IDocumentObserver {
   static void staticFlush(void* self) { static_cast<Producer*>(self)->doFlush(); }
 
   void doFlush() {
-    before_resolves_last_flush_ = 0;
+    scan_flush_.reset();
     if (ledger_.empty() && table_.size() > 0 && !pending_establish_) {
       // Still may need to publish establish — handled below
     }
@@ -234,6 +242,13 @@ class Producer final : public IDocumentObserver {
 
     // Structural runs first (ISA order preference: NodeNew, then Insert, attrs, …)
     auto runs = ledger_.drainChildrenRuns();
+    {
+      size_t grow = 0;
+      for (const auto& run : runs) {
+        if (run.change == ChildChange::Inserted) grow += run.children.size();
+      }
+      if (grow) table_.reserve(table_.size() + grow);
+    }
     for (const auto& run : runs) {
       if (run.change == ChildChange::Inserted) {
         std::vector<NodeId> ids;
@@ -241,26 +256,18 @@ class Producer final : public IDocumentObserver {
         NodeId beforeId = run.before ? identity_.lookup(run.before, KeySpace::Node) : 0;
         // before in ISA = id of sibling currently at insert point (the node we insert before).
         // Our mark stores prevSibling handle; ISA before = next of prev = first of old or 0.
-        // One resolve per sibling run (not per child).
-        ++before_resolves_last_flush_;
+        // O(1) via table links / first_child_ — never a sibling walk.
         if (run.before) {
           auto* prevRow = table_.find(beforeId);
           beforeId = prevRow ? prevRow->nextSibling : 0;
         } else {
-          beforeId = 0;  // insert at start → before = old first; resolve from table
-          // Find first child of parent
-          for (const auto& [id, r] : table_.rows()) {
-            (void)id;
-            if (r.parent == parentId && r.prevSibling == 0) {
-              beforeId = r.id;
-              break;
-            }
-          }
+          beforeId = table_.firstChildOf(parentId);
         }
         NodeId prevId = run.before ? identity_.lookup(run.before, KeySpace::Node) : 0;
         for (auto ch : run.children) {
           NodeRef href{ch};
-          LiveDescriptor live(view_, identity_, href);
+          LiveDescriptor live(view_, identity_, href, &scan_flush_);
+          live.setPrevSiblingHint(prevId);
           if (!table_.has(live.id())) {
             DirtyMask mask = DirtyMask::create();
             auto chg = emit(nullptr, &live, mask);
@@ -288,40 +295,14 @@ class Producer final : public IDocumentObserver {
             }
           }
           ids.push_back(identity_.lookup(ch, KeySpace::Node));
-          // Update topology in table for insert
-          {
-            RowChange d;
-            d.op = RowOp::Diff;
-            d.id = identity_.lookup(ch, KeySpace::Node);
-            auto* row = table_.find(d.id);
-            if (row) {
-              d.kind = row->kind;
-              d.ns = row->ns;
-              d.name = row->name;
-              d.value = row->value;
-              d.parent = parentId;
-              d.prevSibling = prevId;
-              for (const auto& [n, v] : row->attrs) {
-                d.attrs.push_back({n, v, false, hashAttr(n, v)});
-              }
-              table_.apply({d});
-            }
-          }
           prevId = identity_.lookup(ch, KeySpace::Node);
         }
         // One INSERT, before once
         NodeId isaBefore = 0;
         if (!ids.empty()) {
-          auto* first = table_.find(ids.front());
-          if (first && first->nextSibling) {
-            // before = node that was after insert point — use next of last? 
-            // ISA: insert before `before`. After linking, first's nextSibling is the old neighbor.
-          }
-          // Recompute before from first child's next after link… Actually at mark time:
-          // before handle was prev; ISA before = sibling we insert before = old child that had that prev.
+          // Recompute before from first/last child's next after link.
           isaBefore = 0;
           if (run.before == 0) {
-            // inserted at beginning: before = whoever is now next of first
             auto* f = table_.find(ids.front());
             isaBefore = f ? f->nextSibling : 0;
           } else {
@@ -346,7 +327,10 @@ class Producer final : public IDocumentObserver {
     // Field marks
     ledger_.drainFields([&](OpaqueRef node, DirtyKind kind, std::string_view field) {
       NodeRef href{node};
-      LiveDescriptor live(view_, identity_, href);
+      LiveDescriptor live(view_, identity_, href, &scan_flush_);
+      if (auto* row = table_.find(live.id())) {
+        live.setPrevSiblingHint(row->prevSibling);
+      }
       RowDescriptor prev(table_.find(live.id()));
       DirtyMask mask;
       if (kind == DirtyKind::Attr) {
@@ -398,12 +382,21 @@ class Producer final : public IDocumentObserver {
       (void)kind;
     });
 
-    assert(table_.checkInvariants());
+    if (postcondition_) {
+      assert(table_.checkInvariants());
+    }
 
     auto span = b.end();
+    noteScratch_(span.size());
     if (span.empty()) return;
     uint32_t seq = sequence_.next();
     uplink_.publish(doc_, seq, span);
+  }
+
+  void noteScratch_(size_t n) {
+    if (n > scratch_peak_) scratch_peak_ = n;
+    // Fixed capacity — no second path / grow-forever. Exceed ⇒ hard fault (assert).
+    assert(n <= kScratchCapacityBytes && "producer scratch over capacity");
   }
 
   DocumentId doc_;
@@ -415,9 +408,11 @@ class Producer final : public IDocumentObserver {
   PatchSequence sequence_;
   PatchClock clock_;
   std::vector<uint8_t> scratch_;
+  size_t scratch_peak_{0};
+  SiblingScanMeter scan_mark_;
+  SiblingScanMeter scan_flush_;
   bool pending_establish_{false};
   bool postcondition_{false};
-  uint32_t before_resolves_last_flush_{0};
   std::unordered_set<uint32_t> known_sheets_;
   std::unordered_set<uint32_t> known_rules_;
 };

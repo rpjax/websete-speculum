@@ -43,6 +43,9 @@ node tests/phase9/lab-schema-ingest.mjs
 echo "=== ci:all — Phase 10 supervisor / client / hash ==="
 bash scripts/ci/run-phase10.sh
 
+echo "=== ci:all — Phase 11 ratio gates (same-run) ==="
+bash scripts/ci/run-phase11.sh
+
 echo "=== ci:all — mach gtest Phase 7 / 8 / 9 (name-set checked) ==="
 bash scripts/ci/run-speculum-gtest.sh SpeculumPhase7
 bash scripts/ci/run-speculum-gtest.sh SpeculumPhase8

@@ -1,0 +1,26 @@
+{
+  "description": "Realistic page markup vocabulary for STR_DEF decision (across-frame static share). Not counters. Drawn from a typical storefront/news shell: chrome + content tags, attrs, and class tokens that repeat every frame.",
+  "source": "fase11 — frame-protocol.md 2026-08-13 (markup vocabulary fixture)",
+  "frames": 48,
+  "repsPerFrame": 96,
+  "tags": [
+    "html", "head", "body", "div", "span", "a", "nav", "ul", "ol", "li",
+    "button", "input", "img", "section", "article", "header", "footer",
+    "main", "h1", "h2", "h3", "p", "form", "label", "select", "option",
+    "script", "style", "meta", "link", "table", "tr", "td", "th", "aside"
+  ],
+  "attrs": [
+    "class", "id", "href", "src", "type", "name", "role", "alt", "title",
+    "rel", "method", "action", "placeholder", "aria-label", "aria-hidden",
+    "data-testid", "data-sku", "data-track", "for", "value", "disabled"
+  ],
+  "values": [
+    "container", "nav-item", "nav-link", "active", "btn", "btn-primary",
+    "btn-secondary", "card", "card-title", "product-grid", "product-card",
+    "product-title", "price", "price-sale", "badge", "hero", "breadcrumb",
+    "site-header", "site-footer", "search-input", "add-to-cart",
+    "newsletter", "social-link", "logo", "menu-toggle", "sr-only",
+    "/products", "/cart", "/account", "/search", "submit", "text",
+    "email", "password", "checkbox", "true", "false", "navigation"
+  ]
+}

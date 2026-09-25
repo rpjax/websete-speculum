@@ -180,6 +180,8 @@ inline const char* kRequiredSpecs[] = {
     "adversaria/host-born-die-same-interval.spec",
     "adversaria/nav-under-load-pending-dirt.spec",
     "adversaria/nested-shadow.spec",
+    "adversaria/onchildlist-sibling-scan.spec",
+    "adversaria/live-prevsibling-scan.spec",
 };
 
 // Returns fail count. exclusionsPath may be empty → no exclusions allowed.

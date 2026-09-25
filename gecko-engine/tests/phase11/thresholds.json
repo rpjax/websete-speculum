@@ -1,0 +1,8 @@
+{
+  "R_flat_max": 2.0,
+  "R_table_max": 1.5,
+  "R_scratch_max": 8.0,
+  "R_vocab_ship_min": 0.15,
+  "declaredBeforeMeasure": true,
+  "note": "Ratios only. Absolutes in the report are same-run signals, not production SLOs."
+}

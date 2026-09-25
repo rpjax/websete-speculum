@@ -1,0 +1,23 @@
+{
+  "hostLabel": "local",
+  "commit": "3259dda8",
+  "command": "phase11_tests",
+  "usPerOp": {"K100": 0.59337, "K400": 0.560625, "K1600": 0.519556},
+  "ratios": {
+    "R_flat": {"value": 0.875602, "max": 2, "pass": true},
+    "R_table": {"value": 1.04017, "max": 1.5, "pass": true},
+    "R_scratch": {"value": 1.52728, "max": 8, "pass": true}
+  },
+  "scratchPeak": 4171,
+  "scratchMedian": 2731,
+  "scratchCapacity": 262144,
+  "streams": {"maxConcurrent": 32, "formatPass": true},
+  "interning": {"R_vocab": 0.366754, "shipMin": 0.15, "decision": "ship_str_def", "fixture": "markup-vocab", "wireShipped": false},
+  "defaults": {
+    "kPatchClockIntervalMs": 16,
+    "kScratchCapacityBytes": 262144,
+    "kMaxConcurrentAssetStreams": 32,
+    "provisional": true,
+    "reafinWhen": "host-alvo"
+  }
+}

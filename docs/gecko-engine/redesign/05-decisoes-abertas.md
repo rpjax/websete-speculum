@@ -23,13 +23,21 @@
 
 ## Afinação — números, não desenho
 
-Precisam de valor medido antes do primeiro release, não antes do primeiro header:
+Parâmetros de lançamento com justificativa escrita (Fase 11 — medição local para achar
+gargalo, não certificação de performance). Ver [fase11-afinacao.md](fase11-afinacao.md) e
+`tests/phase11/reports/`.
 
-- cadência do `FrameClock`;
-- teto de streams de ativo simultâneos;
-- tamanho do `scratch` de montagem de frame.
+| knob | valor | onde |
+|------|-------|------|
+| cadência `PatchClock` | `16` ms | `domain/producer/LaunchTuning.hpp` |
+| teto streams de ativo | `32` concurrent | `domain/assets/Streams.hpp` |
+| scratch de montagem | `256 KiB` | `domain/producer/LaunchTuning.hpp` |
 
 Todos são **parâmetro de lançamento**, nunca variável de ambiente que muda comportamento.
+
+Interning `STR_DEF` (across frames): **`ship_str_def`** — fixture
+`tests/phase11/fixtures/markup-vocab.json`, `R_vocab` ≥ limiar declarado. Fio ainda não
+ligado. Sinal+baseline em `tests/phase11/baseline.json` (nunca reprovação).
 
 ## O que ainda pode virar decisão
 

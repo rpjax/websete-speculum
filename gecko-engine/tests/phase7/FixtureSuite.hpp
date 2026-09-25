@@ -57,6 +57,8 @@ inline constexpr const char* kExpectedLabScenarios[] = {
     "estresse/batch-insert",
     "adversaria/prepend-stress",
     "adversaria/insert-before-remove",
+    "adversaria/onchildlist-sibling-scan",
+    "adversaria/live-prevsibling-scan",
     "lab/oracle-injected",
 };
 
@@ -329,6 +331,7 @@ inline void test_estresse_flat(SuiteReport& rep, typename Traits::Engine& engTem
     auto* doc = Traits::documentOf(lab.eng, root);
     auto* prod = lab.eng.producerOf(doc->id());
     NodeRef r = doc->view().root();
+    prod->resetSiblingScanMark();
     auto a0 = std::chrono::steady_clock::now();
     for (int i = 0; i < K; ++i) doc->appendElement(r, "div");
     prod->flush();
@@ -341,8 +344,14 @@ inline void test_estresse_flat(SuiteReport& rep, typename Traits::Engine& engTem
     P7_CHECK(rep,
              PatchBuilder::countOp(lab.uplink.lastPatch(), IsaOp::Insert) == 1,
              "A6 one INSERT per sibling run");
-    P7_CHECK(rep, prod->beforeResolvesLastFlush() == 1,
-             "A6 one before-resolve per sibling run");
+    // Sibling-proportional walks (any path): must stay charged 0 with O(1) index/hint.
+    P7_CHECK(rep, prod->siblingScanMark().steps(SiblingScanPath::OnChildList) == 0,
+             "A6 OnChildList sibling-walk steps == 0");
+    P7_CHECK(rep, prod->siblingScanFlush().steps(SiblingScanPath::LivePrevSibling) == 0,
+             "A6 LivePrevSibling sibling-walk steps == 0");
+    P7_CHECK(rep, prod->siblingScanMark().totalSteps() == 0 &&
+                       prod->siblingScanFlush().totalSteps() == 0,
+             "A6 no sibling-proportional walks in batch flush");
   }
   std::printf("COST us/op K100=%.3f K400=%.3f K1600=%.3f (signal only)\n", usPerOp[0],
               usPerOp[1], usPerOp[2]);
@@ -396,6 +405,51 @@ inline void test_adv_insert_before_remove(FixtureLab<Traits>& lab) {
   reportProgress(lab.rep, "adversaria", "insert-before-remove", std::chrono::duration<double, std::milli>(t1 - t0).count());
 }
 
+
+template <typename Traits>
+inline void test_adv_onchildlist_sibling_scan(FixtureLab<Traits>& lab) {
+  auto t0 = std::chrono::steady_clock::now();
+  HostId root = lab.openNav();
+  auto* doc = Traits::documentOf(lab.eng, root);
+  auto* prod = lab.eng.producerOf(doc->id());
+  NodeRef r = doc->view().root();
+  const int K = 80;
+  prod->resetSiblingScanMark();
+  for (int i = 0; i < K; ++i) doc->appendElement(r, "div");
+  P7_CHECK(lab.rep, prod->siblingScanMark().steps(SiblingScanPath::OnChildList) == 0,
+           "OnChildList walk == 0");
+  P7_CHECK(lab.rep, prod->siblingScanMark().totalSteps() == 0, "mark total sibling walks == 0");
+  prod->flush();
+  P7_CHECK(lab.rep, prod->siblingScanFlush().totalSteps() == 0, "flush sibling walks == 0");
+  P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
+  auto t1 = std::chrono::steady_clock::now();
+  reportProgress(lab.rep, "adversaria", "onchildlist-sibling-scan",
+                 std::chrono::duration<double, std::milli>(t1 - t0).count());
+}
+
+template <typename Traits>
+inline void test_adv_live_prevsibling_scan(FixtureLab<Traits>& lab) {
+  auto t0 = std::chrono::steady_clock::now();
+  HostId root = lab.openNav();
+  auto* doc = Traits::documentOf(lab.eng, root);
+  auto* prod = lab.eng.producerOf(doc->id());
+  NodeRef r = doc->view().root();
+  const int K = 60;
+  std::vector<NodeRef> nodes;
+  for (int i = 0; i < K; ++i) nodes.push_back(doc->appendElement(r, "span"));
+  prod->flush();
+  prod->resetSiblingScanMark();
+  for (auto n : nodes) doc->setAttr(n, "class", "x");
+  prod->flush();
+  P7_CHECK(lab.rep, prod->siblingScanFlush().steps(SiblingScanPath::LivePrevSibling) == 0,
+           "LivePrevSibling walk == 0");
+  P7_CHECK(lab.rep, prod->siblingScanFlush().totalSteps() == 0, "flush total sibling walks == 0");
+  P7_CHECK(lab.rep, lab.oracleOk(), "oracle");
+  auto t1 = std::chrono::steady_clock::now();
+  reportProgress(lab.rep, "adversaria", "live-prevsibling-scan",
+                 std::chrono::duration<double, std::milli>(t1 - t0).count());
+}
+
 template <typename Traits>
 inline void test_a5_oracle_points(FixtureLab<Traits>& lab) {
   HostId root = lab.openNav();
@@ -444,6 +498,8 @@ inline void test_fixture_files(SuiteReport& rep, const fs::path& fixtureRoot,
       "adversaria/host-born-die-same-interval.spec",
       "adversaria/nav-under-load-pending-dirt.spec",
       "adversaria/nested-shadow.spec",
+      "adversaria/onchildlist-sibling-scan.spec",
+      "adversaria/live-prevsibling-scan.spec",
   };
   for (auto rel : required) {
     auto p = fixtureRoot / rel;
@@ -547,10 +603,24 @@ inline int runFixtureSuite(const fs::path& fixtureRoot,
     typename Traits::Freezer freezer(eng);
     typename Traits::Capture capture(eng, freezer);
     FixtureLab<Traits> lab(eng, freezer, capture, rep);
+    test_adv_onchildlist_sibling_scan(lab);
+  }
+  {
+    typename Traits::Engine eng;
+    typename Traits::Freezer freezer(eng);
+    typename Traits::Capture capture(eng, freezer);
+    FixtureLab<Traits> lab(eng, freezer, capture, rep);
+    test_adv_live_prevsibling_scan(lab);
+  }
+  {
+    typename Traits::Engine eng;
+    typename Traits::Freezer freezer(eng);
+    typename Traits::Capture capture(eng, freezer);
+    FixtureLab<Traits> lab(eng, freezer, capture, rep);
     test_a5_oracle_points(lab);
   }
 
-  constexpr int expectedFixtureReplays = 13;
+  constexpr int expectedFixtureReplays = 15;
   constexpr int expectedLab =
       static_cast<int>(sizeof(kExpectedLabScenarios) /
                        sizeof(kExpectedLabScenarios[0]));

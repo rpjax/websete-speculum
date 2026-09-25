@@ -370,28 +370,65 @@ em paralelo.
 
 ---
 
-## FASE 11 — Medição e afinação em hardware alvo
+## FASE 11 — Medição local para achar gargalo
 
-**Objetivo:** trocar os números chutados por números medidos.
+**Objetivo:** ter um jeito **local** de medir e achar gargalo crítico durante o
+desenvolvimento (ex.: os dois O(N) em `onChildList` / `prevSibling`). Performance **não**
+é condição de aceite deste projeto — esta fase não certifica SLO nem hardware alvo.
 
-**Ler:** [05](05-decisoes-abertas.md) · `docs/page-projection/spec/budgets.md` · log de decisão do `frame-protocol.md`
+**Ler:** [05](05-decisoes-abertas.md) · [fase11-afinacao.md](fase11-afinacao.md) ·
+`docs/page-projection/spec/budgets.md` · log de decisão do `frame-protocol.md`
 
-**Entregar:** os três números de afinação · decisão sobre interning de string · orçamentos
-medidos · relatório reprodutível.
+**Entregar:** os três defaults com justificativa escrita · decisão sobre interning ·
+relatório reexecutável · portão de **invariantes estruturais** no `ci:all` · sinal+baseline
+dos knobs/STR_DEF (nunca reprovação).
 
 **Aceite:**
-- Cadência do `PatchClock`, teto de streams e tamanho do scratch: **valor medido, com o número
-  e o método no doc**. Palpite é reprovação.
-- Interning de string decidido **com** o fixture de vocabulário de marcação realista que o log
-  de decisão pede. Sem esse fixture, a decisão não é tomada.
-- Medição em **hardware alvo**, nunca laptop de dev — é regra do próprio repositório.
-- Sondagem em site real (estático, notícias, e-commerce, SPA): custo do produtor acompanha
-  **volume de mutação**, não tamanho de tabela. Se acompanhar tamanho, há defeito de algoritmo.
-- Custo por op plano com o tamanho do lote, reconfirmado no motor real.
-- Relatório versionado, reexecutável, não um número num commit message.
+- Cadência do `PatchClock`, teto de streams e tamanho do scratch: **default** com método
+  escrito em [fase11-afinacao.md](fase11-afinacao.md). Justificativa na mesa; ponto. Palpite
+  sem corrida é reprovação.
+- **Portão no `ci:all` = invariantes estruturais** (correção de algoritmo; independem de
+  máquina; não são limiar de performance): `SiblingScanMeter` (varreduras ∝ irmãos por
+  caminho), ausência de varredura de irmãos nos caminhos corrigidos, custo por op **plano**
+  com o tamanho do lote (`R_flat`), e custo que acompanha **volume de mutação** e não
+  tamanho de tabela (`R_table`). Limiar declarado **antes** de medir; número fora do limiar
+  é **achado**, não motivo para mexer no limiar. Ver `tests/phase11/thresholds.json`.
+- Os três knobs + decisão STR_DEF entram no `ci:all` como **sinal registrado**
+  (`tests/phase11/baseline.json` + `assert-phase11-signal.sh`) — **nunca como reprovação**.
+  Absolutos (ms, µs) no relatório são sinal da corrida local.
+- Interning de string decidido **com** o fixture de vocabulário de marcação realista
+  (`tests/phase11/fixtures/markup-vocab.json`). Sem esse fixture, a decisão não é tomada.
+  Ship só se `R_vocab` ≥ limiar declarado.
+- Medição nesta fase: **máquina local** (w7s / gecko-binary) — ferramenta de desenvolvimento.
+- Relatório versionado sob `tests/phase11/reports/`, reexecutável via `run-phase11.sh`.
 
-**Proibido:** escolher número por conveniência; medir só com fixture sintético; declarar
-orçamento sem o método junto.
+**Proibido:** escolher número por conveniência; declarar orçamento sem o método junto;
+tratar performance/absolutos como aceite de produto; amolecer limiar estrutural porque a
+corrida falhou; transformar o baseline de sinal em portão.
+
+### Entregue (Fase 11)
+
+| knob | valor | método |
+|------|-------|--------|
+| `kPatchClockIntervalMs` | **16** | menor intervalo com `R_flat` verde + coalescência 1 patch/intervalo |
+| `kScratchCapacityBytes` | **262144** (256 KiB) | teto ≥ pico same-run (~4 KiB) + margem; assert se estourar |
+| `kMaxConcurrentAssetStreams` | **32** | menor N que passa 5 streams / 2 docs / kill + reject limpo |
+
+Constantes: `domain/producer/LaunchTuning.hpp`, `domain/assets/Streams.hpp`.
+Baseline de sinal: `tests/phase11/baseline.json` (não reprova o `ci:all`).
+
+**STR_DEF:** fixture `tests/phase11/fixtures/markup-vocab.json` (tags/attrs/classes de
+chrome+conteúdo de loja/notícias, across frames). `R_vocab` ≥ `0.15` → **`ship_str_def`**
+(vale o fio; **não** ligado nesta fase — `wireShipped: false`). Se `R_vocab` < limiar, a
+decisão seria `defer` e o limiar permanece.
+
+**Pré-condição Fase 12 (estado em 2026-09-24, sem tocar):** `w7s gecko status` reporta
+`sidecar-package` **missing** (no repo stamp). `w7s gecko make sidecar-package --dry-run`
+falha na declaração: modification `speculum install points` tem
+`replacesGeckoSource: true` mas `dom/base/test/gtest/moz.build` não existe na árvore
+pristine. Também: toolchain missing, gecko-binary missing, gecko-source behind, Docker
+daemon indisponível neste status. **Não inventar pacote nesta fase** — consertar na 12
+(ou no w7s) antes do corte de produção.
 
 ---
 
@@ -427,7 +464,8 @@ verde e caminho real morto; amolecer a suíte anti-bot.
 
 ## 3. Definição de pronto do programa
 
-As doze fases só terminam quando **todas** estas forem verdade ao mesmo tempo:
+As doze fases só terminam quando **todas** estas forem verdade ao mesmo tempo.
+Performance / afinação em host alvo **não** entram — não são aceite deste projeto.
 
 | # | condição |
 |---|---|
@@ -436,11 +474,10 @@ As doze fases só terminam quando **todas** estas forem verdade ao mesmo tempo:
 | 3 | Suíte de fixtures verde com todas as capacidades de oráculo ligadas |
 | 4 | Mesmo roteiro ⇒ mesmos bytes em `sim` e `gecko` |
 | 5 | Instrumentação desligada custa **zero**, provado |
-| 6 | Números de afinação medidos em hardware alvo, método publicado |
-| 7 | Stealth no mesmo patamar de antes |
-| 8 | Build reprodutível via w7s, implantação via dockup, CI verde |
-| 9 | Nenhum caminho de lab alcançável em produção |
-| 10 | Zero código ad-hoc, zero contorno, zero assert amolecido |
+| 6 | Stealth no mesmo patamar de antes |
+| 7 | Build reprodutível via w7s, implantação via dockup, CI verde |
+| 8 | Nenhum caminho de lab alcançável em produção |
+| 9 | Zero código ad-hoc, zero contorno, zero assert amolecido |
 
 Faltando **uma**, o programa não está pronto — e a primeira frase do relatório diz
 **incompleto**.

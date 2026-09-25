@@ -42,6 +42,11 @@ class ProducerTable {
     return it == last_child_.end() ? 0 : it->second;
   }
 
+  NodeId firstChildOf(NodeId parent) const {
+    auto it = first_child_.find(parent);
+    return it == first_child_.end() ? 0 : it->second;
+  }
+
   NodeId nextSiblingOf(NodeId id) const {
     const auto* r = find(id);
     return r ? r->nextSibling : 0;
@@ -50,7 +55,14 @@ class ProducerTable {
   void clear() {
     rows_.clear();
     last_child_.clear();
+    first_child_.clear();
     table_hash_ = 0;
+  }
+
+  void reserve(size_t n) {
+    rows_.reserve(n);
+    last_child_.reserve(n);
+    first_child_.reserve(n);
   }
 
   uint64_t tableHash() const { return table_hash_; }
@@ -164,6 +176,10 @@ class ProducerTable {
         auto it = last_child_.find(r.parent);
         if (it == last_child_.end() || it->second != r.id) return false;
       }
+      if (r.parent != 0 && r.prevSibling == 0) {
+        auto it = first_child_.find(r.parent);
+        if (it == first_child_.end() || it->second != r.id) return false;
+      }
       auto expected = computeRowHash(r.id, static_cast<uint32_t>(r.kind), r.parent,
                                      r.prevSibling, r.contentHash);
       if (expected != r.rowHash) return false;
@@ -206,6 +222,12 @@ class ProducerTable {
       else
         last_child_.erase(r.parent);
     }
+    if (r.parent && first_child_[r.parent] == r.id) {
+      if (r.nextSibling)
+        first_child_[r.parent] = r.nextSibling;
+      else
+        first_child_.erase(r.parent);
+    }
     r.nextSibling = 0;
   }
 
@@ -227,22 +249,24 @@ class ProducerTable {
       }
     }
     if (!r.prevSibling && r.parent) {
-      for (auto& [id, o] : rows_) {
-        (void)id;
-        if (o.id == r.id) continue;
-        if (o.parent == r.parent && o.prevSibling == 0) {
-          r.nextSibling = o.id;
-          o.prevSibling = r.id;
-          rehash(o);
-          break;
+      // O(1) via first_child_ — never scan the whole table.
+      NodeId oldFirst = firstChildOf(r.parent);
+      r.nextSibling = oldFirst;
+      if (oldFirst) {
+        if (auto* next = find(oldFirst)) {
+          next->prevSibling = r.id;
+          rehash(*next);
         }
       }
+      first_child_[r.parent] = r.id;
     }
     if (r.parent && r.nextSibling == 0) last_child_[r.parent] = r.id;
+    if (r.parent && r.prevSibling == 0) first_child_[r.parent] = r.id;
   }
 
   std::unordered_map<NodeId, TableRow> rows_;
   std::unordered_map<NodeId, NodeId> last_child_;
+  std::unordered_map<NodeId, NodeId> first_child_;
   uint64_t table_hash_{0};
 };
 
